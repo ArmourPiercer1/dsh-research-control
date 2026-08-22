@@ -262,7 +262,9 @@ describe('WP-0.3 ping RPC spike', () => {
     // Markers attach in class initializers, so a live instance is required;
     // the double covers the Service constructor wiring only.
     const svc = new ResearchControlService(minimalCtx(), {})
-    expect(remoteMethods(svc)).toEqual([{ method: 'ping', invocation: { kind: 'direct' } }])
+    const methods = remoteMethods(svc)
+    expect(methods[0]).toEqual({ method: 'ping', invocation: { kind: 'direct' } })
+    expect(methods).toHaveLength(14)
     // Same key as the wire namespace (DSH_ADAPTER §5 step 1).
     expect(svc.typertRemote.serviceKey).toBe('researchControl')
     expect(svc.typertRemote.namespace).toBe('researchControl')
@@ -365,7 +367,9 @@ describe('WP-0.3 ping RPC spike', () => {
   })
 
   it('③ client descriptors and manifest invocations are the same strict contract', () => {
-    expect(researchRemotes.descriptors).toHaveLength(1)
+    // WP-4.1a: the contribution grew to ping + 13 RPC descriptors; the
+    // exhaustive 14-descriptor equality is pinned in tests/rpc-face/.
+    expect(researchRemotes.descriptors).toHaveLength(14)
     // Both faces re-export the shared descriptor object — no drift by construction.
     expect(researchRemotes.descriptors[0]).toBe(pingInvocation)
     expect(TYPERT.invocations[0]).toBe(pingInvocation)

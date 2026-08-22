@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "DSH Research Control Plane V1 plugin (WP-0.1 scaffold, no business logic)",
+  "description": "DSH Research Control Plane V1 plugin (WP-0.2 host mount skeleton, no business logic)",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -18,7 +18,14 @@
     "test": "vitest run",
     "lint": "node scripts/check-imports.mjs"
   },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.1.0-rc.8 <0.2.0"
+  },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.8",
+    "@deepseek-ai/schemastery": "3.18.1",
     "@types/node": "^26.2.0",
     "tsdown": "^0.22.14",
     "typescript": "^7.0.2",

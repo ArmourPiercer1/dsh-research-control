@@ -88,6 +88,32 @@ describe('(e) RR-013: the REPLACE-class statement gate (detector)', () => {
     expect(classifyForbiddenWrite(`REPLACE INTO main.history_event ${EV} VALUES ${ROW}`)).not.toBeNull()
   })
 
+  it('G3 r1 R2: quoted schema prefixes (double-quote / backtick, any case) are the forbidden class too', () => {
+    // The bypass class from G3 r1 (integrator R2): the old EVENT_TABLE
+    // pattern only accepted an UNQUOTED schema prefix, so these forms
+    // returned null and slipped past the statement gate:
+    expect(classifyForbiddenWrite(`REPLACE INTO "main".history_event ${EV} VALUES ${ROW}`), 'dq-schema').not.toBeNull()
+    expect(classifyForbiddenWrite(`REPLACE INTO "main"."history_event" ${EV} VALUES ${ROW}`), 'dq-both').not.toBeNull()
+    expect(classifyForbiddenWrite(`REPLACE INTO \`main\`.\`history_event\` ${EV} VALUES ${ROW}`), 'bt-both').not.toBeNull()
+    expect(classifyForbiddenWrite(`REPLACE INTO "main".\`history_event\` ${EV} VALUES ${ROW}`), 'dq-bt-mixed').not.toBeNull()
+    expect(classifyForbiddenWrite(`REPLACE INTO \`main\`."history_event" ${EV} VALUES ${ROW}`), 'bt-dq-mixed').not.toBeNull()
+    // Whitespace around the `.` is structural in SQLite (token grammar):
+    expect(classifyForbiddenWrite(`REPLACE INTO "main" . history_event ${EV} VALUES ${ROW}`), 'dq-space-dot').not.toBeNull()
+    // The other two REPLACE forms carry the same prefix hole:
+    expect(classifyForbiddenWrite(`INSERT OR REPLACE INTO "main".history_event ${EV} VALUES ${ROW}`), 'or-replace-dq').not.toBeNull()
+    expect(
+      classifyForbiddenWrite(`INSERT INTO "main".history_event ${EV} VALUES ${ROW} ON CONFLICT (event_id) DO UPDATE SET payload = REPLACE(excluded.payload, 'a', 'b')`),
+      'on-conflict-dq',
+    ).not.toBeNull()
+    // Case-insensitive identifiers (the scan upper-cases; quoted content
+    // upper-cases with the statement):
+    expect(classifyForbiddenWrite(`replace into "main".history_event ${EV} values ${ROW}`), 'lower-case').not.toBeNull()
+    expect(classifyForbiddenWrite(`REPLACE INTO "main"."History_Event" ${EV} VALUES ${ROW}`), 'mixed-case-quoted').not.toBeNull()
+    // A lookalike table name is NOT history_event — no false positive:
+    expect(classifyForbiddenWrite(`REPLACE INTO "main".history_eventx ${EV} VALUES ${ROW}`)).toBeNull()
+    expect(classifyForbiddenWrite(`REPLACE INTO history_event2 ${EV} VALUES ${ROW}`)).toBeNull()
+  })
+
   it('NEVER rejects non-REPLACE statements — even when the DATA says so (the string-literal mask)', () => {
     // A legitimate INSERT whose PAYLOAD merely contains the words
     // "OR REPLACE" / "REPLACE INTO" (event payloads are arbitrary JSON):
@@ -152,6 +178,38 @@ describe('(e) RR-013: the INSTALLED guard on a real connection', () => {
       }
       // The table is EMPTY (nothing got through the gate):
       expect((db.prepare('SELECT COUNT(*) AS n FROM history_event').get() as { n: number }).n).toBe(0)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('G3 r1 R2: the installed gate refuses the quoted-prefix forms on a real connection; the row is untouched', () => {
+    const dataDir = makeTempDir('wp37-guard-')
+    const seed = new DatabaseSync(join(dataDir, 'research.sqlite'))
+    seed.exec(HISTORY_EVENT_DDL)
+    seed.close()
+
+    const db = guardedDb(dataDir)
+    try {
+      for (const sql of [
+        `REPLACE INTO "main".history_event ${EV} VALUES ${ROW}`,
+        `REPLACE INTO "main"."history_event" ${EV} VALUES ${ROW}`,
+        `REPLACE INTO \`main\`.\`history_event\` ${EV} VALUES ${ROW}`,
+        `INSERT OR REPLACE INTO "main".history_event ${EV} VALUES ${ROW}`,
+      ]) {
+        expect(() => db.exec(sql), sql).toThrow(StoreForbiddenSqlError)
+        expect(() => db.prepare(sql).get(), sql).toThrow(StoreForbiddenSqlError)
+      }
+      // Nothing got through the gate:
+      expect((db.prepare('SELECT COUNT(*) AS n FROM history_event').get() as { n: number }).n).toBe(0)
+      // Normal (non-REPLACE) statements with quoted schema prefixes are
+      // NOT the forbidden class (detector level — runtime independent):
+      expect(classifyForbiddenWrite(`INSERT INTO "main".history_event ${EV} VALUES ${ROW}`)).toBeNull()
+      expect(classifyForbiddenWrite(`UPDATE "main".history_event SET payload = 'x' WHERE event_id = 'H-G1'`)).toBeNull()
+      expect(classifyForbiddenWrite(`SELECT * FROM "main".history_event`)).toBeNull()
+      // …and the legitimate quoted INSERT reaches the driver and lands:
+      db.exec(`INSERT INTO "main".history_event ${EV} VALUES ${ROW}`)
+      expect((db.prepare('SELECT COUNT(*) AS n FROM history_event').get() as { n: number }).n).toBe(1)
     } finally {
       db.close()
     }

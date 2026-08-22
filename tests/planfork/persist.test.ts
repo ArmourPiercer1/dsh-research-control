@@ -42,6 +42,10 @@ describe('DDL on the real file (DatabaseSync 封装模式)', () => {
     const triggers = qAll(h.rawDb, `SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'plan_fork'`).map((r) => String(r.name))
     expect(triggers).toContain('plan_fork_no_delete')
     expect(triggers).toContain('plan_fork_no_content_update')
+    // management_action: 双触发器形态对齐 plan_fork (G3 R1 加固)
+    const maTriggers = qAll(h.rawDb, `SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'management_action'`).map((r) => String(r.name))
+    expect(maTriggers).toContain('management_action_no_delete')
+    expect(maTriggers).toContain('management_action_no_content_update')
   })
 
   it('is IDEMPOTENT — a second/third connection re-applies IF NOT EXISTS cleanly', () => {
@@ -163,6 +167,30 @@ describe('存储层不变量 (trigger 级 — 任何连接生效)', () => {
     // 状态缓存列是合法 UPDATE 面 (经 store 迁移)
     h.store.transition(id, { to: 'STALE', stale_reason: 's' }, { kind: 'PLUGIN' })
     expect(h.store.getPlanFork(id)!.status).toBe('STALE')
+  })
+
+  it('G3 R1: raw UPDATE of a management_action ledger row is ABORTED (账本内容不可变, 对齐 plan_fork 双触发器)', () => {
+    h = openStore()
+    seed() // PF-1 + MA-1 (PF_CREATED)
+    let err: unknown
+    try {
+      h.rawDb.prepare(`UPDATE management_action SET detail = 'FORGED' WHERE id = 'MA-1'`).run()
+    } catch (e) {
+      err = e
+    }
+    expect(err).toBeDefined()
+    expect(String(err)).toContain('immutable')
+    // 行未被篡改 (store API 回读)
+    expect(h.store.getManagementAction('MA-1')!.detail).not.toBe('FORGED')
+    // 其余内容列同样锁死 (8 列全内容列, 无状态缓存列)
+    expect(() => h.rawDb.prepare(`UPDATE management_action SET action_kind = 'X' WHERE id = 'MA-1'`).run()).toThrow()
+    expect(() => h.rawDb.prepare(`UPDATE management_action SET actor = '{"kind":"PLUGIN"}' WHERE id = 'MA-1'`).run()).toThrow()
+    expect(() => h.rawDb.prepare(`UPDATE management_action SET subject_refs = '[]' WHERE id = 'MA-1'`).run()).toThrow()
+    expect(() => h.rawDb.prepare(`UPDATE management_action SET git_commit_oid = 'FORGED' WHERE id = 'MA-1'`).run()).toThrow()
+    expect(() => h.rawDb.prepare(`UPDATE management_action SET git_blob_oids = '[]' WHERE id = 'MA-1'`).run()).toThrow()
+    expect(() => h.rawDb.prepare(`UPDATE management_action SET occurred_at = 0 WHERE id = 'MA-1'`).run()).toThrow()
+    // 行仍在 (no_delete 半边 + 内容锁共同维持账本完整)
+    expect(h.store.getManagementAction('MA-1')).not.toBeNull()
   })
 
   it('字段共现 CHECK: 手搓的非法状态组合落不了库', () => {

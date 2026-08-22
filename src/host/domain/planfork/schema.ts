@@ -29,7 +29,10 @@
  *     necessity/created_by_run/created_at); 允许 UPDATE 的只有状态缓存列
  *     (status/selected_at/selected_by/dismissed_at/stale_reason) — 即
  *     §10 「全部状态迁移 append-only 记录」的行侧机制;
- *   - INV-HIST-7: `management_action_no_delete` ABORT 账本行删除。
+ *   - INV-HIST-7: `management_action_no_delete` ABORT 账本行删除;
+ *   - 账本内容不可变 (G3 R1 防御纵深加固, 对齐 `plan_fork` 双触发器形态):
+ *     `management_action_no_content_update` ABORT 对 8 个内容列任何
+ *     UPDATE — 账本行无状态缓存列, 创建后整体不可变 (append-only)。
  *   - §5 字段共现 (CHECK): selected_at/selected_by ⇔ status=SELECTED;
  *     dismissed_at ⇔ status=DISMISSED; stale_reason ⇔ status=STALE。
  *
@@ -123,6 +126,21 @@ CREATE TRIGGER IF NOT EXISTS management_action_no_delete
   BEFORE DELETE ON ${MANAGEMENT_ACTION_TABLE}
   BEGIN
     SELECT RAISE(ABORT, 'management_action rows are never deleted (DOMAIN_SCHEMA §15 通则; ARCHITECTURE §5.4 INV-HIST-7)');
+  END;
+-- 账本内容不可变 (G3 R1 加固, 对齐 plan_fork_no_content_update 形态):
+-- 8 列全是内容列 (无状态缓存列), 任何 UPDATE 都 ABORT (append-only)。
+CREATE TRIGGER IF NOT EXISTS management_action_no_content_update
+  BEFORE UPDATE ON ${MANAGEMENT_ACTION_TABLE}
+  WHEN NEW.id IS NOT OLD.id
+   OR NEW.action_kind IS NOT OLD.action_kind
+   OR NEW.actor IS NOT OLD.actor
+   OR NEW.subject_refs IS NOT OLD.subject_refs
+   OR IFNULL(NEW.git_commit_oid, '') IS NOT IFNULL(OLD.git_commit_oid, '')
+   OR IFNULL(NEW.git_blob_oids, '') IS NOT IFNULL(OLD.git_blob_oids, '')
+   OR IFNULL(NEW.detail, '') IS NOT IFNULL(OLD.detail, '')
+   OR NEW.occurred_at IS NOT OLD.occurred_at
+  BEGIN
+    SELECT RAISE(ABORT, 'management_action ledger rows are immutable after creation (DOMAIN_SCHEMA §15 通则; G3 R1 defense in depth, aligned with plan_fork_no_content_update)');
   END;
 `
 

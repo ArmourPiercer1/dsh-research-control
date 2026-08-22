@@ -33,7 +33,9 @@
  *     any statement carrying a REPLACE-class conflict resolution targeting
  *     `history_event` is rejected BEFORE it reaches the driver —
  *     structured `STORE_SQL_FORBIDDEN`, never a raw driver exception:
- *       - `REPLACE INTO [schema.]history_event …` (shorthand);
+ *       - `REPLACE INTO [schema.]history_event …` (shorthand — the
+ *         schema and/or table identifiers may be unquoted, double-quoted
+ *         or backtick-quoted, any case; G3 r1 R2);
  *       - `INSERT OR REPLACE INTO [schema.]history_event …`;
  *       - `INSERT INTO [schema.]history_event … ON CONFLICT … REPLACE …`.
  *     The scan is string-literal aware: single-quoted DATA (event payloads
@@ -153,8 +155,20 @@ function stripDataLiterals(sql: string): string {
   return out
 }
 
-/** `[schema.]history_event` with optional identifier quoting. */
-const EVENT_TABLE = '(?:[A-Z_][A-Z0-9_]*\\.)?"?HISTORY_EVENT"?\\b'
+/** One identifier part: unquoted, or quoted with double quotes /
+ *  backticks (SQLite's two identifier-quoting forms; a quoted identifier
+ *  is STRUCTURE, so its content survives the data-literal mask, and the
+ *  whole statement is upper-cased before matching — ASCII identifier
+ *  comparison is case-insensitive, so upper-cased quoted content is the
+ *  exact name). */
+const IDENT = '(?:"[^"]+"|`[^`]+`|[A-Z_][A-Z0-9_]*)'
+
+/** `[schema.]history_event` with optional identifier quoting — the
+ *  schema prefix and the table name may each be unquoted, double-quoted
+ *  or backtick-quoted (G3 r1 R2: the unquoted-schema-only pattern let
+ *  `REPLACE INTO "main".history_event` / backtick variants slip through).
+ *  Whitespace around the `.` is structural in SQLite (token grammar). */
+const EVENT_TABLE = `(?:${IDENT}\\s*\\.\\s*)?(?:"HISTORY_EVENT"|\`HISTORY_EVENT\`|HISTORY_EVENT\\b)`
 
 /** `REPLACE INTO [schema.]history_event` (shorthand form). */
 const RE_REPLACE_INTO = new RegExp(`\\bREPLACE\\s+INTO\\s+${EVENT_TABLE}`)

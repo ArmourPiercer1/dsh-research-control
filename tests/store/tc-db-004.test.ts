@@ -67,6 +67,7 @@ import {
   type ResearchStore,
   type SourceRefJson,
 } from '../../src/host/persistence/store/index.js'
+import { INTERVENTION_TABLE } from '../../src/host/service/flooding/index.js'
 import {
   openRunBindingDatabase,
   DISCOVERED_SESSION_TABLE,
@@ -86,6 +87,10 @@ import {
   type SessionPointer,
   type WireBinding,
 } from '../../src/host/service/sessionlink/index.js'
+import {
+  createResearchTools,
+  RESEARCH_TOOL_NAMES,
+} from '../../src/host/tools/index.js'
 import {
   WORKSTREAMS,
   FakeSessionAdapter as SessionLinkFakeAdapter,
@@ -139,6 +144,7 @@ function scanSourceDdlTargets(): string[] {
     DISCOVERED_SESSION_TABLE,
     PLAN_FORK_TABLE,
     MANAGEMENT_ACTION_TABLE,
+    INTERVENTION_TABLE,
   }
   const targets = new Set<string>()
   // The trailing `\s*\(` distinguishes REAL DDL (the column list opens on
@@ -172,6 +178,7 @@ const ALL_TABLES = [
   'derived_state',
   'discovered_session',
   'history_event',
+  'intervention',
   'management_action',
   'meta',
   'plan_fork',
@@ -275,6 +282,22 @@ const PINNED_COLUMNS: ReadonlyMap<string, readonly string[]> = new Map([
       'occurred_at',
     ],
   ],
+  [
+    'intervention',
+    [
+      'id',
+      'title',
+      'detail',
+      'origin',
+      'workstream_ids',
+      'source_refs',
+      'status',
+      'created_by',
+      'created_at',
+      'closed_at',
+      'resolution_note',
+    ],
+  ],
 ])
 
 // NOTE: `table_xinfo` (NOT `table_info`) — it also reports the WP-2.9
@@ -291,7 +314,7 @@ function textColumns(raw: DatabaseSync, table: string): string[] {
 }
 
 describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned', () => {
-  it('src contains EXACTLY the seven known CREATE TABLE targets (no new table can land unreviewed)', () => {
+  it('src contains EXACTLY the eight known CREATE TABLE targets (no new table can land unreviewed)', () => {
     expect(scanSourceDdlTargets()).toEqual(ALL_TABLES)
   })
 
@@ -692,8 +715,11 @@ describe('TC-DB-004 (iii): full runbinding+sessionlink loop — whole-DB credent
  *          carries a credential shape (runtime API-face scan);
  *       2. the (ii) compile-time key-set pinning — no input TYPE carries
  *          a credential-shaped field (the type-level proof).
- *     Plus the documented surface inventory: `src/host/tools/` is empty
- *     (no agent tool face), the typert artifact's `invocations` is
+ *     Plus the documented surface inventory: `src/host/tools/` held no
+ *     agent tool face in V1 (WP-3.3 has since landed it there — the
+ *     (iv) test below re-verifies the CURRENT inventory at runtime:
+ *     exact module set + no credential-shaped parameter key on any
+ *     tool), the typert artifact's `invocations` is
  *     exactly `['ping']` (no RPC accepting credentials), and the
  *     session data plane is the WP-0.4 port projecting only
  *     `{sessionId, type, seq}` (the plugin never SEES session content).
@@ -803,12 +829,47 @@ describe('TC-DB-004 (iv): no credential-receiving write face (structural asserti
   })
 
   it('the non-store write surfaces are empty/ping-only (documented inventory, re-verified at runtime)', () => {
-    // src/host/tools/ is empty in V1 (no agent tool face) — the DDL scan
-    // helper already walks src; assert the tools dir holds no .ts module.
+    // Documented inventory, re-verified at runtime. V1 baseline: src/host/tools/
+    // was empty (no agent tool face). WP-3.3 landed the agent tool face there —
+    // the inventory is updated in place (this test is the re-verification):
+    //   (a) the tools dir holds EXACTLY the WP-3.3 module set;
+    //   (b) no tool parameter key carries a credential shape (the tool face
+    //       is the agent's only write entry — no credential-shaped argument
+    //       may exist on it; the (iii) value-scan net remains the 兜底).
     const toolsDir = join(SRC_ROOT, 'host', 'tools')
     const toolModules = statSync(toolsDir).isDirectory()
-      ? readdirSync(toolsDir).filter((f) => f.endsWith('.ts'))
+      ? readdirSync(toolsDir).filter((f) => f.endsWith('.ts')).sort()
       : []
-    expect(toolModules).toEqual([])
+    expect(toolModules).toEqual([
+      'args.ts',
+      'artifact-register.ts',
+      'claim-record.ts',
+      'context-get.ts',
+      'contract-read.ts',
+      'fact-record.ts',
+      'history-query.ts',
+      'index.ts',
+      'intervention-create.ts',
+      'next-action-create.ts',
+      'plan-fork-create.ts',
+      'plan-get.ts',
+      'run-checkpoint.ts',
+      'stub.ts',
+      'types.ts',
+    ])
+    const tools = createResearchTools({
+      planForkCreate: () => {
+        throw new Error('unused in this test')
+      },
+      recordCheckpoint: () => {
+        throw new Error('unused in this test')
+      },
+    })
+    expect(tools.map((t) => t.name).sort()).toEqual([...RESEARCH_TOOL_NAMES].sort())
+    for (const tool of tools) {
+      for (const key of Object.keys(tool.parameters)) {
+        expect(key, `tool ${tool.name} parameter "${key}" carries a credential shape`).not.toMatch(CREDENTIAL_SHAPE)
+      }
+    }
   })
 })

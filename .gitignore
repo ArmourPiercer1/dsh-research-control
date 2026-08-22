@@ -10,3 +10,4 @@ playwright-report/
 test-results/
 # pnpm pack output (scripts/e2e-run.sh packs on demand)
 dsh-research-control-*.tgz
+.npm-cache-tmp/

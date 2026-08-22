@@ -77,6 +77,10 @@ import {
   type RunRecord,
 } from '../../src/host/service/runbinding/index.js'
 import {
+  MANAGEMENT_ACTION_TABLE,
+  PLAN_FORK_TABLE,
+} from '../../src/host/domain/planfork/index.js'
+import {
   encodePointer,
   SessionLinkService,
   type SessionPointer,
@@ -126,13 +130,15 @@ function collectTsFiles(dir: string): string[] {
 
 /**
  * Extract every `CREATE TABLE` target name from `src/`. `${IDENT}`
- * references are resolved against the runbinding schema's exported
- * constants (the only template-form targets in the tree).
+ * references are resolved against the runbinding + planfork schema's
+ * exported constants (the only template-form targets in the tree).
  */
 function scanSourceDdlTargets(): string[] {
   const templateResolve: Record<string, string> = {
     RUN_TABLE,
     DISCOVERED_SESSION_TABLE,
+    PLAN_FORK_TABLE,
+    MANAGEMENT_ACTION_TABLE,
   }
   const targets = new Set<string>()
   // The trailing `\s*\(` distinguishes REAL DDL (the column list opens on
@@ -157,8 +163,29 @@ function scanSourceDdlTargets(): string[] {
   return [...targets].sort()
 }
 
-/** All five §15 tables this plugin creates (3 store + 2 runbinding), sorted. */
-const ALL_TABLES = ['derived_state', 'discovered_session', 'history_event', 'meta', 'run']
+/**
+ * All seven §15 tables this plugin creates (3 store + 2 runbinding +
+ * 2 planfork), sorted. The source scan sees every CREATE TABLE in src/
+ * regardless of which init path applies the DDL.
+ */
+const ALL_TABLES = [
+  'derived_state',
+  'discovered_session',
+  'history_event',
+  'management_action',
+  'meta',
+  'plan_fork',
+  'run',
+]
+
+/**
+ * The five tables live in a DB opened by the runbinding init path alone
+ * (openRunBindingDatabase does NOT apply the planfork DDL — that lands via
+ * PlanForkStore on the same operational file; the live column pins below
+ * cover the runbinding-visible five, and the planfork pair is pinned by
+ * tests/planfork/persist.test.ts + the DDL-text level inventory above).
+ */
+const RUNBINDING_LIVE_TABLES = ['derived_state', 'discovered_session', 'history_event', 'meta', 'run']
 
 /**
  * The EXACT column set of every table (order as declared in the DDL) —
@@ -213,6 +240,41 @@ const PINNED_COLUMNS: ReadonlyMap<string, readonly string[]> = new Map([
       'summary',
     ],
   ],
+  [
+    'plan_fork',
+    [
+      'id',
+      'workstream_id',
+      'base_plan_objects',
+      'base_git_commit',
+      'fork_anchor',
+      'merge_anchor',
+      'proposed_items',
+      'trigger_refs',
+      'reason',
+      'necessity',
+      'created_by_run',
+      'created_at',
+      'status',
+      'selected_at',
+      'selected_by',
+      'dismissed_at',
+      'stale_reason',
+    ],
+  ],
+  [
+    'management_action',
+    [
+      'id',
+      'action_kind',
+      'actor',
+      'subject_refs',
+      'git_commit_oid',
+      'git_blob_oids',
+      'detail',
+      'occurred_at',
+    ],
+  ],
 ])
 
 // NOTE: `table_xinfo` (NOT `table_info`) — it also reports the WP-2.9
@@ -229,11 +291,11 @@ function textColumns(raw: DatabaseSync, table: string): string[] {
 }
 
 describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned', () => {
-  it('src contains EXACTLY the five known CREATE TABLE targets (no new table can land unreviewed)', () => {
+  it('src contains EXACTLY the seven known CREATE TABLE targets (no new table can land unreviewed)', () => {
     expect(scanSourceDdlTargets()).toEqual(ALL_TABLES)
   })
 
-  it('the live DB exposes exactly the five tables, each with its pinned column set', () => {
+  it('the live runbinding DB exposes exactly its five tables, each with its pinned column set', () => {
     const dir = makeTempDir('wp210-tcdb004-')
     const db = openRunBindingDatabase(dbPath(dir))
     try {
@@ -246,8 +308,8 @@ describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned'
         )
           .map((r) => r.name)
           .sort()
-        expect(tables).toEqual(ALL_TABLES)
-        for (const table of ALL_TABLES) {
+        expect(tables).toEqual(RUNBINDING_LIVE_TABLES)
+        for (const table of RUNBINDING_LIVE_TABLES) {
           expect(tableColumns(raw, table), `column set of ${table}`).toEqual([...PINNED_COLUMNS.get(table)!])
         }
       } finally {
@@ -266,7 +328,7 @@ describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned'
       const raw = new DatabaseSync(db.store.path)
       try {
         const matches: string[] = []
-        for (const table of ALL_TABLES) {
+        for (const table of RUNBINDING_LIVE_TABLES) {
           for (const column of tableColumns(raw, table)) {
             if (!CREDENTIAL_SHAPE.test(column)) continue
             const allowed = PINNED_COLUMN_EXCEPTIONS.get(table) ?? []
@@ -279,7 +341,7 @@ describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned'
         // silently DROPPED exception would fail here — the pin is the
         // document of the reading, not a silent skip).
         const actualExceptions: string[] = []
-        for (const table of ALL_TABLES) {
+        for (const table of RUNBINDING_LIVE_TABLES) {
           for (const column of tableColumns(raw, table)) {
             if (CREDENTIAL_SHAPE.test(column)) actualExceptions.push(`${table}.${column}`)
           }

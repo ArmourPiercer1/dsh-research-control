@@ -9,6 +9,11 @@
  *   - `PRAGMA user_version` is the monotonic schema version: 0 = fresh
  *     (init V1 DDL + set to 1, one transaction), 1 = open, anything else =
  *     REJECTED (pre-release: no migration, DSH_ADAPTER §9「不匹配即拒绝」);
+ *     under version 1 the history_event STRUCTURE is verified as well
+ *     (WP-2.9): a stale pre-release V1 file (older/newer column set or
+ *     named indexes — e.g. a pre-WP-2.9 dev DB missing the generated
+ *     filter columns) is rejected with STORE_SCHEMA_STALE, same
+ *     no-migration policy, remedy = delete the file and reinitialize;
  *   - `PRAGMA quick_check` on open: a damaged file fails open with a
  *     structured `STORE_CORRUPT` — never a raw driver exception, never a
  *     repair attempt (TC-DB-002 「明确报错」);
@@ -37,6 +42,9 @@ import {
   DIR_MODE,
   EXPECTED_TABLES,
   FILE_MODE,
+  HISTORY_EVENT_COLUMNS,
+  HISTORY_EVENT_GENERATED,
+  HISTORY_EVENT_INDEXES,
   schemaDdl,
 } from './schema.js'
 import {
@@ -46,6 +54,7 @@ import {
   StoreError,
   StoreInputError,
   StoreOpenError,
+  StoreSchemaStaleError,
   StoreSqlError,
   StoreVersionError,
 } from './errors.js'
@@ -150,7 +159,7 @@ export function openDatabase(path: string, options: OpenDatabaseOptions = {}): R
       closeQuietly(db)
       throw new StoreVersionError(version, DB_USER_VERSION)
     } else {
-      verifyExpectedTables(db, abs)
+      verifyExpectedSchema(db, abs)
     }
   } catch (e) {
     // classifyOpenFailure already structured driver errors from the
@@ -739,6 +748,11 @@ function readExistingTables(db: DatabaseSync, abs: string): string[] {
 }
 
 /** user_version=1 but a §15 table missing → the file is broken. */
+function verifyExpectedSchema(db: DatabaseSync, abs: string): void {
+  verifyExpectedTables(db, abs)
+  verifyHistoryEventStructure(db, abs)
+}
+
 function verifyExpectedTables(db: DatabaseSync, abs: string): void {
   const tables = new Set(readExistingTables(db, abs))
   for (const t of EXPECTED_TABLES) {
@@ -748,6 +762,93 @@ function verifyExpectedTables(db: DatabaseSync, abs: string): void {
           `"${t}" — database corruption`,
       )
     }
+  }
+}
+
+/**
+ * user_version=1 + tables present, but the `history_event` structure does
+ * not match this build's V1 DDL → STALE pre-release schema (an older dev
+ * build: missing the WP-2.9 generated columns / filter indexes; or a
+ * newer/unknown build: extra columns or named indexes). Rejected with a
+ * structured STORE_SCHEMA_STALE — no migration path (DSH_ADAPTER §9);
+ * the remedy is to delete the file and reinitialize. Column facts come
+ * from `PRAGMA table_xinfo` (unlike `table_info`, it also reports the
+ * generated columns, flagged `hidden = 2` for virtual generated —
+ * SQLite ≥ 3.36, available on every node:sqlite build the store supports).
+ */
+function verifyHistoryEventStructure(db: DatabaseSync, abs: string): void {
+  let colRows: Record<string, unknown>[]
+  let idxRows: Record<string, unknown>[]
+  try {
+    colRows = db.prepare('PRAGMA table_xinfo(history_event)').all() as Record<string, unknown>[]
+    idxRows = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'history_event'",
+      )
+      .all() as Record<string, unknown>[]
+  } catch (e) {
+    throw new StoreCorruptError(
+      `openDatabase: ${abs} is corrupted (cannot read the history_event structure): ${errMsg(e)}`,
+    )
+  }
+
+  // name → hidden flag (0 regular / 1 stored generated / 2 virtual generated)
+  const hiddenByColumn = new Map<string, number>()
+  for (const r of colRows) {
+    hiddenByColumn.set(String(r.name ?? ''), Number(r.hidden ?? 0))
+  }
+  const expectedColumns = new Set<string>(HISTORY_EVENT_COLUMNS)
+
+  const colMissing: string[] = []
+  const colUnexpected: string[] = []
+  const colWrongKind: string[] = []
+  for (const c of HISTORY_EVENT_COLUMNS) {
+    if (!hiddenByColumn.has(c)) {
+      colMissing.push(c)
+    }
+  }
+  for (const [c, hidden] of hiddenByColumn) {
+    if (!expectedColumns.has(c)) {
+      colUnexpected.push(c)
+    } else {
+      const wantHidden = HISTORY_EVENT_GENERATED.has(c) ? 2 : 0
+      if (hidden !== wantHidden) colWrongKind.push(c)
+    }
+  }
+
+  const namedIndexes = new Set(
+    idxRows.map((r) => String(r.name ?? '')).filter((n) => !n.startsWith('sqlite_autoindex_')),
+  )
+  const idxMissing: string[] = []
+  const idxUnexpected: string[] = []
+  for (const i of HISTORY_EVENT_INDEXES) {
+    if (!namedIndexes.has(i)) idxMissing.push(i)
+  }
+  const expectedIndexes = new Set<string>(HISTORY_EVENT_INDEXES)
+  for (const n of namedIndexes) {
+    if (!expectedIndexes.has(n)) idxUnexpected.push(n)
+  }
+
+  if (
+    colMissing.length > 0 ||
+    colUnexpected.length > 0 ||
+    colWrongKind.length > 0 ||
+    idxMissing.length > 0 ||
+    idxUnexpected.length > 0
+  ) {
+    const parts: string[] = []
+    if (colMissing.length > 0) parts.push(`missing columns: ${colMissing.join(', ')}`)
+    if (colUnexpected.length > 0) parts.push(`unexpected columns: ${colUnexpected.join(', ')}`)
+    if (colWrongKind.length > 0) {
+      parts.push(`columns with wrong kind (generated vs regular): ${colWrongKind.join(', ')}`)
+    }
+    if (idxMissing.length > 0) parts.push(`missing indexes: ${idxMissing.join(', ')}`)
+    if (idxUnexpected.length > 0) parts.push(`unexpected indexes: ${idxUnexpected.join(', ')}`)
+    throw new StoreSchemaStaleError(
+      `openDatabase: ${abs} has user_version=${DB_USER_VERSION} but its history_event structure ` +
+        `differs from this build's V1 DDL (${parts.join('; ')}) — stale pre-release schema; ` +
+        'the pre-release store does not migrate (DSH_ADAPTER §9): delete the file and reinitialize',
+    )
   }
 }
 

@@ -17,6 +17,9 @@
  *   STORE_OPEN        — the file/directory cannot be created or opened
  *   STORE_CORRUPT     — the file exists but is not a usable SQLite DB
  *   STORE_VERSION     — `user_version` != 1 (pre-release: no migrations)
+ *   STORE_SCHEMA_STALE — `user_version` = 1 but a history_event structure
+ *                        from a different pre-release V1 build (no
+ *                        migration; delete the file and reinitialize)
  *   STORE_CLOSED      — operation on a closed store
  *   STORE_INPUT       — malformed caller input (shape / store-owned fields)
  *   STORE_CONFLICT    — uniqueness violation (event_id PK / (ws, seq))
@@ -27,6 +30,7 @@ export type StoreErrorCode =
   | 'STORE_OPEN'
   | 'STORE_CORRUPT'
   | 'STORE_VERSION'
+  | 'STORE_SCHEMA_STALE'
   | 'STORE_CLOSED'
   | 'STORE_INPUT'
   | 'STORE_CONFLICT'
@@ -85,6 +89,22 @@ export class StoreVersionError extends StoreError {
     )
     this.found = found
     this.expected = expected
+  }
+}
+
+/**
+ * `PRAGMA user_version` says 1 (the supported V1) but the on-disk
+ * `history_event` structure does not match this build's V1 DDL — the file
+ * was written by an OLDER pre-release build (e.g. a pre-WP-2.9 dev DB
+ * missing the generated filter columns / indexes) or by a NEWER/unknown
+ * one (extra columns or named indexes). Same policy as the numeric
+ * version gate (DSH_ADAPTER §9): REJECTED, no migration. The file's data
+ * is a pre-release dev artifact — the remedy is to delete the file and
+ * reinitialize (a fresh open re-runs the V1 init transaction).
+ */
+export class StoreSchemaStaleError extends StoreError {
+  constructor(message: string, options?: ErrorOptions) {
+    super('STORE_SCHEMA_STALE', message, options)
   }
 }
 

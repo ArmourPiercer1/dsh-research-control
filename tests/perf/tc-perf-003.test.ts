@@ -1,5 +1,6 @@
 /**
  * WP-2.8 — TC-PERF-003: 过滤查询走索引（EXPLAIN QUERY PLAN 无全表扫描）.
+ * WP-2.9 — run/task 过滤缺口修复后翻转：四类过滤全部 SEARCH USING INDEX.
  *
  * TEST_MATRIX §3.7 TC-PERF-003: 「按 event_type/run/task/workstream 过滤走
  * 索引（EXPLAIN QUERY PLAN 无全表扫描）」.
@@ -9,26 +10,31 @@
  *   - SEARCH … USING (COVERING) INDEX … → 走索引（通过）;
  *   - SCAN history_event（无 USING INDEX）→ 全表扫描.
  *
- * 现 schema（WP-2.1, DOMAIN_SCHEMA §15）实际索引:
- *   - idx_history_event_ws_occurred_seq  (owner_workstream_id, occurred_at, event_seq)
- *   - idx_history_event_type_occurred    (event_type, occurred_at)
- *   - idx_history_event_recorded         (recorded_at)
+ * 现 schema（WP-2.1 V1 + WP-2.9 索引面）实际索引:
+ *   - idx_history_event_ws_occurred_seq      (owner_workstream_id, occurred_at, event_seq)
+ *   - idx_history_event_type_occurred        (event_type, occurred_at)
+ *   - idx_history_event_recorded             (recorded_at)
+ *   - idx_history_event_payload_run_occurred (payload_run_id, occurred_at)   ← WP-2.9
+ *   - idx_history_event_payload_task_occurred (payload_task_id, occurred_at) ← WP-2.9
  *   - UNIQUE(owner_workstream_id, event_seq)（隐式索引, listRange 面）
  *
- * 现状断言（任务书口径: 缺索引不自行实现 — store 是 WP-2.1 产权）:
- *   - event_type 过滤        → SEARCH USING INDEX idx_history_event_type_occurred ✓
- *   - workstream 过滤        → SEARCH USING INDEX（ws 复合索引/UNIQUE 索引）✓
- *   - listRange 查询形态     → SEARCH USING INDEX（同上）✓
- *   - task 过滤 (payload LIKE '%task_id%')  → 全表 SCAN — 缺口（GAP, 待分诊）
- *   - run  过滤 (payload LIKE '%run_id%')   → 全表 SCAN — 缺口（GAP, 待分诊）
- * run/task 的过滤面在 V1 schema 里没有列（run_id/task_id 只在 payload JSON
- * 里）；缺口与建议索引 DDL 记录在 WP-2.8 报告（遗留问题），本测试按现状
- * 断言并标注 GAP，等待编排者分诊后翻转。
+ * 过滤断言（四类 + listRange 形态，全部无全表扫描）:
+ *   - event_type 过滤        → SEARCH USING INDEX idx_history_event_type_occurred
+ *   - workstream 过滤        → SEARCH USING INDEX（ws 复合索引/UNIQUE 索引）
+ *   - listRange 查询形态     → SEARCH USING INDEX（UNIQUE 隐式索引）
+ *   - task 过滤              → SEARCH USING INDEX idx_history_event_payload_task_occurred
+ *   - run  过滤              → SEARCH USING INDEX idx_history_event_payload_run_occurred
+ *
+ * WP-2.9 翻转说明（WP-2.8 遗留问题 1 已分诊落地）: run/task 过滤面由
+ * `payload LIKE '%…id…%'`（全表 SCAN，WP-2.8 按现状 pin GAP）改为对生成列
+ * `payload_task_id` / `payload_run_id` 的等值过滤 — 两列是 SQLite VIRTUAL
+ * 生成列（json_extract(payload, '$.task_id' / '$.run_id')），即「事件直接
+ * 主体」语义（catalog §5 中 run_id/task_id 为 RUN_* / TASK_* 事件的顶层
+ * payload 字段）；等值语义同时收窄了 LIKE 的任意文本匹配（嵌套
+ * runs[].run_id 等不再命中 — 那是主体语义之外的引用面）。索引落地后
+ * 本文件从「pin SCAN」翻转为「断言 USING INDEX」（WP-2.8 测试注释口径）。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { generatePerfDataset } from './generator.js'
@@ -84,17 +90,22 @@ describe.runIf(PERF_ENABLED)('TC-PERF-003: filter queries on index coverage (EXP
     built?.store.close()
   })
 
-  it('schema index inventory matches WP-2.1 V1 (three declared indexes + UNIQUE)', () => {
-    const rows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name").all() as Array<{ name: string }>
+  it('schema index inventory matches V1 (three WP-2.1 indexes + two WP-2.9 filter indexes, no others)', () => {
+    const rows = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'history_event' " +
+          "AND name NOT LIKE 'sqlite_autoindex_%' ORDER BY name",
+      )
+      .all() as Array<{ name: string }>
     const names = rows.map((r) => r.name)
-    console.log(`[TC-PERF-003] indexes on history_event schema: ${names.join(', ')}`)
-    expect(names).toEqual(
-      expect.arrayContaining([
-        'idx_history_event_ws_occurred_seq',
-        'idx_history_event_type_occurred',
-        'idx_history_event_recorded',
-      ]),
-    )
+    console.log(`[TC-PERF-003] named indexes on history_event: ${names.join(', ')}`)
+    expect(names).toEqual([
+      'idx_history_event_payload_run_occurred',
+      'idx_history_event_payload_task_occurred',
+      'idx_history_event_recorded',
+      'idx_history_event_type_occurred',
+      'idx_history_event_ws_occurred_seq',
+    ])
   })
 
   it('event_type filter: SEARCH USING INDEX (no full table scan)', () => {
@@ -130,27 +141,29 @@ describe.runIf(PERF_ENABLED)('TC-PERF-003: filter queries on index coverage (EXP
     expect(v.fullScan).toBe(false)
   })
 
-  it('GAP (triage pending): task_id filter full-table SCANs — no index on payload (see WP-2.8 report)', () => {
+  it('task_id filter (generated column payload_task_id): SEARCH USING INDEX (was GAP SCAN pre-WP-2.9)', () => {
     const details = explainPlan(
       db,
-      `SELECT event_id FROM history_event WHERE payload LIKE '%\\"task_id\\":\\"T-37\\"%'`,
+      "SELECT event_id FROM history_event WHERE payload_task_id = 'T-37'",
     )
-    console.log(`[TC-PERF-003] task filter plan (GAP — expect full scan until WP-2.1 adds an index): ${details.join(' | ')}`)
+    console.log(`[TC-PERF-003] task filter plan: ${details.join(' | ')}`)
     const v = classify(details)
-    // CURRENT-STATE assertion (pinned; flips when the index lands):
-    expect(v.fullScan).toBe(true)
-    expect(v.usesIndex).toBe(false)
+    expect(v.usesIndex).toBe(true)
+    expect(v.fullScan).toBe(false)
+    // Pin the INTENDED index (not just any index): the WP-2.9 task filter index.
+    expect(details.join(' | ')).toContain('idx_history_event_payload_task_occurred')
   })
 
-  it('GAP (triage pending): run_id filter full-table SCANs — no index on payload (see WP-2.8 report)', () => {
+  it('run_id filter (generated column payload_run_id): SEARCH USING INDEX (was GAP SCAN pre-WP-2.9)', () => {
     const details = explainPlan(
       db,
-      `SELECT event_id FROM history_event WHERE payload LIKE '%\\"run_id\\":\\"R-41\\"%'`,
+      "SELECT event_id FROM history_event WHERE payload_run_id = 'R-41'",
     )
-    console.log(`[TC-PERF-003] run filter plan (GAP — expect full scan until WP-2.1 adds an index): ${details.join(' | ')}`)
+    console.log(`[TC-PERF-003] run filter plan: ${details.join(' | ')}`)
     const v = classify(details)
-    // CURRENT-STATE assertion (pinned; flips when the index lands):
-    expect(v.fullScan).toBe(true)
-    expect(v.usesIndex).toBe(false)
+    expect(v.usesIndex).toBe(true)
+    expect(v.fullScan).toBe(false)
+    // Pin the INTENDED index (not just any index): the WP-2.9 run filter index.
+    expect(details.join(' | ')).toContain('idx_history_event_payload_run_occurred')
   })
 })

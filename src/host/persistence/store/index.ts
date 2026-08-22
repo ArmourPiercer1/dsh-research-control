@@ -41,6 +41,7 @@ export {
   StoreError,
   StoreInputError,
   StoreOpenError,
+  StoreSchemaStaleError,
   StoreSqlError,
   StoreVersionError,
   type StoreErrorCode,

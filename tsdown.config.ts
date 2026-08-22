@@ -1,5 +1,5 @@
 import ts from 'typescript-6';
-import { defineConfig } from 'tsdown';
+import { defineConfig, type UserConfig } from 'tsdown';
 
 /** Matches a TC39 standard decorator at line start (same heuristic as vitest.config.ts). */
 const decoratorSyntax = /^\s*@[A-Za-z_$][\w$]*/m;
@@ -43,8 +43,7 @@ function lowerStandardDecorators() {
 //   - lib/typert.host.js           `./typert`   — hand-written host TYPERT manifest (U4 fallback)
 //   - lib/typert.remote-client.js  `./remote`   — client contribution (TYPERT_REMOTE)
 // dts emits the paired .d.ts for each entry (exports carry types/default twins).
-// The `./client` bundle entry (tsdown clientBundle preset) is WP-0.5, not here.
-export default defineConfig({
+const hostConfig: UserConfig = {
   entry: {
     index: './src/host/index.ts',
     'typert.host': './src/host/dsh-adapter/host/typert.artifact.ts',
@@ -56,4 +55,69 @@ export default defineConfig({
   // Emit `.js` (package is `type: module`), matching the DSH canonical `lib/*.js`.
   outExtensions: () => ({ js: '.js', dts: '.d.ts' }),
   plugins: [lowerStandardDecorators()],
-});
+};
+
+// WP-0.5: browser client bundle — a replica of the host repo's shared client
+// preset (deepseek-harness packages/client/tsdown.client.ts `clientConfig`),
+// inlined here because the preset is an in-repo helper that reads the DSH
+// workspace manifest. Contract, item for item:
+//   - entry `src/client/index.tsx` (frozen layout, ARCHITECTURE §2.1)
+//   - format cjs, platform browser, outDir lib, dts off (types would wrap the
+//     banner/footer into a .d.cts and break parsing — same reason host-side)
+//   - entryFileNames pinned to client.js (the loader serves lib/client.js)
+//   - banner/footer/intro: the closure-factory artifact the host module
+//     loader (window.__ModuleLoader__) expects — the factory receives the
+//     loader's module-table require and returns module.exports
+//   - sourcemap on (bundle is fetched outside Vite's module graph; the map is
+//     served at /plugins/<id>/client.js.map)
+//   - clean off (must never wipe the node-half output emitted by hostConfig)
+//   - externals: the shell module-table baseline, exact match with
+//     packages/client/web/src/platform.ts (PLATFORM_MODULES +
+//     PRELOADED_CLIENT_EXTERNALS) plus no package-specific `dsh.client.external`
+//     requests — every other bare specifier (zod, own code) inlines, because a
+//     require() the table cannot answer is a guaranteed runtime throw
+//   - define: the host preset's build-environment defines — `process.env`
+//     collapses to {} (plus the exact NODE_ENV keys) and both import.meta.env
+//     probes resolve, or the factory throws ReferenceError at boot
+// The `lowerStandardDecorators` plugin is host-half-only (the client graph
+// contains no decorators).
+const CLIENT_ID = 'dsh-research-control';
+const CLIENT_EXTERNALS = new Set([
+  'react',
+  'react/jsx-runtime',
+  'react-dom',
+  'react-dom/client',
+  '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-ui-slots',
+  '@deepseek-ai/dsh-client-ui-primitives',
+  '@deepseek-ai/dsh-client-runtime/client',
+]);
+
+const clientConfig: UserConfig = {
+  name: `${CLIENT_ID}/client`,
+  entry: { client: './src/client/index.tsx' },
+  outDir: './lib',
+  format: 'cjs',
+  platform: 'browser',
+  dts: false,
+  sourcemap: true,
+  clean: false,
+  deps: {
+    neverBundle: (specifier: string) => CLIENT_EXTERNALS.has(specifier),
+    alwaysBundle: (specifier: string) => !CLIENT_EXTERNALS.has(specifier),
+  },
+  define: {
+    'process.env': '{}',
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+  },
+  outputOptions: {
+    entryFileNames: 'client.js',
+    banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(CLIENT_ID)}, factory: (require) => {`,
+    footer: 'return module.exports; } });',
+    intro: 'var module = { exports: {} }; var exports = module.exports;',
+  },
+};
+
+export default defineConfig([hostConfig, clientConfig]);

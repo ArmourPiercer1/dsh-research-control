@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "DSH Research Control Plane V1 plugin (WP-0.4: host session adapter spike — in-memory event counters, no SQLite)",
+  "description": "DSH Research Control Plane V1 plugin (WP-0.5: client slot spike — conversation.view Research tab + ModuleLoader client bundle)",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -19,6 +19,9 @@
       "types": "./lib/typert.remote-client.d.ts",
       "default": "./lib/typert.remote-client.js"
     },
+    "./client": {
+      "default": "./lib/client.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -31,6 +34,8 @@
     "lib/typert.remote-client.d.ts",
     "lib/rpc-contracts-*.js",
     "lib/rpc-contracts-*.d.ts",
+    "lib/client.js",
+    "lib/client.js.map",
     "src",
     "cordis.patch.yml"
   ],
@@ -56,6 +61,10 @@
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.8",
     "@types/node": "^26.2.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "tsdown": "^0.22.14",
     "typescript": "^7.0.2",
     "typescript-6": "npm:typescript@^6.0.3",

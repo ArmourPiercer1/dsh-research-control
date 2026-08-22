@@ -36,6 +36,20 @@
  * land with the workspace binding (DSH_ADAPTER §13-U9 / runbinding WP) —
  * the service is delivered injectable and fully tested in
  * `src/host/service/sessionlink/`.
+ * WP-4.1a (the host-side 13-RPC client face — ARCHITECTURE.md §7.1):
+ * THIN `@Remote` method bodies: `zod decode (the shared strict schema)
+ * → forward to the injected `ResearchRpcServices` port` (rpc-services.ts,
+ * same directory — the production implementation is composed here in
+ * `[Service.init]` over the wiring-assembled instances; tests inject a
+ * stub through the optional 3rd constructor argument). NO business logic
+ * lives in the method bodies (the red line: 业务逻辑不进 RPC 层 — 只转发).
+ * User-semantic RPCs (reorderPlan / selectPlanFork / dismissPlanFork /
+ * updateInterventionState / restoreDeclarativeFile / saveResearchCheckpoint)
+ * make NO actor distinction at the RPC face (the client face IS the user
+ * face; the host gateway bounds the ARCHITECTURE §6 matrix) — the
+ * forwarded services keep their existing permission checks. In spike
+ * mode (no research workspace registered) the 13 methods fail loud.
+ * `ping` stays the 14th, diagnostic-only method (WP-0.3).
  * WP-3.6 (RR-011 ledger — the host service wiring): `[Service.init]` now
  * COMPLETES the dependency graph over the registered research workspace:
  * `createHostWiring` (src/host/service/wiring — store → registry → tree →
@@ -88,7 +102,48 @@ import {
 } from '@deepseek-ai/dsh-tools'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { PingResult } from '../../../shared/rpc-contracts.js'
+import {
+  DismissPlanForkArgsSchema,
+  GetGitHistoryArgsSchema,
+  GetTopicArgsSchema,
+  GetWorkstreamArgsSchema,
+  QueryHistoryArgsSchema,
+  ReorderPlanArgsSchema,
+  RestoreDeclarativeFileArgsSchema,
+  SaveResearchCheckpointArgsSchema,
+  SelectPlanForkArgsSchema,
+  UpdateInterventionStateArgsSchema,
+  RegisterInteractionArgsSchema,
+  type DashboardSnapshot,
+  type DismissPlanForkArgs,
+  type DismissPlanForkResult,
+  type GetGitHistoryArgs,
+  type GetGitHistoryResult,
+  type GetTopicArgs,
+  type GetWorkstreamArgs,
+  type PingResult,
+  type ProjectSnapshot,
+  type QueryHistoryArgs,
+  type QueryHistoryResult,
+  type ReorderPlanArgs,
+  type ReorderPlanResult,
+  type RegisterInteractionArgs,
+  type RegisterInteractionResult,
+  type RestoreDeclarativeFileArgs,
+  type RestoreDeclarativeFileResult,
+  type SaveResearchCheckpointArgs,
+  type SaveResearchCheckpointResult,
+  type SelectPlanForkArgs,
+  type SelectPlanForkResult,
+  type TopicSnapshot,
+  type UpdateInterventionStateArgs,
+  type UpdateInterventionStateResult,
+  type WorkstreamSnapshot,
+} from '../../../shared/rpc-contracts.js'
+import {
+  ProductionResearchRpcServices,
+  type ResearchRpcServices,
+} from './rpc-services.js'
 import { HostSessionAdapter, type SessionHostContext } from '../session.js'
 import {
   assertMinDshVersion,
@@ -213,16 +268,30 @@ export class ResearchControlService extends TypertRemoteService {
    */
   #wiring: HostWiring | undefined
 
+  /**
+   * WP-4.1a: the RPC service port the 13 `@Remote` methods forward to.
+   * Production: composed in `[Service.init]` over the wiring-assembled
+   * instances (`ProductionResearchRpcServices` — owns one second SQLite
+   * connection, disposed through its own `ctx.effect`). Tests: injected
+   * through the optional 3rd constructor argument (a stub). `undefined`
+   * only in spike mode / before init — the 13 methods then fail loud.
+   */
+  #rpc: ResearchRpcServices | undefined
+
   /** The validated config (WP-2.6: `minDshVersion` is read in `[Service.init]`). */
   readonly #config: Config
 
   /**
    * @param ctx - the host context that owns this service.
    * @param config - validated plugin config (WP-2.6: `minDshVersion`).
+   * @param rpcServices - WP-4.1a test seam: a stub for the RPC service
+   *  port (production fibers pass nothing — `[Service.init]` composes
+   *  the production implementation over the wiring).
    */
-  constructor(ctx: Context, config: Config) {
+  constructor(ctx: Context, config: Config, rpcServices?: ResearchRpcServices) {
     super(ctx, 'researchControl')
     this.#config = config
+    this.#rpc = rpcServices
     // Cordis 管不到的资源 teardown 占位：SQLite 连接、file watcher（后续 WP）。
     // 注册本身即逆 effect：fiber 卸载时随注册自动回滚（DSH_ADAPTER §4 要点 2）。
     ctx.effect(() => () => {
@@ -311,7 +380,12 @@ export class ResearchControlService extends TypertRemoteService {
     // itself, and the effect registered below disposes the survivors on
     // fiber death.
     const adapter = this.#sessionAdapter
-    this.#wiring = this.#initResearchPlane(adapter)
+    // WP-4.1a: the frozen schema root is resolved ONCE here — the plane
+    // builder and the RPC facade both need it (the declarative schema
+    // dir for the tree loader, the plan kernel, and the post-restore
+    // validation).
+    const schemaRoot = this.#resolveSchemaRoot(import.meta.url)
+    this.#wiring = this.#initResearchPlane(adapter, schemaRoot)
     if (this.#wiring !== undefined) {
       // ONE disposer for the whole graph (DSH_ADAPTER §9: `[Service.init]`
       // open, `ctx.effect` close — the storage-sqlite register/close
@@ -323,6 +397,23 @@ export class ResearchControlService extends TypertRemoteService {
         return (): void => {
           wiring?.close()
           this.#wiring = undefined
+        }
+      })
+      // WP-4.1a: the RPC service port — the production implementation
+      // over the wiring-assembled instances (one extra second
+      // connection of its own, disposed by its OWN effect; the guard
+      // keeps a constructor-injected stub — tests only — untouched).
+      if (this.#rpc === undefined) {
+        this.#rpc = new ProductionResearchRpcServices({
+          wiring: this.#wiring,
+          schemaRoot,
+        })
+      }
+      this.ctx.effect(() => {
+        const rpc = this.#rpc
+        return (): void => {
+          rpc?.close?.()
+          this.#rpc = undefined
         }
       })
       this.#registerResearchTools(this.#wiring)
@@ -340,6 +431,106 @@ export class ResearchControlService extends TypertRemoteService {
   @Remote('ping')
   async ping(): Promise<PingResult> {
     return { ok: true, service: 'researchControl', time: Date.now() }
+  }
+
+  /* ---------------------------------------------------------------- *
+   * WP-4.1a: the 13-RPC client face (ARCHITECTURE.md §7.1)
+   *
+   * Every body is THIN: zod decode (the shared strict schema — the
+   * strict `./typert` descriptor already parsed the wire args on the
+   * gateway's strict path; this second parse is the defense for the SRC
+   * fallback path, which carries no codec) → forward to the injected
+   * `ResearchRpcServices` port. No business logic here (red line).
+   * ---------------------------------------------------------------- */
+
+  @Remote('getDashboard')
+  async getDashboard(): Promise<DashboardSnapshot> {
+    return this.#requireRpc().getDashboard()
+  }
+
+  @Remote('getProject')
+  async getProject(): Promise<ProjectSnapshot> {
+    return this.#requireRpc().getProject()
+  }
+
+  @Remote('getTopic')
+  async getTopic(args: unknown): Promise<TopicSnapshot> {
+    return this.#requireRpc().getTopic(GetTopicArgsSchema.parse(args) satisfies GetTopicArgs)
+  }
+
+  @Remote('getWorkstream')
+  async getWorkstream(args: unknown): Promise<WorkstreamSnapshot> {
+    return this.#requireRpc().getWorkstream(GetWorkstreamArgsSchema.parse(args) satisfies GetWorkstreamArgs)
+  }
+
+  @Remote('queryHistory')
+  async queryHistory(args: unknown): Promise<QueryHistoryResult> {
+    return this.#requireRpc().queryHistory(QueryHistoryArgsSchema.parse(args) satisfies QueryHistoryArgs)
+  }
+
+  @Remote('reorderPlan')
+  async reorderPlan(args: unknown): Promise<ReorderPlanResult> {
+    return this.#requireRpc().reorderPlan(ReorderPlanArgsSchema.parse(args) satisfies ReorderPlanArgs)
+  }
+
+  @Remote('selectPlanFork')
+  async selectPlanFork(args: unknown): Promise<SelectPlanForkResult> {
+    return await this.#requireRpc().selectPlanFork(SelectPlanForkArgsSchema.parse(args) satisfies SelectPlanForkArgs)
+  }
+
+  @Remote('dismissPlanFork')
+  async dismissPlanFork(args: unknown): Promise<DismissPlanForkResult> {
+    return await this.#requireRpc().dismissPlanFork(DismissPlanForkArgsSchema.parse(args) satisfies DismissPlanForkArgs)
+  }
+
+  @Remote('updateInterventionState')
+  async updateInterventionState(args: unknown): Promise<UpdateInterventionStateResult> {
+    return this.#requireRpc().updateInterventionState(
+      UpdateInterventionStateArgsSchema.parse(args) satisfies UpdateInterventionStateArgs,
+    )
+  }
+
+  @Remote('registerInteraction')
+  async registerInteraction(args: unknown): Promise<RegisterInteractionResult> {
+    return await this.#requireRpc().registerInteraction(
+      RegisterInteractionArgsSchema.parse(args) satisfies RegisterInteractionArgs,
+    )
+  }
+
+  @Remote('saveResearchCheckpoint')
+  async saveResearchCheckpoint(args: unknown): Promise<SaveResearchCheckpointResult> {
+    return await this.#requireRpc().saveResearchCheckpoint(
+      SaveResearchCheckpointArgsSchema.parse(args) satisfies SaveResearchCheckpointArgs,
+    )
+  }
+
+  @Remote('getGitHistory')
+  async getGitHistory(args: unknown): Promise<GetGitHistoryResult> {
+    return await this.#requireRpc().getGitHistory(GetGitHistoryArgsSchema.parse(args) satisfies GetGitHistoryArgs)
+  }
+
+  @Remote('restoreDeclarativeFile')
+  async restoreDeclarativeFile(args: unknown): Promise<RestoreDeclarativeFileResult> {
+    return await this.#requireRpc().restoreDeclarativeFile(
+      RestoreDeclarativeFileArgsSchema.parse(args) satisfies RestoreDeclarativeFileArgs,
+    )
+  }
+
+  /**
+   * The RPC port guard: spike mode (no research workspace registered) or
+   * pre-init ⇒ the 13 methods fail loud (the gateway carries the message
+   * to the client as a `ok: false` failure; `ping` still serves — the
+   * WP-0.3 spike-mode contract).
+   */
+  #requireRpc(): ResearchRpcServices {
+    const rpc = this.#rpc
+    if (rpc === undefined) {
+      throw new Error(
+        'the research control plane is not initialized (spike mode) — the 13 RPCs require a ' +
+          'registered research workspace carrying a .research tree (ping stays available)',
+      )
+    }
+    return rpc
   }
 
   /* ---------------------------------------------------------------- *
@@ -361,7 +552,7 @@ export class ResearchControlService extends TypertRemoteService {
    *  (misconfiguration, broken tree, unusable registry, reconciliation
    *  under `failLoud`) — the fiber fails before ACTIVE.
    */
-  #initResearchPlane(adapter: HostSessionAdapter): HostWiring | undefined {
+  #initResearchPlane(adapter: HostSessionAdapter, schemaRoot: string): HostWiring | undefined {
     const registry = (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry
     const workspaces = registry.list()
     const researchWorkspaces = workspaces.filter((w) => {
@@ -386,7 +577,6 @@ export class ResearchControlService extends TypertRemoteService {
     const workspace = researchWorkspaces[0]!
     const researchRoot = join(workspace.path, '.research')
     const projectId = readProjectId(researchRoot) // WIRING_INPUT on a malformed project.yaml
-    const schemaRoot = this.#resolveSchemaRoot(import.meta.url)
     // DSH_ADAPTER §9: the data dir is $DSH_HOME/research-control/<project-id>
     // — dsh-home-paths is imported HERE ONLY (INV-PERM-5).
     const dataDir = dshHomePath('research-control', projectId)

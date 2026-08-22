@@ -1,0 +1,920 @@
+/**
+ * WP-4.1a — the host RPC service PORT + its PRODUCTION implementation
+ * (the 13-RPC client face of ARCHITECTURE.md §7.1).
+ *
+ * Layering (ARCHITECTURE.md §2.2, INV-PERM-5):
+ *  - the `@Remote` method bodies on `ResearchControlService`
+ *    (`./index.ts`, the only host surface allowed to import DSH packages)
+ *    are THIN: `zod decode → forward to this port`. No business rule,
+ *    no I/O, no projection happens in the method body;
+ *  - this port (`ResearchRpcServices`) is the plugin-own service port the
+ *    method bodies forward to — the「注入的 service 端口」of the WP-4.1a
+ *    brief. In production it is the `ProductionResearchRpcServices` below,
+ *    composed in `ResearchControlService.[Service.init]` (the composition
+ *    root, which already builds the host wiring) from the WIRING-ASSEMBLED
+ *    instances (`HostWiring.*`); tests inject a stub implementation
+ *    through the constructor seam;
+ *  - this file is dsh-adapter territory: it imports plugin business
+ *    modules (service/domain/history layers) but NO DSH package.
+ *
+ * Per-RPC forwarding map (wiring-assembly result → forward target):
+ *  | RPC                    | forwards to                                                                 |
+ *  |------------------------|------------------------------------------------------------------------------|
+ *  | getDashboard           | declarative tree loader (query) + InterventionStore.query + null placeholders |
+ *  | getProject             | declarative tree loader (query) + null placeholders                           |
+ *  | getTopic               | tree loader + Workstream cards (planfork countOpen + run table RUNNING)      |
+ *  | getWorkstream          | tree loader + history event log (size + fold projection) + run table + PF store |
+ *  | queryHistory           | history replay query face (`queryEvents` — seq-cursor pagination, verbatim)  |
+ *  | reorderPlan            | PlanStore.savePlan (§4.4 validations + atomic write) + PLAN_REORDER ledger row |
+ *  | selectPlanFork         | PlanForkSelectService.select (WP-3.4: actor re-asserted USER at runtime)     |
+ *  | dismissPlanFork        | PlanForkSelectService.dismiss (WP-3.4: actor re-asserted USER at runtime)    |
+ *  | updateInterventionState| §13 transition guard (pure) + the DDL-reserved state-cache row side          |
+ *  | registerInteraction    | PHASE 5 seam: throws NOT-YET-IMPLEMENTED (Interaction store lands WP-5.3)    |
+ *  | saveResearchCheckpoint | checkpoint service `saveResearchCheckpoint` (§5 flow, user-triggered only)   |
+ *  | getGitHistory          | checkpoint service `diffHistory` (W6 file log, `.research/**`-scoped)        |
+ *  | restoreDeclarativeFile | checkpoint service `restoreResearchFile` (W6/W7/W8 + post-restore check)    |
+ *
+ * User semantics (ARCHITECTURE.md §6): reorderPlan / selectPlanFork /
+ * dismissPlanFork / updateInterventionState / restoreDeclarativeFile /
+ * saveResearchCheckpoint are USER operations — the RPC face makes NO
+ * actor distinction (the client face IS the user face; the host gateway
+ * bounds the matrix), and the forwarded services KEEP their existing
+ * permission checks (WP-3.4 re-asserts `actor.kind === USER` for
+ * select/dismiss; the §13 guard + DDL trigger keep intervention state
+ * user-only; the checkpoint/restore services are explicit-trigger only —
+ * INV-GIT-2/INV-GIT-5). `registerInteraction` is a user登记 operation
+ * (DOMAIN_SCHEMA §10.1; the §6 matrix has no AGENT row for it).
+ *
+ * One extra resource: a SECOND `node:sqlite` connection over the same
+ * `research.sqlite` (the established dual-connection pattern of the
+ * wiring — runbinding/planfork/flooding each open their own). It serves
+ * the three user-surface writes the wiring-internal services do not
+ * expose: the PLAN_REORDER ledger INSERT, the intervention state-cache
+ * UPDATE, and the SELECTED transaction of the select service. Owned by
+ * this object; closed by `close()` (idempotent), which the dsh-adapter
+ * registers with `ctx.effect`.
+ */
+
+import { DatabaseSync } from 'node:sqlite'
+import { join } from 'node:path'
+
+import {
+  type CurrentTaskDto,
+  type DashboardSnapshot,
+  type DismissPlanForkArgs,
+  type DismissPlanForkResult,
+  type GetGitHistoryArgs,
+  type GetGitHistoryResult,
+  type GetTopicArgs,
+  type GetWorkstreamArgs,
+  type InterventionDto,
+  type MergeContractRefDto,
+  type ObjectiveDto,
+  type PlanForkDto,
+  type PlanItemDto,
+  type ProjectSnapshot,
+  type HistoryEventDto,
+  type QueryHistoryArgs,
+  type QueryHistoryResult,
+  type ReorderPlanArgs,
+  type ReorderPlanResult,
+  type RegisterInteractionArgs,
+  type RegisterInteractionResult,
+  type RestoreDeclarativeFileArgs,
+  type RestoreDeclarativeFileResult,
+  type SaveResearchCheckpointArgs,
+  type SaveResearchCheckpointResult,
+  type SelectPlanForkArgs,
+  type SelectPlanForkResult,
+  type TopologyEdgeDto,
+  type TopicCardDto,
+  type TopicSnapshot,
+  type UpdateInterventionStateArgs,
+  type UpdateInterventionStateResult,
+  type WorkstreamCardDto,
+  type WorkstreamSnapshot,
+} from '../../../shared/rpc-contracts.js'
+import {
+  adaptDatabaseSync,
+  type HostWiring,
+} from '../../service/wiring/index.js'
+import {
+  loadResearchTree,
+  type ObjectiveDoc,
+  type ResearchFileReader,
+  type ResearchTree,
+  type TopicNode,
+  type WorkstreamNode,
+} from '../../domain/loader/index.js'
+import {
+  foldEvents,
+  queryEvents,
+} from '../../history/replay/index.js'
+import type { HistoryEventRecord } from '../../persistence/store/index.js'
+import {
+  FsResearchReader,
+  diffHistory,
+  restoreResearchFile,
+  saveResearchCheckpoint,
+  type StructuredLogger,
+} from '../../service/checkpoint/index.js'
+import { FsPlanFileWriter } from '../../service/fs/index.js'
+import { PlanStore } from '../../domain/plan/index.js'
+import {
+  PlanForkSelectService,
+  type PlanForkSelectOptions,
+} from '../../service/select/index.js'
+import { checkInterventionTransition } from '../../service/flooding/index.js'
+import type { InterventionRecord } from '../../service/flooding/index.js'
+import {
+  managementActionToParams,
+  SQL_INSERT_MANAGEMENT_ACTION,
+  type ActorRef,
+  type CanonicalPlanProvider,
+  type CanonicalPlanView,
+  type ManagementActionRecord,
+  type PlanForkRecord,
+} from '../../domain/planfork/index.js'
+
+/**
+ * The injected service port the 13 `@Remote` method bodies forward to.
+ *
+ * Arity contract (RR-006): every port method takes exactly the decoded
+ * args object of its RPC — 1:1 with the descriptor's parameter face
+ * (0 params for getDashboard/getProject, 1 `args` param for the other
+ * 11). Tests stub this interface and assert the forwarded args/return.
+ */
+export interface ResearchRpcServices {
+  getDashboard(): DashboardSnapshot
+  getProject(): ProjectSnapshot
+  getTopic(args: GetTopicArgs): TopicSnapshot
+  getWorkstream(args: GetWorkstreamArgs): WorkstreamSnapshot
+  queryHistory(args: QueryHistoryArgs): QueryHistoryResult
+  reorderPlan(args: ReorderPlanArgs): ReorderPlanResult
+  selectPlanFork(args: SelectPlanForkArgs): Promise<SelectPlanForkResult>
+  dismissPlanFork(args: DismissPlanForkArgs): Promise<DismissPlanForkResult>
+  updateInterventionState(args: UpdateInterventionStateArgs): UpdateInterventionStateResult
+  registerInteraction(args: RegisterInteractionArgs): Promise<RegisterInteractionResult>
+  saveResearchCheckpoint(args: SaveResearchCheckpointArgs): Promise<SaveResearchCheckpointResult>
+  getGitHistory(args: GetGitHistoryArgs): Promise<GetGitHistoryResult>
+  restoreDeclarativeFile(args: RestoreDeclarativeFileArgs): Promise<RestoreDeclarativeFileResult>
+  /**
+   * Optional resource teardown (the production implementation owns one
+   * second SQLite connection; the dsh-adapter registers it with
+   * `ctx.effect`). Stub implementations may omit it.
+   */
+  close?(): void
+}
+
+/**
+ * The frozen USER actor the RPC face forwards for user-semantic RPCs.
+ * The client has no identity of its own (the host gateway bounds the
+ * matrix — ARCHITECTURE §6); the forwarded services keep their checks
+ * (WP-3.4 `assertUserActor` accepts a bare `{ kind: 'USER' }`).
+ */
+const USER_ACTOR: ActorRef = { kind: 'USER' }
+
+/**
+ * The state-cache row side of the intervention table — the ONLY columns
+ * the frozen DDL trigger permits to change after creation
+ * (intervention_no_content_update: 「only the state-cache columns
+ * status/closed_at/resolution_note may change, user-only per INV-PERM-4」).
+ * The conditional `AND status = ?` is the optimistic concurrency gate
+ * (same pattern as the planfork store's conditional UPDATE).
+ */
+const SQL_UPDATE_INTERVENTION_STATE =
+  'UPDATE intervention SET status = ?, closed_at = ?, resolution_note = ? WHERE id = ? AND status = ?'
+
+/** Task execution/validation vocabularies for the Current-zone fold. */
+const TASK_EXECUTIONS = new Set(['PLANNED', 'ACTIVE', 'PAUSED', 'EXECUTED', 'CANCELLED'])
+const TASK_VALIDATIONS = new Set(['NOT_REQUIRED', 'PENDING', 'UNDER_REVIEW', 'PASSED', 'FAILED'])
+
+/** Console bridge for the checkpoint services' mandatory logger. */
+function consoleLogger(): StructuredLogger {
+  return {
+    info: (event, fields) => console.log(`[research-control][rpc][${event}]`, fields ?? {}),
+    warn: (event, fields) => console.warn(`[research-control][rpc][${event}]`, fields ?? {}),
+    error: (event, fields) => console.error(`[research-control][rpc][${event}]`, fields ?? {}),
+  }
+}
+
+export interface ProductionResearchRpcServicesOptions {
+  /** The wiring-assembled service graph (the composition root's output). */
+  readonly wiring: HostWiring
+  /** The frozen contract schema ROOT (the `schema/` directory). */
+  readonly schemaRoot: string
+  /** Clock (A-3 epoch ms; default `Date.now`). */
+  readonly now?: () => number
+}
+
+/**
+ * The production implementation of the RPC service port: decode is the
+ * method body's job — this layer receives ALREADY-DECODED args and does
+ * query projection + delegation to the business services that own the
+ * rules (state machines, §4.4 validations, §5 git flow, §13 guard).
+ */
+export class ProductionResearchRpcServices implements ResearchRpcServices {
+  readonly #wiring: HostWiring
+  readonly #declarativeDir: string
+  readonly #now: () => number
+  readonly #logger: StructuredLogger
+  /** The user-surface second connection (PLAN REORDER ledger / intervention
+   *  state-cache update / the select service's SELECTED transaction). */
+  readonly #dbConn: DatabaseSync
+  readonly #db: ReturnType<typeof adaptDatabaseSync>
+  readonly #select: PlanForkSelectService
+  #closed = false
+
+  constructor(options: ProductionResearchRpcServicesOptions) {
+    this.#wiring = options.wiring
+    this.#declarativeDir = join(options.schemaRoot, 'declarative')
+    this.#now = options.now ?? Date.now
+    this.#logger = consoleLogger()
+
+    const dbPath = join(options.wiring.dataDir, 'research.sqlite')
+    this.#dbConn = new DatabaseSync(dbPath)
+    this.#db = adaptDatabaseSync(this.#dbConn)
+
+    // The canonical plan provider (the production read path: fresh
+    // PlanStore.loadPlan per call — the same composition the wiring uses
+    // for its own planfork creation flow; the select service re-checks
+    // the PF base against THIS face, §6.1). Read-only by construction:
+    // the writer rejects (the select service writes through its own
+    // injected writer, never through the provider).
+    const reader = new FsResearchReader(options.wiring.researchRoot)
+    this.#select = new PlanForkSelectService({
+      repoRoot: options.wiring.repoRoot,
+      store: options.wiring.planForks,
+      db: this.#db,
+      allocator: options.wiring.allocator,
+      projectId: options.wiring.projectId,
+      planProvider: makeReadonlyPlanProvider({
+        reader,
+        researchRoot: options.wiring.researchRoot,
+        declarativeDir: this.#declarativeDir,
+      }),
+      reader,
+      writer: new FsPlanFileWriter(),
+      schemaDir: this.#declarativeDir,
+      now: this.#now,
+    } satisfies Omit<PlanForkSelectOptions, 'git' | 'concurrency' | 'researchDir'>)
+  }
+
+  /** Close the user-surface connection (idempotent; `ctx.effect`-owned). */
+  close(): void {
+    if (this.#closed) return
+    this.#closed = true
+    try {
+      this.#dbConn.close()
+    } catch {
+      /* idempotent close */
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Snapshot reads (§27.1–§27.4) — the declarative tree is the 真源;
+   * every read is a FRESH load (low-frequency unary face, §8: the file
+   * is the truth, no cache), plus the operational query faces.
+   * ------------------------------------------------------------------ */
+
+  getDashboard(): DashboardSnapshot {
+    const tree = this.#loadTree('getDashboard')
+    const project = tree.project
+    if (project === null) {
+      throw new Error('getDashboard: project.yaml is missing or invalid (the tree loaded no project doc)')
+    }
+    const interventions = this.#wiring.interventions.listInterventions()
+    return {
+      project: {
+        id: project.id,
+        title: project.title,
+        description: project.description ?? null,
+        importance: project.importance,
+        attentionMode: project.attention_mode,
+        targetDate: project.target_date ?? null,
+      },
+      topics: tree.topics.map((t) => this.#topicCard(t)),
+      openInterventions: interventions.filter((iv) => iv.status === 'OPEN').map((iv) => this.#interventionDto(iv)),
+      pendingInterventions: interventions.filter((iv) => iv.status === 'PENDING').map((iv) => this.#interventionDto(iv)),
+      // PHASE 5/6 placeholders (never fabricated — the strict schema pins null):
+      scheduledEvents: null,
+      reportingItems: null,
+      inboxCount: null,
+      attention: null,
+    }
+  }
+
+  getProject(): ProjectSnapshot {
+    const tree = this.#loadTree('getProject')
+    const project = tree.project
+    if (project === null) {
+      throw new Error('getProject: project.yaml is missing or invalid (the tree loaded no project doc)')
+    }
+    return {
+      project: {
+        id: project.id,
+        title: project.title,
+        description: project.description ?? null,
+        importance: project.importance,
+        attentionMode: project.attention_mode,
+        targetDate: project.target_date ?? null,
+        currentObjectiveRefs: [...project.current_objective_refs],
+        createdAt: project.created_at,
+      },
+      objectives: tree.objectives.map((o) => this.#objectiveDto(o)),
+      topics: tree.topics.map((t) => this.#topicCard(t)),
+      // PHASE 5 placeholder (§27.2 「upcoming interactions/reporting」):
+      upcomingInteractions: null,
+      upcomingReporting: null,
+    }
+  }
+
+  getTopic(args: GetTopicArgs): TopicSnapshot {
+    const tree = this.#loadTree('getTopic')
+    const topic = tree.topics.find((t) => t.id === args.topicId)
+    if (topic === undefined) {
+      throw new Error(`getTopic: topic ${args.topicId} does not exist`)
+    }
+    const doc = topic.doc
+    if (doc === null) {
+      throw new Error(`getTopic: topic ${args.topicId} has no loadable topic.yaml`)
+    }
+    const edges = topic.topology?.topology.edges ?? []
+    const edgeIds = new Set(edges.map((e) => e.id))
+    return {
+      topic: {
+        id: doc.id,
+        title: doc.title,
+        description: doc.description ?? null,
+        importance: doc.importance ?? null,
+        attentionMode: doc.attention_mode ?? null,
+        objectiveRefs: [...doc.objective_refs],
+        createdAt: doc.created_at,
+      },
+      workstreams: topic.workstreams.map((ws) => this.#workstreamCard(ws)),
+      topology: {
+        edges: edges.map((e) => ({
+          id: e.id,
+          operation: e.operation,
+          lifecycle: e.lifecycle,
+          inputs: [...e.inputs],
+          outputs: [...e.outputs],
+          note: e.note ?? null,
+        })),
+      },
+      mergeContracts: tree.mergeContracts
+        .filter((mc) => edgeIds.has(mc.edgeId))
+        .map((mc): MergeContractRefDto => ({ edgeId: mc.edgeId, path: mc.path })),
+      objectives: tree.objectives
+        .filter((o) => o.scope === 'TOPIC' && o.topic_id === doc.id)
+        .map((o) => this.#objectiveDto(o)),
+    }
+  }
+
+  getWorkstream(args: GetWorkstreamArgs): WorkstreamSnapshot {
+    const tree = this.#loadTree('getWorkstream')
+    const wsNode = this.#findWorkstreamNode(tree, args.workstreamId, 'getWorkstream')
+    const doc = wsNode.doc
+    if (doc === null) {
+      throw new Error(`getWorkstream: workstream ${args.workstreamId} has no loadable workstream.yaml`)
+    }
+    const events = this.#wiring.store.listRange(wsNode.id, 1)
+    const runs = this.#wiring.tables.listRuns({ workstreamId: wsNode.id })
+    const runningByTask = new Map<string, string[]>()
+    for (const r of runs) {
+      if (r.status !== 'RUNNING' || r.task_id === undefined) continue
+      const list = runningByTask.get(r.task_id) ?? []
+      list.push(r.id)
+      runningByTask.set(r.task_id, list)
+    }
+    // Current-zone state: the declarative definitions + the execution/
+    // validation fold over the WS event log (the history replay face —
+    // a read projection; the state machine itself is enforced at append
+    // time, DOMAIN_SCHEMA §13). The Set guards below keep the payload
+    // (validated against the frozen catalog at append) inside the wire
+    // vocabulary.
+    type TaskWireState = { execution: CurrentTaskDto['execution']; validation: CurrentTaskDto['validation'] }
+    const initial = new Map<string, TaskWireState>()
+    for (const t of wsNode.tasks) {
+      const ac = t.doc === null ? [] : t.doc.acceptance_criteria
+      initial.set(t.id, {
+        execution: 'PLANNED',
+        validation: ac.length > 0 ? 'PENDING' : 'NOT_REQUIRED',
+      })
+    }
+    const folded = foldEvents(events, (state: Map<string, TaskWireState>, ev) => {
+      if (ev.eventType === 'TASK_EXECUTION_CHANGED') {
+        const p = ev.payload as { task_id?: unknown; to?: unknown }
+        if (
+          typeof p.task_id === 'string' &&
+          typeof p.to === 'string' &&
+          TASK_EXECUTIONS.has(p.to) &&
+          state.has(p.task_id)
+        ) {
+          const cur = state.get(p.task_id)!
+          state.set(p.task_id, { ...cur, execution: p.to as TaskWireState['execution'] })
+        }
+      } else if (ev.eventType === 'TASK_VALIDATION_CHANGED') {
+        const p = ev.payload as { task_id?: unknown; to?: unknown }
+        if (
+          typeof p.task_id === 'string' &&
+          typeof p.to === 'string' &&
+          TASK_VALIDATIONS.has(p.to) &&
+          state.has(p.task_id)
+        ) {
+          const cur = state.get(p.task_id)!
+          state.set(p.task_id, { ...cur, validation: p.to as TaskWireState['validation'] })
+        }
+      }
+      return state
+    }, initial)
+    const itemTitles = new Map<string, { kind: PlanItemDto['kind']; title: string }>()
+    for (const t of wsNode.tasks) {
+      itemTitles.set(t.id, { kind: 'TASK', title: t.doc === null ? '' : t.doc.title })
+    }
+    for (const g of wsNode.gates) {
+      itemTitles.set(g.id, { kind: 'GATE', title: g.doc === null ? '' : g.doc.title })
+    }
+    for (const m of wsNode.milestones) {
+      itemTitles.set(m.id, { kind: 'MILESTONE', title: m.doc === null ? '' : m.doc.title })
+    }
+    const planForks = this.#wiring.planForks
+      .listPlanForks({ workstreamId: wsNode.id })
+      .filter((pf) => pf.status === 'OPEN' || pf.status === 'STALE')
+    return {
+      workstream: {
+        id: doc.id,
+        topicId: doc.topic_id,
+        title: doc.title,
+        lifecycle: doc.lifecycle,
+        summary: doc.summary ?? null,
+        createdAt: doc.created_at,
+      },
+      history: { eventCount: events.length },
+      current: {
+        tasks: wsNode.tasks
+          .filter((t) => t.doc !== null)
+          .map((t) => {
+            const doc2 = t.doc!
+            const state = folded.get(t.id) ?? { execution: 'PLANNED', validation: 'NOT_REQUIRED' }
+            return {
+              id: doc2.id,
+              title: doc2.title,
+              execution: state.execution,
+              validation: state.validation,
+              acceptanceCriteria: [...doc2.acceptance_criteria],
+              liveRunIds: [...(runningByTask.get(doc2.id) ?? [])],
+            }
+          }),
+        runs: runs.map((r) => ({
+          id: r.id,
+          status: r.status,
+          taskId: r.task_id ?? null,
+          intent: r.intent ?? null,
+          startedAt: r.started_at,
+          endedAt: r.ended_at ?? null,
+          lastCheckpointAt: r.last_checkpoint_at ?? null,
+          lastCheckpointNote: r.last_checkpoint_note ?? null,
+        })),
+      },
+      future: {
+        plan: {
+          orderedItems: (wsNode.plan?.ordered_items ?? []).map((id) => {
+            const item = itemTitles.get(id)
+            // A dangling plan.yaml reference is a load error (the loader
+            // validates it) — unreachable after #loadTree succeeded.
+            if (item === undefined) {
+              throw new Error(`getWorkstream: plan item ${id} of ${wsNode.id} has no definition (loader should have rejected the tree)`)
+            }
+            return { id, kind: item.kind, title: item.title }
+          }),
+        },
+        planForks: planForks.map((pf) => this.#planForkDto(pf)),
+        unresolvedPlanForkCount: planForks.length,
+      },
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * History query — the replay query face, verbatim (seq-cursor
+   * pagination; the page is never truncated mid-window).
+   * ------------------------------------------------------------------ */
+
+  queryHistory(args: QueryHistoryArgs): QueryHistoryResult {
+    const page = queryEvents(this.#wiring.store, args.workstreamId, {
+      order: args.order,
+      afterSeq: args.afterSeq,
+      beforeSeq: args.beforeSeq,
+      limit: args.limit,
+    })
+    return {
+      events: page.events.map((ev) => this.#historyEventDto(ev)),
+      nextAfterSeq: page.nextAfterSeq,
+      exhausted: page.exhausted,
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * User-semantic mutations — thin delegation; the forwarded services
+   * own the permission checks and the business rules.
+   * ------------------------------------------------------------------ */
+
+  reorderPlan(args: ReorderPlanArgs): ReorderPlanResult {
+    const tree = this.#loadTree('reorderPlan')
+    const wsNode = this.#findWorkstreamNode(tree, args.workstreamId, 'reorderPlan')
+    const reader = new FsResearchReader(this.#wiring.researchRoot)
+    const store = new PlanStore({
+      reader,
+      writer: new FsPlanFileWriter(),
+      researchRoot: this.#wiring.researchRoot,
+      schemaDir: this.#declarativeDir,
+      topicId: wsNode.topicId,
+      wsId: args.workstreamId,
+    })
+    const current = store.loadPlan()
+    if (current.errors.length > 0) {
+      throw new Error(`reorderPlan: the canonical plan of ${args.workstreamId} failed to load: ${current.errors[0]!.message}`)
+    }
+    // The RPC contract: a REORDER is the same item set in a new order
+    // (insert/delete are NOT in the frozen 13-RPC list — the kernel's
+    // §4.4 validations still guard the write itself).
+    const currentSet = new Set(current.items)
+    for (const id of args.orderedItemIds) {
+      if (!currentSet.has(id)) {
+        throw new Error(
+          `reorderPlan: item ${id} is not in the canonical plan of ${args.workstreamId} ` +
+            '— reorder keeps the same item set (insert/delete are not part of the V1 RPC face)',
+        )
+      }
+    }
+    if (new Set(args.orderedItemIds).size !== args.orderedItemIds.length) {
+      throw new Error('reorderPlan: orderedItemIds contains duplicates (the kernel rejects them too — failing early)')
+    }
+    const previousOrder = [...current.items]
+    // The kernel owns the write: §4.4 three validations + atomic file write.
+    store.savePlan(args.orderedItemIds)
+    // DOMAIN_SCHEMA §12.1: ResearchHistory does NOT record plan management
+    // ops — the management_action ledger is the provenance face.
+    const maRes = this.#wiring.allocator.reserve('MANAGEMENT_ACTION', this.#wiring.projectId)
+    try {
+      const ma: ManagementActionRecord = {
+        id: maRes.id,
+        action_kind: 'PLAN_REORDER',
+        actor: USER_ACTOR,
+        subject_refs: [{ kind: 'WORKSTREAM', id: args.workstreamId }],
+        detail: `canonical plan of ${args.workstreamId} reordered: [${previousOrder.join(', ')}] -> [${args.orderedItemIds.join(', ')}]`,
+        occurred_at: this.#now(),
+      }
+      this.#db.run(SQL_INSERT_MANAGEMENT_ACTION, ...managementActionToParams(ma))
+      this.#wiring.allocator.commit(maRes)
+    } catch (cause) {
+      this.#wiring.allocator.release(maRes)
+      throw new Error(
+        `reorderPlan: the plan file was rewritten but the PLAN_REORDER ledger row failed — ` +
+          `the order is on disk, the provenance row is missing (manual reconciliation): ` +
+          (cause instanceof Error ? cause.message : String(cause)),
+      )
+    }
+    return {
+      workstreamId: args.workstreamId,
+      orderedItemIds: [...args.orderedItemIds],
+      planPath: `${wsNode.path}/plan.yaml`,
+      managementActionId: maRes.id,
+    }
+  }
+
+  async selectPlanFork(args: SelectPlanForkArgs): Promise<SelectPlanForkResult> {
+    // WP-3.4 owns §6: base re-check → materialize → plan.yaml rewrite →
+    // the single SELECTED transaction (chained STALE + PF_SELECTED ledger
+    // with the NEW closure OIDs) → compensation on DB failure. It
+    // re-asserts actor.kind === USER (INV-PERM-2).
+    const outcome = await this.#select.select(args.planForkId, USER_ACTOR)
+    return {
+      planForkId: outcome.pfId,
+      workstreamId: outcome.workstreamId,
+      statusBefore: outcome.statusBefore,
+      statusAfter: outcome.statusAfter,
+      selectedAt: outcome.selectedAt,
+      oldOrder: [...outcome.oldOrder],
+      newOrder: [...outcome.newOrder],
+      newItems: outcome.newItems.map((i) => ({ id: i.id, kind: i.kind, path: i.path })),
+      removedIds: [...outcome.removedIds],
+      staleOthers: outcome.staleOthers.map((s) => ({ planForkId: s.pfId, staleReason: s.stale_reason })),
+      planYamlPath: outcome.planYamlPath,
+      checkpointHint: outcome.checkpointHint,
+    }
+  }
+
+  async dismissPlanFork(args: DismissPlanForkArgs): Promise<DismissPlanForkResult> {
+    // WP-3.4 §7: OPEN|STALE → DISMISSED (status change only — never a
+    // delete, INV-PLAN-4); re-asserts actor.kind === USER.
+    const outcome = this.#select.dismiss(args.planForkId, USER_ACTOR)
+    return {
+      planForkId: outcome.pfId,
+      workstreamId: outcome.workstreamId,
+      statusBefore: outcome.statusBefore,
+      statusAfter: outcome.statusAfter,
+      dismissedAt: outcome.dismissedAt,
+    }
+  }
+
+  updateInterventionState(args: UpdateInterventionStateArgs): UpdateInterventionStateResult {
+    const current = this.#wiring.interventions.getIntervention(args.interventionId)
+    if (current === null) {
+      throw new Error(`updateInterventionState: intervention ${args.interventionId} does not exist`)
+    }
+    // The §13 transition guard (pure business-layer face; INV-PERM-4 —
+    // user-only; self-loops and terminal exits rejected).
+    checkInterventionTransition(args.interventionId, current.status, args.status)
+    if (args.resolutionNote !== undefined && args.status !== 'CLOSED') {
+      throw new Error(
+        'updateInterventionState: resolutionNote is only valid when closing an Intervention (status CLOSED; DOMAIN_SCHEMA §9.2)',
+      )
+    }
+    const closedAt = args.status === 'CLOSED' ? this.#now() : null
+    const affected = this.#db.run(
+      SQL_UPDATE_INTERVENTION_STATE,
+      args.status,
+      closedAt,
+      args.resolutionNote ?? null,
+      args.interventionId,
+      current.status,
+    )
+    if (affected === 0) {
+      throw new Error(
+        `updateInterventionState: intervention ${args.interventionId} moved concurrently ` +
+          `(expected status ${current.status}) — refetch and retry`,
+      )
+    }
+    return {
+      interventionId: args.interventionId,
+      statusFrom: current.status,
+      statusTo: args.status,
+      closedAt,
+      resolutionNote: args.status === 'CLOSED' ? (args.resolutionNote ?? null) : null,
+    }
+  }
+
+  async registerInteraction(_args: RegisterInteractionArgs): Promise<RegisterInteractionResult> {
+    // PHASE 5 seam (WP-5.3, DOMAIN_SCHEMA §10.1): the Interaction
+    // operational store does not exist yet — the wire contract and this
+    // port seam are frozen (WP-4.1a), the production registration lands
+    // with the store. Fail loud rather than fabricate a row (the
+    // placeholder discipline of the result DTOs).
+    throw new Error(
+      'registerInteraction: not yet implemented — the Interaction operational store lands in ' +
+        'PHASE 5 (WP-5.3, DOMAIN_SCHEMA §10.1); the wire contract and port seam are frozen',
+    )
+  }
+
+  async saveResearchCheckpoint(args: SaveResearchCheckpointArgs): Promise<SaveResearchCheckpointResult> {
+    // WP-1.5 §5 flow (user-triggered only — INV-GIT-2): repo detect →
+    // conflict detection → `.research/**`-only pathspec (INV-GIT-3) →
+    // commit; the no-change short-circuit is a success (no empty commit).
+    const result = await saveResearchCheckpoint(this.#wiring.repoRoot, {
+      summary: args.summary,
+      logger: this.#logger,
+    })
+    return {
+      committed: result.committed,
+      commitOid: result.commitOid,
+      changedFiles: [...result.changedFiles],
+      warnings: [...result.warnings],
+      message: result.message ?? null,
+    }
+  }
+
+  async getGitHistory(args: GetGitHistoryArgs): Promise<GetGitHistoryResult> {
+    const result = await diffHistory(this.#wiring.repoRoot, {
+      logger: this.#logger,
+      path: args.path,
+      baseline: args.baseline,
+      maxCount: args.maxCount,
+      skip: args.skip,
+    })
+    return {
+      versions: result.versions.map((v) => ({ oid: v.oid, authorDate: v.authorDate, subject: v.subject })),
+      fileDiff:
+        result.fileDiff === undefined
+          ? null
+          : result.fileDiff.map((d) => ({ status: d.status, path: d.path, oldPath: d.oldPath ?? null })),
+      baseline: result.baseline ?? null,
+      pathContent:
+        result.pathContent === undefined || result.pathContent === null
+          ? null
+          : { path: result.pathContent.path, sameAsBaseline: result.pathContent.sameAsBaseline },
+    }
+  }
+
+  async restoreDeclarativeFile(args: RestoreDeclarativeFileArgs): Promise<RestoreDeclarativeFileResult> {
+    // WP-1.5 §6 (user-triggered only — INV-GIT-5): W6 locate → W7 prefetch
+    // → W8 restore → post-restore loader validation; illegal content is
+    // KEPT as-is with warnings (no silent rollback).
+    const result = await restoreResearchFile(this.#wiring.repoRoot, args.commitOid, args.path, {
+      logger: this.#logger,
+      schemaDir: this.#declarativeDir,
+    })
+    return {
+      path: result.path,
+      commitOid: result.commitOid,
+      validationOk: result.validation.ok,
+      validationErrors: result.validation.errors.map((e) => ({
+        file: e.file,
+        path: e.path ?? null,
+        summary: e.message,
+      })),
+      warnings: [...result.warnings],
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Projections (record → wire DTO) + lookups
+   * ------------------------------------------------------------------ */
+
+  #loadTree(operation: string): ResearchTree {
+    const load = loadResearchTree(
+      new FsResearchReader(this.#wiring.researchRoot),
+      this.#wiring.researchRoot,
+      this.#declarativeDir,
+    )
+    if (load.errors.length > 0) {
+      const e = load.errors[0]!
+      throw new Error(
+        `${operation}: the declarative tree failed to load — refusing to serve a broken snapshot: ` +
+          `[${e.code}] ${e.file || '<root>'}${e.path !== undefined ? e.path : ''}: ${e.message}`,
+      )
+    }
+    return load.tree
+  }
+
+  #findWorkstreamNode(tree: ResearchTree, workstreamId: string, operation: string): WorkstreamNode {
+    for (const topic of tree.topics) {
+      const ws = topic.workstreams.find((w) => w.id === workstreamId)
+      if (ws !== undefined) return ws
+    }
+    throw new Error(`${operation}: workstream ${workstreamId} does not exist`)
+  }
+
+  #topicCard(topic: TopicNode): TopicCardDto {
+    if (topic.doc === null) {
+      throw new Error(`topic ${topic.id} has no loadable topic.yaml (loader should have reported the error)`)
+    }
+    return {
+      id: topic.id,
+      title: topic.doc.title,
+      workstreamCount: topic.workstreams.length,
+    }
+  }
+
+  #objectiveDto(o: ObjectiveDoc): ObjectiveDto {
+    return {
+      id: o.id,
+      scope: o.scope,
+      statement: o.statement,
+      status: o.status,
+      priority: o.priority,
+      targetDate: o.target_date ?? null,
+    }
+  }
+
+  #interventionDto(iv: InterventionRecord): InterventionDto {
+    return {
+      id: iv.id,
+      title: iv.title,
+      origin: iv.origin,
+      status: iv.status,
+      workstreamIds: [...iv.workstream_ids],
+      createdAt: iv.created_at,
+    }
+  }
+
+  #workstreamCard(ws: WorkstreamNode): WorkstreamCardDto {
+    if (ws.doc === null) {
+      throw new Error(`workstream ${ws.id} has no loadable workstream.yaml (loader should have reported the error)`)
+    }
+    return {
+      id: ws.id,
+      title: ws.doc.title,
+      lifecycle: ws.doc.lifecycle,
+      summary: ws.doc.summary ?? null,
+      planItemCount: ws.plan === null ? 0 : ws.plan.ordered_items.length,
+      openPlanForkCount: this.#wiring.planForks.countOpen(ws.id),
+      runningRunCount: this.#wiring.tables.listRuns({ workstreamId: ws.id, status: 'RUNNING' }).length,
+    }
+  }
+
+  #planForkDto(pf: PlanForkRecord): PlanForkDto {
+    return {
+      id: pf.id,
+      // The caller pre-filters to the unresolved overlay set (OPEN|STALE).
+      status: pf.status === 'OPEN' ? 'OPEN' : 'STALE',
+      reason: pf.reason,
+      necessity: pf.necessity,
+      forkAnchor: pf.fork_anchor,
+      mergeAnchor: pf.merge_anchor,
+      createdByRun: pf.created_by_run,
+      createdAt: pf.created_at,
+      staleReason: pf.stale_reason ?? null,
+      proposedItemCount: pf.proposed_items.length,
+      baseGitCommit: pf.base_git_commit ?? null,
+    }
+  }
+
+  #historyEventDto(ev: HistoryEventRecord): HistoryEventDto {
+    return {
+      eventId: ev.eventId,
+      ownerWorkstreamId: ev.ownerWorkstreamId,
+      eventType: ev.eventType,
+      schemaVersion: ev.schemaVersion,
+      occurredAt: ev.occurredAt,
+      actor: {
+        kind: ev.actor.kind,
+        ...(ev.actor.user_id !== undefined ? { user_id: ev.actor.user_id } : {}),
+        ...(ev.actor.run_id !== undefined ? { run_id: ev.actor.run_id } : {}),
+        ...(ev.actor.session_id !== undefined ? { session_id: ev.actor.session_id } : {}),
+        ...(ev.actor.label !== undefined ? { label: ev.actor.label } : {}),
+      },
+      source:
+        ev.source === undefined || ev.source === null
+          ? null
+          : {
+              kind: ev.source.kind,
+              ...(ev.source.session_id !== undefined ? { session_id: ev.source.session_id } : {}),
+              ...(ev.source.path !== undefined ? { path: ev.source.path } : {}),
+              ...(ev.source.commit_oid !== undefined ? { commit_oid: ev.source.commit_oid } : {}),
+              ...(ev.source.interaction_id !== undefined ? { interaction_id: ev.source.interaction_id } : {}),
+              ...(ev.source.note !== undefined ? { note: ev.source.note } : {}),
+            },
+      payload: ev.payload,
+      eventSeq: ev.eventSeq,
+      recordedAt: ev.recordedAt,
+    }
+  }
+}
+
+/* -------------------------------------------------------------------- *
+ * The read-only canonical plan provider (the select service's §6.1
+ * re-check face — fresh read, no cache; the same composition the wiring
+ * uses for its own planfork creation flow).
+ * -------------------------------------------------------------------- */
+
+/** A plan writer that refuses: the provider is READ-ONLY by construction. */
+const REJECTING_PLAN_WRITER = {
+  writeAtomic(_path: string): void {
+    throw new Error('the RPC face plan provider is read-only (writeAtomic)')
+  },
+}
+
+function makeReadonlyPlanProvider(input: {
+  readonly reader: ResearchFileReader
+  readonly researchRoot: string
+  readonly declarativeDir: string
+}): CanonicalPlanProvider {
+  return {
+    load(workstreamId: string) {
+      const topics = input.reader.readDir(join(input.researchRoot, 'topics'))
+      if (topics === null) return absentPlanView(workstreamId, '')
+      for (const t of topics) {
+        if (t.kind !== 'directory') continue
+        const wsDirRel = `topics/${t.name}/workstreams/${workstreamId}`
+        if (input.reader.readDir(join(input.researchRoot, wsDirRel)) === null) continue
+        try {
+          const ps = new PlanStore({
+            reader: input.reader,
+            writer: REJECTING_PLAN_WRITER,
+            researchRoot: input.researchRoot,
+            schemaDir: input.declarativeDir,
+            topicId: t.name,
+            wsId: workstreamId,
+          })
+          const view = ps.loadPlan()
+          const problem = view.errors.length > 0 ? view.errors[0]!.message : undefined
+          return {
+            workstream_id: workstreamId,
+            wsDir: wsDirRel,
+            workstream_exists: true,
+            present: view.present,
+            ordered_items: view.items,
+            consistent: view.errors.length === 0,
+            ...(problem !== undefined ? { problem } : {}),
+          }
+        } catch (cause) {
+          return absentPlanView(workstreamId, wsDirRel, cause instanceof Error ? cause.message : String(cause))
+        }
+      }
+      return absentPlanView(workstreamId, '')
+    },
+  }
+}
+
+function absentPlanView(workstreamId: string, wsDir: string, problem?: string): CanonicalPlanView {
+  return {
+    workstream_id: workstreamId,
+    wsDir,
+    workstream_exists: false,
+    present: false,
+    ordered_items: [],
+    consistent: false,
+    ...(problem !== undefined ? { problem } : {}),
+  }
+}

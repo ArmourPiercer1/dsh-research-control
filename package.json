@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "DSH Research Control Plane V1 plugin (WP-0.3: ping RPC spike + hand-written typert artifacts + client mount half)",
+  "description": "DSH Research Control Plane V1 plugin (WP-0.4: host session adapter spike — in-memory event counters, no SQLite)",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {

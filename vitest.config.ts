@@ -15,7 +15,7 @@
  */
 
 import ts from 'typescript-6'
-import { defineConfig } from 'vitest/config'
+import { defaultExclude, defineConfig } from 'vitest/config'
 
 const decoratorSyntax = /^\s*@[A-Za-z_$][\w$]*/m
 
@@ -46,4 +46,9 @@ function standardDecoratorPlugin() {
 
 export default defineConfig({
   plugins: [standardDecoratorPlugin()],
+  test: {
+    // e2e/*.spec.ts belong to Playwright (scripts/e2e-run.sh / test:e2e), not
+    // the unit runner; vitest's default include would otherwise collect them.
+    exclude: [...defaultExclude, 'e2e/**'],
+  },
 })

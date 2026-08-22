@@ -51,7 +51,9 @@
   "scripts": {
     "build": "tsdown",
     "test": "vitest run",
-    "lint": "node scripts/check-imports.mjs"
+    "lint": "node scripts/check-imports.mjs",
+    "test:e2e": "bash scripts/e2e-run.sh",
+    "test:e2e:playwright": "playwright test --config e2e/playwright.config.ts"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -60,6 +62,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.8",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",

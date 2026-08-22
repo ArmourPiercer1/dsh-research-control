@@ -4,3 +4,9 @@ lib/
 *.tsbuildinfo
 coverage/
 .pnpm-store/
+# WP-0.6 e2e artifacts
+e2e/__screenshots__/
+playwright-report/
+test-results/
+# pnpm pack output (scripts/e2e-run.sh packs on demand)
+dsh-research-control-*.tgz

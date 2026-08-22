@@ -1,0 +1,26 @@
+{
+  "name": "dsh-research-control",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH Research Control Plane V1 plugin (WP-0.1 scaffold, no business logic)",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "lint": "node scripts/check-imports.mjs"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}

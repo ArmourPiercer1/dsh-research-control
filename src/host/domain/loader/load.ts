@@ -30,7 +30,7 @@
 
 import { parseAllDocuments } from 'yaml'
 
-import { isValidId } from './ids.js'
+import { idMatchesKind } from '../../../shared/ids/index.js'
 import { pjoin } from './path.js'
 import { loadSchemas, schemaErrorSummary } from './schemas.js'
 import type {
@@ -286,7 +286,7 @@ function walkLayout(reader: ResearchFileReader, root: string, errors: ResearchLo
       continue
     }
     const t = tEntry.name
-    if (!isValidId(t, 'TPC')) {
+    if (!idMatchesKind(t, 'TOPIC')) {
       errors.push({
         code: 'PATH_RULE',
         file: `topics/${t}`,
@@ -326,7 +326,7 @@ function walkLayout(reader: ResearchFileReader, root: string, errors: ResearchLo
           continue
         }
         const w = wEntry.name
-        if (!isValidId(w, 'WS')) {
+        if (!idMatchesKind(w, 'WORKSTREAM')) {
           errors.push({
             code: 'PATH_RULE',
             file: `${topicRel}/workstreams/${w}`,
@@ -383,7 +383,7 @@ function walkLayout(reader: ResearchFileReader, root: string, errors: ResearchLo
       continue
     }
     const te = mEntry.name
-    if (!isValidId(te, 'TE')) {
+    if (!idMatchesKind(te, 'TOPOLOGY_EDGE')) {
       errors.push({
         code: 'PATH_RULE',
         file: `merges/${te}`,

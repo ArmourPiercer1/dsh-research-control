@@ -135,10 +135,15 @@ export function loadRegistry(): HistoryEventRegistry {
 /**
  * A static `HistoryObjectContext` the generated events reference. All
  * objects are in states that admit the generated transitions (run R-1
- * RUNNING — RUN_FINISHED's from-state; task T-1 PLANNED —
- * TASK_EXECUTION_CHANGED's from-state; gate G-1 un-evaluated; milestone
- * M-1 PLANNED). Fresh-object events (RUN_STARTED / RUNS_STARTED /
- * FACT / CLAIM) generate fresh ids that are absent here by construction.
+ * RUNNING — RUN_FINISHED / RUN_FAILED / RUN_CANCELLED's from-state; task
+ * T-1 PLANNED — TASK_EXECUTION_CHANGED's from-state; gate G-1
+ * un-evaluated; milestone M-1 PLANNED; claim C-1 ACTIVE — the
+ * CLAIM_RETRACTED from-state; artifact A-1 REGISTERED; relations
+ * REL-1/REL-2 ACTIVE). Fresh-object events (RUN_STARTED / RUNS_STARTED /
+ * FACT / CLAIM / ARTIFACT / RELATION_ADDED) generate fresh ids that are
+ * absent here by construction. (RR-014⑧ WP-3.6: the semantic registries
+ * are now POPULATED so the generator can draw the full legal semantic
+ * surface — retraction-adjacent objects included.)
  */
 export function makeCtx(): HistoryObjectContext {
   return {
@@ -154,10 +159,29 @@ export function makeCtx(): HistoryObjectContext {
       ['T-4', { workstreamId: 'WS-3', execution: 'PLANNED', validation: 'NOT_REQUIRED', acceptanceCriteria: [] }],
     ]),
     runs: new Map([['R-1', { workstreamId: 'WS-1', status: 'RUNNING' }]]),
-    claims: new Map(),
-    facts: new Map(),
-    artifacts: new Map(),
-    relations: new Map(),
+    claims: new Map([['C-1', { workstreamId: 'WS-1', status: 'ACTIVE' }]]),
+    facts: new Map([['F-1', { workstreamId: 'WS-1' }]]),
+    artifacts: new Map([['A-1', { workstreamId: 'WS-1', status: 'REGISTERED' }]]),
+    relations: new Map([
+      [
+        'REL-1',
+        {
+          status: 'ACTIVE',
+          source: { kind: 'CLAIM', id: 'C-1' },
+          relationType: 'SUPPORTED_BY',
+          target: { kind: 'FACT', id: 'F-1' },
+        },
+      ],
+      [
+        'REL-2',
+        {
+          status: 'ACTIVE',
+          source: { kind: 'TASK', id: 'T-3' },
+          relationType: 'DEPENDS_ON',
+          target: { kind: 'TASK', id: 'T-2' },
+        },
+      ],
+    ]),
     gates: new Map([['G-1', { workstreamId: 'WS-1', lastResult: null }]]),
     milestones: new Map([['M-1', { workstreamId: 'WS-1', status: 'PLANNED' }]]),
     interventions: new Map(),
@@ -203,14 +227,25 @@ const sparse = (p: number): fc.Arbitrary<boolean> => fc.integer({ min: 0, max: 9
 /**
  * A drawn stream element — tagged by a `kind` discriminator so
  * `construct` never guesses between overlapping record shapes.
+ * (RR-014⑧ WP-3.6: the kind set now covers the run-terminal surface
+ * (RUN_FAILED / RUN_CANCELLED) and the full fresh-object semantic surface
+ * (ARTIFACT_REGISTERED / RELATION_ADDED) — the legal-shape filter is
+ * widened; the loud registry constraint stays the safety net.)
  */
 export interface StreamElement {
   readonly kind:
     | 'RUN_STARTED'
     | 'RUNS_STARTED'
     | 'RUN_FINISHED'
+    | 'RUN_FAILED'
+    | 'RUN_CANCELLED'
     | 'FACT_RECORDED'
     | 'CLAIM_RECORDED'
+    | 'CLAIM_RETRACTED'
+    | 'ARTIFACT_REGISTERED'
+    | 'ARTIFACT_MARKED_MISSING'
+    | 'RELATION_ADDED'
+    | 'RELATION_REMOVED'
     | 'GATE_EVALUATED'
     | 'MILESTONE_ACHIEVED'
     | 'TASK_EXECUTION_CHANGED'
@@ -226,18 +261,87 @@ export interface StreamElement {
   readonly withIntent?: boolean
   /** RUN_FINISHED: carry `outcome_summary`. */
   readonly withOutcome?: boolean
-  /** GATE_EVALUATED: the frozen result enum (no WAIVED — it would need a
-   *  note; the generator keeps to the two plain results). */
+  /** RUN_FAILED: carry `error_summary` / `failure_kind`. */
+  readonly withErrorSummary?: boolean
+  /** RUN_CANCELLED: the cancelling actorRef (schema-required) + `reason`. */
+  readonly cancelledBy?: Record<string, unknown>
+  /** RUN_CANCELLED / CLAIM_RETRACTED / ARTIFACT_MARKED_MISSING /
+   * RELATION_REMOVED: carry the optional `reason`. */
+  readonly withReason?: boolean
+  /** GATE_EVALUATED: the frozen result enum (WAIVED carries its note —
+   *  the RR-014⑧ widening: the plain two-result filter is lifted). */
   readonly result?: string
   readonly withNote?: boolean
+  /** FACT / CLAIM: carry a `references` string array (frozen schema). */
+  readonly withReferences?: boolean
+  /** ARTIFACT_REGISTERED: the frozen ArtifactType enum. */
+  readonly artifactType?: string
+  /** ARTIFACT_REGISTERED: optional `content_hash` / owner-local
+   * `related_task` / `supersedes` (A-1, the ctx artifact). */
+  readonly withHash?: boolean
+  readonly withRelatedTask?: boolean
+  readonly withSupersedes?: boolean
+  /** RELATION_ADDED: which legal §8 (type, source, target) pair to use
+   *  (see LEGAL_RELATION_PAIRS). */
+  readonly relationSlot?: number
+  /** RELATION_REMOVED: 0 = REL-1 (owner WS-1), 1 = REL-2 (owner WS-2). */
+  readonly relationTarget?: number
 }
+
+/**
+ * The legal §8 endpoint pairs the generator draws from (RR-014⑧): every
+ * row is a listed `(relation_type, source.kind → target.kind)`
+ * combination whose WS-local endpoints exist in the static `makeCtx`
+ * (registry existence) and whose owner resolves per the §4 特例
+ * `source.ws ?? target.ws`. The TASK-endpoint rows exercise the fold's
+ * owner-unresolvable arm (TASK is not a semantic-kind — the reducer
+ * skips the owner check); the CLAIM/FACT/ARTIFACT rows exercise the
+ * resolvable arm; the last row is CROSS-WS (source T-3 ∈ WS-2 → owner
+ * WS-2, target in WS-1).
+ */
+const LEGAL_RELATION_PAIRS = [
+  { type: 'SUPPORTED_BY', source: { kind: 'CLAIM', id: 'C-1' }, target: { kind: 'FACT', id: 'F-1' }, owner: 'WS-1' },
+  { type: 'SUPPORTED_BY', source: { kind: 'CLAIM', id: 'C-1' }, target: { kind: 'ARTIFACT', id: 'A-1' }, owner: 'WS-1' },
+  { type: 'CONTRADICTED_BY', source: { kind: 'CLAIM', id: 'C-1' }, target: { kind: 'FACT', id: 'F-1' }, owner: 'WS-1' },
+  { type: 'DERIVED_FROM', source: { kind: 'FACT', id: 'F-1' }, target: { kind: 'ARTIFACT', id: 'A-1' }, owner: 'WS-1' },
+  { type: 'PRODUCED_BY', source: { kind: 'ARTIFACT', id: 'A-1' }, target: { kind: 'RUN', id: 'R-1' }, owner: 'WS-1' },
+  { type: 'VALIDATED_BY', source: { kind: 'GATE', id: 'G-1' }, target: { kind: 'FACT', id: 'F-1' }, owner: 'WS-1' },
+  { type: 'DEPENDS_ON', source: { kind: 'TASK', id: 'T-1' }, target: { kind: 'TASK', id: 'T-2' }, owner: 'WS-1' },
+  { type: 'DEPENDS_ON', source: { kind: 'TASK', id: 'T-3' }, target: { kind: 'TASK', id: 'T-1' }, owner: 'WS-2' },
+  { type: 'IMPLEMENTS', source: { kind: 'TASK', id: 'T-2' }, target: { kind: 'MILESTONE', id: 'M-1' }, owner: 'WS-1' },
+  { type: 'RELATED_TO', source: { kind: 'FACT', id: 'F-1' }, target: { kind: 'ARTIFACT', id: 'A-1' }, owner: 'WS-1' },
+] as const
+
+/** The ctx relations a RELATION_REMOVED may echo (§5.5 audit redundancy:
+ *  source/relation_type/target must mirror the stored edge). */
+const REMOVABLE_RELATIONS = [
+  {
+    relationId: 'REL-1',
+    source: { kind: 'CLAIM', id: 'C-1' },
+    relationType: 'SUPPORTED_BY',
+    target: { kind: 'FACT', id: 'F-1' },
+    owner: 'WS-1',
+  },
+  {
+    relationId: 'REL-2',
+    source: { kind: 'TASK', id: 'T-3' },
+    relationType: 'DEPENDS_ON',
+    target: { kind: 'TASK', id: 'T-2' },
+    owner: 'WS-2',
+  },
+] as const
+
+/** The frozen ArtifactType enum (common.schema.json `$defs/artifactType`). */
+const ARTIFACT_TYPES = ['DATASET', 'FIGURE', 'MODEL', 'CODE', 'REPORT', 'NOTE', 'OTHER'] as const
 
 /**
  * The event-stream arbitrary (fast-check). 3–24 events; each element is
  * drawn per the frozen schema branch of its type, with the catalog §4
  * emitter matrix honored (RUNS_STARTED: U P only — no AGENT lane;
- * GATE_EVALUATED / MILESTONE_ACHIEVED / TASK_EXECUTION_CHANGED: USER
- * only; AGENT actors carry `run_id` R-1; FACT/CLAIM by AGENT carry
+ * RUN_CANCELLED / CLAIM_RECORDED / CLAIM_RETRACTED / FACT / ARTIFACT_*
+ * / RELATION_*: U A (RUN_CANCELLED no P); GATE_EVALUATED /
+ * MILESTONE_ACHIEVED / TASK_EXECUTION_CHANGED: USER only; AGENT actors
+ * carry `run_id` R-1; FACT/CLAIM/ARTIFACT by AGENT carry
  * `created_by_run`). Stream-unique ids are assigned by INDEX in
  * `construct` (fresh-object ids never collide with the ctx's objects).
  */
@@ -271,11 +375,29 @@ export const streamArb: fc.Arbitrary<readonly StreamElement[]> = fc.array(
       withOutcome: sparse(5),
       occurredAt: fc.integer(OCCURRED_AT),
     }),
+    // RUN_FAILED (§5.1): run 存在; emitters U A P.
+    fc.record({
+      kind: fc.constant('RUN_FAILED' as const),
+      owner: fc.constant('WS-1'),
+      actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR, ...PLUGIN_ACTORS),
+      withErrorSummary: sparse(5),
+      occurredAt: fc.integer(OCCURRED_AT),
+    }),
+    // RUN_CANCELLED (§5.1): run 存在; cancelled_by 必填; emitters U A.
+    fc.record({
+      kind: fc.constant('RUN_CANCELLED' as const),
+      owner: fc.constant('WS-1'),
+      actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR),
+      cancelledBy: fc.constantFrom(...INITIATED_BY),
+      withReason: sparse(5),
+      occurredAt: fc.integer(OCCURRED_AT),
+    }),
     // FACT_RECORDED (§5.3): fact_id 新建; emitters U A.
     fc.record({
       kind: fc.constant('FACT_RECORDED' as const),
       owner: fc.constantFrom(...OWNER_WS),
       actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR),
+      withReferences: sparse(3),
       occurredAt: fc.integer(OCCURRED_AT),
     }),
     // CLAIM_RECORDED (§5.3): claim_id 新建; emitters U A.
@@ -283,6 +405,55 @@ export const streamArb: fc.Arbitrary<readonly StreamElement[]> = fc.array(
       kind: fc.constant('CLAIM_RECORDED' as const),
       owner: fc.constantFrom(...OWNER_WS),
       actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR),
+      withReferences: sparse(3),
+      occurredAt: fc.integer(OCCURRED_AT),
+    }),
+    // CLAIM_RETRACTED (§5.3): claim 存在且 ACTIVE (C-1 in ctx, owner WS-1);
+    // emitters U A.
+    fc.record({
+      kind: fc.constant('CLAIM_RETRACTED' as const),
+      owner: fc.constant('WS-1'),
+      actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR),
+      withReason: sparse(5),
+      occurredAt: fc.integer(OCCURRED_AT),
+    }),
+    // ARTIFACT_REGISTERED (§5.4): artifact_id 新建; emitters U A.
+    fc.record({
+      kind: fc.constant('ARTIFACT_REGISTERED' as const),
+      owner: fc.constantFrom(...OWNER_WS),
+      actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR),
+      artifactType: fc.constantFrom(...ARTIFACT_TYPES),
+      withHash: sparse(3),
+      withRelatedTask: sparse(3),
+      taskSlot: fc.integer({ min: 0, max: 1 }),
+      withSupersedes: sparse(2),
+      occurredAt: fc.integer(OCCURRED_AT),
+    }),
+    // ARTIFACT_MARKED_MISSING (§5.4): artifact 存在且 REGISTERED (A-1 in
+    // ctx, owner WS-1); emitters U A P.
+    fc.record({
+      kind: fc.constant('ARTIFACT_MARKED_MISSING' as const),
+      owner: fc.constant('WS-1'),
+      actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR, ...PLUGIN_ACTORS),
+      withReason: sparse(5),
+      occurredAt: fc.integer(OCCURRED_AT),
+    }),
+    // RELATION_ADDED (§5.5): relation_id 新建; §8 组合表 pair; emitters U A.
+    fc.record({
+      kind: fc.constant('RELATION_ADDED' as const),
+      owner: fc.constant('WS-1'),
+      actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR),
+      relationSlot: fc.integer({ min: 0, max: LEGAL_RELATION_PAIRS.length - 1 }),
+      occurredAt: fc.integer(OCCURRED_AT),
+    }),
+    // RELATION_REMOVED (§5.5): relation 存在且 ACTIVE (REL-1/REL-2 in
+    // ctx); emitters U A.
+    fc.record({
+      kind: fc.constant('RELATION_REMOVED' as const),
+      owner: fc.constant('WS-1'),
+      actor: fc.constantFrom(...USER_ACTORS, AGENT_ACTOR),
+      relationTarget: fc.integer({ min: 0, max: 1 }),
+      withReason: sparse(5),
       occurredAt: fc.integer(OCCURRED_AT),
     }),
     // GATE_EVALUATED (§5.6): G-1 ∈ WS-1 pinned; emitters USER only.
@@ -290,7 +461,7 @@ export const streamArb: fc.Arbitrary<readonly StreamElement[]> = fc.array(
       kind: fc.constant('GATE_EVALUATED' as const),
       owner: fc.constant('WS-1'),
       actor: fc.constantFrom(...USER_ACTORS),
-      result: fc.constantFrom('PASSED', 'FAILED'),
+      result: fc.constantFrom('PASSED', 'FAILED', 'WAIVED'),
       withNote: sparse(3),
       occurredAt: fc.integer(OCCURRED_AT),
     }),
@@ -367,22 +538,94 @@ export function construct(element: StreamElement, i: number): CandidateEvent {
       if (element.withOutcome) payload.outcome_summary = `outcome ${i}`
       break
     }
+    case 'RUN_FAILED': {
+      owner = 'WS-1'
+      payload = { run_id: 'R-1' }
+      if (element.withErrorSummary) {
+        payload.error_summary = `error ${i}`
+        payload.failure_kind = `kind-${i % 3}`
+      }
+      break
+    }
+    case 'RUN_CANCELLED': {
+      owner = 'WS-1'
+      payload = { run_id: 'R-1', cancelled_by: element.cancelledBy ?? { kind: 'USER', user_id: 'u-1' } }
+      if (element.withReason) payload.reason = `cancelled ${i}`
+      break
+    }
     case 'FACT_RECORDED': {
       owner = element.owner
       payload = { fact_id: `F-${3000 + i}`, statement: `generated fact ${i}` }
+      if (element.withReferences) payload.references = [`ref-a-${i}`, `ref-b-${i}`]
       if (actor.kind === 'AGENT') payload.created_by_run = 'R-1'
       break
     }
     case 'CLAIM_RECORDED': {
       owner = element.owner
       payload = { claim_id: `C-${4000 + i}`, statement: `generated claim ${i}` }
+      if (element.withReferences) payload.references = [`ref-c-${i}`]
       if (actor.kind === 'AGENT') payload.created_by_run = 'R-1'
+      break
+    }
+    case 'CLAIM_RETRACTED': {
+      owner = 'WS-1' // C-1 ∈ WS-1 in the static ctx
+      payload = { claim_id: 'C-1' }
+      if (element.withReason) payload.reason = `retracted ${i}`
+      break
+    }
+    case 'ARTIFACT_REGISTERED': {
+      owner = element.owner
+      payload = {
+        artifact_id: `A-${5000 + i}`,
+        type: element.artifactType ?? 'DATASET',
+        title: `generated artifact ${i}`,
+        uri: `data/generated-${i}/`,
+      }
+      if (element.withHash) payload.content_hash = `sha256:${i}`
+      if (element.withRelatedTask) payload.related_task = pick(WS_TASKS[owner], element.taskSlot ?? 0)
+      if (element.withSupersedes) payload.supersedes = 'A-1'
+      if (actor.kind === 'AGENT') payload.created_by_run = 'R-1'
+      break
+    }
+    case 'ARTIFACT_MARKED_MISSING': {
+      owner = 'WS-1' // A-1 ∈ WS-1 in the static ctx
+      payload = { artifact_id: 'A-1' }
+      if (element.withReason) payload.reason = `missing ${i}`
+      break
+    }
+    case 'RELATION_ADDED': {
+      // The PAIR decides the owner (§4 特例: source.ws ?? target.ws —
+      // the cross-WS T-3→T-1 row owns WS-2, overriding element.owner).
+      const pair = LEGAL_RELATION_PAIRS[element.relationSlot ?? 0]!
+      owner = pair.owner
+      payload = {
+        relation_id: `REL-${6000 + i}`,
+        source: { ...pair.source },
+        relation_type: pair.type,
+        target: { ...pair.target },
+      }
+      break
+    }
+    case 'RELATION_REMOVED': {
+      // Echo the stored edge (§5.5 audit redundancy); the ctx relation's
+      // endpoints decide the owner.
+      const rel = REMOVABLE_RELATIONS[element.relationTarget ?? 0]!
+      owner = rel.owner
+      payload = {
+        relation_id: rel.relationId,
+        source: { ...rel.source },
+        relation_type: rel.relationType,
+        target: { ...rel.target },
+      }
+      if (element.withReason) payload.reason = `removed ${i}`
       break
     }
     case 'GATE_EVALUATED': {
       owner = 'WS-1'
       payload = { gate_id: 'G-1', result: element.result ?? 'PASSED', evaluated_by: actor }
-      if (element.withNote) payload.note = `gate note ${i}`
+      // catalog §5.6: WAIVED 仅 actor.kind=USER 且 note 非空 — the
+      // RR-014⑧ widening synthesizes the note when the draw omitted it.
+      if (element.withNote || payload.result === 'WAIVED') payload.note = `gate note ${i}`
       break
     }
     case 'MILESTONE_ACHIEVED': {

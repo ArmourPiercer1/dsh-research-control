@@ -30,6 +30,16 @@
  * recovery makes a mid-transaction crash leave the DB either pre- or
  * post-transaction, never partial (TC-DB-003 DB half, kill -9 tested).
  *
+ * RR-013 hardening (WP-3.6): every connection this opener creates carries
+ * the store-connection guard (connection-guard.ts `installStoreConnectionGuard`)
+ * — REPLACE-class writes of `history_event` (`REPLACE INTO` /
+ * `INSERT … OR REPLACE` / `ON CONFLICT … REPLACE`) are rejected at
+ * prepare/exec time on the canonical connection (the BEFORE DELETE trigger
+ * is bypassed by the internal conflict-row delete of the REPLACE class —
+ * G2 r2 inv-attacker), plus an action-level authorizer backstop on
+ * runtimes that provide `setAuthorizer` (Node ≥24.10). The storage
+ * triggers remain the primary DELETE/UPDATE denial on any connection.
+ *
  * No DSH imports (INV-PERM-5): `node:sqlite` is the Node builtin.
  */
 
@@ -59,6 +69,7 @@ import {
   StoreVersionError,
 } from './errors.js'
 import { SqliteMetaStore, type MetaDbPort } from './sqlite-meta.js'
+import { installStoreConnectionGuard } from './connection-guard.js'
 import type {
   ActorRefJson,
   AppendEventsOptions,
@@ -161,6 +172,13 @@ export function openDatabase(path: string, options: OpenDatabaseOptions = {}): R
     } else {
       verifyExpectedSchema(db, abs)
     }
+
+    // RR-013 (WP-3.6): after init/validation, before any other user of the
+    // connection, install the store-connection guard on THIS connection —
+    // the REPLACE-class statement gate (all runtimes) + the authorizer
+    // backstop (Node ≥24.10, feature-detected). The init DDL above already
+    // ran unguarded (it is this module's own trusted statement).
+    installStoreConnectionGuard(db)
   } catch (e) {
     // classifyOpenFailure already structured driver errors from the
     // constructor; everything here may still be a raw driver exception.

@@ -36,16 +36,74 @@
  * land with the workspace binding (DSH_ADAPTER §13-U9 / runbinding WP) —
  * the service is delivered injectable and fully tested in
  * `src/host/service/sessionlink/`.
+ * WP-3.6 (RR-011 ledger — the host service wiring): `[Service.init]` now
+ * COMPLETES the dependency graph over the registered research workspace:
+ * `createHostWiring` (src/host/service/wiring — store → registry → tree →
+ * run/DS tables → allocator → runbinding + sessionlink → planfork/stale →
+ * flooding → tools → startup reconciliation). A single research workspace
+ * (exactly one registered workspace carrying a `.research/` tree) is the
+ * V1 precondition: ZERO leaves the plane in spike mode (warned), MORE THAN
+ * ONE fails the fiber loud (TC-DSH-008 — never guess between two
+ * projects). The data dir is `$DSH_HOME/research-control/<project-id>`
+ * (DSH_ADAPTER §9 — this file is the ONE place the
+ * `@deepseek-ai/dsh-home-paths` import is allowed). Every opened resource
+ * returns to ONE disposer registered with `ctx.effect` (fiber unmount →
+ * `HostWiring.close()`: discovery subscription + all second connections +
+ * the store connection). A `[Service.init]` throw = fiber FAILED before
+ * ACTIVE (the wiring unwinds its partial resources itself). The 11 agent
+ * tools (WP-3.3) are registered through `ctx.tools.register` (DSH_ADAPTER
+ * §10.1) as PLAIN `ToolDefinition`s: `parameters` is the host's own
+ * `parameterSchemaSpecToJsonSchema` projection of the plugin's mirror DSL,
+ * `output.schema` is the plugin's raw-JSON-Schema face VERBATIM (the
+ * `ToolDefinition.output.schema` vocabulary is the raw supported JSON
+ * Schema — `assertSupportedJsonSchema` — the same subset WP-3.3 mirrored),
+ * and `execute` resolves the calling session (`exec.agent.sessionId`) into
+ * the frozen AGENT actorRef (the run from the session's run row when one
+ * exists — the write tools' run requirement is then enforced by the
+ * built-in gate) and maps `ToolError.code` into the host
+ * `ToolFailure.info.code` (via `HarnessError` — the only error shape the
+ * registry extracts structured `info` from).
+ *
+ * This file is the ONLY host-side surface allowed to import DSH packages
+ * (`@deepseek-ai/*`) — ARCHITECTURE.md §2.2 rule 2 / §5.9 INV-PERM-5.
+ * WP-0.3: the ping RPC spike — one `@Remote('ping')` method (DSH_ADAPTER
+ * §5) whose wire contract is the hand-written `./typert` artifact
+ * (`typert.artifact.ts`, same directory). No business methods yet.
+ * WP-0.4: the session adapter spike — `HostSessionAdapter` (../session.js)
+ * is instantiated in `[Service.init]` and held in a private field whose
+ * in-memory counters are the spike evidence (NOT an RPC — the public
+ * surface stays exactly `ping` until Phase 2).
  */
 
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, statSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import {
+  parameterSchemaSpecToJsonSchema,
+  type ToolDefinition,
+  type ToolRunContext,
+} from '@deepseek-ai/dsh-tools'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { PingResult } from '../../../shared/rpc-contracts.js'
 import { HostSessionAdapter, type SessionHostContext } from '../session.js'
-import { assertMinDshVersion, createPackageVersionSource, DSH_VERSION_PACKAGE, DshVersionError, sweepStaleTmp } from '../../service/sessionlink/index.js'
+import {
+  assertMinDshVersion,
+  createPackageVersionSource,
+  DSH_VERSION_PACKAGE,
+  DshVersionError,
+  sweepStaleTmp,
+} from '../../service/sessionlink/index.js'
+import { isToolError, type ResearchToolDefinition, type ToolJsonValue } from '../../tools/index.js'
+import {
+  createHostWiring,
+  readProjectId,
+  type HostWiring,
+  type HostWiringLogger,
+} from '../../service/wiring/index.js'
 
 /**
  * Validated plugin config.
@@ -93,6 +151,39 @@ interface WorkspaceHostContext {
   workspaceRegistry: WorkspaceRegistryLike
 }
 
+/** Minimal structural slice of the DSH tools service (DSH_ADAPTER §10.1 —
+ *  `ctx.tools.register` only; the plugin does not type against the host's
+ *  full ToolRuntime). */
+interface ToolsHostContext {
+  tools: { register(definition: ToolDefinition): () => void }
+}
+
+/**
+ * The calling-session slice of the host `ToolRunContext` (DSH_ADAPTER
+ * §10.1: the actor is resolved from the session — the plugin never reads
+ * DSH session objects itself). `agent.sessionId` is the only field read
+ * (dsh-agent is not a plugin dependency — structural slice, WP-0.3/0.4
+ * pattern).
+ */
+interface ToolRunContextSlice {
+  readonly signal: AbortSignal
+  readonly agent?: { readonly sessionId: string }
+}
+
+/**
+ * The tool-face error that RIDES the host `ToolFailure.info` (WP-3.3
+ * contract: `ToolError.code` → `info.code`). The registry extracts
+ * structured `info` ONLY from `HarnessError` instances
+ * (`errorInfo` in @deepseek-ai/dsh-tools), so the plugin's `ToolError`
+ * is rethrown as this subclass with the SAME code; anything else becomes
+ * `TOOL_INTERNAL` (never a raw unstructured leak).
+ */
+class ResearchToolHostError extends HarnessError {
+  constructor(code: string, message: string, options?: ErrorOptions) {
+    super(message, code, options)
+  }
+}
+
 export class ResearchControlService extends TypertRemoteService {
   /** Hard dependencies: fiber stays PENDING (silently) until these are ready. */
   static inject = ['sessions', 'tools', 'subagents', 'workspaceRegistry']
@@ -113,6 +204,14 @@ export class ResearchControlService extends TypertRemoteService {
    * counter observation belongs to WP-0.6.
    */
   #sessionAdapter: HostSessionAdapter | undefined
+
+  /**
+   * WP-3.6: the live host wiring (the RR-011 dependency graph) — `undefined`
+   * only in spike mode (no research workspace registered) or before
+   * `[Service.init]` completes. Disposed through `ctx.effect` →
+   * `HostWiring.close()`.
+   */
+  #wiring: HostWiring | undefined
 
   /** The validated config (WP-2.6: `minDshVersion` is read in `[Service.init]`). */
   readonly #config: Config
@@ -203,6 +302,31 @@ export class ResearchControlService extends TypertRemoteService {
     this.#sessionAdapter.onSessionEvent((): void => {
       /* counters only — spike evidence, not business logic */
     })
+
+    // (d) WP-3.6 (RR-011 ledger): the host service wiring over the
+    // registered research workspace. A throw here (misconfiguration, a
+    // broken .research tree, an unusable registry, a failed startup
+    // reconciliation under `failLoud`) fails the fiber BEFORE ACTIVE —
+    // TC-DSH-008 fail-loud; the wiring unwinds its partial resources
+    // itself, and the effect registered below disposes the survivors on
+    // fiber death.
+    const adapter = this.#sessionAdapter
+    this.#wiring = this.#initResearchPlane(adapter)
+    if (this.#wiring !== undefined) {
+      // ONE disposer for the whole graph (DSH_ADAPTER §9: `[Service.init]`
+      // open, `ctx.effect` close — the storage-sqlite register/close
+      // pattern). Cordis runs disposers in REVERSE registration order on
+      // fiber unmount; `close()` is itself idempotent and orders its own
+      // teardown internally (second connections before the store).
+      this.ctx.effect(() => {
+        const wiring = this.#wiring
+        return (): void => {
+          wiring?.close()
+          this.#wiring = undefined
+        }
+      })
+      this.#registerResearchTools(this.#wiring)
+    }
   }
 
   /**
@@ -217,6 +341,229 @@ export class ResearchControlService extends TypertRemoteService {
   async ping(): Promise<PingResult> {
     return { ok: true, service: 'researchControl', time: Date.now() }
   }
+
+  /* ---------------------------------------------------------------- *
+   * WP-3.6: the research plane (host service wiring)
+   * ---------------------------------------------------------------- */
+
+  /**
+   * Build the host wiring over the registered research workspace
+   * (DSH_ADAPTER §9 data dir + §10.1 tools).
+   *
+   * V1 precondition, enforced loud (TC-DSH-008): EXACTLY ONE registered
+   * workspace may carry a `.research/` tree. ZERO → spike mode (warned;
+   * the plane is not a requirement of a plain DSH host — `ping` still
+   * serves). MORE THAN ONE → throw (refusing to guess between two
+   * research projects; the operator must unregister one).
+   *
+   * @returns the live wiring, or `undefined` in spike mode.
+   * @throws {Error} on ambiguity or on any wiring failure
+   *  (misconfiguration, broken tree, unusable registry, reconciliation
+   *  under `failLoud`) — the fiber fails before ACTIVE.
+   */
+  #initResearchPlane(adapter: HostSessionAdapter): HostWiring | undefined {
+    const registry = (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry
+    const workspaces = registry.list()
+    const researchWorkspaces = workspaces.filter((w) => {
+      const p = join(w.path, '.research')
+      return existsSync(p) && statSync(p).isDirectory()
+    })
+    if (researchWorkspaces.length === 0) {
+      console.warn(
+        '[research-control] no registered workspace carries a .research tree — ' +
+          'the research control plane stays in spike mode (ping only); the tools are NOT registered',
+      )
+      return undefined
+    }
+    if (researchWorkspaces.length > 1) {
+      throw new Error(
+        `[research-control] ${researchWorkspaces.length} registered workspaces carry a .research tree ` +
+          `(${researchWorkspaces.map((w) => w.path).join(', ')}) — the research control plane ` +
+          'supports exactly one research project per host; unregister the extras and restart ' +
+          '(TC-DSH-008: refusing to guess between two projects)',
+      )
+    }
+    const workspace = researchWorkspaces[0]!
+    const researchRoot = join(workspace.path, '.research')
+    const projectId = readProjectId(researchRoot) // WIRING_INPUT on a malformed project.yaml
+    const schemaRoot = this.#resolveSchemaRoot(import.meta.url)
+    // DSH_ADAPTER §9: the data dir is $DSH_HOME/research-control/<project-id>
+    // — dsh-home-paths is imported HERE ONLY (INV-PERM-5).
+    const dataDir = dshHomePath('research-control', projectId)
+
+    const logger: HostWiringLogger = {
+      info: (step, message) => console.log(`[research-control][${step}] ${message}`),
+      warn: (step, message) => console.warn(`[research-control][${step}] ${message}`),
+      error: (step, message) => console.error(`[research-control][${step}] ${message}`),
+    }
+
+    return createHostWiring({
+      repoRoot: workspace.path,
+      schemaRoot,
+      projectId,
+      dataDir,
+      adapter,
+      workspaceRoots: workspaces.map((w) => w.path),
+      logger,
+      // Reconciliation policy: the default `rebuild` (reconstruct a missing
+      // run row from the durable events; fail loud only when impossible) —
+      // DSH_ADAPTER §13-U9 + the WP-2.4 未决 2 scheme. `failLoud` stays an
+      // operator override for the `reconcileRuns` HostWiringOptions field.
+    })
+  }
+
+  /**
+   * Locate the frozen `schema/` root (SI-001: development phase — the
+   * canonical copy lives at the WORKSPACE ROOT, the plugin repo does not
+   * copy it; packaging WP-8.4 snapshots it into the release layout).
+   *
+   * Resolution order: the `DSH_RESEARCH_SCHEMA_ROOT` env override (tests /
+   * special deployments) first; then walk UP from this module's file
+   * (≤ 8 levels) for a directory whose `schema/` holds `common.schema.json`
+   * plus the three frozen sub-dirs the wiring loads (`history/`,
+   * `declarative/`, `operational/`). Fails loud when nothing usable is
+   * found — the registry/tree/pf/intervention loads all need it.
+   */
+  #resolveSchemaRoot(importMetaUrl: string): string {
+    const override = process.env['DSH_RESEARCH_SCHEMA_ROOT']
+    if (typeof override === 'string' && override.length > 0) {
+      const abs = resolve(override)
+      if (isUsableSchemaRoot(abs)) return abs
+      throw new Error(`DSH_RESEARCH_SCHEMA_ROOT=${abs} is not a usable frozen schema root (needs common.schema.json + history/ + declarative/ + operational/)`)
+    }
+    let dir = dirname(fileURLToPath(importMetaUrl))
+    for (let i = 0; i < 8; i++) {
+      const candidate = join(dir, 'schema')
+      if (isUsableSchemaRoot(candidate)) return candidate
+      const parent = dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+    throw new Error(
+      `cannot locate the frozen schema/ root walking up from ${fileURLToPath(importMetaUrl)} — ` +
+      'set DSH_RESEARCH_SCHEMA_ROOT (SI-001: the canonical copy lives at the research workspace root)',
+    )
+  }
+
+  /**
+   * Register the 11 research tools (WP-3.3) as PLAIN `ToolDefinition`s
+   * (DSH_ADAPTER §10.1 — `ctx.tools.register` = the effect; cordis
+   * disposes the registration with the fiber). The field mapping:
+   *  - `name` / `description` — verbatim (the model-visible surface);
+   *  - `parameters` — the host's OWN `parameterSchemaSpecToJsonSchema`
+   *    projection of the plugin's mirror DSL (field-for-field identical,
+   *    WP-3.3; the host converter keeps the projection authoritative);
+   *  - `output.schema` — the plugin's raw-JSON-Schema face VERBATIM
+   *    (the `ToolDefinition.output.schema` vocabulary IS the raw
+   *    supported JSON Schema — `assertSupportedJsonSchema` — the same
+   *    subset WP-3.3 mirrored);
+   *  - `output.render` — the plugin renderer, wrapped into a fresh
+   *    mutable `ContentBlock[]` (the plugin mirror returns readonly);
+   *  - `execute` — actor resolution + the `ToolError` → host
+   *    `ToolFailure.info.code` mapping (module footer, below).
+   */
+  #registerResearchTools(wiring: HostWiring): void {
+    const tools = (this.ctx as unknown as ToolsHostContext).tools
+    for (const def of wiring.tools) {
+      const toolDefinition: ToolDefinition = {
+        name: def.name,
+        description: def.description,
+        // The plugin mirror is the field-for-field readonly twin of the
+        // host DSL (WP-3.3) — the single structural cast at this wiring
+        // point; the host's OWN converter projects it to JSON Schema, so
+        // the projection stays host-authoritative.
+        parameters: parameterSchemaSpecToJsonSchema(
+          def.parameters as unknown as Parameters<typeof parameterSchemaSpecToJsonSchema>[0],
+        ) as unknown as Record<string, unknown>,
+        output: {
+          // Deep-cloned: the plugin mirror is a static readonly object;
+          // the host must never observe (or mutate) the shared node.
+          schema: structuredClone(def.output.schema) as unknown as ToolDefinition['output']['schema'],
+          // The plugin mirror returns a readonly block array — wrap into a
+          // fresh mutable ContentBlock[] (the host vocabulary).
+          render: (args: unknown, value: unknown): ContentBlock[] =>
+            [...def.output.render(args, value as ToolJsonValue)],
+        },
+        execute: async (args: unknown, exec: ToolRunContext): Promise<unknown> =>
+          this.#runResearchTool(def, args, exec as unknown as ToolRunContextSlice),
+      }
+      tools.register(toolDefinition)
+    }
+    console.log(`[research-control] registered ${wiring.tools.length} research tools (project ${wiring.projectId})`)
+  }
+
+  /**
+   * One research tool call: resolve the frozen AGENT actorRef from the
+   * calling session, run the plugin `ResearchToolDefinition.execute`
+   * (the built-in tool gates — actor/run/shape/abort — do their work),
+   * and map failures into the host `ToolFailure.info` contract:
+   *  - a plugin `ToolError` → `ResearchToolHostError` (extends
+   *    `HarnessError`) with the SAME `code` — the registry's `errorInfo`
+   *    extracts `info: {name, code}` only from `HarnessError` instances,
+   *    so the structured code rides to the model side (WP-3.3 contract);
+   *  - an unresolved calling session → `TOOL_CALLER_UNRESOLVED` (these
+   *    tools are agent-session tools only — a call without
+   *    `exec.agent.sessionId` is a host misconfiguration, fail loud);
+   *  - anything else → `TOOL_INTERNAL` (never a raw unstructured leak).
+   */
+  async #runResearchTool(
+    def: ResearchToolDefinition,
+    args: unknown,
+    exec: ToolRunContextSlice,
+  ): Promise<unknown> {
+    const sessionId: unknown = exec.agent?.sessionId
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      throw new ResearchToolHostError(
+        'TOOL_CALLER_UNRESOLVED',
+        `${def.name}: cannot resolve the calling session (exec.agent.sessionId absent) — ` +
+          'research tools are agent-session tools only',
+      )
+    }
+    const wiring = this.#wiring
+    if (wiring === undefined) {
+      throw new ResearchToolHostError(
+        'TOOL_INTERNAL',
+        `${def.name}: the research plane is not initialized (spike mode)`,
+      )
+    }
+    // The run of this session (when one exists): the write tools then
+    // enforce their run requirement through the built-in gate.
+    const run = wiring.tables.getRunBySessionId(sessionId)
+    const actor = {
+      kind: 'AGENT' as const,
+      session_id: sessionId,
+      ...(run !== null && run.id !== undefined ? { run_id: run.id } : {}),
+    }
+    try {
+      return await def.execute(args, { signal: exec.signal, actor })
+    } catch (e) {
+      if (isToolError(e)) {
+        throw new ResearchToolHostError(`${e.code}: ${e.message}`, e.code, { cause: e })
+      }
+      throw toHostError(def, e)
+    }
+  }
+}
+
+/**
+ * The frozen-schema-root usability check (SI-001 layout): the four pieces
+ * the wiring loads — the shared `common.schema.json` (every schema
+ * `allOf`-extends it from its PARENT dir) plus the `history/`,
+ * `declarative/` and `operational/` sub-dirs.
+ */
+function isUsableSchemaRoot(p: string): boolean {
+  return (
+    existsSync(join(p, 'common.schema.json')) &&
+    existsSync(join(p, 'history')) &&
+    existsSync(join(p, 'declarative')) &&
+    existsSync(join(p, 'operational'))
+  )
+}
+
+/** Map an unexpected (non-`ToolError`) throw to the host error contract. */
+function toHostError(def: ResearchToolDefinition, e: unknown): ResearchToolHostError {
+  const message = e instanceof Error ? e.message : String(e)
+  return new ResearchToolHostError(`TOOL_INTERNAL: ${def.name}: unexpected failure: ${message}`, 'TOOL_INTERNAL', { cause: e })
 }
 
 export default ResearchControlService

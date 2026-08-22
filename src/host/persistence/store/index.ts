@@ -26,6 +26,7 @@
  */
 
 export { openDatabase, type OpenDatabaseOptions } from './store.js'
+export { classifyForbiddenWrite, installStoreConnectionGuard } from './connection-guard.js'
 export {
   DB_FILE_NAME,
   DB_USER_VERSION,
@@ -39,6 +40,7 @@ export {
   StoreConflictError,
   StoreCorruptError,
   StoreError,
+  StoreForbiddenSqlError,
   StoreInputError,
   StoreOpenError,
   StoreSchemaStaleError,

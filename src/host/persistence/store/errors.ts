@@ -24,6 +24,10 @@
  *   STORE_INPUT       — malformed caller input (shape / store-owned fields)
  *   STORE_CONFLICT    — uniqueness violation (event_id PK / (ws, seq))
  *   STORE_SQL         — unexpected SQLite failure inside an operation
+ *   STORE_SQL_FORBIDDEN — a statement on the store's own connection uses a
+ *                        write class the append-only surface forbids
+ *                        (RR-013: REPLACE-class writes to `history_event`,
+ *                        which bypass the BEFORE DELETE trigger)
  */
 
 export type StoreErrorCode =
@@ -35,6 +39,7 @@ export type StoreErrorCode =
   | 'STORE_INPUT'
   | 'STORE_CONFLICT'
   | 'STORE_SQL'
+  | 'STORE_SQL_FORBIDDEN'
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode
@@ -136,5 +141,22 @@ export class StoreConflictError extends StoreError {
 export class StoreSqlError extends StoreError {
   constructor(message: string, options?: ErrorOptions) {
     super('STORE_SQL', message, options)
+  }
+}
+
+/**
+ * A statement reaching the store's OWN connection used a write class the
+ * append-only surface forbids — RR-013 (G2 r2 inv-attacker): `REPLACE INTO`
+ * / `INSERT … OR REPLACE` / `INSERT … ON CONFLICT … REPLACE` against
+ * `history_event` bypass the BEFORE DELETE trigger (SQLite's internal
+ * conflict-row delete does not fire triggers), silently rewriting or
+ * deleting event rows. `openDatabase` installs the store-connection guard
+ * (store.ts `installStoreConnectionGuard`) which rejects these at
+ * prepare/exec time on the canonical connection; this is the structured
+ * error it throws.
+ */
+export class StoreForbiddenSqlError extends StoreError {
+  constructor(message: string, options?: ErrorOptions) {
+    super('STORE_SQL_FORBIDDEN', message, options)
   }
 }

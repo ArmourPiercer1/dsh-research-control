@@ -57,6 +57,9 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-home-paths": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
     "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.8"
   },
   "devDependencies": {
@@ -75,6 +78,9 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-home-paths": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
     "@deepseek-ai/schemastery": "^3.18.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

@@ -7,11 +7,30 @@
  *      is a sealed object literal — its OWN property names are the
  *      surface, asserted here at runtime; the module's export names are
  *      asserted to contain no mutation verb either.
- *   2. STORAGE LEVEL — SQLite triggers ABORT raw UPDATE/DELETE on
- *      `history_event` even through a second raw connection: no code
- *      path (present or future) can rewrite seq/eventId or delete rows
- *      (TC-HIST-003「任何 API 不改写既有 seq/eventId」, INV-HIST-7
- *      no hard delete of identity rows).
+ *   2. STORAGE LEVEL — enforcement is TWO-LAYER (claim corrected by
+ *      WP-3.6 / RR-013, G2 r2 inv-attacker — the pre-WP-3.6 wording
+ *      「trigger 拦截一切 DELETE」was wrong: REPLACE-class writes bypass
+ *      the triggers):
+ *        a. DELETE / UPDATE — the BEFORE DELETE / BEFORE UPDATE triggers
+ *           ABORT raw DELETE/UPDATE on `history_event` even through a
+ *           second raw connection (any connection to the file; the tests
+ *           below exercise this layer through a raw `DatabaseSync`);
+ *        b. REPLACE-class writes — `REPLACE INTO` / `INSERT … OR REPLACE`
+ *           / `ON CONFLICT … REPLACE` against `history_event` do NOT fire
+ *           the DELETE triggers (SQLite's internal conflict-row delete
+ *           bypasses them); they are rejected on the CANONICAL
+ *           connection by the store-connection guard installed by
+ *           `openDatabase` (RR-013: the statement gate on every runtime +
+ *           the `setAuthorizer` backstop on Node ≥24.10 — see
+ *           `tests/wiring/authorizer.test.ts` and
+ *           `src/host/persistence/store/connection-guard.ts`). The raw
+ *           connection a test opens directly is NOT the canonical one,
+ *           and no business surface ever exposes the canonical
+ *           `DatabaseSync` — the REPLACE class therefore has no
+ *           runtime-reachable path (RR-013 threat-model boundary).
+ *
+ *  (TC-HIST-003「任何 API 不改写既有 seq/eventId」, INV-HIST-7
+ *   no hard delete of identity rows.)
  *
  * Boundary: `derived_state` IS updatable by design (rebuildable cache,
  * TC-HIST-006 — not first-class identity).
@@ -65,7 +84,7 @@ describe('INV-HIST-1: type surface has no delete/update API', () => {
   })
 })
 
-describe('INV-HIST-1: storage-level enforcement (triggers)', () => {
+describe('INV-HIST-1: storage-level enforcement (triggers = DELETE/UPDATE layer)', () => {
   it('raw UPDATE on history_event is ABORTED and the row is unchanged', () => {
     const dir = makeTempDir()
     const path = dbPath(dir)

@@ -1,0 +1,8 @@
+{
+  "name": "perm5-attack-fixture",
+  "private": true,
+  "description": "INV-PERM-5 negative fixture manifest (WP-0.7, G0 attack D: npm alias of a DSH monorepo package). Lint input only — never published.",
+  "dependencies": {
+    "cordis-alias": "npm:@deepseek-ai/cordis@4.0.1"
+  }
+}

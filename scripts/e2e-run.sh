@@ -17,7 +17,11 @@
 #
 # Env overrides:
 #   DSH_SMOKE_ROOT  smoke root (default: <repo>/../.smoke)
-#   DSH_HOME        smoke dsh home (default: $DSH_SMOKE_ROOT/dsh-home)
+#   DSH_HOME        NOT an override anymore (WP-0.7 / RR-003): the run ALWAYS
+#                   uses $DSH_SMOKE_ROOT/dsh-home. An inherited DSH_HOME that
+#                   resolves outside the smoke root (e.g. the caller's live
+#                   ~/.dsh in a DSH session shell) is FATAL (exit 2) with both
+#                   paths printed — loud failure, never a silent retarget.
 #   E2E_PORT        web port (default 3199 — never 3080)
 #   E2E_CYCLES      load/unload cycles N (default 2)
 #   E2E_STATE       run ONE phase only and exit: loaded | unloaded
@@ -31,7 +35,31 @@ set -Eeuo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SMOKE_ROOT="${DSH_SMOKE_ROOT:-$(cd "$REPO_DIR/.." && pwd)/.smoke}"
-DSH_HOME="${DSH_HOME:-$SMOKE_ROOT/dsh-home}"
+# WP-0.7 (G0 round-1 RR-003): the old `${DSH_HOME:-…}` inherited the caller's
+# DSH_HOME — a DSH session shell exports DSH_HOME=~/.dsh, which silently
+# retargeted the whole smoke run (storeDir write, plugin add, server home) at
+# the user's LIVE home; only the file sandbox stood between that and a redline
+# breach. The smoke home is now UNCONDITIONAL. An inherited DSH_HOME that
+# resolves outside the smoke root is FATAL (exit 2, both paths printed) so the
+# near-miss is auditable instead of silently overwritten; a value that stays
+# inside the smoke root is tolerated but still normalized to the forced home.
+FORCED_DSH_HOME="$SMOKE_ROOT/dsh-home"
+if [ -n "${DSH_HOME:-}" ] && [ "$DSH_HOME" != "$FORCED_DSH_HOME" ]; then
+  SMOKE_ROOT_ABS="$(realpath -- "$SMOKE_ROOT" 2>/dev/null || printf '%s' "$SMOKE_ROOT")"
+  INHERITED_ABS="$(realpath -m -- "$DSH_HOME" 2>/dev/null || printf '%s' "$DSH_HOME")"
+  case "$INHERITED_ABS" in
+    "$SMOKE_ROOT_ABS" | "$SMOKE_ROOT_ABS"/*)
+      # isolated value — tolerated, normalized to the forced home below
+      ;;
+    *)
+      printf '[e2e-run] FATAL: inherited DSH_HOME=%s resolves outside the smoke root %s — refusing to run against a non-isolated home (forced smoke home: %s)\n' \
+        "$DSH_HOME" "$SMOKE_ROOT_ABS" "$FORCED_DSH_HOME" >&2
+      exit 2
+      ;;
+  esac
+fi
+DSH_HOME="$FORCED_DSH_HOME"
+export DSH_HOME
 DSH_BIN="$SMOKE_ROOT/cli/node_modules/.bin/dsh"
 E2E_PORT="${E2E_PORT:-3199}"
 E2E_BASE_URL="http://127.0.0.1:$E2E_PORT"

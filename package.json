@@ -56,8 +56,8 @@
     "test:e2e:playwright": "playwright test --config e2e/playwright.config.ts"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-typert-protocol": ">=0.1.0-rc.8 <0.2.0"
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.8"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",

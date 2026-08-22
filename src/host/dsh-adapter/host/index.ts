@@ -1,5 +1,6 @@
 /**
- * DSH host-side adapter — Research Control Plane service (WP-0.2 skeleton).
+ * DSH host-side adapter — Research Control Plane service (WP-0.2 skeleton,
+ * WP-0.3 ping spike).
  *
  * Service form per DSH_ADAPTER.md §4 (service 包 default-export service 类):
  * - extends `TypertRemoteService`, pinning the wire namespace via
@@ -15,13 +16,15 @@
  *
  * This file is the ONLY host-side surface allowed to import DSH packages
  * (`@deepseek-ai/*`) — ARCHITECTURE.md §2.2 rule 2 / §5.9 INV-PERM-5.
- * Skeleton only: NO business methods, NO `@Remote` registrations
- * (RPC methods land in WP-0.3; SQLite/watcher in later WPs).
+ * WP-0.3: the ping RPC spike — one `@Remote('ping')` method (DSH_ADAPTER
+ * §5) whose wire contract is the hand-written `./typert` artifact
+ * (`typert.artifact.ts`, same directory). No business methods yet.
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
-import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import type { PingResult } from '../../../shared/rpc-contracts.js'
 
 /**
  * Validated plugin config. Intentionally empty at the WP-0.2 skeleton:
@@ -58,6 +61,19 @@ export class ResearchControlService extends TypertRemoteService {
   /** Post-construction async init (empty skeleton: SQLite open、watcher 等后续 WP 接入，非业务方法). */
   protected async [Service.init](): Promise<void> {
     /* no-op at skeleton stage */
+  }
+
+  /**
+   * RPC spike (WP-0.3): liveness round-trip marker, no parameters (the
+   * spike does no argument codec handling), pure-JSON result
+   * (DSH_ADAPTER §5 step 3). The `@Remote('ping')` marker is what the
+   * gateway's SRC fallback path resolves (plus the strict `./typert`
+   * descriptor, which takes precedence once the loader registers it).
+   * `time` is epoch milliseconds (UTC) — see `PingResult` in shared.
+   */
+  @Remote('ping')
+  async ping(): Promise<PingResult> {
+    return { ok: true, service: 'researchControl', time: Date.now() }
   }
 }
 

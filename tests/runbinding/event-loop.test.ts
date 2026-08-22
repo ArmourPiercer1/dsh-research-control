@@ -129,7 +129,13 @@ describe('event closed loop: append → queryEvents visible → registry re-vali
     h.close()
   })
 
-  it('auto-register appends a PLUGIN-actor RUN_STARTED (matrix P, session 绑定自动登记)', () => {
+  // TC-DSH-002 (TEST_MATRIX L179: 「绑定即 Run：显式 ResearchContext/
+  // workstream -> 自动注册 formal Run（含 workstream_id）」) — closed-loop
+  // half: the auto-registered run's
+  // RUN_STARTED is appended through store + registry (PLUGIN actor, matrix
+  // P). V1 载体依 U9 定案为注入式 seam（真实载体缺位，见 WP-2.4 报告 U9
+  // 节）——seam-level coverage, no real-host carrier claimed.
+  it('auto-register appends a PLUGIN-actor RUN_STARTED (matrix P, session 绑定自动登记) [TC-DSH-002]', () => {
     const h = makeHarness({
       researchContextResolver: (s) => (s.title === 'research:WS-1' ? { workstreamId: 'WS-1' } : null),
     })

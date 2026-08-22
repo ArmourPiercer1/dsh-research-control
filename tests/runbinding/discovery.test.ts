@@ -208,7 +208,13 @@ describe('the §6.2 three-way rule through the U9 seam (researchContextResolver)
     h.close()
   })
 
-  it('an injected resolver auto-registers: BOUND DS + Run + RUN_STARTED (matrix P, 规则 1)', () => {
+  // TC-DSH-002 (TEST_MATRIX L179: 「绑定即 Run：显式 ResearchContext/
+  // workstream -> 自动注册 formal Run（含 workstream_id）」). V1 载体依
+  // U9 定案为注入式 seam（真实载体缺位，见 WP-2.4 报告 U9 节）——the
+  // WP-2.4 报告 U9 节）— the test covers the seam level (injected resolver
+  // activates §6.2 规则 1 without a service API change); no real-host
+  // carrier exists in V1, and none is claimed here.
+  it('an injected resolver auto-registers: BOUND DS + Run + RUN_STARTED (matrix P, 规则 1) [TC-DSH-002]', () => {
     const resolver: ResearchContextResolver = (session) =>
       session.title === 'research:WS-1'
         ? { workstreamId: 'WS-1', taskId: 'T-1', intent: 'auto from research context' }

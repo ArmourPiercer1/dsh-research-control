@@ -40,12 +40,13 @@ describe('host mount skeleton (WP-0.2)', () => {
     // cordis' resolveConfig() consumes the standard-schema V1 surface:
     expect(typeof config['~standard']).toBe('object')
     expect(typeof config['~standard'].validate).toBe('function')
-    // empty skeleton schema: accepts exactly the empty config shape
+    // Config carries the WP-2.6 `minDshVersion` field (schemastery, default
+    // `0.1.0-rc.8`): validating an empty config resolves the default.
     const result = (await Promise.resolve(config['~standard'].validate({}))) as
       | { value: unknown; issues?: never }
       | { issues: readonly unknown[]; value?: never }
     expect((result as { issues?: readonly unknown[] }).issues).toBeUndefined()
-    expect((result as { value: unknown }).value).toEqual({})
+    expect((result as { value: unknown }).value).toEqual({ minDshVersion: '0.1.0-rc.8' })
   })
 
   it('implements [Service.init] as an async own method on the prototype', () => {

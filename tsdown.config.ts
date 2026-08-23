@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, resolve as resolvePath } from 'node:path';
 import ts from 'typescript-6';
 import { defineConfig, type UserConfig } from 'tsdown';
 
@@ -33,6 +35,89 @@ function lowerStandardDecorators() {
         },
       });
       return { code: result.outputText, map: null };
+    },
+  };
+}
+
+/**
+ * WP-4.6 — inline `.module.css` into the CLIENT bundle (the single-file
+ * client artifact has no companion-CSS channel: the host loader serves
+ * `lib/client.js` ONLY, and tsdown refuses any CSS in the module graph —
+ * its internal `css-guard` transform (order `post`, id-filtered) throws
+ * for every module id still matching `*.css`, so the guard is bypassed by
+ * re-identifying the module: `resolveId` maps each `*.module.css` import
+ * to a VIRTUAL id (never ending in `.css` → the guard's filter cannot
+ * match it) and `load` serves the JS module).
+ *
+ * Each `.module.css` becomes a JS module that (a) injects its (class-name
+ * namespaced) stylesheet ONCE via a deterministic `<style id>` tag and
+ * (b) default-exports the CSS-Modules class map with STABLE names
+ * (`rcm_<dir>_<key>` — no hash, so e2e assertions and the DOM stay
+ * deterministic). Selectors are rewritten token-wise (`.<name>` →
+ * `.rcm_<dir>_<name>`); the files in scope are plain CSS (no nesting /
+ * preprocessor), and the only other dot-followed-by-letter tokens CSS can
+ * contain are in comments (harmless) — decimals carry a digit after the
+ * dot and never match.
+ *
+ * Vitest keeps resolving `.module.css` natively (this plugin is
+ * tsdown-build-only), so the view sources and their unit tests are
+ * untouched; only the BUILD pipeline changes.
+ */
+const MODULE_CSS_VIRTUAL_PREFIX = '\0rcm-css:'
+
+/**
+ * The virtual module id — it must NOT end in `.css` (tsdown's css-guard
+ * id-filter is a suffix regex) while remaining deterministic per file.
+ */
+function moduleCssVirtualId(file: string): string {
+  const rel = file.replace(/\.module\.css$/, '')
+  return MODULE_CSS_VIRTUAL_PREFIX + rel.replace(/[^a-zA-Z0-9]+/g, '_')
+}
+
+function moduleCssInline() {
+  /** virtual id → on-disk path (set by resolveId, read by load). */
+  const fileByVirtual = new Map<string, string>();
+  return {
+    name: 'module-css-inline',
+    enforce: 'pre' as const,
+    resolveId(source: string, importer: string | undefined) {
+      if (!source.endsWith('.module.css')) return null
+      const base = importer ? importer.split('?', 1)[0] : source
+      const resolved = source.startsWith('/') ? source : importer ? resolvePath(dirname(base), source) : null
+      if (resolved === null) return null
+      if (!existsSync(resolved) || !statSync(resolved).isFile()) return null
+      const virtualId = moduleCssVirtualId(resolved)
+      fileByVirtual.set(virtualId, resolved)
+      return virtualId
+    },
+    load(id: string) {
+      if (!id.startsWith(MODULE_CSS_VIRTUAL_PREFIX)) return null
+      // Recover the on-disk path from the sanitized virtual id.
+      const file = fileByVirtual.get(id)
+      if (file === undefined) return null
+      const code = readFileSync(file, 'utf8')
+      const dirName = file.split('/').filter(Boolean).pop() ?? 'view';
+      const ns = 'rcm_' + dirName.replace(/[^a-zA-Z0-9]/g, '_');
+      const map: Record<string, string> = {};
+      const css = code.replace(/\.([A-Za-z_][A-Za-z0-9_-]*)/g, (whole, name: string) => {
+        const globalName = `${ns}_${name}`;
+        map[name] = globalName;
+        return `.${globalName}`;
+      });
+      const injectedId = `rcm-style-${ns}`;
+      return [
+        `var __css = ${JSON.stringify(css)};`,
+        `var __styles = ${JSON.stringify(map)};`,
+        `(function () {`,
+        '  if (typeof document === "undefined") return;',
+        `  if (document.getElementById(${JSON.stringify(injectedId)})) return;`,
+        '  var s = document.createElement("style");',
+        `  s.id = ${JSON.stringify(injectedId)};`,
+        '  s.textContent = __css;',
+        '  (document.head || document.documentElement).appendChild(s);',
+        '})();',
+        'export default __styles;',
+      ].join('\n');
     },
   };
 }
@@ -102,6 +187,9 @@ const clientConfig: UserConfig = {
   dts: false,
   sourcemap: true,
   clean: false,
+  // WP-4.6: the client graph now carries the Phase 4 views' `.module.css`
+  // files — inlined by the plugin above (no companion CSS can leave lib/).
+  plugins: [moduleCssInline()],
   deps: {
     neverBundle: (specifier: string) => CLIENT_EXTERNALS.has(specifier),
     alwaysBundle: (specifier: string) => !CLIENT_EXTERNALS.has(specifier),
@@ -120,4 +208,22 @@ const clientConfig: UserConfig = {
   },
 };
 
-export default defineConfig([hostConfig, clientConfig]);
+// WP-4.6 — the TC-E2E data factory (a NODE script, bundled from the same
+// src/host graph it drives: `createHostWiring` + the runbinding/planfork
+// services — the seed goes through the PRODUCTION mutation paths, so what
+// the e2e assertions see is exactly what the host wiring produces).
+// ESM + node platform: the graph imports `node:sqlite` (built-in) and the
+// output runs under plain `node` (no loader magic). Kept OUT of lib/ (it is
+// e2e infrastructure, not a shipped artifact — e2e/factory-dist/).
+const factoryConfig: UserConfig = {
+  name: `${CLIENT_ID}/factory`,
+  entry: { factory: './e2e/factory/factory.ts' },
+  outDir: './e2e/factory-dist',
+  format: 'esm',
+  platform: 'node',
+  dts: false,
+  clean: true,
+  sourcemap: false,
+};
+
+export default defineConfig([hostConfig, clientConfig, factoryConfig]);

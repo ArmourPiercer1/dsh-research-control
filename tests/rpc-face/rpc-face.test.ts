@@ -75,10 +75,11 @@ function makeStub(): { stub: ResearchRpcServices; calls: Map<string, unknown[]> 
     (args?: unknown) => {
       calls.set(name, args === undefined ? [] : [args])
     }
-  // The port is sync for the read/query face and async for the write side
-  // (matching ResearchRpcServices exactly).
+  // The port is async for the two query RPCs that carry the WP-4.6
+  // stale pre-check (getDashboard/getWorkstream) and for the write side;
+  // sync for the remaining reads (matching ResearchRpcServices exactly).
   const stub: ResearchRpcServices = {
-    getDashboard() {
+    async getDashboard() {
       record('getDashboard')()
       return DASHBOARD_FIXTURE
     },
@@ -90,7 +91,7 @@ function makeStub(): { stub: ResearchRpcServices; calls: Map<string, unknown[]> 
       record('getTopic')(a)
       return TOPIC_FIXTURE
     },
-    getWorkstream(a) {
+    async getWorkstream(a) {
       record('getWorkstream')(a)
       return WORKSTREAM_FIXTURE
     },

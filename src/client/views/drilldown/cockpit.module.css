@@ -1,0 +1,568 @@
+/* WP-4.6 — Research Cockpit / drill-down styles.
+ *
+ * Bundled into the single-file client artifact by the tsdown
+ * `module-css-inline` plugin (class selectors namespaced to
+ * `rcm_drilldown_*`, injected via `<style id="rcm-style-rcm_drilldown">`).
+ * Class names referenced from the TSX stay LOCAL (the plugin emits the
+ * map); the namespaced form appears only in the injected stylesheet.
+ */
+
+.cockpit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  font-size: 13px;
+  color: #d8dee9;
+  background: #10141a;
+}
+
+/* ---- page frame ---------------------------------------------------- */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pageMeta {
+  margin: 0;
+  color: #9aa4b2;
+}
+
+.backButton {
+  background: #1c2430;
+  color: #d8dee9;
+  border: 1px solid #2c3948;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.backButton:hover {
+  background: #243040;
+}
+
+.sectionTitle {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: #9aa4b2;
+  font-weight: 600;
+}
+
+.empty {
+  margin: 4px 0;
+  color: #6c7683;
+}
+
+.faultNote {
+  margin: 4px 0;
+  padding: 4px 8px;
+  border: 1px solid #7a2f36;
+  background: #2a1518;
+  color: #e0a0a6;
+  border-radius: 4px;
+}
+
+/* ---- session banner (placeholder channel) --------------------------- */
+
+.sessionBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #2c5a8a;
+  background: #12202f;
+  border-radius: 6px;
+}
+
+.sessionBanner p {
+  margin: 0;
+}
+
+/* ---- intervention board -------------------------------------------- */
+
+.ivBoard {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.ivList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ivRow {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.ivTitle {
+  margin: 0;
+  font-weight: 600;
+}
+
+.ivMeta {
+  margin: 2px 0;
+  color: #9aa4b2;
+}
+
+.ivWsChips {
+  margin: 4px 0;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wsChip {
+  background: #1c2430;
+  color: #8fb8e8;
+  border: 1px solid #2c3948;
+  border-radius: 10px;
+  padding: 1px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.wsChip:hover {
+  background: #243040;
+}
+
+.ivControls {
+  margin: 4px 0 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ivNote {
+  flex: 1;
+  min-width: 160px;
+  background: #0c1015;
+  color: #d8dee9;
+  border: 1px solid #2c3948;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.ivButton,
+.ivButtonClose,
+.pfButtonSelect,
+.pfButtonDismiss,
+.restoreButton {
+  background: #1c2430;
+  color: #d8dee9;
+  border: 1px solid #2c3948;
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ivButtonClose,
+.pfButtonSelect {
+  border-color: #4a5a70;
+}
+
+.ivButton:hover,
+.ivButtonClose:hover,
+.pfButtonSelect:hover,
+.pfButtonDismiss:hover,
+.restoreButton:hover {
+  background: #243040;
+}
+
+.ivButton:disabled,
+.ivButtonClose:disabled,
+.pfButtonSelect:disabled,
+.pfButtonDismiss:disabled,
+.restoreButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- planfork panel -------------------------------------------------- */
+
+.pfPanel {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.pfList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pfRow {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.pfRow[data-pf-status='STALE'] {
+  opacity: 0.85;
+}
+
+.pfHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pfMeta {
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
+.pfReason {
+  margin: 4px 0;
+}
+
+.staleReason {
+  margin: 2px 0;
+  color: #d8a04a;
+  font-size: 12px;
+}
+
+.pfControls {
+  margin: 4px 0 0;
+  display: flex;
+  gap: 6px;
+}
+
+.checkpointHint {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid #2c5a3a;
+  background: #10221a;
+  color: #9fd0ae;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* ---- git / checkpoint panel ------------------------------------------ */
+
+.gitPanel {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.contractPanel {
+  border-top: 1px dashed #232c38;
+  padding-top: 6px;
+}
+
+.contractPath {
+  margin: 0;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.contractVerdict {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.contractVerdict[data-same='false'] {
+  color: #d8a04a;
+}
+
+.contractVerdict[data-same='true'] {
+  color: #9fd0ae;
+}
+
+.restoreResult {
+  margin: 4px 0;
+  font-size: 12px;
+  color: #9fd0ae;
+}
+
+.versionList {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.versionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #1f2833;
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+
+.versionOid {
+  font-family: monospace;
+  color: #8fb8e8;
+}
+
+.versionSubject {
+  flex: 1;
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
+.versionDate {
+  color: #6c7683;
+  font-size: 11px;
+}
+
+/* ---- workstream page grid --------------------------------------------- */
+
+.wsPageGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 12px;
+}
+
+.wsPageMain,
+.wsPageSide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.graphBox {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 6px;
+  min-height: 220px;
+}
+
+.topologyBox {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 6px;
+  min-height: 180px;
+}
+
+/* ---- topic page WS cards ----------------------------------------------- */
+
+.wsCardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.wsCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  background: #141a22;
+  color: #d8dee9;
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.wsCard:hover {
+  border-color: #3a4a5e;
+}
+
+.wsCardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wsCardTitle {
+  margin: 0;
+  font-weight: 600;
+}
+
+.wsCardMeta {
+  margin: 0;
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
+/* ---- drill-down (claim / artifact / run / session) ---------------------- */
+
+.drilldown {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.groupTitle {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: #9aa4b2;
+}
+
+.card,
+.cardSelected {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  background: #141a22;
+  color: #d8dee9;
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
+.card:hover {
+  border-color: #3a4a5e;
+}
+
+.cardSelected,
+.cardSelected:hover {
+  border-color: #4a90d9;
+  background: #152232;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cardId {
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.cardStatement {
+  margin: 0;
+}
+
+.cardMeta {
+  margin: 0;
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
+.typeBadge {
+  background: #1c2430;
+  border: 1px solid #2c3948;
+  border-radius: 3px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: #9aa4b2;
+}
+
+.statusBadge {
+  background: #1c2430;
+  border: 1px solid #2c3948;
+  border-radius: 3px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.statusBadge[data-claim-status='RETRACTED'],
+.statusBadge[data-artifact-status='MISSING'] {
+  color: #e0a0a6;
+  border-color: #7a2f36;
+}
+
+.statusBadge[data-pf-status='STALE'] {
+  color: #d8a04a;
+  border-color: #7a5a2f;
+}
+
+.statusBadge[data-run-status='RUNNING'] {
+  color: #9fd0ae;
+  border-color: #2c5a3a;
+}
+
+/* ---- linked run panel ---------------------------------------------------- */
+
+.runList {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.runRow {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.runHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.linkKinds {
+  color: #6c7683;
+  font-size: 11px;
+}
+
+.runMeta {
+  margin: 3px 0;
+  color: #9aa4b2;
+  font-size: 12px;
+}
+
+.sessionLink {
+  align-self: flex-start;
+  background: #12202f;
+  color: #8fb8e8;
+  border: 1px solid #2c5a8a;
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.sessionLink:hover {
+  background: #182a3e;
+}
+
+.sessionAbsent {
+  margin: 3px 0;
+  color: #6c7683;
+  font-size: 12px;
+}

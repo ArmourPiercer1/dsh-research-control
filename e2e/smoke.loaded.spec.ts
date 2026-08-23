@@ -49,11 +49,13 @@ test('TC-DSH-007/U1: 研究 tab appears in conversation.view and survives reload
   await expect(tab).toBeVisible()
   await page.screenshot({ path: `e2e/__screenshots__/tc-dsh-007-ring-${runTag}.png` })
 
-  // Clicking it materializes the spike view (U1: the factory ran,
-  // require("react/jsx-runtime") resolved from the host module table).
+  // Clicking it materializes the Research Cockpit (WP-4.6: the U1 spike
+  // view was replaced by the Phase 4 page stack — the §27.1 home dashboard
+  // is the landing page; its heading renders even when the research data
+  // root is empty, so this assertion is data-independent).
   await tab.click()
-  await page.getByRole('heading', { name: '研究控制台' }).waitFor({ timeout: 30_000 })
-  await expect(page.getByText('Research Cockpit spike（U1 验证用）')).toBeVisible()
+  await page.getByRole('heading', { name: '研究总览' }).waitFor({ timeout: 30_000 })
+  await expect(page.locator('[data-cockpit-page="home"]')).toBeVisible()
   await page.screenshot({ path: `e2e/__screenshots__/tc-dsh-007-active-${runTag}.png` })
 
   // TC-DSH-007 second half: a full page reload (fresh client boot) re-runs

@@ -20,10 +20,10 @@
  * Per-RPC forwarding map (wiring-assembly result → forward target):
  *  | RPC                    | forwards to                                                                 |
  *  |------------------------|------------------------------------------------------------------------------|
- *  | getDashboard           | declarative tree loader (query) + InterventionStore.query + null placeholders |
+ *  | getDashboard           | stale pre-check (checkAllOpen sweep, WP-4.6 RR-015①) + declarative tree loader (query) + InterventionStore.query + null placeholders |
  *  | getProject             | declarative tree loader (query) + null placeholders                           |
  *  | getTopic               | tree loader + Workstream cards (planfork countOpen + run table RUNNING)      |
- *  | getWorkstream          | tree loader + history event log (size + fold projection) + run table + PF store |
+ *  | getWorkstream          | stale pre-check (checkAllOpen(wsId) sweep, WP-4.6 RR-015①) + tree loader + history event log (size + fold projection) + run table + PF store |
  *  | queryHistory           | history replay query face (`queryEvents` — seq-cursor pagination, verbatim)  |
  *  | reorderPlan            | PlanStore.savePlan (§4.4 validations + atomic write) + PLAN_REORDER ledger row |
  *  | selectPlanFork         | PlanForkSelectService.select (WP-3.4: actor re-asserted USER at runtime)     |
@@ -145,10 +145,18 @@ import {
  * 11). Tests stub this interface and assert the forwarded args/return.
  */
 export interface ResearchRpcServices {
-  getDashboard(): DashboardSnapshot
+  /**
+   * WP-4.6 (RR-015① disposition): the production implementation runs the
+   * idempotent `stale.checkAllOpen()` sweep BEFORE the projection (the
+   * query-path stale pre-check — the snapshot reflects the current truth,
+   * PLAN_FORK_SPEC §5 「PF 列表查询懒检测」 timing). The port is async for
+   * the two query RPCs that read the PF state (the sweep is an async W3
+   * batch); stub implementations resolve with the fixture.
+   */
+  getDashboard(): Promise<DashboardSnapshot>
   getProject(): ProjectSnapshot
   getTopic(args: GetTopicArgs): TopicSnapshot
-  getWorkstream(args: GetWorkstreamArgs): WorkstreamSnapshot
+  getWorkstream(args: GetWorkstreamArgs): Promise<WorkstreamSnapshot>
   queryHistory(args: QueryHistoryArgs): QueryHistoryResult
   reorderPlan(args: ReorderPlanArgs): ReorderPlanResult
   selectPlanFork(args: SelectPlanForkArgs): Promise<SelectPlanForkResult>
@@ -277,7 +285,26 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    * is the truth, no cache), plus the operational query faces.
    * ------------------------------------------------------------------ */
 
-  getDashboard(): DashboardSnapshot {
+  /**
+   * WP-4.6 (RR-015① disposition) — the query-path stale pre-check: the
+   * idempotent `checkAllOpen()` sweep (PLAN_FORK_SPEC §5 「检测时机」
+   * 「PF 列表查询懒检测」; §3 幂等: a non-OPEN PF re-check is a NO-OP)
+   * runs BEFORE any projection so the returned snapshot reflects the
+   * CURRENT truth (an OPEN PF whose closure diverged since creation is
+   * already STALE-with-reason when the client renders it). Per-PF sweep
+   * failures are COLLECTED by the service (`StaleSweepResult.failures`)
+   * and never abort the query; a sweep-level throw (e.g. an unreadable
+   * store) propagates — the query would be lying about the PF state
+   * anyway. No new RPC: the 13-list stays frozen (ARCHITECTURE §7.1).
+   * `workstreamId` scopes the sweep (getWorkstream) or leaves it undefined
+   * (getDashboard — every topic card counts OPEN PFs).
+   */
+  async #stalePrecheck(workstreamId?: string): Promise<void> {
+    await this.#wiring.stale.checkAllOpen(workstreamId)
+  }
+
+  async getDashboard(): Promise<DashboardSnapshot> {
+    await this.#stalePrecheck()
     const tree = this.#loadTree('getDashboard')
     const project = tree.project
     if (project === null) {
@@ -371,7 +398,8 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     }
   }
 
-  getWorkstream(args: GetWorkstreamArgs): WorkstreamSnapshot {
+  async getWorkstream(args: GetWorkstreamArgs): Promise<WorkstreamSnapshot> {
+    await this.#stalePrecheck(args.workstreamId)
     const tree = this.#loadTree('getWorkstream')
     const wsNode = this.#findWorkstreamNode(tree, args.workstreamId, 'getWorkstream')
     const doc = wsNode.doc

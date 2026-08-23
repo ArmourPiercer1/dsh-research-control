@@ -275,8 +275,16 @@ export class ResearchControlService extends TypertRemoteService {
    * connection, disposed through its own `ctx.effect`). Tests: injected
    * through the optional 3rd constructor argument (a stub). `undefined`
    * only in spike mode / before init — the 13 methods then fail loud.
+   *
+   * WP-4.6 (TC-E2E): TS `private`, NOT an ECMAScript `#` member — the
+   * typert gateway invokes `@Remote` methods through the cordis traceable
+   * proxy (`ctx.get(serviceKey)` → `Reflect.apply(method, proxy, args)`),
+   * and V8 refuses ANY `#`-member access from a Proxy receiver ("Receiver
+   * must be an instance of class …"). `rpc`/`requireRpc` are the only
+   * members on the `@Remote` call chain; the rest of the class keeps true
+   * `#` privacy (its paths run with the real instance receiver).
    */
-  #rpc: ResearchRpcServices | undefined
+  private rpc: ResearchRpcServices | undefined
 
   /** The validated config (WP-2.6: `minDshVersion` is read in `[Service.init]`). */
   readonly #config: Config
@@ -291,7 +299,7 @@ export class ResearchControlService extends TypertRemoteService {
   constructor(ctx: Context, config: Config, rpcServices?: ResearchRpcServices) {
     super(ctx, 'researchControl')
     this.#config = config
-    this.#rpc = rpcServices
+    this.rpc = rpcServices
     // Cordis 管不到的资源 teardown 占位：SQLite 连接、file watcher（后续 WP）。
     // 注册本身即逆 effect：fiber 卸载时随注册自动回滚（DSH_ADAPTER §4 要点 2）。
     ctx.effect(() => () => {
@@ -403,17 +411,17 @@ export class ResearchControlService extends TypertRemoteService {
       // over the wiring-assembled instances (one extra second
       // connection of its own, disposed by its OWN effect; the guard
       // keeps a constructor-injected stub — tests only — untouched).
-      if (this.#rpc === undefined) {
-        this.#rpc = new ProductionResearchRpcServices({
+      if (this.rpc === undefined) {
+        this.rpc = new ProductionResearchRpcServices({
           wiring: this.#wiring,
           schemaRoot,
         })
       }
       this.ctx.effect(() => {
-        const rpc = this.#rpc
+        const rpc = this.rpc
         return (): void => {
           rpc?.close?.()
-          this.#rpc = undefined
+          this.rpc = undefined
         }
       })
       this.#registerResearchTools(this.#wiring)
@@ -445,73 +453,73 @@ export class ResearchControlService extends TypertRemoteService {
 
   @Remote('getDashboard')
   async getDashboard(): Promise<DashboardSnapshot> {
-    return this.#requireRpc().getDashboard()
+    return this.requireRpc().getDashboard()
   }
 
   @Remote('getProject')
   async getProject(): Promise<ProjectSnapshot> {
-    return this.#requireRpc().getProject()
+    return this.requireRpc().getProject()
   }
 
   @Remote('getTopic')
   async getTopic(args: unknown): Promise<TopicSnapshot> {
-    return this.#requireRpc().getTopic(GetTopicArgsSchema.parse(args) satisfies GetTopicArgs)
+    return this.requireRpc().getTopic(GetTopicArgsSchema.parse(args) satisfies GetTopicArgs)
   }
 
   @Remote('getWorkstream')
   async getWorkstream(args: unknown): Promise<WorkstreamSnapshot> {
-    return this.#requireRpc().getWorkstream(GetWorkstreamArgsSchema.parse(args) satisfies GetWorkstreamArgs)
+    return this.requireRpc().getWorkstream(GetWorkstreamArgsSchema.parse(args) satisfies GetWorkstreamArgs)
   }
 
   @Remote('queryHistory')
   async queryHistory(args: unknown): Promise<QueryHistoryResult> {
-    return this.#requireRpc().queryHistory(QueryHistoryArgsSchema.parse(args) satisfies QueryHistoryArgs)
+    return this.requireRpc().queryHistory(QueryHistoryArgsSchema.parse(args) satisfies QueryHistoryArgs)
   }
 
   @Remote('reorderPlan')
   async reorderPlan(args: unknown): Promise<ReorderPlanResult> {
-    return this.#requireRpc().reorderPlan(ReorderPlanArgsSchema.parse(args) satisfies ReorderPlanArgs)
+    return this.requireRpc().reorderPlan(ReorderPlanArgsSchema.parse(args) satisfies ReorderPlanArgs)
   }
 
   @Remote('selectPlanFork')
   async selectPlanFork(args: unknown): Promise<SelectPlanForkResult> {
-    return await this.#requireRpc().selectPlanFork(SelectPlanForkArgsSchema.parse(args) satisfies SelectPlanForkArgs)
+    return await this.requireRpc().selectPlanFork(SelectPlanForkArgsSchema.parse(args) satisfies SelectPlanForkArgs)
   }
 
   @Remote('dismissPlanFork')
   async dismissPlanFork(args: unknown): Promise<DismissPlanForkResult> {
-    return await this.#requireRpc().dismissPlanFork(DismissPlanForkArgsSchema.parse(args) satisfies DismissPlanForkArgs)
+    return await this.requireRpc().dismissPlanFork(DismissPlanForkArgsSchema.parse(args) satisfies DismissPlanForkArgs)
   }
 
   @Remote('updateInterventionState')
   async updateInterventionState(args: unknown): Promise<UpdateInterventionStateResult> {
-    return this.#requireRpc().updateInterventionState(
+    return this.requireRpc().updateInterventionState(
       UpdateInterventionStateArgsSchema.parse(args) satisfies UpdateInterventionStateArgs,
     )
   }
 
   @Remote('registerInteraction')
   async registerInteraction(args: unknown): Promise<RegisterInteractionResult> {
-    return await this.#requireRpc().registerInteraction(
+    return await this.requireRpc().registerInteraction(
       RegisterInteractionArgsSchema.parse(args) satisfies RegisterInteractionArgs,
     )
   }
 
   @Remote('saveResearchCheckpoint')
   async saveResearchCheckpoint(args: unknown): Promise<SaveResearchCheckpointResult> {
-    return await this.#requireRpc().saveResearchCheckpoint(
+    return await this.requireRpc().saveResearchCheckpoint(
       SaveResearchCheckpointArgsSchema.parse(args) satisfies SaveResearchCheckpointArgs,
     )
   }
 
   @Remote('getGitHistory')
   async getGitHistory(args: unknown): Promise<GetGitHistoryResult> {
-    return await this.#requireRpc().getGitHistory(GetGitHistoryArgsSchema.parse(args) satisfies GetGitHistoryArgs)
+    return await this.requireRpc().getGitHistory(GetGitHistoryArgsSchema.parse(args) satisfies GetGitHistoryArgs)
   }
 
   @Remote('restoreDeclarativeFile')
   async restoreDeclarativeFile(args: unknown): Promise<RestoreDeclarativeFileResult> {
-    return await this.#requireRpc().restoreDeclarativeFile(
+    return await this.requireRpc().restoreDeclarativeFile(
       RestoreDeclarativeFileArgsSchema.parse(args) satisfies RestoreDeclarativeFileArgs,
     )
   }
@@ -522,8 +530,8 @@ export class ResearchControlService extends TypertRemoteService {
    * to the client as a `ok: false` failure; `ping` still serves — the
    * WP-0.3 spike-mode contract).
    */
-  #requireRpc(): ResearchRpcServices {
-    const rpc = this.#rpc
+  private requireRpc(): ResearchRpcServices {
+    const rpc = this.rpc
     if (rpc === undefined) {
       throw new Error(
         'the research control plane is not initialized (spike mode) — the 13 RPCs require a ' +
@@ -666,9 +674,13 @@ export class ResearchControlService extends TypertRemoteService {
           def.parameters as unknown as Parameters<typeof parameterSchemaSpecToJsonSchema>[0],
         ) as unknown as Record<string, unknown>,
         output: {
-          // Deep-cloned: the plugin mirror is a static readonly object;
-          // the host must never observe (or mutate) the shared node.
-          schema: structuredClone(def.output.schema) as unknown as ToolDefinition['output']['schema'],
+          // Deep-cloned AND projected into the pinned host's supported
+          // JSON-Schema subset (projectNodeToDshSubset): the plugin mirror is
+          // a static readonly object the host must never observe (or mutate),
+          // and the mirror's raw vocabulary is a superset of the host subset
+          // (bare const/enum, pattern) — the projection is host-authoritative
+          // (the parameters conversion beside it is the same seam).
+          schema: projectNodeToDshSubset(structuredClone(def.output.schema)) as unknown as ToolDefinition['output']['schema'],
           // The plugin mirror returns a readonly block array — wrap into a
           // fresh mutable ContentBlock[] (the host vocabulary).
           render: (args: unknown, value: unknown): ContentBlock[] =>
@@ -754,6 +766,86 @@ function isUsableSchemaRoot(p: string): boolean {
 function toHostError(def: ResearchToolDefinition, e: unknown): ResearchToolHostError {
   const message = e instanceof Error ? e.message : String(e)
   return new ResearchToolHostError(`TOOL_INTERNAL: ${def.name}: unexpected failure: ${message}`, 'TOOL_INTERNAL', { cause: e })
+}
+
+/**
+ * The raw JSON-Schema subset the pinned host (`@deepseek-ai/dsh-tools`
+ * `assertSupportedJsonSchema`, enforced on `output.schema` at register)
+ * accepts: the constraint keywords `type/oneOf/properties/required/
+ * additionalProperties/items/enum/const` plus the annotation keywords
+ * `description/title/default/examples` — NOTHING else. Additionally:
+ * `enum`/`const` (oneOf siblings) REQUIRE `type` or `oneOf` on the same
+ * node, `additionalProperties` must be a boolean, `required` an array of
+ * strings on an object, and oneOf siblings are forbidden beside `oneOf`.
+ *
+ * The WP-3.3 11-tool face (`src/host/tools/*.ts`) declares its output
+ * schemas in the plugin's RAW-JSON-Schema vocabulary — a SUPERSET of the
+ * host subset (bare `const`/`enum` without a sibling `type`, `pattern`).
+ * This projector is the host-authoritative registration-seam step (the same
+ * philosophy as the `parameters` conversion beside it): it rewrites a deep
+ * CLONE of the output schema so the pinned host accepts it, while the frozen
+ * tool-face objects (and their pinned tests) stay byte-identical:
+ *   - unsupported keys (e.g. `pattern`) are DROPPED;
+ *   - bare `const`/`enum` nodes gain a `type` inferred from the value(s);
+ *   - a per-property boolean `required` on a non-object node is DROPPED;
+ *   - oneOf siblings are dropped beside `oneOf`.
+ */
+const DSH_SUBSET_CONSTRAINT_KEYWORDS = new Set([
+  'type',
+  'oneOf',
+  'properties',
+  'required',
+  'additionalProperties',
+  'items',
+  'enum',
+  'const',
+])
+const DSH_SUBSET_ANNOTATION_KEYWORDS = new Set(['description', 'title', 'default', 'examples'])
+
+function inferScalarType(value: unknown): string | undefined {
+  if (value === null) return 'null'
+  if (typeof value === 'string') return 'string'
+  if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'number'
+  if (typeof value === 'boolean') return 'boolean'
+  return undefined
+}
+
+function projectNodeToDshSubset(node: unknown): unknown {
+  if (typeof node !== 'object' || node === null || Array.isArray(node)) return node
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (DSH_SUBSET_CONSTRAINT_KEYWORDS.has(key) || DSH_SUBSET_ANNOTATION_KEYWORDS.has(key)) {
+      out[key] = value
+    }
+    // any other key is not supported by the pinned host — dropped
+  }
+  if (Array.isArray(out['oneOf'])) {
+    for (const key of ['properties', 'required', 'additionalProperties', 'items', 'enum', 'const']) {
+      delete out[key]
+    }
+  }
+  const type = out['type']
+  if (typeof out['required'] === 'boolean' && type !== 'object') {
+    delete out['required']
+  }
+  const hasType = typeof type === 'string'
+  const hasOneOf = Array.isArray(out['oneOf'])
+  if (!hasType && !hasOneOf) {
+    if ('const' in out) {
+      const inferred = inferScalarType(out['const'])
+      if (inferred !== undefined) out['type'] = inferred
+    } else if (Array.isArray(out['enum']) && out['enum'].length > 0) {
+      const inferred = inferScalarType(out['enum'][0])
+      if (inferred !== undefined) out['type'] = inferred
+    }
+  }
+  if (out['properties'] !== undefined && typeof out['properties'] === 'object' && out['properties'] !== null) {
+    const props = out['properties'] as Record<string, unknown>
+    for (const [k, v] of Object.entries(props)) props[k] = projectNodeToDshSubset(v)
+  }
+  if (out['items'] !== undefined) out['items'] = projectNodeToDshSubset(out['items'])
+  if (Array.isArray(out['oneOf'])) out['oneOf'] = out['oneOf'].map((b) => projectNodeToDshSubset(b))
+  return out
 }
 
 export default ResearchControlService

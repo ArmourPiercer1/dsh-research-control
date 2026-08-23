@@ -28,6 +28,7 @@ import type {
   RemoteResult,
   TypertClientRemote,
   TypertDisposer,
+  TypertRemoteNamespaceMap,
 } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   DashboardSnapshot,
@@ -70,33 +71,64 @@ import { researchRemotes } from './contribution.js'
  */
 export type RemoteContext = Context & { remote: TypertClientRemote }
 
-/** Facade binding; set by `mountResearchRemotes`, cleared by `unmountResearchRemotes`. */
-let boundRemote: TypertClientRemote | undefined
+/**
+ * The mounted namespace service, captured directly from the cordis reflect
+ * store (see `mountResearchRemotes` for why the context-proxy path cannot be
+ * used from this plugin's own fiber).
+ */
+let boundNamespace: unknown
 
 /**
- * Mount the research contribution in `ctx`'s fiber and bind the
- * `researchRpc` facade. The returned disposer withdraws the exact
- * contribution; see the module header for fiber-owned rollback.
+ * Mount the research contribution in `ctx`'s fiber, bind the `researchRpc`
+ * facade, and CAPTURE the mounted namespace service.
+ *
+ * Why the capture: the namespace is registered by the gateway client as a
+ * cordis service keyed `remote.researchControl` inside a CHILD fiber of the
+ * client root (the `$mount` plugin fiber) — a SIBLING of this plugin's own
+ * fiber. The context-proxy path (`ctx.remote.researchControl`) resolves that
+ * key by walking the CALLER fiber's ancestry (vendor/cordis reflect.ts
+ * handler), so a plugin fiber that does not declare `remote.researchControl`
+ * in its OWN inject list can never see it. This plugin cannot declare it:
+ * the service only exists after THIS mount runs, and the fiber waits for its
+ * inject list before its apply (declaring it would deadlock the fiber).
+ * The shipped harness plugins avoid the problem because the client ASSEMBLY
+ * (`packages/api/remotes`) mounts their contributions before their fibers
+ * start. The capture below uses `ctx.reflect.get(key, false)` — the
+ * non-strict GLOBAL reflect-store lookup the cordis reflect handler itself
+ * falls back to — which resolves across fibers. (Test injection keeps the
+ * `ctx.remote.researchControl` fallback for stub contexts without a reflect
+ * service.)
+ *
+ * The returned disposer withdraws the exact contribution; see the module
+ * header for fiber-owned rollback.
  */
 export async function mountResearchRemotes(ctx: RemoteContext): Promise<TypertDisposer> {
-  boundRemote = ctx.remote
-  return await ctx.remote.$mount(researchRemotes)
+  const dispose = await ctx.remote.$mount(researchRemotes)
+  // Arrow-function-type spelling (not a method signature): the TS 7 native
+  // parser in this workspace rejects the `get?: (…): T` property-function
+  // form inside type literals.
+  const reflect = (ctx as unknown as {
+    reflect?: { get?: (name: string, strict?: boolean) => unknown }
+  }).reflect
+  const fromReflect = typeof reflect?.get === 'function' ? reflect.get('remote.researchControl', false) : undefined
+  boundNamespace = fromReflect ?? (ctx.remote as unknown as { researchControl?: unknown }).researchControl
+  return dispose
 }
 
 /** Drop the facade binding (the fiber's own rollback is unaffected). */
 export function unmountResearchRemotes(): void {
-  boundRemote = undefined
+  boundNamespace = undefined
 }
 
 /**
  * The pre-mount guard: every facade method rejects loudly when the mount
  * has not run yet (or has been unmounted).
  */
-function requireRemote(): TypertClientRemote {
-  if (boundRemote === undefined) {
+function requireNamespace(): TypertRemoteNamespaceMap['researchControl'] {
+  if (boundNamespace === undefined) {
     throw new Error('researchRpc: not mounted — call mountResearchRemotes(ctx) first')
   }
-  return boundRemote
+  return boundNamespace as TypertRemoteNamespaceMap['researchControl']
 }
 
 /**
@@ -115,53 +147,53 @@ function requireRemote(): TypertClientRemote {
  */
 export const researchRpc = {
   async ping(): Promise<RemoteResult<PingResult>> {
-    return requireRemote().researchControl.ping()
+    return requireNamespace().ping()
   },
   async getDashboard(): Promise<RemoteResult<DashboardSnapshot>> {
-    return requireRemote().researchControl.getDashboard()
+    return requireNamespace().getDashboard()
   },
   async getProject(): Promise<RemoteResult<ProjectSnapshot>> {
-    return requireRemote().researchControl.getProject()
+    return requireNamespace().getProject()
   },
   async getTopic(args: GetTopicArgs): Promise<RemoteResult<TopicSnapshot>> {
-    return requireRemote().researchControl.getTopic(args)
+    return requireNamespace().getTopic(args)
   },
   async getWorkstream(args: GetWorkstreamArgs): Promise<RemoteResult<WorkstreamSnapshot>> {
-    return requireRemote().researchControl.getWorkstream(args)
+    return requireNamespace().getWorkstream(args)
   },
   async queryHistory(args: QueryHistoryArgs): Promise<RemoteResult<QueryHistoryResult>> {
-    return requireRemote().researchControl.queryHistory(args)
+    return requireNamespace().queryHistory(args)
   },
   async reorderPlan(args: ReorderPlanArgs): Promise<RemoteResult<ReorderPlanResult>> {
-    return requireRemote().researchControl.reorderPlan(args)
+    return requireNamespace().reorderPlan(args)
   },
   async selectPlanFork(args: SelectPlanForkArgs): Promise<RemoteResult<SelectPlanForkResult>> {
-    return requireRemote().researchControl.selectPlanFork(args)
+    return requireNamespace().selectPlanFork(args)
   },
   async dismissPlanFork(args: DismissPlanForkArgs): Promise<RemoteResult<DismissPlanForkResult>> {
-    return requireRemote().researchControl.dismissPlanFork(args)
+    return requireNamespace().dismissPlanFork(args)
   },
   async updateInterventionState(
     args: UpdateInterventionStateArgs,
   ): Promise<RemoteResult<UpdateInterventionStateResult>> {
-    return requireRemote().researchControl.updateInterventionState(args)
+    return requireNamespace().updateInterventionState(args)
   },
   async registerInteraction(
     args: RegisterInteractionArgs,
   ): Promise<RemoteResult<RegisterInteractionResult>> {
-    return requireRemote().researchControl.registerInteraction(args)
+    return requireNamespace().registerInteraction(args)
   },
   async saveResearchCheckpoint(
     args: SaveResearchCheckpointArgs,
   ): Promise<RemoteResult<SaveResearchCheckpointResult>> {
-    return requireRemote().researchControl.saveResearchCheckpoint(args)
+    return requireNamespace().saveResearchCheckpoint(args)
   },
   async getGitHistory(args: GetGitHistoryArgs): Promise<RemoteResult<GetGitHistoryResult>> {
-    return requireRemote().researchControl.getGitHistory(args)
+    return requireNamespace().getGitHistory(args)
   },
   async restoreDeclarativeFile(
     args: RestoreDeclarativeFileArgs,
   ): Promise<RemoteResult<RestoreDeclarativeFileResult>> {
-    return requireRemote().researchControl.restoreDeclarativeFile(args)
+    return requireNamespace().restoreDeclarativeFile(args)
   },
 }

@@ -64,6 +64,13 @@ DSH_BIN="$SMOKE_ROOT/cli/node_modules/.bin/dsh"
 E2E_PORT="${E2E_PORT:-3199}"
 E2E_BASE_URL="http://127.0.0.1:$E2E_PORT"
 EVIDENCE_DIR="$SMOKE_ROOT/evidence"
+# WP-4.6: the smoke workspace is the research repo root (the factory writes
+# its `.research/` tree here) and carries the DSH sessions the GUI operates.
+E2E_REPO="$SMOKE_ROOT/ws"
+# SI-001: the frozen schema/ root lives at the WORKSPACE ROOT. The installed
+# plugin cannot walk far enough up from the profile's node_modules to find it,
+# so the host service is pointed at it explicitly via DSH_RESEARCH_SCHEMA_ROOT.
+E2E_SCHEMA_ROOT="$(cd "$REPO_DIR/.." && pwd)/schema"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$SMOKE_ROOT/pw-browsers}"
 EXPECTED_DSH_VERSION="0.1.0-rc.8"
 CYCLES="${E2E_CYCLES:-2}"
@@ -103,6 +110,7 @@ start_server() {
     cd "$SMOKE_ROOT/cli"
     env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
       DSH_HOME="$DSH_HOME" \
+      DSH_RESEARCH_SCHEMA_ROOT="$E2E_SCHEMA_ROOT" \
       nohup "$DSH_BIN" web --port "$E2E_PORT" --no-open >>"$SERVER_LOG" 2>&1 &
     echo $! > "$EVIDENCE_DIR/server.pid"
   )
@@ -147,14 +155,60 @@ EOF
   log "plugin state -> $state"
 }
 
+# WP-4.6: TC-E2E phase (a = pre-restart baseline assertions, b = post-restart
+# persistence assertions). Empty for the plain smoke specs.
+E2E_PHASE=""
+
 run_spec() {
   local spec="$1"
-  log "running e2e/$spec"
+  log "running e2e/$spec (E2E_PHASE=${E2E_PHASE:-<none>})"
   (
     cd "$REPO_DIR"
     E2E_BASE_URL="$E2E_BASE_URL" \
+      E2E_PHASE="$E2E_PHASE" \
+      E2E_REPO="$E2E_REPO" \
       pnpm exec playwright test --config e2e/playwright.config.ts "e2e/$spec" 2>&1 | tee -a "$RUN_LOG"
   )
+}
+
+# ---------------------------------------------------------------------------
+# WP-4.6 — plugin (re)build + (re)install, and the TC-E2E data seed.
+# ---------------------------------------------------------------------------
+# The e2e suite asserts on THIS run's client bundle (the drill-down views are
+# new in WP-4.6), so the profile's plugin is always rebuilt and force-relinked
+# from a fresh pack — never the stale "install once" copy. `pnpm run build`
+# emits lib/ (host + client) AND e2e/factory-dist/ (the seed script).
+build_and_install_plugin() {
+  log "building plugin (lib/ + factory-dist/) and force-reinstalling into the profile"
+  ( cd "$REPO_DIR" && pnpm run build >>"$RUN_LOG" 2>&1 ) || die "pnpm run build failed"
+  ( cd "$REPO_DIR" && pnpm pack >>"$RUN_LOG" 2>&1 ) || die "pnpm pack failed"
+  TGZ="$(ls -1 "$REPO_DIR"/dsh-research-control-*.tgz 2>/dev/null | head -1 || true)"
+  [ -n "$TGZ" ] || die "pnpm pack produced no tarball"
+  # Force-relink: drop the stale row (if any) then install the fresh pack.
+  if grep -q '"dsh-research-control"' "$PROFILE_DIR/package.json"; then
+    log "removing stale plugin from profile"
+    DSH_HOME="$DSH_HOME" "$DSH_BIN" plugin --profile web remove dsh-research-control >>"$RUN_LOG" 2>&1 || true
+  fi
+  log "installing fresh plugin pack: $(basename "$TGZ")"
+  DSH_HOME="$DSH_HOME" "$DSH_BIN" plugin --profile web add "$TGZ" 2>&1 | tee -a "$RUN_LOG"
+  grep -q '"dsh-research-control"' "$PROFILE_DIR/package.json" || die "plugin missing from profile after install"
+}
+
+# The TC-E2E data seed: run the factory (real host wiring, production mutation
+# paths) against the smoke workspace + isolated home. Idempotent — the factory
+# refuses to re-append over an existing research.sqlite, so seed exactly once
+# per smoke home and skip on re-runs.
+seed_research() {
+  local data_dir="$DSH_HOME/research-control/PRJ-1"
+  if [ -f "$data_dir/research.sqlite" ]; then
+    log "research seed already present ($data_dir) — skipping factory (re-run)"
+    return 0
+  fi
+  log "seeding TC-E2E research data into $E2E_REPO (factory)"
+  ( cd "$REPO_DIR" && node e2e/factory-dist/factory.mjs \
+      --repo "$E2E_REPO" --home "$DSH_HOME" --schema-root "$E2E_SCHEMA_ROOT" 2>&1 ) | tee -a "$RUN_LOG"
+  [ -f "$data_dir/research.sqlite" ] || die "factory did not produce $data_dir/research.sqlite"
+  log "research seed complete"
 }
 
 # ---------------------------------------------------------------------------
@@ -178,16 +232,9 @@ if ! grep -q '^storeDir:' "$PROFILE_DIR/pnpm-workspace.yaml" 2>/dev/null; then
   log "storeDir added to profile pnpm-workspace.yaml"
 fi
 
-# Plugin installed in the profile? (pnpm add file:tgz + bundle reconcile)
-if ! grep -q '"dsh-research-control"' "$PROFILE_DIR/package.json"; then
-  log "plugin not in profile — installing from fresh pack"
-  ( cd "$REPO_DIR" && pnpm pack >>"$RUN_LOG" 2>&1 )
-  TGZ="$(ls -1 "$REPO_DIR"/dsh-research-control-*.tgz 2>/dev/null | head -1 || true)"
-  [ -n "$TGZ" ] || die "pnpm pack produced no tarball"
-  DSH_HOME="$DSH_HOME" "$DSH_BIN" plugin --profile web add "$TGZ" 2>&1 | tee -a "$RUN_LOG"
-else
-  log "plugin already installed in profile"
-fi
+# Plugin install (WP-4.6: ALWAYS rebuild + force-relink — the suite asserts on
+# this run's bundle, so a stale profile copy is never tolerated).
+build_and_install_plugin
 
 # dump-config evidence (TC-DSH-008): the composed tree must carry the row.
 DSH_HOME="$DSH_HOME" "$DSH_BIN" --profile web --dump-config > "$EVIDENCE_DIR/dump-config-run-$TS.yml" 2>&1
@@ -203,6 +250,7 @@ if [ -n "${E2E_STATE:-}" ]; then
     unloaded) set_plugin_state disabled; SPEC=smoke.unloaded.spec.ts ;;
     *) die "E2E_STATE must be loaded|unloaded" ;;
   esac
+  seed_research
   if port_open; then log "server already up on $E2E_PORT — reusing"; else start_server "$E2E_STATE"; fi
   run_spec "$SPEC"
   if [ "${E2E_KILL_AFTER:-0}" = "1" ]; then stop_server; fi
@@ -215,8 +263,13 @@ fi
 port_open && die "port $E2E_PORT already in use — stop the other server first (3080 is the live GUI, never touched here)"
 
 set_plugin_state enabled
+seed_research
 start_server loaded-baseline
 run_spec smoke.loaded.spec.ts
+# WP-4.6: TC-E2E phase a — the pre-restart baseline assertions (structure,
+# zones, ordering, timeline, drill-down, PF select, intervention, flooding).
+E2E_PHASE="a"
+run_spec tc-e2e.spec.ts
 stop_server
 
 for round in $(seq 1 "$CYCLES"); do
@@ -230,6 +283,12 @@ for round in $(seq 1 "$CYCLES"); do
   set_plugin_state enabled
   start_server "loaded-$round"
   run_spec smoke.loaded.spec.ts
+  # WP-4.6: TC-E2E phase b — post-restart persistence (the seed + the
+  # phase-a mutations must survive a full server restart).
+  if [ "$round" = "1" ]; then
+    E2E_PHASE="b"
+    run_spec tc-e2e.spec.ts
+  fi
   stop_server
 done
 

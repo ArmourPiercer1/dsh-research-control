@@ -17,7 +17,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { ResearchSpikeView } from '../views/ResearchSpikeView'
+import { ResearchCockpit } from '../views/drilldown/cockpit.js'
 
 /**
  * Conversation view slot key — the primary Research UI landing point
@@ -66,16 +66,14 @@ export interface SlotService {
 /** Client context carrying the slots service (mirror of the host Context merge). */
 export type ResearchClientContext = Context & { slots: SlotService }
 
-/** Inject face of the spike tab: the placeholder ping status (no data call). */
-export interface ResearchSpikeViewInjected {
-  readonly pingStatus: string
-}
-
-/** Placeholder ping status text until Phase 4 wires the live `researchRpc` ping result. */
-const PING_STATUS_PLACEHOLDER = '占位：未接线（Phase 4 接入 ping）'
-
 /**
  * Register the Research tab on the `conversation.view` slot.
+ *
+ * WP-4.6: the tab body is now the Research Cockpit (the Phase 4 page
+ * stack — §27.1 Home dashboard / §27.3 Topic / §27.4 Workstream +
+ * History + the §26 drill-down sections). The cockpit creates its own
+ * `createResearchStore()` per mount, so no inject data is required (the
+ * spike's ping placeholder is retired with the spike view).
  *
  * The registration rides the slot service's `inject` wrapper, so a late
  * slot declaration is tolerated and plugin unload removes the tab
@@ -84,12 +82,14 @@ const PING_STATUS_PLACEHOLDER = '占位：未接线（Phase 4 接入 ping）'
  */
 export function registerResearchUI(ctx: ResearchClientContext): void {
   ctx.slots.inject(CONVERSATION_VIEW_SLOT, () =>
-    ctx.slots.register({
-      name: CONVERSATION_VIEW_SLOT,
-      id: 'research',
-      order: 20,
-      label: () => '研究',
-      inject: (): ResearchSpikeViewInjected => ({ pingStatus: PING_STATUS_PLACEHOLDER }),
-    }, ResearchSpikeView),
+    ctx.slots.register(
+      {
+        name: CONVERSATION_VIEW_SLOT,
+        id: 'research',
+        order: 20,
+        label: () => '研究',
+      },
+      ResearchCockpit,
+    ),
   )
 }

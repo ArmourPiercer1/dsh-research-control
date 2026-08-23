@@ -273,6 +273,11 @@ export const GRAPH_BASE_CSS: string = [
   `,
   `
 .rc-pgv-canvasWrap {
+  /* WP-4.7 (G4 S2): the explicit height lives on the WRAP — React Flow v12
+   * sets an inline height:100% on the react-flow root, which overrides any
+   * stylesheet height on the canvas class itself; a 0-height wrap made the
+   * whole canvas (and its clipped nodes) invisible in the browser. */
+  height: 440px;
   border: 1px solid var(--rc-border-l1);
   border-radius: 10px;
   overflow: hidden;
@@ -281,8 +286,8 @@ export const GRAPH_BASE_CSS: string = [
   `,
   `
 .rc-pgv-canvas {
-  height: 440px;
   width: 100%;
+  height: 100%;
 }
   `,
   `
@@ -499,6 +504,10 @@ export const GRAPH_BASE_CSS: string = [
   `,
   `
 .rc-tgv-canvasWrap {
+  /* WP-4.7 (G4 S2): same wrap-height fix as the plan canvas — the React
+   * Flow root's inline height:100% needs a sized ancestor or the canvas
+   * renders at 0px. */
+  height: 440px;
   border: 1px solid var(--rc-border-l1);
   border-radius: 10px;
   overflow: hidden;
@@ -507,8 +516,8 @@ export const GRAPH_BASE_CSS: string = [
   `,
   `
 .rc-tgv-canvas {
-  height: 440px;
   width: 100%;
+  height: 100%;
 }
   `,
   `

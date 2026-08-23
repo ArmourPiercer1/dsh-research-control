@@ -29,6 +29,16 @@
 #                   unless E2E_KILL_AFTER=1)
 #   E2E_KILL_AFTER  with E2E_STATE: kill the server at the end
 #
+# Flags:
+#   --reset   WP-4.7 (G4 S3): the EXPLICIT reset step before seeding —
+#             removes $E2E_REPO (the whole smoke workspace, incl. its .git
+#             and the used .research/ tree) and $DSH_HOME/research-control
+#             (the research DB), then re-seeds from zero. The factory's
+#             once-only guard is preserved (it still refuses a second seed
+#             over an existing research.sqlite without a reset); --reset is
+#             what makes a re-run over a used smoke root green instead of
+#             red (G4 round-1: 「对已用 root 重跑必红」 eliminated).
+#
 # The playwright specs assume the server is already serving (they never
 # start/stop it); this script owns start -> wait -> test -> kill -> verify.
 set -Eeuo pipefail
@@ -84,6 +94,21 @@ RUN_LOG="$EVIDENCE_DIR/e2e-run-$TS.log"
 mkdir -p "$EVIDENCE_DIR"
 log() { printf '[e2e-run] %s\n' "$*" | tee -a "$RUN_LOG"; }
 die() { log "FATAL: $*"; exit 1; }
+
+# WP-4.7 (G4 S3): the explicit reset step (--reset). Parsing happens after
+# log/die exist so a bad flag is a loud FATAL in the run log.
+RESET=0
+for arg in "$@"; do
+  case "$arg" in
+    --reset)
+      RESET=1
+      ;;
+    *)
+      die "unknown arg: $arg (usage: e2e-run.sh [--reset])"
+      ;;
+  esac
+done
+[ "$RESET" = "1" ] && log "reset requested (--reset): the smoke workspace + research DB will be wiped before seeding"
 
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -200,6 +225,17 @@ build_and_install_plugin() {
 # per smoke home and skip on re-runs.
 seed_research() {
   local data_dir="$DSH_HOME/research-control/PRJ-1"
+  # WP-4.7 (G4 S3): the EXPLICIT reset step — wipe the used smoke workspace
+  # (the whole $E2E_REPO: .research/ tree, the dirty git working copy, the
+  # repo's .git) and the research DB, then re-seed from zero. The factory's
+  # once-only guard is PRESERVED (below: an existing research.sqlite still
+  # skips the factory) — --reset is the operator's declared intent to
+  # reseed, and it is what makes a re-run over a used root green.
+  if [ "$RESET" = "1" ]; then
+    log "reset: removing $E2E_REPO (smoke workspace) and $DSH_HOME/research-control (research DB)"
+    rm -rf "$E2E_REPO" "$DSH_HOME/research-control"
+    mkdir -p "$E2E_REPO"
+  fi
   if [ -f "$data_dir/research.sqlite" ]; then
     log "research seed already present ($data_dir) — skipping factory (re-run)"
     return 0

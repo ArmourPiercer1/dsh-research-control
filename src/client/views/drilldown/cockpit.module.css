@@ -338,10 +338,24 @@
 
 /* ---- workstream page grid --------------------------------------------- */
 
+/* WP-4.7 (G4 S2): the cockpit is a fixed-height app frame (~viewport). The
+ * WS page's main column (3-zone view + 440px plan canvas + drill-down) is
+ * taller than that, so the page must fill the frame and its columns scroll
+ * their OWN content — otherwise the flex-shrunk graphBox overflows its
+ * border box and the canvas pane intercepts pointer events on the drill-down
+ * cards below (TC-E2E-012 regression). */
+.page {
+  flex: 1;
+  min-height: 0;
+}
+
 .wsPageGrid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  grid-template-rows: 1fr;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
 }
 
 .wsPageMain,
@@ -350,6 +364,16 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Children keep their content height (no flex shrink to the min-height
+ * floors) — the column scrolls instead of the shrunk graphBox overflowing
+ * its border box onto the sibling below. */
+.wsPageMain > *,
+.wsPageSide > * {
+  flex-shrink: 0;
 }
 
 .graphBox {
@@ -367,6 +391,55 @@
 }
 
 /* ---- topic page WS cards ----------------------------------------------- */
+
+.topicBrief {
+  margin: 0;
+}
+
+.objList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.objRow {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #141a22;
+}
+
+.objStatement {
+  margin: 0;
+}
+
+.objMeta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #9aa4b2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.statusBadge[data-objective-status='ACTIVE'] {
+  color: #9fd0ae;
+  border-color: #2c5a3a;
+}
+
+.statusBadge[data-objective-status='ACHIEVED'] {
+  color: #8fb8e8;
+  border-color: #2c5a8a;
+}
+
+.statusBadge[data-objective-status='DROPPED'] {
+  color: #e0a0a6;
+  border-color: #7a2f36;
+}
 
 .wsCardGrid {
   display: grid;

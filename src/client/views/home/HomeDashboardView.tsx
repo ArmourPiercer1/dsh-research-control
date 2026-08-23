@@ -46,6 +46,8 @@ export interface HomeDashboardViewProps {
   readonly onRefresh: () => void
   /** Re-issue the dashboard load (first-load failure path). */
   readonly onRetry: () => void
+  /** Drill-down: project view (§27.2; the project card's entry, WP-4.7). */
+  readonly onOpenProject?: () => void
   /** Drill-down: topic view. */
   readonly onOpenTopic: (topicId: string) => void
   /** Drill-down: workstream view. */
@@ -65,6 +67,7 @@ export function HomeDashboardView({
   error,
   onRefresh,
   onRetry,
+  onOpenProject,
   onOpenTopic,
   onOpenWorkstream,
   onOpenHistory,
@@ -108,7 +111,7 @@ export function HomeDashboardView({
               正在刷新…
             </p>
           )}
-          <ProjectCard project={data.project} />
+          <ProjectCard project={data.project} onOpen={onOpenProject} />
           <TopicList topics={data.topics} onOpenTopic={onOpenTopic} />
           <InterventionSection
             kind="OPEN"

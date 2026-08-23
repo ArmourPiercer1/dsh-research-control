@@ -7,7 +7,8 @@
  *   `a` — pre-restart baseline: structure, zones, ordering stability,
  *         run terminals, three-zone migration, PF overlay/SELECT/STALE,
  *         contract restore, flooding, intervention transitions, the
- *         drill-down chains, and the final canonical reorder.
+ *         drill-down chains, TC-PERF-006 (the large-plan viewport
+ *         virtualization), and the final canonical reorder.
  *   `b` — post-restart persistence: the seed + every phase-a mutation must
  *         survive a full server restart (structure, plan order 逐位, zones,
  *         the SELECT materialization, the CLOSED intervention, the
@@ -28,7 +29,9 @@
  * A-1 (R-1, PRODUCED_BY R-1); relations REL-1 (SUPPORTED_BY) / REL-2
  * (PRODUCED_BY); 6 OPEN PlanForks (PF-1..PF-6) → the §8 flooding hook
  * created IV-1 (AUTO_FLOODING, OPEN); the merge contract TE-2 working
- * copy is drifted (uncommitted) for TC-E2E-010.
+ * copy is drifted (uncommitted) for TC-E2E-010; WS-4 (长程验证矩阵)
+ * carries a 106-item canonical plan — the TC-PERF-006 large-plan fixture
+ * (WP-4.7, G4 S2).
  *
  * Ordering constraint (documented in the report): SELECT (TC-E2E-007)
  * consumes an OPEN PF and chain-stales the rest; the manual-canonical-
@@ -65,8 +68,18 @@ const SESSION_TITLE = `e2e-${runTag} tc suite`
 const ORDER_FILE = join(tmpdir(), 'dsh-e2e-wp46-order.json')
 
 const WS1 = 'WS-1'
+/** The TC-PERF-006 large-plan workstream (WP-4.7, G4 S2 — factory seed). */
+const WS4 = 'WS-4'
+/** WS-4's canonical plan size (4 gates + 100 tasks + 2 milestones = 106). */
+const WS4_TOTAL = 106
 const TOPIC_TITLE = '标定与配准'
 const PROJECT_TITLE = '机器人视觉定位系统'
+/** §27.2 Project Brief (the factory's project.yaml description). */
+const PROJECT_BRIEF = '多传感器融合的亚像素级视觉定位'
+/** §27.3 Topic Brief (the factory's topic.yaml description — G4 R5). */
+const TOPIC_BRIEF = '机器人视觉定位的标定与配准研究主题（亚像素级精度目标）'
+/** The factory's TOPIC-scope objective statement (OBJ-1). */
+const OBJECTIVE_STATEMENT = '完成亚像素级视觉定位原型'
 const WS1_TITLE = '主标定管线'
 /** The factory seed's canonical plan order (phase a, pre-mutation). */
 const SEED_ORDER = ['G-1', 'T-1', 'T-2', 'T-3', 'M-1', 'T-4', 'G-2']
@@ -189,8 +202,23 @@ test.describe('TC-E2E phase a (pre-restart)', () => {
     await expect(page.getByText('编号：PRJ-1')).toBeVisible()
     // Topic list — the TPC-1 card.
     await expect(page.getByRole('button', { name: new RegExp(TOPIC_TITLE) }).first()).toBeVisible()
+    // WP-4.7 (G4 S1): the project card entry → the §27.2 project page.
+    await page.locator('[data-project-card]').first().click()
+    await page.locator('[data-cockpit-page="project"]').waitFor({ timeout: 30_000 })
+    await expect(
+      page.getByRole('heading', { name: new RegExp(`PRJ-1 · ${PROJECT_TITLE}`) }),
+    ).toBeVisible()
+    // §27.2 face: the Project Brief + the objective STATEMENT + the topic
+    // list (one card per topic, the real workstream count now 4 — WS-4).
+    await expect(page.getByText(PROJECT_BRIEF)).toBeVisible()
+    await expect(page.getByText(OBJECTIVE_STATEMENT)).toBeVisible()
+    await expect(page.getByRole('button', { name: new RegExp(TOPIC_TITLE) }).first()).toBeVisible()
     // Drill: topic page carries the three WS cards.
     await openTopic(page)
+    // WP-4.7 (G4 R5): the topic page renders the Topic Brief + the
+    // TOPIC-level objective statement (not just the header ref ids).
+    await expect(page.getByText(TOPIC_BRIEF)).toBeVisible()
+    await expect(page.getByText(OBJECTIVE_STATEMENT)).toBeVisible()
     for (const wsId of ['WS-1', 'WS-2', 'WS-3']) {
       await expect(page.locator(`button[data-ws-id="${wsId}"]`)).toBeVisible()
     }
@@ -367,6 +395,72 @@ test.describe('TC-E2E phase a (pre-restart)', () => {
     await expect(toolbar.locator('li[data-pf]')).toHaveCount(6)
     await expect(toolbar.locator('li[data-pf="PF-1"]')).toHaveAttribute('data-status', 'OPEN')
     await page.screenshot({ path: `e2e/__screenshots__/tc-e2e-006-pf-overlay-${runTag}.png` })
+  })
+
+  test('TC-PERF-006: big plan (106 items) — the canvas renders only the viewport window', async ({
+    page,
+  }) => {
+    gate('a')
+    await openResearch(page)
+    await openTopic(page)
+    await page.locator(`button[data-ws-id="${WS4}"]`).click()
+    await page.locator('[data-cockpit-page="ws"]').waitFor({ timeout: 30_000 })
+    // The PlanGraph canvas (nested data-role; .last() = the inner face).
+    const graph = page.locator('[data-role="plan-graph"]').last()
+    // Data completeness: the FULL 106-item plan reached the canvas (the
+    // header meta is the projection's canonicalCount — the culling is a
+    // RENDERING decision, never a data one).
+    await expect(graph.getByText(`正典 ${WS4_TOTAL} 项`)).toBeVisible({ timeout: 30_000 })
+    // The WS page is tall (106 plan rows) — the 440px canvas may sit below
+    // the fold after a root-level scroll; bring the CANVAS itself into the
+    // real viewport before any mouse interaction (a pointer event outside
+    // the 900px viewport hits nothing).
+    const canvas = graph.locator('.rc-pgv-canvasWrap').first()
+    await canvas.scrollIntoViewIfNeeded()
+    await expect(canvas).toBeVisible()
+    const nodes = graph.locator('.react-flow__node')
+
+    // Settle: the virtual window converges after fitView + the cull pass —
+    // wait until the DOM node count stops changing (max ~5s).
+    const stableCount = async (): Promise<number> => {
+      let prev = -1
+      for (let i = 0; i < 50; i++) {
+        const c = await nodes.count()
+        if (c > 0 && c === prev) return c
+        prev = c
+        await page.waitForTimeout(100)
+      }
+      return prev
+    }
+    const nodeSignatures = () =>
+      nodes.evaluateAll((els) => els.map((el) => (el.textContent ?? '').slice(0, 40)))
+
+    // ① viewport window: the DOM holds a non-empty STRICT SUBSET of the
+    //    106 nodes (React Flow `onlyRenderVisibleElements` — the canvas
+    //    virtualization is effective under real browser layout).
+    const first = await stableCount()
+    expect(first).toBeGreaterThan(0)
+    expect(first, 'DOM node count must be below the full plan size').toBeLessThan(WS4_TOTAL)
+    const firstSet = await nodeSignatures()
+
+    // ② pan the canvas (drag the pane — panOnDrag user gesture; the canvas
+    //    center is on the visible node row, but the nodes are non-draggable
+    //    so the drag pans the viewport) → the visible window must shift.
+    const flow = graph.locator('.react-flow').last()
+    const box = await flow.boundingBox()
+    if (box === null) throw new Error('react-flow canvas has no bounding box')
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width / 2 - 1200, box.y + box.height / 2, { steps: 12 })
+    await page.mouse.up()
+
+    const second = await stableCount()
+    expect(second, 'the panned window stays virtualized').toBeLessThan(WS4_TOTAL)
+    const secondSet = await nodeSignatures()
+    // ③ the rendered SET changed after scrolling (a different window of
+    //    the plan — virtualization tracks the viewport).
+    expect(secondSet, 'the visible node set must change after panning').not.toEqual(firstSet)
+    await page.screenshot({ path: `e2e/__screenshots__/tc-perf-006-viewport-${runTag}.png` })
   })
 
   test('TC-E2E-007: SELECT PF-1 → canonical updated, others STALE, checkpoint hint', async ({

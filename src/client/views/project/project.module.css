@@ -1,0 +1,226 @@
+/**
+ * §27.2 Project Page styles (WP-4.7, G4 S1).
+ *
+ * Same token values as the cockpit page frame (views/drilldown/
+ * cockpit.module.css — the dark palette the 研究 tab pages render in);
+ * the module is per-package (each view package owns its CSS module),
+ * so the values are mirrored here rather than cross-imported.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backButton {
+  background: #1c2430;
+  color: #d8dee9;
+  border: 1px solid #2c3948;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.backButton:hover {
+  background: #243040;
+}
+
+.sectionTitle {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: #9aa4b2;
+  font-weight: 600;
+}
+
+.brief {
+  margin: 0;
+}
+
+.metaList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.metaItem {
+  font-size: 12px;
+  color: #9aa4b2;
+}
+
+/* ---- objectives (§27.2 Objective) -------------------------------------- */
+
+.objList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.objRow {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #141a22;
+}
+
+.objRow[data-current='true'] {
+  border-color: #2c5a3a;
+}
+
+.objStatement {
+  margin: 0;
+}
+
+.objMeta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #9aa4b2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cardId {
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.statusBadge {
+  background: #1c2430;
+  border: 1px solid #2c3948;
+  border-radius: 3px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.statusBadge[data-objective-status='ACTIVE'] {
+  color: #9fd0ae;
+  border-color: #2c5a3a;
+}
+
+.statusBadge[data-objective-status='ACHIEVED'] {
+  color: #8fb8e8;
+  border-color: #2c5a8a;
+}
+
+.statusBadge[data-objective-status='DROPPED'] {
+  color: #e0a0a6;
+  border-color: #7a2f36;
+}
+
+.currentTag {
+  color: #9fd0ae;
+  font-size: 11px;
+}
+
+/* ---- topic list (§27.2 Topic list) -------------------------------------- */
+
+.topicList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.topicCard {
+  border: 1px solid #232c38;
+  border-radius: 6px;
+  background: #141a22;
+  padding: 8px 10px;
+}
+
+.topicButton {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  font: inherit;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #d8dee9;
+  text-align: left;
+}
+
+.topicButton:hover {
+  background: #243040;
+}
+
+.topicTitle {
+  font-weight: 600;
+}
+
+.topicCount {
+  font-size: 12px;
+  color: #9aa4b2;
+}
+
+/* ---- PHASE 5 placeholder (§27.2 upcoming interactions/reporting) --------- */
+
+.phase {
+  padding: 8px 12px;
+  border: 1px dashed #2c3948;
+  border-radius: 8px;
+  background: #141a22;
+}
+
+.phaseText {
+  margin: 0;
+  color: #6c7683;
+  font-size: 12px;
+}
+
+/* ---- loading / error faces (same contract as the home view) -------------- */
+
+.loading {
+  margin: 0;
+  color: #6c7683;
+}
+
+.errorBanner {
+  margin: 4px 0;
+  padding: 4px 8px;
+  border: 1px solid #7a2f36;
+  background: #2a1518;
+  color: #e0a0a6;
+  border-radius: 4px;
+}
+
+.failed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #7a2f36;
+  border-radius: 8px;
+}
+
+.errorText {
+  margin: 0;
+  color: #e0a0a6;
+}
+
+.empty {
+  margin: 4px 0;
+  color: #6c7683;
+}

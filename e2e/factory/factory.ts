@@ -22,7 +22,11 @@
  *             the §8 flooding hook fires after the 6th OPEN PF and
  *             creates the AUTO_FLOODING intervention (TC-E2E-009);
  *   contract  the merge contract TE-2 is committed, then the WORKING COPY
- *             is drifted (uncommitted) — TC-E2E-010 restores it from Git.
+ *             is drifted (uncommitted) — TC-E2E-010 restores it from Git;
+ *   big plan  WS-4 (long-range validation matrix) carries a 106-item
+ *             canonical plan — the TC-PERF-006 viewport-virtualization
+ *             fixture (WP-4.7, G4 S2; its own workstream so the WS-1
+ *             seed order asserted 逐位 by TC-E2E-002/003/007 is untouched).
  *
  * Idempotency: the script refuses to run over an existing `research.sqlite`
  * (a re-run means the seed would double-append — the operator must reset
@@ -129,6 +133,7 @@ const OBJECTIVES_YAML = `objectives:
 const TOPIC_YAML = `id: TPC-1
 project_id: PRJ-1
 title: 标定与配准
+description: 机器人视觉定位的标定与配准研究主题（亚像素级精度目标）
 objective_refs: [OBJ-1]
 created_at: 2026-08-21T09:05:00Z
 `
@@ -254,6 +259,62 @@ triggers:
   allowed_kinds: [CLAIM, FACT, ARTIFACT, MILESTONE, OBJECTIVE]
 `
 
+/* -------------------------------------------------------------------- *
+ * WP-4.7 (G4 S2) — TC-PERF-006 large plan: WS-4.
+ *
+ * A dedicated workstream whose canonical plan carries 106 G/T/M items
+ * (≥100 nodes): the real-browser half of TC-PERF-006 asserts that the
+ * PlanGraph canvas (React Flow `onlyRenderVisibleElements`) renders only
+ * the viewport window of the DOM, not all 106 nodes. Kept in its OWN
+ * workstream so the WS-1 seed order (asserted 逐位 by TC-E2E-002/003/007)
+ * is untouched; project-unique item ids (WS-1 holds G-1..G-2, T-1..T-4,
+ * M-1 — DOMAIN_SCHEMA §1.1 project-scope item uniqueness).
+ * -------------------------------------------------------------------- */
+
+const WS4_BASE = 'topics/TPC-1/workstreams/WS-4'
+const WS4_CREATED_AT = '2026-08-21T09:16:00Z'
+
+/** WS-4's 100 task items (T-11..T-110 — no collision with WS-1's T-1..T-4). */
+const WS4_TASKS = Array.from({ length: 100 }, (_, i) => `T-${i + 11}`)
+const WS4_GATES = ['G-11', 'G-12', 'G-13', 'G-14']
+const WS4_MILESTONES = ['M-11', 'M-12']
+/** The canonical order (1 + 50 + 1 + 30 + 1 + 20 + 1 + 1 + 1 = 106 items). */
+const WS4_ORDER = [
+  'G-11',
+  ...WS4_TASKS.slice(0, 50),
+  'M-11',
+  ...WS4_TASKS.slice(50, 80),
+  'G-12',
+  ...WS4_TASKS.slice(80),
+  'M-12',
+  'G-13',
+  'G-14',
+]
+
+/** One WS-4 item YAML (per kind — the frozen declarative schemas). */
+function ws4Item(kind: 'tasks' | 'gates' | 'milestones', id: string): string {
+  const common = `id: ${id}\nworkstream_id: WS-4\n`
+  if (kind === 'gates') {
+    return `${common}title: 长程验证关卡 ${id}\ncriteria: 长程验证矩阵阶段关口（e2e 大计划样例）\ncreated_by: { kind: USER, label: researcher }\ncreated_at: ${WS4_CREATED_AT}\n`
+  }
+  if (kind === 'milestones') {
+    return `${common}title: 长程验证里程碑 ${id}\nstatement: 长程验证矩阵阶段里程碑达成\ncreated_by: { kind: USER, label: researcher }\ncreated_at: ${WS4_CREATED_AT}\n`
+  }
+  return `${common}title: 长程验证任务 ${id}\ngoal: 长程验证矩阵条目（e2e 大计划性能样例）\ncreated_by: { kind: USER, label: researcher }\ncreated_at: ${WS4_CREATED_AT}\n`
+}
+
+/** The WS-4 tree slice (workstream.yaml + plan.yaml + the 106 item files). */
+function buildWs4Tree(): Record<string, string> {
+  const out: Record<string, string> = {
+    [`${WS4_BASE}/workstream.yaml`]: `id: WS-4\ntopic_id: TPC-1\ntitle: 长程验证矩阵（大计划）\ncreated_at: ${WS4_CREATED_AT}\n`,
+    [`${WS4_BASE}/plan.yaml`]: `workstream: WS-4\nordered_items: [${WS4_ORDER.join(', ')}]\n`,
+  }
+  for (const id of WS4_TASKS) out[`${WS4_BASE}/items/tasks/${id}.yaml`] = ws4Item('tasks', id)
+  for (const id of WS4_GATES) out[`${WS4_BASE}/items/gates/${id}.yaml`] = ws4Item('gates', id)
+  for (const id of WS4_MILESTONES) out[`${WS4_BASE}/items/milestones/${id}.yaml`] = ws4Item('milestones', id)
+  return out
+}
+
 const TREE: Record<string, string> = {
   'schema-version': '1\n',
   'project.yaml': PROJECT_YAML,
@@ -274,6 +335,8 @@ const TREE: Record<string, string> = {
   'topics/TPC-1/workstreams/WS-3/workstream.yaml': WS3_YAML,
   'merges/TE-2/contract.md': CONTRACT_MD,
   'policies/agent-plan-fork.yaml': POLICY_YAML,
+  // WP-4.7 (G4 S2): the TC-PERF-006 large-plan workstream (106 items).
+  ...buildWs4Tree(),
 }
 
 /* -------------------------------------------------------------------- *
@@ -340,6 +403,8 @@ interface SeedSummary {
   readonly floodingIntervention: string | null
   readonly contractPath: string
   readonly drifted: boolean
+  /** WS-4's canonical plan (the TC-PERF-006 large-plan fixture). */
+  readonly bigPlan: { readonly workstreamId: string; readonly itemCount: number; readonly order: string[] }
 }
 
 async function main(): Promise<void> {
@@ -381,6 +446,7 @@ async function main(): Promise<void> {
     floodingIntervention: null,
     contractPath: '.research/merges/TE-2/contract.md',
     drifted: false,
+    bigPlan: { workstreamId: 'WS-4', itemCount: WS4_ORDER.length, order: WS4_ORDER },
   }
 
   try {

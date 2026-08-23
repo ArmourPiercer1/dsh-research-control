@@ -7,6 +7,7 @@
  * its own page stack inside the tab body):
  *
  *   Home (§27.1 dashboard + Intervention queue)
+ *     → Project page (§27.2: brief + objectives + topic list — WP-4.7)
  *     → Topic page (§27.3: topology graph + WS cards)
  *       → Workstream page (§27.4 three zones + PlanFork panel +
  *         PlanGraph overlay + Claim/Artifact drill-down + Git panel)
@@ -43,6 +44,7 @@ import { createResearchStore, type ResearchStore, type SliceState } from '../../
 import { HomeDashboard } from '../home/HomeDashboard.js'
 import { HistoryTimelineView } from '../history/HistoryTimelineView.js'
 import { PlanGraphContainer } from '../../graph/PlanGraphContainer.js'
+import { ProjectPage } from '../project/ProjectPage.js'
 import { WorkstreamView } from '../workstream/WorkstreamView.js'
 import { buildDrilldownModel } from './drilldown-model.js'
 import { DrilldownSelection, DrilldownView } from './drilldown-view.js'
@@ -56,6 +58,7 @@ import styles from './cockpit.module.css'
 /** One page of the in-tab navigation stack. */
 type CockpitPage =
   | { readonly kind: 'home' }
+  | { readonly kind: 'project' }
   | { readonly kind: 'topic'; readonly topicId: string }
   | { readonly kind: 'ws'; readonly workstreamId: string }
   | { readonly kind: 'history'; readonly workstreamId: string }
@@ -173,6 +176,10 @@ export function ResearchCockpit(): ReactElement {
   const [selection, setSelection] = useState<DrilldownSelection>(null)
   const [sessionPointer, setSessionPointer] = useState<{ sessionId: string; runId: string } | null>(null)
 
+  function openProject(): void {
+    setSelection(null)
+    setPage({ kind: 'project' })
+  }
   function openTopic(topicId: string): void {
     setSelection(null)
     setPage({ kind: 'topic', topicId })
@@ -225,12 +232,17 @@ export function ResearchCockpit(): ReactElement {
         <>
           <HomeDashboard
             store={store}
+            onOpenProject={openProject}
             onOpenTopic={openTopic}
             onOpenWorkstream={openWs}
             onOpenHistory={openHistory}
           />
           <InterventionBoard store={store} onOpenWorkstream={openWs} />
         </>
+      )}
+
+      {page.kind === 'project' && (
+        <ProjectPage store={store} onOpenTopic={openTopic} onBack={() => setPage({ kind: 'home' })} />
       )}
 
       {page.kind === 'topic' && (

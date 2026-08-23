@@ -13875,7 +13875,11 @@ function makeTriggerRefResolver(input) {
 *             the §8 flooding hook fires after the 6th OPEN PF and
 *             creates the AUTO_FLOODING intervention (TC-E2E-009);
 *   contract  the merge contract TE-2 is committed, then the WORKING COPY
-*             is drifted (uncommitted) — TC-E2E-010 restores it from Git.
+*             is drifted (uncommitted) — TC-E2E-010 restores it from Git;
+*   big plan  WS-4 (long-range validation matrix) carries a 106-item
+*             canonical plan — the TC-PERF-006 viewport-virtualization
+*             fixture (WP-4.7, G4 S2; its own workstream so the WS-1
+*             seed order asserted 逐位 by TC-E2E-002/003/007 is untouched).
 *
 * Idempotency: the script refuses to run over an existing `research.sqlite`
 * (a re-run means the seed would double-append — the operator must reset
@@ -13911,17 +13915,15 @@ function parseArgs(argv) {
 		schemaRoot: abs(out.schemaRoot, "--schema-root")
 	};
 }
-const TREE = {
-	"schema-version": "1\n",
-	"project.yaml": `id: PRJ-1
+const PROJECT_YAML = `id: PRJ-1
 title: 机器人视觉定位系统
 description: 多传感器融合的亚像素级视觉定位
 importance: 4
 attention_mode: FOCUS
 current_objective_refs: [OBJ-1]
 created_at: 2026-08-21T09:00:00Z
-`,
-	"workspace.yaml": `workspace:
+`;
+const WORKSPACE_YAML = `workspace:
   root: .                # 相对 Git repo root
   git_required: true     # INV-GIT-1
 audit:
@@ -13935,8 +13937,8 @@ audit:
     - cache/
     - build/
     - tmp/
-`,
-	"objectives.yaml": `objectives:
+`;
+const OBJECTIVES_YAML = `objectives:
   - id: OBJ-1
     scope: TOPIC
     topic_id: TPC-1
@@ -13949,14 +13951,15 @@ audit:
       - { kind: WORKSTREAM, id: WS-1 }
       - { kind: GATE, id: G-1 }
     created_at: 2026-08-21T09:00:00Z
-`,
-	"topics/TPC-1/topic.yaml": `id: TPC-1
+`;
+const TOPIC_YAML = `id: TPC-1
 project_id: PRJ-1
 title: 标定与配准
+description: 机器人视觉定位的标定与配准研究主题（亚像素级精度目标）
 objective_refs: [OBJ-1]
 created_at: 2026-08-21T09:05:00Z
-`,
-	"topics/TPC-1/topology.yaml": `topology:
+`;
+const TOPOLOGY_YAML = `topology:
   topic_id: TPC-1
   edges:
     - id: TE-1
@@ -13972,23 +13975,35 @@ created_at: 2026-08-21T09:05:00Z
       lifecycle: PLANNED
       inputs: [WS-1, WS-2]
       outputs: [WS-3]
-`,
-	"topics/TPC-1/workstreams/WS-1/workstream.yaml": `id: WS-1
+`;
+const WS1_YAML = `id: WS-1
 topic_id: TPC-1
 title: 主标定管线
 created_at: 2026-08-21T09:10:00Z
-`,
-	"topics/TPC-1/workstreams/WS-1/plan.yaml": `workstream: WS-1
+`;
+const WS2_YAML = `id: WS-2
+topic_id: TPC-1
+title: 独立标定管线
+origin_topology_edge_ref: TE-1
+created_at: 2026-08-21T09:12:00Z
+`;
+const WS3_YAML = `id: WS-3
+topic_id: TPC-1
+title: 合并后管线
+origin_topology_edge_ref: TE-2
+created_at: 2026-08-21T09:14:00Z
+`;
+const PLAN_YAML = `workstream: WS-1
 ordered_items: [G-1, T-1, T-2, T-3, M-1, T-4, G-2]
-`,
-	"topics/TPC-1/workstreams/WS-1/items/gates/G-1.yaml": `id: G-1
+`;
+const G1_YAML = `id: G-1
 workstream_id: WS-1
 title: 数据就绪评审
 criteria: 标定数据集完整、标注规范且可复现
 created_by: { kind: USER, label: researcher }
 created_at: 2026-08-21T09:35:00Z
-`,
-	"topics/TPC-1/workstreams/WS-1/items/tasks/T-1.yaml": `id: T-1
+`;
+const T1_YAML = `id: T-1
 workstream_id: WS-1
 title: 标定数据采集方案对比
 goal: 确定 EURA 相机阵列的标定数据采集方案，误差目标 <2px 重投影误差
@@ -13998,62 +14013,50 @@ acceptance_criteria:
   - 三种候选方案均有实测重投影误差数据
 created_by: { kind: USER, label: researcher }
 created_at: 2026-08-21T09:30:00Z
-`,
-	"topics/TPC-1/workstreams/WS-1/items/tasks/T-2.yaml": `id: T-2
+`;
+const T2_YAML = `id: T-2
 workstream_id: WS-1
 title: 候选方案 A 实现
 goal: 实现基于棋盘格的标定采集与求解
 created_by: { kind: USER, label: researcher }
 created_at: 2026-08-21T09:36:00Z
-`,
-	"topics/TPC-1/workstreams/WS-1/items/tasks/T-3.yaml": `id: T-3
+`;
+const T3_YAML = `id: T-3
 workstream_id: WS-1
 title: 候选方案 B 实现
 goal: 实现基于 ARUKO 标记的标定采集与求解
 created_by: { kind: USER, label: researcher }
 created_at: 2026-08-21T09:37:00Z
-`,
-	"topics/TPC-1/workstreams/WS-1/items/tasks/T-4.yaml": `id: T-4
+`;
+const T4_YAML = `id: T-4
 workstream_id: WS-1
 title: 三方案误差对比
 goal: 在统一测试集上对比三方案重投影误差
 created_by: { kind: USER, label: researcher }
 created_at: 2026-08-21T09:38:00Z
-`,
-	"topics/TPC-1/workstreams/WS-1/items/milestones/M-1.yaml": `id: M-1
+`;
+const M1_YAML = `id: M-1
 workstream_id: WS-1
 title: 标定管线 v1 冻结
 statement: 重投影误差 <2px 的标定管线代码冻结并进入合并评审
 created_by: { kind: USER, label: researcher }
 created_at: 2026-08-21T09:39:00Z
-`,
-	"topics/TPC-1/workstreams/WS-1/items/gates/G-2.yaml": `id: G-2
+`;
+const G2_YAML = `id: G-2
 workstream_id: WS-1
 title: 合并评审
 criteria: 三方案对比数据完整且 M-1 已达成
 created_by: { kind: USER, label: researcher }
 created_at: 2026-08-21T09:40:00Z
-`,
-	"topics/TPC-1/workstreams/WS-2/workstream.yaml": `id: WS-2
-topic_id: TPC-1
-title: 独立标定管线
-origin_topology_edge_ref: TE-1
-created_at: 2026-08-21T09:12:00Z
-`,
-	"topics/TPC-1/workstreams/WS-3/workstream.yaml": `id: WS-3
-topic_id: TPC-1
-title: 合并后管线
-origin_topology_edge_ref: TE-2
-created_at: 2026-08-21T09:14:00Z
-`,
-	"merges/TE-2/contract.md": `# Merge Contract TE-2
+`;
+const CONTRACT_MD = `# Merge Contract TE-2
 
 - 接口: 标定结果统一输出 CalibrationResult (JSON schema v1)
 - 坐标系: 相机系，右手系
 - benchmark protocol: 统一 5 组标定板位姿
 - 期望产物: docs/merge-contract-verification.md
-`,
-	"policies/agent-plan-fork.yaml": `enabled: true
+`;
+const POLICY_YAML = `enabled: true
 anchors:
   allow_boundary_sentinels: true   # 允许 __START__ / __END__
   required_item_types: []          # 空 = 任意 item 可作 anchor；可设 [GATE]
@@ -14062,7 +14065,69 @@ flooding:
 triggers:
   require_at_least_one: true
   allowed_kinds: [CLAIM, FACT, ARTIFACT, MILESTONE, OBJECTIVE]
-`
+`;
+const WS4_BASE = "topics/TPC-1/workstreams/WS-4";
+const WS4_CREATED_AT = "2026-08-21T09:16:00Z";
+/** WS-4's 100 task items (T-11..T-110 — no collision with WS-1's T-1..T-4). */
+const WS4_TASKS = Array.from({ length: 100 }, (_, i) => `T-${i + 11}`);
+const WS4_GATES = [
+	"G-11",
+	"G-12",
+	"G-13",
+	"G-14"
+];
+const WS4_MILESTONES = ["M-11", "M-12"];
+/** The canonical order (1 + 50 + 1 + 30 + 1 + 20 + 1 + 1 + 1 = 106 items). */
+const WS4_ORDER = [
+	"G-11",
+	...WS4_TASKS.slice(0, 50),
+	"M-11",
+	...WS4_TASKS.slice(50, 80),
+	"G-12",
+	...WS4_TASKS.slice(80),
+	"M-12",
+	"G-13",
+	"G-14"
+];
+/** One WS-4 item YAML (per kind — the frozen declarative schemas). */
+function ws4Item(kind, id) {
+	const common = `id: ${id}\nworkstream_id: WS-4\n`;
+	if (kind === "gates") return `${common}title: 长程验证关卡 ${id}\ncriteria: 长程验证矩阵阶段关口（e2e 大计划样例）\ncreated_by: { kind: USER, label: researcher }\ncreated_at: ${WS4_CREATED_AT}\n`;
+	if (kind === "milestones") return `${common}title: 长程验证里程碑 ${id}\nstatement: 长程验证矩阵阶段里程碑达成\ncreated_by: { kind: USER, label: researcher }\ncreated_at: ${WS4_CREATED_AT}\n`;
+	return `${common}title: 长程验证任务 ${id}\ngoal: 长程验证矩阵条目（e2e 大计划性能样例）\ncreated_by: { kind: USER, label: researcher }\ncreated_at: ${WS4_CREATED_AT}\n`;
+}
+/** The WS-4 tree slice (workstream.yaml + plan.yaml + the 106 item files). */
+function buildWs4Tree() {
+	const out = {
+		[`${WS4_BASE}/workstream.yaml`]: `id: WS-4\ntopic_id: TPC-1\ntitle: 长程验证矩阵（大计划）\ncreated_at: ${WS4_CREATED_AT}\n`,
+		[`${WS4_BASE}/plan.yaml`]: `workstream: WS-4\nordered_items: [${WS4_ORDER.join(", ")}]\n`
+	};
+	for (const id of WS4_TASKS) out[`${WS4_BASE}/items/tasks/${id}.yaml`] = ws4Item("tasks", id);
+	for (const id of WS4_GATES) out[`${WS4_BASE}/items/gates/${id}.yaml`] = ws4Item("gates", id);
+	for (const id of WS4_MILESTONES) out[`${WS4_BASE}/items/milestones/${id}.yaml`] = ws4Item("milestones", id);
+	return out;
+}
+const TREE = {
+	"schema-version": "1\n",
+	"project.yaml": PROJECT_YAML,
+	"workspace.yaml": WORKSPACE_YAML,
+	"objectives.yaml": OBJECTIVES_YAML,
+	"topics/TPC-1/topic.yaml": TOPIC_YAML,
+	"topics/TPC-1/topology.yaml": TOPOLOGY_YAML,
+	"topics/TPC-1/workstreams/WS-1/workstream.yaml": WS1_YAML,
+	"topics/TPC-1/workstreams/WS-1/plan.yaml": PLAN_YAML,
+	"topics/TPC-1/workstreams/WS-1/items/gates/G-1.yaml": G1_YAML,
+	"topics/TPC-1/workstreams/WS-1/items/tasks/T-1.yaml": T1_YAML,
+	"topics/TPC-1/workstreams/WS-1/items/tasks/T-2.yaml": T2_YAML,
+	"topics/TPC-1/workstreams/WS-1/items/tasks/T-3.yaml": T3_YAML,
+	"topics/TPC-1/workstreams/WS-1/items/tasks/T-4.yaml": T4_YAML,
+	"topics/TPC-1/workstreams/WS-1/items/milestones/M-1.yaml": M1_YAML,
+	"topics/TPC-1/workstreams/WS-1/items/gates/G-2.yaml": G2_YAML,
+	"topics/TPC-1/workstreams/WS-2/workstream.yaml": WS2_YAML,
+	"topics/TPC-1/workstreams/WS-3/workstream.yaml": WS3_YAML,
+	"merges/TE-2/contract.md": CONTRACT_MD,
+	"policies/agent-plan-fork.yaml": POLICY_YAML,
+	...buildWs4Tree()
 };
 function writeTree(researchRoot) {
 	rmSync(researchRoot, {
@@ -14154,7 +14219,12 @@ async function main() {
 		planForks: [],
 		floodingIntervention: null,
 		contractPath: ".research/merges/TE-2/contract.md",
-		drifted: false
+		drifted: false,
+		bigPlan: {
+			workstreamId: "WS-4",
+			itemCount: WS4_ORDER.length,
+			order: WS4_ORDER
+		}
 	};
 	try {
 		const sessionForR1 = firstRegisteredSession(home, repo);

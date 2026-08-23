@@ -34,6 +34,8 @@ import { HomeDashboardView } from './HomeDashboardView'
 export interface HomeDashboardProps {
   /** The research store handle (factory result — never a module-level handle). */
   readonly store: ResearchStore
+  /** Drill-down: project view (§27.2; the project card's entry, WP-4.7). */
+  readonly onOpenProject?: () => void
   /** Drill-down: topic view (slot wiring provides the real target later). */
   readonly onOpenTopic?: (topicId: string) => void
   /** Drill-down: workstream view. */
@@ -50,6 +52,7 @@ export interface HomeDashboardProps {
  */
 export function HomeDashboard({
   store,
+  onOpenProject,
   onOpenTopic,
   onOpenWorkstream,
   onOpenHistory,
@@ -85,6 +88,7 @@ export function HomeDashboard({
       onRetry={() => {
         void store.loadDashboard().catch(swallowSliceRecordedFault)
       }}
+      onOpenProject={onOpenProject}
       onOpenTopic={topicId => onOpenTopic?.(topicId)}
       onOpenWorkstream={workstreamId => onOpenWorkstream?.(workstreamId)}
       onOpenHistory={workstreamId => onOpenHistory?.(workstreamId)}

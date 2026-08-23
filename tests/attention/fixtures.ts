@@ -127,7 +127,7 @@ export const ATTENTION_DASHBOARD_FIXTURE: DashboardSnapshot = {
   ],
   scheduledEvents: null,
   reportingItems: null,
-  inboxCount: null,
+  inboxCount: 0,
   attention: null,
 }
 

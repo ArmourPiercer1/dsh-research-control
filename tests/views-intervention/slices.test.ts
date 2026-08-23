@@ -107,7 +107,7 @@ describe('deriveInterventionGroups（slice → 分组投影）', () => {
       pendingInterventions: pending,
       scheduledEvents: null,
       reportingItems: null,
-      inboxCount: null,
+      inboxCount: 0,
       attention: null,
     }
   }

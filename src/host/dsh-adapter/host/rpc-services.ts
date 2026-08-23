@@ -344,6 +344,31 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
 
   async getDashboard(): Promise<DashboardSnapshot> {
     await this.#stalePrecheck()
+    // RR-018① 生产触发（查询路径挂点）: the audit chain (strict audit +
+    // discovery diff + mechanical classify + inbox routing) runs on the
+    // dashboard refresh — the client's refresh loop IS the production
+    // trigger (no independent timer: no config surface exists for an
+    // interval, and a hardcoded one would be a tunable that shouldn't
+    // exist — strategy documented in WP-7.2). 失败 loud 不阻塞查询主
+    // 路径: any refresh failure is logged loudly and the query
+    // projection proceeds (the audit chain is a sidecar mechanical face,
+    // not part of the data-plane contract).
+    try {
+      const refresh = await this.#wiring.auditRefresh.run()
+      this.#logger.info('auditRefresh', {
+        discrepancies: refresh.discrepancyCount,
+        captured: refresh.captured.length,
+        escalated: refresh.escalated === null ? null : refresh.escalated.inboxItemId,
+        skippedDedupe: refresh.skippedDedupe,
+        skippedBaseline: refresh.skippedBaseline,
+        captureFailures: refresh.captureFailures.length,
+      })
+    } catch (cause) {
+      this.#logger.error(
+        'auditRefreshFailed',
+        { message: cause instanceof Error ? cause.message : String(cause) },
+      )
+    }
     const tree = this.#loadTree('getDashboard')
     const project = tree.project
     if (project === null) {
@@ -365,7 +390,11 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       // PHASE 5/6 placeholders (never fabricated — the strict schema pins null):
       scheduledEvents: null,
       reportingItems: null,
-      inboxCount: null,
+      // RR-018②: the reserved placeholder is now the REAL count of open
+      // (CAPTURED, awaiting the user) inbox items — shape unchanged
+      // (same field, same position; the frozen `z.null()` placeholder is
+      // relaxed to a non-negative integer — documented exemption).
+      inboxCount: this.#wiring.inbox.listItems({ state: 'CAPTURED' }).length,
       attention: null,
     }
   }

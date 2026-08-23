@@ -86,3 +86,16 @@ export {
   type HostWiring,
   type HostWiringStartup,
 } from './create.js'
+export {
+  AUDIT_REFRESH_ACTOR,
+  AUDIT_REFRESH_REPORTED_KEY,
+  AuditRefreshError,
+  createAuditRefreshRunner,
+  fingerprint,
+  isAuditRefreshError,
+  type AuditRefreshErrorCode,
+  type AuditRefreshLogger,
+  type AuditRefreshOptions,
+  type AuditRefreshResult,
+  type AuditRefreshRunner,
+} from './audit-refresh.js'

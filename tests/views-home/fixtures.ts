@@ -56,7 +56,7 @@ export const HOME_FIXTURE: DashboardSnapshot = {
   // PHASE 5/6 placeholder fields — frozen null (never a fabricated list).
   scheduledEvents: null,
   reportingItems: null,
-  inboxCount: null,
+  inboxCount: 0,
   attention: null,
 }
 
@@ -75,7 +75,7 @@ export const HOME_EMPTY_FIXTURE: DashboardSnapshot = {
   pendingInterventions: [],
   scheduledEvents: null,
   reportingItems: null,
-  inboxCount: null,
+  inboxCount: 0,
   attention: null,
 }
 

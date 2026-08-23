@@ -194,7 +194,7 @@ export function makeFullInputs(): BriefInputs {
       pendingInterventions: [],
       scheduledEvents: null,
       reportingItems: null,
-      inboxCount: null,
+      inboxCount: 0,
       attention: null,
     },
     interventions: [
@@ -337,7 +337,7 @@ export function makeEmptyInputs(): BriefInputs {
       pendingInterventions: [],
       scheduledEvents: null,
       reportingItems: null,
-      inboxCount: null,
+      inboxCount: 0,
       attention: null,
     },
     interventions: [],

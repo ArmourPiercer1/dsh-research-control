@@ -82,6 +82,12 @@ export interface InboxConversionFieldModel {
   readonly label: string
   readonly required: boolean
   readonly placeholder?: string
+  /**
+   * 输入控件类型（RR-018③）: `text`（缺省）/ `datetime-local`（宿主字段
+   * 为 epoch ms number 的时间面 — 如 INTERACTION.occurredAt; 载荷经
+   * `Date.parse` 转 number）。
+   */
+  readonly type?: 'text' | 'datetime-local'
 }
 
 /**
@@ -119,6 +125,9 @@ export const INBOX_CONVERSION_FIELD_MODELS: Record<InboxConversionKind, readonly
   INTERACTION: [
     { name: 'interactionKind', label: '类型', required: true, placeholder: 'MEETING' },
     { name: 'title', label: '标题', required: true, placeholder: '互动标题' },
+    // RR-018③: 宿主 `InteractionTargetFields.occurredAt` = 必填 epoch ms
+    // number — datetime-local 控件, 载荷经 Date.parse 转 number。
+    { name: 'occurredAt', label: '发生时间', required: true, type: 'datetime-local', placeholder: '何时发生' },
     { name: 'notes', label: '备注', required: false, placeholder: '备注（可选）' },
   ],
 }
@@ -193,7 +202,9 @@ export function formatInboxTime(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-/** 字段值收集载荷（对话框提交面 — 空选值丢弃; `workstreamIds` 逗号拆）。 */
+/** 字段值收集载荷（对话框提交面 — 空选值丢弃; `workstreamIds` 逗号拆;
+ *  `datetime-local` 字段经 `Date.parse` 转 epoch ms number（宿主时间面
+ *  是 number — INTERACTION.occurredAt 等）, 非法值大声抛错, 不静默丢弃）。 */
 export function buildConversionPayload(
   kind: InboxConversionKind,
   fieldValues: Readonly<Record<string, string>>,
@@ -202,7 +213,15 @@ export function buildConversionPayload(
   for (const model of INBOX_CONVERSION_FIELD_MODELS[kind]) {
     const value = (fieldValues[model.name] ?? '').trim()
     if (value.length === 0) continue
-    if (model.name === 'workstreamIds') {
+    if (model.type === 'datetime-local') {
+      const parsed = Date.parse(value)
+      if (!Number.isFinite(parsed)) {
+        throw new Error(
+          `field ${model.name} is not a valid datetime (got ${JSON.stringify(value)} — the host expects epoch ms)`,
+        )
+      }
+      fields[model.name] = parsed
+    } else if (model.name === 'workstreamIds') {
       fields[model.name] = value.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
     } else {
       fields[model.name] = value

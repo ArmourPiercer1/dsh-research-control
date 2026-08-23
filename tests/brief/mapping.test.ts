@@ -198,7 +198,7 @@ describe('wire DTO → Brief', () => {
       ],
       scheduledEvents: null,
       reportingItems: null,
-      inboxCount: null,
+      inboxCount: 0,
       attention: null,
     }
     // 该快照本身不合法（错位行不在组契约内）— 只验映射面过滤, 不经 schema 重解析。
@@ -287,7 +287,7 @@ describe('wire 契约钉', () => {
       pendingInterventions: [],
       scheduledEvents: null,
       reportingItems: null,
-      inboxCount: null,
+      inboxCount: 0,
       attention: null,
     }
     expect(DashboardSnapshotSchema.parse(snapshot)).toEqual(snapshot)

@@ -49,7 +49,7 @@ function emptyDashboard(): DashboardSnapshot {
     pendingInterventions: [],
     scheduledEvents: null,
     reportingItems: null,
-    inboxCount: null,
+    inboxCount: 0,
     attention: null,
   }
 }

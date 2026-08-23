@@ -61,6 +61,7 @@ import {
   loadHistoryEventRegistry,
   type HistoryEventRegistry,
   type HistorySchemaReader,
+  type TypedRef,
 } from '../../history/registry/index.js'
 import { readDerivedState } from '../../history/replay/index.js'
 import { openDatabase } from '../../persistence/store/index.js'
@@ -70,6 +71,33 @@ import {
   InterventionStore,
   loadInterventionSchemas,
 } from '../../service/flooding/index.js'
+import {
+  ActionsService,
+  ActionsStore,
+} from '../../service/actions/index.js'
+import { ReportingService } from '../../service/reporting/index.js'
+import {
+  InterventionService,
+  InterventionLifecycleStore,
+} from '../../service/intervention/index.js'
+import {
+  InboxService,
+  InboxStore,
+  loadInboxSchemas,
+  USER_ACTOR,
+  type InboxConversionTargetExecutor,
+  type MechanicalInterventionCreateParams,
+} from '../../service/inbox/index.js'
+import {
+  managementActionToParams,
+  SQL_INSERT_MANAGEMENT_ACTION,
+  type ManagementActionRecord,
+} from '../../domain/planfork/index.js'
+import type { DshSessionAdapter } from '../../../shared/host-adapter-ports.js'
+import {
+  createAuditRefreshRunner,
+  type AuditRefreshRunner,
+} from './audit-refresh.js'
 import {
   PlanForkStaleService,
   type PlanForkStoreFace,
@@ -164,6 +192,28 @@ export interface HostWiring {
   /** The 11 agent tools (WP-3.3) — the dsh-adapter registers each through
    *  `defineTool` + `ctx.tools.register` (DSH_ADAPTER §10.1). */
   readonly tools: readonly ResearchToolDefinition[]
+  /** The frozen contract schema ROOT (the WR `schema/` directory — the
+   *  readers' fresh tree loads resolve `schema/declarative` against it). */
+  readonly schemaRoot: string
+  /** The session adapter port (WP-0.4 `DshSessionAdapter` — the session
+   *  query reader's live-session list face; production = the host
+   *  adapter, tests = a fake). */
+  readonly sessionAdapter: DshSessionAdapter
+  /**
+   * The production Inbox service (WP-6.4 surface instantiated here — the
+   * RR-018① audit trigger's mechanical entry + the RR-018③ user
+   * conversion executor + the RR-018② dashboard aggregate). Owns a
+   * second connection (the management_action ledger table lives there).
+   */
+  readonly inbox: InboxService
+  /**
+   * The RR-018① audit refresh runner (the production audit trigger:
+   * strict audit + discovery diff + mechanical classify + inbox
+   * routing + the dedupe baseline). Triggered on the dashboard query
+   * path (getDashboard) — see `audit-refresh.ts` module doc for the
+   * strategy; failures are loud and never block the query path.
+   */
+  readonly auditRefresh: AuditRefreshRunner
   /** The startup reconciliation + rebuild reports. */
   readonly startup: HostWiringStartup
   /** The live declarative snapshot (mutated by the realize flip — the
@@ -508,6 +558,180 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     })
 
     // ---------------------------------------------------------------- *
+    // 11b. FRESH semantic-state read (shared single source — the
+    //      store-level `semantics:<project>` row, the RR-011 (b) fold's
+    //      row): the tools' trigger-ref checks, the RR-018① audit
+    //      refresh's declared-state, and the readers' artifact face all
+    //      read through this one closure.
+    // ---------------------------------------------------------------- *
+    const semanticKey = semanticStateKey(options.projectId)
+    const readSemanticState = (): SemanticState => {
+      const derived = readDerivedState(rawStore)
+      const raw = derived.get(semanticKey)
+      return raw === undefined ? initialSemanticState() : jsonToSemanticState(raw, semanticKey)
+    }
+
+    // ---------------------------------------------------------------- *
+    // 11c. The production Inbox (RR-018①②③ — the WP-6.4 surface
+    //      instantiated at the composition root): a second connection
+    //      (the management_action ledger + the inbox rows live there) +
+    //      the conversion target executor over the REAL WP-5 services
+    //      (same dual-connection user-surface pattern as the dsh-adapter
+    //      face) + the mechanical Intervention creator port (trigger
+    //      pinned to AUDIT_HIGH_IMPACT_DISCREPANCY, PLUGIN actor) + the
+    //      management_action ledger recorder (the WP-3.1 frozen SQL face).
+    // ---------------------------------------------------------------- *
+    const inboxDb = openSecondConnection('inbox')
+    const inboxSchemas = loadInboxSchemas(reader, join(schemaRoot, 'operational'))
+    if (!inboxSchemas.isUsable) {
+      throw new HostWiringError(
+        'WIRING_INBOX',
+        `the frozen inbox schemas are unusable — no Inbox item can be shape-checked: ` +
+          inboxSchemas.loadErrors.map((e) => `${e.path || '/'}: ${e.message}`).join('; '),
+      )
+    }
+    // One adapter per connection (the dual-connection user-surface
+    // pattern: the inbox rows + the management_action ledger + the
+    // WP-5 user-actor services all ride this second connection).
+    const inboxDbFace = adaptDatabaseSync(inboxDb)
+    const inboxStore = new InboxStore({ db: inboxDbFace, schemas: inboxSchemas })
+
+    const reporting = new ReportingService({
+      db: inboxDbFace,
+      allocator,
+      projectId: options.projectId,
+      now,
+    })
+    const actionsStore = new ActionsStore({ db: inboxDbFace, allocator, projectId: options.projectId, now })
+    const actions = new ActionsService({
+      store: actionsStore,
+      reader,
+      writer: REJECTING_WRITER,
+      researchRoot,
+      schemaDir: declarativeDir,
+      allocator,
+      projectId: options.projectId,
+      db: inboxDbFace,
+      runExists: { exists: (runId: string) => tables.getRun(runId) !== null },
+      now,
+    })
+    const interventionService = new InterventionService({
+      store,
+      registry,
+      lifecycle: new InterventionLifecycleStore({ db: inboxDbFace, interventions }),
+      allocator,
+      projectId: options.projectId,
+      externalState: () => ({ workstreams: liveWorkstreams }),
+      now,
+    })
+
+    const conversionTargets: InboxConversionTargetExecutor = {
+      // 用户显式语义保持（RR-018③）: 转换确认对话框的载荷经此落到
+      // 真实 WP service（USER actor）; 失败上抛 ⇒ service 包装
+      // IN_CONVERT_TARGET, 条目保持 CAPTURED（状态不变）。
+      execute(_kind, fields, item): TypedRef {
+        switch (fields.kind) {
+          case 'INTERVENTION': {
+            const res = interventionService.createUserIntervention(
+              {
+                title: fields.title,
+                ...(fields.detail !== undefined && fields.detail.length > 0 ? { detail: fields.detail } : {}),
+                ...(fields.workstreamIds !== undefined && fields.workstreamIds.length > 0
+                  ? { workstream_ids: fields.workstreamIds }
+                  : {}),
+                source_refs: [{ kind: 'INBOX_ITEM', id: item.id }],
+              },
+              USER_ACTOR,
+            )
+            return { kind: 'INTERVENTION', id: res.intervention.id }
+          }
+          case 'NEXT_ACTION': {
+            const record = actions.createNextAction(
+              {
+                statement: fields.statement,
+                ...(fields.rationale !== undefined && fields.rationale.length > 0 ? { rationale: fields.rationale } : {}),
+                ...(fields.workstreamId !== undefined && fields.workstreamId.length > 0
+                  ? { workstreamId: fields.workstreamId }
+                  : {}),
+              },
+              USER_ACTOR,
+            )
+            return { kind: 'NEXT_ACTION', id: record.id }
+          }
+          case 'REPORTING_ITEM': {
+            const record = reporting.createReportingItem({
+              audience: fields.audience,
+              statement: fields.statement,
+              ...(fields.materialRefs !== undefined ? { materialRefs: fields.materialRefs } : {}),
+              ...(fields.occasionRef !== undefined ? { occasionRef: fields.occasionRef } : {}),
+            })
+            return { kind: 'REPORTING_ITEM', id: record.id }
+          }
+          case 'INTERACTION': {
+            const outcome = reporting.registerInteraction({
+              kind: fields.interactionKind,
+              title: fields.title,
+              occurredAt: fields.occurredAt,
+              ...(fields.participants !== undefined ? { participants: fields.participants } : {}),
+              ...(fields.notes !== undefined ? { notes: fields.notes } : {}),
+              ...(fields.relatedWorkstreams !== undefined ? { relatedWorkstreams: fields.relatedWorkstreams } : {}),
+            })
+            return { kind: 'INTERACTION', id: outcome.record.id }
+          }
+          case 'CLAIM':
+          case 'FACT':
+          case 'TASK':
+            // V1 边界（诚实）: 该 kind 的生产 service 未交付 — 大声失败,
+            // 不静默丢弃（同 WP-5.2 NOT_WIRED_PROVIDER 纪律）。
+            throw new Error(
+              `the ${fields.kind} conversion target is not wired (V1 boundary — the production executor is the closed set over the delivered WP-5 services)`,
+            )
+        }
+      },
+    }
+    const inbox = new InboxService({
+      store: inboxStore,
+      allocator,
+      projectId: options.projectId,
+      now,
+      conversionTargets,
+      mechanicalInterventionCreator: (params) => {
+        const res = interventionService.createMechanicalIntervention(
+          {
+            title: params.title,
+            ...(params.detail !== undefined ? { detail: params.detail } : {}),
+            ...(params.workstreamIds !== undefined ? { workstream_ids: params.workstreamIds } : {}),
+            ...(params.sourceRefs !== undefined ? { source_refs: params.sourceRefs } : {}),
+            trigger: 'AUDIT_HIGH_IMPACT_DISCREPANCY',
+          },
+          { kind: 'PLUGIN' },
+        )
+        return { id: res.intervention.id, title: res.intervention.title }
+      },
+      managementActionRecorder: (record) => {
+        inboxDbFace.run(SQL_INSERT_MANAGEMENT_ACTION, ...managementActionToParams(record))
+      },
+    })
+
+    // ---------------------------------------------------------------- *
+    // 11d. The RR-018① audit refresh runner (the production audit
+    //      trigger — strict audit + discovery diff + mechanical classify
+    //      + inbox routing + the dedupe baseline; see audit-refresh.ts
+    //      for the trigger strategy and the fail-loud boundary).
+    // ---------------------------------------------------------------- *
+    const auditRefresh = createAuditRefreshRunner({
+      repoRoot,
+      researchRoot,
+      reader,
+      declarativeDir,
+      meta: rawStore.meta(),
+      readSemanticState,
+      inbox,
+      now,
+      logger,
+    })
+
+    // ---------------------------------------------------------------- *
     // 12. The agent tool face (WP-3.3) — deps composed from the LIVE
     //     services. The dsh-adapter registers each definition (DSH_ADAPTER
     //     §10.1); this layer only builds them (no ctx, no DSH).
@@ -532,17 +756,6 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
           ? null
           : { id: row.id, workstream_id: row.workstream_id, ...(row.task_id !== undefined ? { task_id: row.task_id } : {}) }
       },
-    }
-
-    // FRESH semantic-state read for the trigger-ref existence checks: the
-    // store-level `semantics:<project>` row (the RR-011 (b) fold's row —
-    // the same single source the GUI data face will read), falling back to
-    // the empty state when the row has never been written.
-    const semanticKey = semanticStateKey(options.projectId)
-    const readSemanticState = (): SemanticState => {
-      const derived = readDerivedState(rawStore)
-      const raw = derived.get(semanticKey)
-      return raw === undefined ? initialSemanticState() : jsonToSemanticState(raw, semanticKey)
     }
 
     // The production trigger-ref resolver (module footer): semantic
@@ -646,6 +859,10 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       interventions,
       semantics,
       tools,
+      schemaRoot,
+      sessionAdapter: options.adapter,
+      inbox,
+      auditRefresh,
       startup,
       externalState,
       createPlanFork: async (params): Promise<PlanForkRecord> => {

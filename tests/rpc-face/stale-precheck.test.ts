@@ -79,6 +79,21 @@ function makeProduction(
     registry: {},
     externalState: () => ({ workstreams: new Map<string, never>() }),
     allocator: { reserve: () => ({ id: 'MA-1', kind: 'MA' }), commit: () => {}, release: () => {} },
+    // RR-018①② (WP-7.2): the query path now triggers the audit refresh
+    // and aggregates the real inbox count — the structurally honest fake
+    // gains the two new wiring faces (the refresh settles empty; the
+    // inbox list is empty ⇒ inboxCount 0).
+    auditRefresh: {
+      run: async () => ({
+        discrepancyCount: 0,
+        captured: [],
+        escalated: null,
+        skippedDedupe: 0,
+        skippedBaseline: 0,
+        captureFailures: [],
+      }),
+    },
+    inbox: { listItems: () => [] as never[] },
   } as unknown as HostWiring
 
   return {

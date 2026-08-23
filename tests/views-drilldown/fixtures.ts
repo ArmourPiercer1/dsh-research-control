@@ -63,7 +63,7 @@ const DASHBOARD: DashboardSnapshot = {
   ],
   scheduledEvents: null,
   reportingItems: null,
-  inboxCount: null,
+  inboxCount: 0,
   attention: null,
 }
 

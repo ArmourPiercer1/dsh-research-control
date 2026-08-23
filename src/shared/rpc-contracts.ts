@@ -461,8 +461,18 @@ export interface DashboardSnapshot {
   readonly scheduledEvents: null
   /** PHASE 5 placeholder (WP-5.3, DOMAIN_SCHEMA §10.2): ReportingItem. */
   readonly reportingItems: null
-  /** PHASE 6 placeholder (WP-6.x, DOMAIN_SCHEMA §11): Research Inbox count. */
-  readonly inboxCount: null
+  /**
+   * RR-018② (WP-7.2): Research Inbox count — the REAL number of open
+   * (CAPTURED, awaiting the user) inbox items, aggregated by getDashboard
+   * from the production Inbox service. The reserved Phase 6 placeholder
+   * (`null`) is now filled: the field's NAME and POSITION are unchanged
+   * (形状不变兼容) — only the value type moves `null → non-negative int`
+   * (documented exemption: `src/shared/rpc-contracts.ts` was outside the
+   * WP-7.2 authorized-add list; the G6 verdict reserved exactly this
+   * placeholder for the real count, and the strict wire schema makes the
+   * relaxation the only way the count can cross the frozen 13-RPC).
+   */
+  readonly inboxCount: number
   /** PHASE 5 placeholder (WP-5.4): Attention Manager recommended order. */
   readonly attention: null
 }
@@ -484,7 +494,8 @@ export const DashboardSnapshotSchema = z
     pendingInterventions: z.array(InterventionDtoSchema),
     scheduledEvents: z.null(),
     reportingItems: z.null(),
-    inboxCount: z.null(),
+    // RR-018②: the reserved placeholder is now the real CAPTURED count.
+    inboxCount: z.number().int().nonnegative(),
     attention: z.null(),
   })
   .strict()

@@ -41,6 +41,7 @@ export type HostWiringErrorCode =
   | 'WIRING_SERVICE'
   | 'WIRING_PLANFORK'
   | 'WIRING_FLOODING'
+  | 'WIRING_INBOX'
   | 'WIRING_TOOLS'
   | 'WIRING_RECONCILE'
   | 'WIRING_REALIZE'

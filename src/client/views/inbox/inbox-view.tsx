@@ -257,8 +257,17 @@ export function InboxConversionDialog({
   onCancel,
 }: InboxConversionDialogProps): JSX.Element {
   const models = INBOX_CONVERSION_FIELD_MODELS[kind]
+  // canConfirm: 必填非空 + datetime-local 字段可解析为合法时间（RR-018③:
+  // 宿主时间面是 epoch ms number — 非法值在按钮面即禁用, 不等到提交
+  // 才由 buildConversionPayload 大声抛错）。
   const canConfirm =
-    !busy && models.every((m) => !m.required || (fieldValues[m.name] ?? '').trim().length > 0)
+    !busy &&
+    models.every((m) => {
+      const v = (fieldValues[m.name] ?? '').trim()
+      if (v.length === 0) return !m.required
+      if (m.type === 'datetime-local') return Number.isFinite(Date.parse(v))
+      return true
+    })
   return (
     <div className={styles.dialogOverlay} role="dialog" aria-modal="true" aria-label={`转换 ${item.id} 为${INBOX_CONVERSION_KIND_LABEL[kind]}`}>
       <div className={styles.dialog}>
@@ -288,7 +297,7 @@ export function InboxConversionDialog({
               </span>
               <input
                 className={styles.fieldInput}
-                type="text"
+                type={model.type ?? 'text'}
                 value={fieldValues[model.name] ?? ''}
                 placeholder={model.placeholder}
                 disabled={busy}

@@ -115,10 +115,13 @@ describe('§28 转换动作集（7 kind 封闭）', () => {
       'audience:true',
       'statement:true',
     ])
-    // INTERACTION（interactionKind + title 必填; notes 可选）
+    // INTERACTION（interactionKind + title + occurredAt 必填; notes 可选 —
+    // RR-018③ 对齐宿主 InteractionTargetFields: occurredAt = 必填 epoch ms
+    // number 面, 客户端 datetime-local 控件 + 载荷 Date.parse 转 number）
     expect(INBOX_CONVERSION_FIELD_MODELS.INTERACTION.map((m) => `${m.name}:${m.required}`)).toEqual([
       'interactionKind:true',
       'title:true',
+      'occurredAt:true',
       'notes:false',
     ])
   })

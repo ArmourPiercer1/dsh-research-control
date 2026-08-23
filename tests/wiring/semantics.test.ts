@@ -192,6 +192,7 @@ describe('(b) semantics: store-level dual-use consistency (incremental ≡ repla
       projectId: 'PRJ-1',
       dataDir: bundle.dataDir,
       adapter: bundle.adapter,
+      launcherAdapter: bundle.launcherAdapter,
       workspaceRoots: [bundle.repoRoot],
       now: () => Date.now(),
     })

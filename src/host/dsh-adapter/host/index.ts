@@ -159,6 +159,9 @@ import {
   type HostWiring,
   type HostWiringLogger,
 } from '../../service/wiring/index.js'
+import { HostAgentLauncherAdapter, type LauncherHostContext } from '../launcher/index.js'
+import { registerAnalysisCommands } from './analysis-commands.js'
+import { registerInvestigationCommand } from './investigate-command.js'
 
 /**
  * Validated plugin config.
@@ -240,7 +243,21 @@ class ResearchToolHostError extends HarnessError {
 }
 
 export class ResearchControlService extends TypertRemoteService {
-  /** Hard dependencies: fiber stays PENDING (silently) until these are ready. */
+  /** Hard dependencies: fiber stays PENDING (silently) until these are
+   *  ready — DSH_ADAPTER §4 verbatim (the four frozen items; `host-
+   *  mount.test.ts` pins the list). WP-7.4 / G7 S1: the investigator
+   *  launch capability does NOT join the hard face — the launcher
+   *  adapter resolves `agents` through `ctx.get` (the documented
+   *  optional-service read, DSH_ADAPTER §4 要点 「可选服务用
+   *  `ctx.get('name')`」 — the production `HostSessionAdapter` (WP-0.4,
+   *  real-machine verified) reads the same registry that way). A
+   *  deployment without the `agents` service still LOADS the plugin
+   *  (a missing hard inject keeps the whole fiber PENDING — the §4
+   *  documented pitfall; coupling the plugin's load to one launch
+   *  capability would be a deployment regression); a one-click launch
+   *  there fails loud IVL_LAUNCH at use time instead (no silent
+   *  downgrade — the gap is named at the operation, not swallowed at
+   *  boot). */
   static inject = ['sessions', 'tools', 'subagents', 'workspaceRegistry']
 
   /**
@@ -425,6 +442,34 @@ export class ResearchControlService extends TypertRemoteService {
         }
       })
       this.#registerResearchTools(this.#wiring)
+      // WP-7.4 / G7 S1b+S1: the plugin-OWNED one-click + analysis
+      // data-face commands on the DSH built-in command registry —
+      // registration-as-effect (the disposers unregister on fiber
+      // unmount, the 11-tool convention). The client reaches them over
+      // the built-in `commands/execute` gateway carrier (NO new RPC —
+      // the 13-RPC §7.1 list stays byte-identical; see
+      // investigate-command.ts / analysis-commands.ts for the
+      // compatibility argument + the §6 U✅/P❌ semantics). A deployment
+      // without a command registry (non-web profile) is warned loud:
+      // every launch/save attempt still fails loud at use time (IVL_*)
+      // — no silent downgrade.
+      const disposeCommand = registerInvestigationCommand(this.ctx, this.#wiring)
+      const disposeAnalysisCommands = registerAnalysisCommands(this.ctx, this.#wiring)
+      if (disposeCommand === null || disposeAnalysisCommands === null) {
+        console.warn(
+          '[research-control] the host exposes no command registry (non-web profile) — ' +
+            'the /research-investigate one-click entry and the analysis data-face ' +
+            'commands (/research-transient-read, /research-analysis-list, ' +
+            '/research-analysis-save) are unavailable (any attempt still fails loud ' +
+            'at use time; no degraded launch, no forged data)',
+        )
+      } else {
+        this.ctx.effect(() => disposeCommand)
+        this.ctx.effect(() => disposeAnalysisCommands)
+        console.log(
+          `[research-control] registered the one-click + analysis commands (project ${this.#wiring.projectId}: /research-investigate / /research-transient-read / /research-analysis-list / /research-analysis-save)`,
+        )
+      }
     }
   }
 
@@ -595,12 +640,30 @@ export class ResearchControlService extends TypertRemoteService {
       error: (step, message) => console.error(`[research-control][${step}] ${message}`),
     }
 
+    // WP-7.4 / G7 S1a: the production investigator launcher port — the
+    // ONE DSH-touching half (ensure-preset → `ctx.get('agents')`.create
+    // + setup restrict → /permission read-only → followup; see the
+    // adapter module doc for the path-A order and the all-or-nothing
+    // guarantee). The adapter reads `agents` through the documented
+    // optional-service face `ctx.get` (NOT a hard inject — DSH_ADAPTER §4
+    // keeps its four frozen items verbatim; a deployment without the
+    // `agents` service still loads the plugin, and a one-click launch
+    // there fails loud IVL_LAUNCH at use time). `LauncherHostContext` is
+    // now the plain cordis `Context`: every host service is resolved at
+    // launch time through `ctx.get` (the WP-0.4 `HostSessionAdapter`
+    // reads `agents` the same way — production-verified on the real
+    // machine; the plugin does not devDep on the agent package, so its
+    // Context augmentation is invisible — structural consumption,
+    // INV-PERM-5 豁免领地).
+    const launcherAdapter = new HostAgentLauncherAdapter(this.ctx as unknown as LauncherHostContext)
+
     return createHostWiring({
       repoRoot: workspace.path,
       schemaRoot,
       projectId,
       dataDir,
       adapter,
+      launcherAdapter,
       workspaceRoots: workspaces.map((w) => w.path),
       logger,
       // Reconciliation policy: the default `rebuild` (reconstruct a missing

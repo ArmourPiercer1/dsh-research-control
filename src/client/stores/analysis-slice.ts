@@ -36,78 +36,36 @@ import { idleSlice, type SliceState } from './model.js'
 /* -------------------------------------------------------------------- *
  * 载荷类型（显示面 — 宿主 record/snapshot 的 camelCase 投影;
  * 冻结 provenance.schema.json $defs/AnalysisRecord 字段集合, 一一对应）
+ *
+ * WP-7.4 / G7 S1: 线形 DTO 的定义源移到 `shared/analysis-command.ts`
+ * （host 命令 handler 的投影目标 + client 通道回解目标共用同一类型 —
+ * 单源纪律, 同 `investigation-command.ts` 先例）; 本模块 re-export
+ * 保持 WP-7.3 消费面的名称/路径不变 — 视图与既有测试零改动。
  * -------------------------------------------------------------------- */
 
-/** 一个 typedRef 元素（冻结 `typedRef` 投影）。 */
-export interface AnalysisTypedRef {
-  readonly kind: string
-  readonly id: string
-}
+import type {
+  AnalysisRecordDto,
+  AnalysisTypedRef,
+  InvestigatorTransientDto,
+  SaveAnalysisRecordArgs,
+  TransientPointerDto,
+  TransientRunDto,
+  TransientSessionDto,
+} from '../../shared/analysis-command.js'
 
-/** One AnalysisRecord for the GUI（§12.2; snake→camel 投影）。 */
-export interface AnalysisRecordDto {
-  readonly id: string
-  readonly sourceRef: AnalysisTypedRef
-  readonly investigatorRunId: string | null
-  readonly dshSessionId: string | null
-  /** 分析内容（Markdown — §12.2 必填）。 */
-  readonly content: string
-  readonly createdAt: number
-}
-
-/** transient 快照中 live session 摘要的投影（WP-0.4 `SessionSummary` 面）。 */
-export interface TransientSessionDto {
-  readonly id: string
-  readonly cwd: string | null
-  readonly title: string | null
-  readonly running: boolean
-  readonly createdAt: number
-}
-
-/** transient 快照中 sessionlink 指针行的投影（WP-2.6 `SessionPointer` 面）。 */
-export interface TransientPointerDto {
-  readonly workstreamId: string
-  readonly taskId: string | null
-  readonly intent: string | null
-  readonly lastSeq: number
-  readonly runId: string | null
-  readonly runStartedAt: number | null
-}
-
-/** transient 快照中 formal run 行的投影（§6.1 run 表 `dsh_session_id` 关联）。 */
-export interface TransientRunDto {
-  readonly id: string
-  readonly workstreamId: string
-  readonly status: string
-  readonly startedAt: number
-  readonly endedAt: number | null
-}
-
-/**
- * 一个 investigator 会话的 transient 快照（GUI transient 面板的数据面 —
- * 只读渲染; 数据来源 = launcher 会话指针 → sessionlink 读取面, 不落任何
- * operational 表 — 计划书 §26.2「默认 transient」）。三个可选面 `null` =
- * 缺席诚实透出（会话已 dispose / 未绑定 workstream / 无 formal run）。
- */
-export interface InvestigatorTransientDto {
-  readonly sessionId: string
-  readonly session: TransientSessionDto | null
-  readonly pointer: TransientPointerDto | null
-  readonly run: TransientRunDto | null
+export type {
+  AnalysisRecordDto,
+  AnalysisTypedRef,
+  InvestigatorTransientDto,
+  SaveAnalysisRecordArgs,
+  TransientPointerDto,
+  TransientRunDto,
+  TransientSessionDto,
 }
 
 /** `records` 切片载荷。 */
 export interface AnalysisRecordListData {
   readonly records: readonly AnalysisRecordDto[]
-}
-
-/** 保存请求（宿主 `AnalysisRecordService.saveAsAnalysisRecord` 参数面 —
- *  用户显式确认载荷; 形状由保存对话框收集, 宿主侧全预校验复验）。 */
-export interface SaveAnalysisRecordArgs {
-  readonly sourceRef: AnalysisTypedRef
-  readonly content: string
-  readonly investigatorRunId?: string
-  readonly dshSessionId?: string
 }
 
 /* -------------------------------------------------------------------- *

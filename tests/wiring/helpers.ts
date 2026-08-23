@@ -35,6 +35,11 @@ import { afterAll } from 'vitest'
 import { FakeSessionAdapter } from '../runbinding/helpers.js'
 import { baseTreeFiles } from '../loader/fixtures.js'
 import { createHostWiring, type HostWiring } from '../../src/host/service/wiring/index.js'
+import type {
+  DshAgentLauncherAdapter,
+  InvestigatorLaunchRequest,
+  InvestigatorLaunchResult,
+} from '../../src/host/service/investigator/index.js'
 import type { UserActorRef } from '../../src/host/service/runbinding/index.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -58,6 +63,35 @@ export function makeTempDir(prefix = 'wp36-'): string {
   const dir = mkdtempSync(join(tmpdir(), prefix))
   roots.push(dir)
   return dir
+}
+
+/**
+ * The WP-7.4 fake investigator launcher port (the `DshAgentLauncherAdapter`
+ * seam the wiring consumes — the production host half is the DSH-touching
+ * `HostAgentLauncherAdapter`; tests/factory never launch real agents).
+ *
+ * Records every request (the launch-request closed-set assertion surface)
+ * and returns a deterministic echo result. A `failWith` option lets the
+ * failure-path tests pin the structured error propagation.
+ */
+export class FakeLauncherAdapter implements DshAgentLauncherAdapter {
+  readonly requests: InvestigatorLaunchRequest[] = []
+  constructor(readonly failWith?: Error) {}
+  async launchInvestigator(request: InvestigatorLaunchRequest): Promise<InvestigatorLaunchResult> {
+    this.requests.push(request)
+    if (this.failWith !== undefined) throw this.failWith
+    return {
+      sessionId: 'investigator-fake-1',
+      presetId: request.presetId,
+      permissionPreset: request.permissionPreset,
+      task: request.task,
+    }
+  }
+}
+
+/** The default wiring fake launcher (no failures). */
+export function makeFakeLauncherAdapter(): FakeLauncherAdapter {
+  return new FakeLauncherAdapter()
 }
 
 afterAll(() => {
@@ -146,6 +180,9 @@ export interface WiringOptions {
   readonly reconcileRuns?: 'rebuild' | 'failLoud'
   /** A pre-made session adapter (default: a fresh FakeSessionAdapter). */
   readonly adapter?: FakeSessionAdapter
+  /** A pre-made investigator launcher port (default: a fresh
+   *  {@link FakeLauncherAdapter} — records requests, no real launch). */
+  readonly launcherAdapter?: FakeLauncherAdapter
   /** A fixed now() (default: a fresh deterministic clock). */
   readonly now?: () => number
   /** Project id (default `PRJ-1` — the fixture tree's project). */
@@ -161,6 +198,7 @@ export interface WiringBundle {
   readonly researchRoot: string
   readonly dataDir: string
   readonly adapter: FakeSessionAdapter
+  readonly launcherAdapter: FakeLauncherAdapter
   readonly wiring: HostWiring
   readonly now: () => number
 }
@@ -178,6 +216,7 @@ export function makeWiring(options: WiringOptions = {}): WiringBundle {
     initGitRepo(repoRoot)
   }
   const adapter = options.adapter ?? new FakeSessionAdapter()
+  const launcherAdapter = options.launcherAdapter ?? makeFakeLauncherAdapter()
   const now = options.now ?? makeClock()
   const wiring = createHostWiring({
     repoRoot,
@@ -185,11 +224,12 @@ export function makeWiring(options: WiringOptions = {}): WiringBundle {
     projectId: options.projectId ?? 'PRJ-1',
     dataDir,
     adapter,
+    launcherAdapter,
     workspaceRoots: [repoRoot],
     now,
     ...(options.reconcileRuns !== undefined ? { reconcileRuns: options.reconcileRuns } : {}),
   })
-  return { repoRoot, researchRoot, dataDir, adapter, wiring, now }
+  return { repoRoot, researchRoot, dataDir, adapter, launcherAdapter, wiring, now }
 }
 
 /** A raw second connection to the wiring's research.sqlite (test bench

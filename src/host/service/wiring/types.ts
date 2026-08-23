@@ -29,6 +29,7 @@
  */
 
 import type { DshSessionAdapter } from '../../../shared/host-adapter-ports.js'
+import type { DshAgentLauncherAdapter } from '../investigator/index.js'
 
 /** Structured failure codes of the wiring layer (stable — callers/tests
  *  branch on them). */
@@ -42,6 +43,8 @@ export type HostWiringErrorCode =
   | 'WIRING_PLANFORK'
   | 'WIRING_FLOODING'
   | 'WIRING_INBOX'
+  | 'WIRING_INVESTIGATOR'
+  | 'WIRING_ANALYSIS'
   | 'WIRING_TOOLS'
   | 'WIRING_RECONCILE'
   | 'WIRING_REALIZE'
@@ -137,6 +140,15 @@ export interface HostWiringOptions {
   /** The session adapter port (WP-0.4 `DshSessionAdapter` — the host
    *  `HostSessionAdapter` in production; a fake in tests). */
   readonly adapter: DshSessionAdapter
+  /** The investigator launcher adapter port (WP-7.4 / G7 S1a — the
+   *  `DshAgentLauncherAdapter` the `InvestigatorLauncher` binds: the
+   *  production host half `HostAgentLauncherAdapter` (src/host/
+   *  dsh-adapter/launcher, the ONE DSH-touching file) in the dsh-adapter's
+   *  `[Service.init]`; a structured fake in tests/factory. REQUIRED —
+   *  the composition root must never guess a launch capability (the
+   *  session-adapter port precedent: a missing port is a caller bug the
+   *  type system pins). */
+  readonly launcherAdapter: DshAgentLauncherAdapter
   /** The registered DSH workspace roots (the runbinding discovery
    *  boundary — DSH_ADAPTER §8). */
   readonly workspaceRoots: readonly string[]

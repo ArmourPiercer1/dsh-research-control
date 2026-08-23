@@ -46,6 +46,7 @@ import {
   gitBlobOidOfResearch,
   gitHead,
   initGitRepo,
+  makeFakeLauncherAdapter,
   makeTempDir,
   makeWiring,
   rawDb,
@@ -269,6 +270,7 @@ describe('(d) per-step loud failures (structured codes, partial unwind)', () => 
       projectId: over.projectId ?? 'PRJ-1',
       dataDir: over.dataDir,
       adapter: new FakeSessionAdapter(),
+      launcherAdapter: makeFakeLauncherAdapter(),
       workspaceRoots: [repoRoot],
     })
   }
@@ -290,6 +292,7 @@ describe('(d) per-step loud failures (structured codes, partial unwind)', () => 
         projectId: 'PRJ-1',
         dataDir: makeTempDir('wp36-notreed-'),
         adapter: new FakeSessionAdapter(),
+        launcherAdapter: makeFakeLauncherAdapter(),
         workspaceRoots: [repoRoot],
       }),
     ).toThrow(/\.research/)
@@ -403,6 +406,7 @@ describe('(d) the disposer (one close for the whole graph)', () => {
         projectId: 'PRJ-1',
         dataDir,
         adapter: new FakeSessionAdapter(),
+        launcherAdapter: makeFakeLauncherAdapter(),
         workspaceRoots: [repoRoot],
       }),
     ).toThrow(HostWiringError)

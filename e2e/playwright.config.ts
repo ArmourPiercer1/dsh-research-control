@@ -13,7 +13,8 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3199'
 export default defineConfig({
   testDir: '.',
   // WP-4.6: the smoke specs (WP-0.6/0.7) plus the TC-E2E-001..013 suite.
-  testMatch: /(?:smoke\..+|tc-e2e\.spec)\.ts$/,
+  // WP-7.4 / G7 S2: plus TC-DSH-010 (investigator read-only, machine half).
+  testMatch: /(?:smoke\..+|tc-e2e\.spec|tc-dsh-010\.spec)\.ts$/,
   timeout: 180_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,

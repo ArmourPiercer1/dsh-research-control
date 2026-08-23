@@ -33,18 +33,32 @@
  * card (2) → the session link (3).
  */
 
-import { useMemo, useState, type ReactElement } from 'react'
+import { useMemo, useRef, useState, type ReactElement } from 'react'
 
 import type {
+  InterventionDto,
   QueryHistoryArgs,
   QueryHistoryResult,
   WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
+// WP-7.4 — the shared one-click success-text parser（the launched
+// session id the investigator panel binds to after a successful launch）.
+import { parseInvestigationSessionId } from '../../../shared/investigation-command.js'
 import { createResearchStore, type ResearchStore, type SliceState } from '../../stores/index.js'
 // RR-017① — Phase 5/6 切片直 import（独立切片文件 — 多 WP 并行纪律:
 // 不改 stores/index.ts 公共面, 同 actions 视图 import 自己的切片）。
 import { createActionsSlicesStore } from '../../stores/actions-slices.js'
 import { createInboxSliceStore } from '../../stores/inbox-slice.js'
+// WP-7.4 / G7 S1c — analysis 切片（生产工厂 — **生产 provider 已接线**:
+// `createCommandAnalysisDataProvider` 经 DSH 内置 commands/execute 网关
+// 域承载宿主消费面, 保存按钮解禁; 保存后列表刷新路径是生产 store 代码,
+// WP-7.3 钉死; 13-RPC 清单零 diff — 见通道模块头注 + 报告四面论证）。
+import { createAnalysisSliceStore } from '../../stores/analysis-slice.js'
+// WP-7.4 / G7 S1 — analysis 数据面生产 provider（保存按钮解禁的通道半）。
+import { createCommandAnalysisDataProvider } from '../../dsh-adapter/remote/analysis-channel.js'
+// WP-7.4 / G7 S1b — 一键调查通道（DSH 内置 commands/execute 网关域 —
+// 零新增 RPC; 生产默认, 测试经 props.onInvestigate 注入替身）。
+import { investigateIntervention } from '../../dsh-adapter/remote/investigate.js'
 import { HomeDashboard } from '../home/HomeDashboard.js'
 import { HistoryTimelineView } from '../history/HistoryTimelineView.js'
 import { PlanGraphContainer } from '../../graph/PlanGraphContainer.js'
@@ -63,6 +77,9 @@ import { ReportingView } from '../reporting/ReportingView.js'
 import { AttentionView } from '../attention/AttentionView.js'
 import { BriefView } from '../brief/BriefView.js'
 import { InboxViewContainer } from '../inbox/inbox-container.js'
+// WP-7.4 / G7 S1c — investigator 面板（transient 分析 + 用户显式保存 —
+// INV-PERM-3 输出纪律的 GUI 消费面）。
+import { InvestigatorViewContainer } from '../investigator/investigator-container.js'
 import styles from './cockpit.module.css'
 
 /** One page of the in-tab navigation stack.
@@ -84,11 +101,12 @@ type CockpitPage =
   | { readonly kind: 'attention' }
   | { readonly kind: 'brief' }
   | { readonly kind: 'inbox' }
+  | { readonly kind: 'investigator' }
 
 /** RR-017① — the in-tab nav entries (label = 中文组件纪律; kind = page;
  *  全部为无参页面 — 钻取页 project/topic/ws/history 不进导航栏,
  *  仍经 Home/页面内入口到达, 保持既有钻取路径不变)。 */
-type PlainPageKind = 'home' | 'intervention' | 'actions' | 'reporting' | 'attention' | 'brief' | 'inbox'
+type PlainPageKind = 'home' | 'intervention' | 'actions' | 'reporting' | 'attention' | 'brief' | 'inbox' | 'investigator'
 
 const COCKPIT_NAV: ReadonlyArray<{ readonly kind: PlainPageKind; readonly label: string }> = [
   { kind: 'home', label: '首页' },
@@ -98,6 +116,9 @@ const COCKPIT_NAV: ReadonlyArray<{ readonly kind: PlainPageKind; readonly label:
   { kind: 'attention', label: '注意力' },
   { kind: 'brief', label: '简报' },
   { kind: 'inbox', label: '收件箱' },
+  // WP-7.4 / G7 S1c — 调查员页（transient 分析面板 + 显式保存; 一键
+  // 调查成功后自动跳入, 导航栏亦可达）。
+  { kind: 'investigator', label: '调查员' },
 ]
 
 /** epoch ms → local display text (deterministic, no timezone surprises
@@ -203,9 +224,29 @@ function WorkstreamPage({
 
 /**
  * The 研究 tab body (the slot component).
+ *
+ * @param props - framework standard kit（session-scope slot: the runtime
+ *  merges `SessionStandardProps` — `sessionId` is the framework-resolved
+ *  current session id; the one-click investigation channel dispatches
+ *  INTO it）+ the one-click channel test seam（the production default
+ *  = the DSH built-in `commands/execute` gateway carrier — zero new
+  *  RPCs）.
  * @returns the cockpit element.
  */
-export function ResearchCockpit(): ReactElement {
+export interface ResearchCockpitProps {
+  /** The framework-resolved current host session id（session-scope slot
+   *  standard kit — the one-click investigation dispatches into this
+   *  session's composer; undefined only in the no-session edge, where
+   *  the one-click fails loud instead of guessing a target）. */
+  readonly sessionId?: string
+  /** WP-7.4 one-click investigation channel（test seam — the production
+   *  default is the built-in `commands/execute` gateway over the current
+   *  `sessionId`). Resolves to the command's success text（the GUI
+   *  status line）; rejects on any failure（the GUI fault line）. */
+  readonly onInvestigate?: (item: InterventionDto, question: string) => Promise<string>
+}
+
+export function ResearchCockpit(props: ResearchCockpitProps): ReactElement {
   // One factory result per tab mount — the store handle never lives at
   // module level (the factory binds the mount-time `researchRpc` facade).
   const store = useMemo(() => createResearchStore(), [])
@@ -215,9 +256,27 @@ export function ResearchCockpit(): ReactElement {
   // provider = NOT_WIRED（冻结 13 RPC 无 Inbox 面, WP-6.4 报告口径））。
   const actionsStore = useMemo(() => createActionsSlicesStore(), [])
   const inboxStore = useMemo(() => createInboxSliceStore(), [])
+  // WP-7.4 / G7 S1 — 当前宿主会话 id 的 ref 闭包（框架 slot 标准 kit 的
+  // `sessionId` 每次渲染现读, 不缓存挂载时的旧值 — 通道执行时读取, 防
+  // 会话切换后命令打到旧会话）。ref 在每次渲染同步。
+  const sessionIdRef = useRef<string | undefined>(props.sessionId)
+  sessionIdRef.current = props.sessionId
+  // WP-7.4 / G7 S1c — analysis 切片工厂结果（**生产 provider 已接线**:
+  // `createCommandAnalysisDataProvider` 经 DSH 内置 commands/execute
+  // 网关域承载宿主消费面, 保存按钮解禁 — 13-RPC 清单零 diff; 保存后
+  // 列表刷新 = 生产 store 代码, WP-7.3 钉死 — 页面挂载即消费面在位）。
+  const analysisStore = useMemo(
+    () => createAnalysisSliceStore({
+      dataProvider: createCommandAnalysisDataProvider(() => sessionIdRef.current ?? ''),
+    }),
+    [],
+  )
   const [page, setPage] = useState<CockpitPage>({ kind: 'home' })
   const [selection, setSelection] = useState<DrilldownSelection>(null)
   const [sessionPointer, setSessionPointer] = useState<{ sessionId: string; runId: string } | null>(null)
+  // WP-7.4 / G7 S1c — 一键调查成功后记录的被启动调查会话 id（调查员页
+  // 面板绑定它; 导航栏直接进入时回落当前会话 — 诚实透出, 不虚构绑定）。
+  const [investigatorSession, setInvestigatorSession] = useState<string | null>(null)
 
   function openProject(): void {
     setSelection(null)
@@ -255,6 +314,25 @@ export function ResearchCockpit(): ReactElement {
   // handler without touching the display layer.
   function handleOpenSession(sessionId: string, runId: string): void {
     setSessionPointer({ sessionId, runId })
+  }
+
+  // WP-7.4 / G7 S1b — the one-click investigation channel（生产默认 =
+  // DSH 内置 commands/execute 网关域; 测试经 props 注入替身）。成功后
+  // 记录被启动的调查会话并跳入调查员页（面板绑定该会话 — S1c 消费面）。
+  const defaultInvestigate = async (item: InterventionDto, question: string): Promise<string> => {
+    const outcome = await investigateIntervention({ sessionId: props.sessionId ?? '', interventionId: item.id, question })
+    if (!outcome.ok) throw new Error(outcome.message)
+    return outcome.message
+  }
+  const investigate = props.onInvestigate ?? defaultInvestigate
+  async function handleInvestigate(item: InterventionDto, question: string): Promise<string> {
+    const message = await investigate(item, question)
+    // The launched session id（shared single-source parse of the success
+    // text — the investigator panel binds to exactly this session）.
+    const launched = parseInvestigationSessionId(message)
+    if (launched !== null) setInvestigatorSession(launched)
+    setPage({ kind: 'investigator' })
+    return message
   }
 
   return (
@@ -360,7 +438,7 @@ export function ResearchCockpit(): ReactElement {
             </button>{' '}
             干预分组
           </h1>
-          <InterventionGroupsView store={store} onOpenWorkstream={openWs} />
+          <InterventionGroupsView store={store} onOpenWorkstream={openWs} onInvestigate={handleInvestigate} />
         </section>
       )}
 
@@ -421,6 +499,30 @@ export function ResearchCockpit(): ReactElement {
             研究收件箱
           </h1>
           <InboxViewContainer store={inboxStore} />
+        </section>
+      )}
+
+      {/* WP-7.4 / G7 S1c — 调查员页（AnalysisRecord GUI 消费面 —
+          最小 bar: 调查视图列表在保存后自动刷新, 生产 store 代码,
+          WP-7.3 钉死）。绑定会话: 一键调查成功后的被启动调查会话
+          （investigatorSession）; 导航栏直接进入时回落当前宿主会话
+          （诚实透出 — 无会话 = 大声点名缺口, 不虚构绑定）。 */}
+      {page.kind === 'investigator' && (
+        <section className={styles.page} aria-label="调查员页">
+          <h1 className={styles.pageTitle}>
+            <button type="button" className={styles.backButton} onClick={() => setPage({ kind: 'home' })}>
+              ← 返回
+            </button>{' '}
+            调查员（transient 分析 + 显式保存）
+          </h1>
+          {(investigatorSession ?? props.sessionId) === undefined ? (
+            <p className={styles.empty} role="alert">
+              当前无宿主会话 id（session 作用域插槽未解析出 sessionId — 先打开一个宿主会话）—
+              调查员面板不可用
+            </p>
+          ) : (
+            <InvestigatorViewContainer store={analysisStore} sessionId={investigatorSession ?? props.sessionId!} />
+          )}
         </section>
       )}
     </div>

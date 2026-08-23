@@ -1764,9 +1764,9 @@ function loadPlanForkSchemas(reader, schemaDir) {
 		schemaDir,
 		isUsable: true,
 		loadErrors: [],
-		checkRecordShape: (record) => runCheck$2(recordValidator, record),
-		checkProposedItem: (item) => runCheck$2(proposedItemValidator, item),
-		checkNewItemSpec: (kind, spec) => runCheck$2(specValidatorFor(kind), spec),
+		checkRecordShape: (record) => runCheck$3(recordValidator, record),
+		checkProposedItem: (item) => runCheck$3(proposedItemValidator, item),
+		checkNewItemSpec: (kind, spec) => runCheck$3(specValidatorFor(kind), spec),
 		checkBasePlanObjects: (objects) => {
 			if (!Array.isArray(objects) || objects.length === 0) return {
 				ok: false,
@@ -1790,20 +1790,20 @@ function loadPlanForkSchemas(reader, schemaDir) {
 		}
 	};
 }
-function mapErrors$2(validator) {
+function mapErrors$3(validator) {
 	return (validator.errors ?? []).map((err) => ({
 		path: err.instancePath,
 		message: schemaErrorSummary(err)
 	}));
 }
-function runCheck$2(validator, value) {
+function runCheck$3(validator, value) {
 	if (validator(value)) return {
 		ok: true,
 		errors: []
 	};
 	return {
 		ok: false,
-		errors: mapErrors$2(validator)
+		errors: mapErrors$3(validator)
 	};
 }
 function unavailableSchemas(schemaDir, errors) {
@@ -2808,15 +2808,15 @@ const SQL_INSERT_MANAGEMENT_ACTION = `
 INSERT INTO ${MANAGEMENT_ACTION_TABLE} (id, action_kind, actor, subject_refs, git_commit_oid, git_blob_oids, detail, occurred_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `;
-const CORRUPT$4 = (what, detail) => {
+const CORRUPT$5 = (what, detail) => {
 	throw new Error(`planfork row corruption at ${what}: ${detail}`);
 };
-function decodeJson$4(value, what) {
-	if (typeof value !== "string") return CORRUPT$4(what, `expected JSON string, got ${typeof value}`);
+function decodeJson$5(value, what) {
+	if (typeof value !== "string") return CORRUPT$5(what, `expected JSON string, got ${typeof value}`);
 	try {
 		return JSON.parse(value);
 	} catch (cause) {
-		return CORRUPT$4(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+		return CORRUPT$5(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
 	}
 }
 /** Encode `PlanForkRecord` into the INSERT parameter list (column order = DDL). */
@@ -2858,7 +2858,7 @@ function planForkToParams(r) {
 /** Decode a `plan_fork` row back to the record (throws on corruption). */
 function rowToPlanFork(row) {
 	const status = row.status;
-	if (typeof status !== "string" || !isPfStatus(status)) return CORRUPT$4("plan_fork.status", `unknown status ${JSON.stringify(String(status))}`);
+	if (typeof status !== "string" || !isPfStatus(status)) return CORRUPT$5("plan_fork.status", `unknown status ${JSON.stringify(String(status))}`);
 	for (const name of [
 		"id",
 		"workstream_id",
@@ -2867,16 +2867,16 @@ function rowToPlanFork(row) {
 		"reason",
 		"necessity",
 		"created_by_run"
-	]) if (typeof row[name] !== "string") return CORRUPT$4(`plan_fork.${name}`, `expected string, got ${typeof row[name]}`);
-	if (typeof row.created_at !== "number") return CORRUPT$4("plan_fork.created_at", `expected number, got ${typeof row.created_at}`);
+	]) if (typeof row[name] !== "string") return CORRUPT$5(`plan_fork.${name}`, `expected string, got ${typeof row[name]}`);
+	if (typeof row.created_at !== "number") return CORRUPT$5("plan_fork.created_at", `expected number, got ${typeof row.created_at}`);
 	return {
 		id: row.id,
 		workstream_id: row.workstream_id,
-		base_plan_objects: decodeJson$4(row.base_plan_objects, "plan_fork.base_plan_objects"),
+		base_plan_objects: decodeJson$5(row.base_plan_objects, "plan_fork.base_plan_objects"),
 		fork_anchor: row.fork_anchor,
 		merge_anchor: row.merge_anchor,
-		proposed_items: decodeJson$4(row.proposed_items, "plan_fork.proposed_items"),
-		trigger_refs: decodeJson$4(row.trigger_refs, "plan_fork.trigger_refs"),
+		proposed_items: decodeJson$5(row.proposed_items, "plan_fork.proposed_items"),
+		trigger_refs: decodeJson$5(row.trigger_refs, "plan_fork.trigger_refs"),
 		reason: row.reason,
 		necessity: row.necessity,
 		created_by_run: row.created_by_run,
@@ -2884,7 +2884,7 @@ function rowToPlanFork(row) {
 		status,
 		...row.base_git_commit != null ? { base_git_commit: String(row.base_git_commit) } : {},
 		...row.selected_at != null ? { selected_at: row.selected_at } : {},
-		...row.selected_by != null ? { selected_by: decodeJson$4(row.selected_by, "plan_fork.selected_by") } : {},
+		...row.selected_by != null ? { selected_by: decodeJson$5(row.selected_by, "plan_fork.selected_by") } : {},
 		...row.dismissed_at != null ? { dismissed_at: row.dismissed_at } : {},
 		...row.stale_reason != null ? { stale_reason: String(row.stale_reason) } : {}
 	};
@@ -2907,17 +2907,17 @@ function managementActionToParams(a) {
 }
 /** Decode a `management_action` row (throws on corruption). */
 function rowToManagementAction(row) {
-	if (typeof row.id !== "string") return CORRUPT$4("management_action.id", `expected string, got ${typeof row.id}`);
-	if (typeof row.action_kind !== "string") return CORRUPT$4("management_action.action_kind", `expected string, got ${typeof row.action_kind}`);
-	if (typeof row.occurred_at !== "number") return CORRUPT$4("management_action.occurred_at", `expected number, got ${typeof row.occurred_at}`);
+	if (typeof row.id !== "string") return CORRUPT$5("management_action.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.action_kind !== "string") return CORRUPT$5("management_action.action_kind", `expected string, got ${typeof row.action_kind}`);
+	if (typeof row.occurred_at !== "number") return CORRUPT$5("management_action.occurred_at", `expected number, got ${typeof row.occurred_at}`);
 	return {
 		id: row.id,
 		action_kind: row.action_kind,
-		actor: decodeJson$4(row.actor, "management_action.actor"),
-		subject_refs: decodeJson$4(row.subject_refs, "management_action.subject_refs"),
+		actor: decodeJson$5(row.actor, "management_action.actor"),
+		subject_refs: decodeJson$5(row.subject_refs, "management_action.subject_refs"),
 		occurred_at: row.occurred_at,
 		...row.git_commit_oid != null ? { git_commit_oid: String(row.git_commit_oid) } : {},
-		...row.git_blob_oids != null ? { git_blob_oids: decodeJson$4(row.git_blob_oids, "management_action.git_blob_oids") } : {},
+		...row.git_blob_oids != null ? { git_blob_oids: decodeJson$5(row.git_blob_oids, "management_action.git_blob_oids") } : {},
 		...row.detail != null ? { detail: String(row.detail) } : {}
 	};
 }
@@ -5956,7 +5956,7 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "..", "common.schema.json"),
 			message: "common.schema.json is missing or has no $id"
 		});
-		return unavailable$1(schemaDir, errors);
+		return unavailable$2(schemaDir, errors);
 	}
 	try {
 		ajv.addSchema(common, common.$id);
@@ -5965,7 +5965,7 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "..", "common.schema.json"),
 			message: `common.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
 		});
-		return unavailable$1(schemaDir, errors);
+		return unavailable$2(schemaDir, errors);
 	}
 	const doc = readJson(pjoin(schemaDir, "attention.schema.json"));
 	if (doc === null || typeof doc.$id !== "string") {
@@ -5973,7 +5973,7 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "attention.schema.json"),
 			message: "attention.schema.json is missing or has no $id"
 		});
-		return unavailable$1(schemaDir, errors);
+		return unavailable$2(schemaDir, errors);
 	}
 	try {
 		ajv.addSchema(doc, doc.$id);
@@ -5982,7 +5982,7 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "attention.schema.json"),
 			message: `attention.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
 		});
-		return unavailable$1(schemaDir, errors);
+		return unavailable$2(schemaDir, errors);
 	}
 	const recordValidator = ajv.getSchema(`${doc.$id}#/$defs/Intervention`);
 	if (recordValidator === void 0) {
@@ -5990,32 +5990,32 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "attention.schema.json"),
 			message: "schema compile failed for $defs/Intervention"
 		});
-		return unavailable$1(schemaDir, errors);
+		return unavailable$2(schemaDir, errors);
 	}
 	return {
 		schemaDir,
 		isUsable: true,
 		loadErrors: [],
-		checkInterventionShape: (record) => runCheck$1(recordValidator, record)
+		checkInterventionShape: (record) => runCheck$2(recordValidator, record)
 	};
 }
-function mapErrors$1(validator) {
+function mapErrors$2(validator) {
 	return (validator.errors ?? []).map((err) => ({
 		path: err.instancePath,
 		message: schemaErrorSummary(err)
 	}));
 }
-function runCheck$1(validator, value) {
+function runCheck$2(validator, value) {
 	if (validator(value)) return {
 		ok: true,
 		errors: []
 	};
 	return {
 		ok: false,
-		errors: mapErrors$1(validator)
+		errors: mapErrors$2(validator)
 	};
 }
-function unavailable$1(schemaDir, errors) {
+function unavailable$2(schemaDir, errors) {
 	const unavailableCheck = {
 		ok: false,
 		errors: [{
@@ -6069,7 +6069,7 @@ function unavailable$1(schemaDir, errors) {
 * 有明确必填语义, 这里没有）。
 */
 const INTERVENTION_TABLE = "intervention";
-const DDL$2 = `
+const DDL$3 = `
 CREATE TABLE IF NOT EXISTS ${INTERVENTION_TABLE} (
   id              TEXT    NOT NULL PRIMARY KEY,
   title           TEXT    NOT NULL,
@@ -6111,7 +6111,7 @@ CREATE TRIGGER IF NOT EXISTS intervention_no_content_update
 `;
 /** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
 function interventionDdl() {
-	return DDL$2;
+	return DDL$3;
 }
 const SQL_INSERT_INTERVENTION = `
 INSERT INTO ${INTERVENTION_TABLE} (id, title, detail, origin, workstream_ids, source_refs, status, created_by, created_at, closed_at, resolution_note)
@@ -6128,15 +6128,15 @@ SELECT * FROM ${INTERVENTION_TABLE}
 WHERE origin = 'AUTO_FLOODING' AND status = 'OPEN'
 ORDER BY created_at ASC, id ASC
 `;
-const CORRUPT$3 = (what, detail) => {
+const CORRUPT$4 = (what, detail) => {
 	throw new Error(`flooding row corruption at ${what}: ${detail}`);
 };
-function decodeJson$3(value, what) {
-	if (typeof value !== "string") return CORRUPT$3(what, `expected JSON string, got ${typeof value}`);
+function decodeJson$4(value, what) {
+	if (typeof value !== "string") return CORRUPT$4(what, `expected JSON string, got ${typeof value}`);
 	try {
 		return JSON.parse(value);
 	} catch (cause) {
-		return CORRUPT$3(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+		return CORRUPT$4(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
 	}
 }
 /** Encode `InterventionRecord` into the INSERT parameter list（列序 = DDL）。 */
@@ -6161,21 +6161,21 @@ function interventionToParams(r) {
 /** Decode an `intervention` row back to the record（throws on corruption）。 */
 function rowToIntervention(row) {
 	const status = row.status;
-	if (typeof status !== "string" || !IV_STATUSES.includes(status)) return CORRUPT$3("intervention.status", `unknown status ${JSON.stringify(String(status))}`);
+	if (typeof status !== "string" || !IV_STATUSES.includes(status)) return CORRUPT$4("intervention.status", `unknown status ${JSON.stringify(String(status))}`);
 	const origin = row.origin;
-	if (typeof origin !== "string" || !INTERVENTION_ORIGINS.includes(origin)) return CORRUPT$3("intervention.origin", `unknown origin ${JSON.stringify(String(origin))}`);
+	if (typeof origin !== "string" || !INTERVENTION_ORIGINS.includes(origin)) return CORRUPT$4("intervention.origin", `unknown origin ${JSON.stringify(String(origin))}`);
 	for (const name of [
 		"id",
 		"title",
 		"workstream_ids",
 		"source_refs",
 		"created_by"
-	]) if (typeof row[name] !== "string") return CORRUPT$3(`intervention.${name}`, `expected string, got ${typeof row[name]}`);
-	if (typeof row.created_at !== "number") return CORRUPT$3("intervention.created_at", `expected number, got ${typeof row.created_at}`);
-	const workstreamIds = decodeJson$3(row.workstream_ids, "intervention.workstream_ids");
-	for (const ws of workstreamIds) if (typeof ws !== "string") return CORRUPT$3("intervention.workstream_ids", `element must be a string (got ${typeof ws})`);
-	const sourceRefs = decodeJson$3(row.source_refs, "intervention.source_refs");
-	for (const ref of sourceRefs) if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string") return CORRUPT$3("intervention.source_refs", `element must be a {kind, id} typedRef`);
+	]) if (typeof row[name] !== "string") return CORRUPT$4(`intervention.${name}`, `expected string, got ${typeof row[name]}`);
+	if (typeof row.created_at !== "number") return CORRUPT$4("intervention.created_at", `expected number, got ${typeof row.created_at}`);
+	const workstreamIds = decodeJson$4(row.workstream_ids, "intervention.workstream_ids");
+	for (const ws of workstreamIds) if (typeof ws !== "string") return CORRUPT$4("intervention.workstream_ids", `element must be a string (got ${typeof ws})`);
+	const sourceRefs = decodeJson$4(row.source_refs, "intervention.source_refs");
+	for (const ref of sourceRefs) if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string") return CORRUPT$4("intervention.source_refs", `element must be a {kind, id} typedRef`);
 	return {
 		id: row.id,
 		title: row.title,
@@ -6183,7 +6183,7 @@ function rowToIntervention(row) {
 		workstream_ids: workstreamIds,
 		source_refs: sourceRefs,
 		status,
-		created_by: decodeJson$3(row.created_by, "intervention.created_by"),
+		created_by: decodeJson$4(row.created_by, "intervention.created_by"),
 		created_at: row.created_at,
 		...row.detail != null ? { detail: String(row.detail) } : {},
 		...row.closed_at != null ? { closed_at: row.closed_at } : {},
@@ -6744,7 +6744,7 @@ function assertActorShape(actor, context) {
 //#region src/host/service/actions/schema.ts
 const NEXT_ACTION_TABLE = "next_action";
 const BLOCKER_TABLE = "blocker";
-const DDL$1 = `
+const DDL$2 = `
 CREATE TABLE IF NOT EXISTS ${NEXT_ACTION_TABLE} (
   id                  TEXT    NOT NULL PRIMARY KEY,
   workstream_id       TEXT,                         -- 可选（§9.3 ❌）
@@ -6854,7 +6854,7 @@ CREATE TRIGGER IF NOT EXISTS blocker_cleared_at_immutable
 `;
 /** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
 function actionsDdl() {
-	return DDL$1;
+	return DDL$2;
 }
 const SQL_INSERT_NEXT_ACTION = `
 INSERT INTO ${NEXT_ACTION_TABLE} (id, workstream_id, statement, rationale, status, promoted_to_task_id, created_by, created_at)
@@ -6878,15 +6878,15 @@ const SQL_SELECT_BLOCKER_BY_ID = `SELECT * FROM ${BLOCKER_TABLE} WHERE id = ?`;
 const SQL_TRANSITION_BLOCKER = `
 UPDATE ${BLOCKER_TABLE} SET status = ?, cleared_at = ? WHERE id = ? AND status = 'ACTIVE'
 `;
-const CORRUPT$2 = (what, detail) => {
+const CORRUPT$3 = (what, detail) => {
 	throw new Error(`actions row corruption at ${what}: ${detail}`);
 };
-function decodeJson$2(value, what) {
-	if (typeof value !== "string") return CORRUPT$2(what, `expected JSON string, got ${typeof value}`);
+function decodeJson$3(value, what) {
+	if (typeof value !== "string") return CORRUPT$3(what, `expected JSON string, got ${typeof value}`);
 	try {
 		return JSON.parse(value);
 	} catch (cause) {
-		return CORRUPT$2(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+		return CORRUPT$3(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
 	}
 }
 const NA_STATUSES$1 = [
@@ -6916,20 +6916,20 @@ function nextActionToParams(r) {
 /** Decode a `next_action` row back to the record（throws on corruption）。 */
 function rowToNextAction(row) {
 	const status = row.status;
-	if (typeof status !== "string" || !NA_STATUSES$1.includes(status)) return CORRUPT$2("next_action.status", `unknown status ${JSON.stringify(String(status))}`);
+	if (typeof status !== "string" || !NA_STATUSES$1.includes(status)) return CORRUPT$3("next_action.status", `unknown status ${JSON.stringify(String(status))}`);
 	for (const name of [
 		"id",
 		"statement",
 		"created_by"
-	]) if (typeof row[name] !== "string") return CORRUPT$2(`next_action.${name}`, `expected string, got ${typeof row[name]}`);
-	if (typeof row.created_at !== "number") return CORRUPT$2("next_action.created_at", `expected number, got ${typeof row.created_at}`);
+	]) if (typeof row[name] !== "string") return CORRUPT$3(`next_action.${name}`, `expected string, got ${typeof row[name]}`);
+	if (typeof row.created_at !== "number") return CORRUPT$3("next_action.created_at", `expected number, got ${typeof row.created_at}`);
 	const affectedTaskId = row.promoted_to_task_id;
-	if (affectedTaskId !== null && typeof affectedTaskId !== "string") return CORRUPT$2("next_action.promoted_to_task_id", `expected string or null, got ${typeof affectedTaskId}`);
+	if (affectedTaskId !== null && typeof affectedTaskId !== "string") return CORRUPT$3("next_action.promoted_to_task_id", `expected string or null, got ${typeof affectedTaskId}`);
 	return {
 		id: row.id,
 		statement: row.statement,
 		status,
-		created_by: decodeJson$2(row.created_by, "next_action.created_by"),
+		created_by: decodeJson$3(row.created_by, "next_action.created_by"),
 		created_at: row.created_at,
 		...row.workstream_id != null ? { workstream_id: String(row.workstream_id) } : {},
 		...row.rationale != null ? { rationale: String(row.rationale) } : {},
@@ -6955,22 +6955,22 @@ function blockerToParams(r) {
 /** Decode a `blocker` row back to the record（throws on corruption）。 */
 function rowToBlocker(row) {
 	const status = row.status;
-	if (typeof status !== "string" || !BLK_STATUSES$1.includes(status)) return CORRUPT$2("blocker.status", `unknown status ${JSON.stringify(String(status))}`);
+	if (typeof status !== "string" || !BLK_STATUSES$1.includes(status)) return CORRUPT$3("blocker.status", `unknown status ${JSON.stringify(String(status))}`);
 	for (const name of [
 		"id",
 		"statement",
 		"affects",
 		"source"
-	]) if (typeof row[name] !== "string") return CORRUPT$2(`blocker.${name}`, `expected string, got ${typeof row[name]}`);
-	if (typeof row.created_at !== "number") return CORRUPT$2("blocker.created_at", `expected number, got ${typeof row.created_at}`);
-	const affects = decodeJson$2(row.affects, "blocker.affects");
-	for (const ref of affects) if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string" || !AFFECTS_KINDS.includes(ref.kind)) return CORRUPT$2("blocker.affects", `element must be a {kind ∈ WORKSTREAM|TASK|RUN, id} typedRef (got ${JSON.stringify(ref)})`);
+	]) if (typeof row[name] !== "string") return CORRUPT$3(`blocker.${name}`, `expected string, got ${typeof row[name]}`);
+	if (typeof row.created_at !== "number") return CORRUPT$3("blocker.created_at", `expected number, got ${typeof row.created_at}`);
+	const affects = decodeJson$3(row.affects, "blocker.affects");
+	for (const ref of affects) if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string" || !AFFECTS_KINDS.includes(ref.kind)) return CORRUPT$3("blocker.affects", `element must be a {kind ∈ WORKSTREAM|TASK|RUN, id} typedRef (got ${JSON.stringify(ref)})`);
 	const references = row.references;
 	let referencesValue;
 	if (references != null) {
-		const decoded = decodeJson$2(references, "blocker.references");
-		if (!Array.isArray(decoded)) return CORRUPT$2("blocker.references", `expected a JSON array of strings, got ${typeof decoded}`);
-		for (const item of decoded) if (typeof item !== "string") return CORRUPT$2("blocker.references", `element must be a string (got ${typeof item})`);
+		const decoded = decodeJson$3(references, "blocker.references");
+		if (!Array.isArray(decoded)) return CORRUPT$3("blocker.references", `expected a JSON array of strings, got ${typeof decoded}`);
+		for (const item of decoded) if (typeof item !== "string") return CORRUPT$3("blocker.references", `element must be a string (got ${typeof item})`);
 		referencesValue = [...decoded];
 	}
 	return {
@@ -7038,7 +7038,7 @@ function checkObjectiveTransition(id, from, to) {
 * RPC 面转发的 USER_ACTOR 即此形状）。`code` 供调用方保留对象维度的
 * 错误码（NA_ACTOR / BLK_ACTOR / OBJ_ACTOR）。
 */
-function assertUserActor$3(actor, operation, code = "NA_ACTOR") {
+function assertUserActor$4(actor, operation, code = "NA_ACTOR") {
 	assertActorShape(actor, operation);
 	if (actor.kind !== "USER") throw new ActionsError(code, `${operation}: user-only operation (ARCHITECTURE §6 矩阵 / INV-PERM-1 闭集 / §13「仅用户」) — actor.kind is ${JSON.stringify(actor.kind)}, expected USER`);
 }
@@ -7127,7 +7127,7 @@ var ActionsStore = class {
 	*/
 	promoteNextAction(id, taskId, actor) {
 		this.assertOpen("promoteNextAction");
-		assertUserActor$3(actor, `promoteNextAction(${id})`);
+		assertUserActor$4(actor, `promoteNextAction(${id})`);
 		if (typeof taskId !== "string" || !ID_PATTERNS.task.test(taskId)) throw new ActionsError("ACT_INPUT", `promoteNextAction(${id}): taskId ${JSON.stringify(taskId)} is not a well-formed T id (common.schema.json idTask)`);
 		const current = this.readNextActionRow(id);
 		if (current === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} does not exist`);
@@ -7142,7 +7142,7 @@ var ActionsStore = class {
 	*/
 	dismissNextAction(id, actor) {
 		this.assertOpen("dismissNextAction");
-		assertUserActor$3(actor, `dismissNextAction(${id})`);
+		assertUserActor$4(actor, `dismissNextAction(${id})`);
 		const current = this.readNextActionRow(id);
 		if (current === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} does not exist`);
 		checkNextActionTransition(id, current.status, "DISMISSED");
@@ -7164,7 +7164,7 @@ var ActionsStore = class {
 	*/
 	createBlocker(params, actor) {
 		this.assertOpen("createBlocker");
-		assertUserActor$3(actor, "createBlocker", "BLK_ACTOR");
+		assertUserActor$4(actor, "createBlocker", "BLK_ACTOR");
 		const record = this.validateBlockerInput(params);
 		const at = this.now();
 		const res = this.allocator.reserve("BLOCKER", this.projectId);
@@ -7219,7 +7219,7 @@ var ActionsStore = class {
 	*/
 	clearBlocker(id, actor) {
 		this.assertOpen("clearBlocker");
-		assertUserActor$3(actor, `clearBlocker(${id})`, "BLK_ACTOR");
+		assertUserActor$4(actor, `clearBlocker(${id})`, "BLK_ACTOR");
 		const current = this.readBlockerRow(id);
 		if (current === null) throw new ActionsError("BLK_NOT_FOUND", `blocker ${JSON.stringify(id)} does not exist`);
 		checkBlockerTransition(id, current.status, "CLEARED");
@@ -7526,7 +7526,7 @@ var ObjectiveFileService = class {
 	* 协议见模块头（虚拟 reader 预校验 → 原子写 → 后置校验/补偿 → 账本）。
 	*/
 	saveObjectives(objectives, actor) {
-		assertUserActor$3(actor, "saveObjectives", "OBJ_ACTOR");
+		assertUserActor$4(actor, "saveObjectives", "OBJ_ACTOR");
 		this.assertObjectiveDocs(objectives);
 		const baseline = this.loadTreeOrThrow("saveObjectives");
 		const previousBytes = this.reader.readFile(this.objectivesPath());
@@ -7579,7 +7579,7 @@ var ObjectiveFileService = class {
 	* 读现状 → 守卫 → 单字段改写 → `saveObjectives`（同一写协议 + 账本）。
 	*/
 	setObjectiveStatus(objectiveId, status, actor) {
-		assertUserActor$3(actor, `setObjectiveStatus(${objectiveId})`, "OBJ_ACTOR");
+		assertUserActor$4(actor, `setObjectiveStatus(${objectiveId})`, "OBJ_ACTOR");
 		if (typeof objectiveId !== "string" || !ID_PATTERNS.objective.test(objectiveId)) throw new ActionsError("ACT_INPUT", `setObjectiveStatus: objective id ${JSON.stringify(objectiveId)} is not a well-formed OBJ id (common.schema.json idObjective)`);
 		const current = this.loadObjectives().objectives;
 		const target = current.find((o) => o.id === objectiveId);
@@ -8466,7 +8466,7 @@ var ActionsService = class {
 	* PROMOTE — 转正为 Task（用户 only; 物化流见模块头）。
 	*/
 	promoteNextAction(id, params = {}, actor) {
-		assertUserActor$3(actor, `promoteNextAction(${id})`);
+		assertUserActor$4(actor, `promoteNextAction(${id})`);
 		if (typeof id !== "string" || id.length === 0) throw new ActionsError("ACT_INPUT", "promoteNextAction: next action id must be a non-empty string");
 		if (params.index !== void 0 && (!Number.isSafeInteger(params.index) || params.index < 0)) throw new ActionsError("PROMOTE_INPUT", `promoteNextAction(${id}): index must be a non-negative safe integer (got ${String(params.index)})`);
 		const na = this.store.getNextAction(id);
@@ -8548,7 +8548,7 @@ var ActionsService = class {
 	* DISMISS（§13 终态; 用户 only）。无物化面 — 纯行状态迁移。
 	*/
 	dismissNextAction(id, actor) {
-		assertUserActor$3(actor, `dismissNextAction(${id})`);
+		assertUserActor$4(actor, `dismissNextAction(${id})`);
 		return this.store.dismissNextAction(id, actor);
 	}
 	/**
@@ -8556,7 +8556,7 @@ var ActionsService = class {
 	* 校验: WS/T 经声明式树, RUN 经 run 表面 — 「写入新引用时失败 = 拒绝」）。
 	*/
 	createBlocker(params, actor) {
-		assertUserActor$3(actor, "createBlocker", "BLK_ACTOR");
+		assertUserActor$4(actor, "createBlocker", "BLK_ACTOR");
 		this.assertAffectsExist(params.affects, "createBlocker");
 		return this.store.createBlocker(params, actor);
 	}
@@ -8564,7 +8564,7 @@ var ActionsService = class {
 	* CLEAR（§13 终态; 用户 only; 复发 = 新 Blocker 行）。
 	*/
 	clearBlocker(id, actor) {
-		assertUserActor$3(actor, `clearBlocker(${id})`, "BLK_ACTOR");
+		assertUserActor$4(actor, `clearBlocker(${id})`, "BLK_ACTOR");
 		return this.store.clearBlocker(id, actor);
 	}
 	listNextActions(filter = {}) {
@@ -8883,55 +8883,55 @@ INSERT INTO ${SCHEDULED_EVENT_TABLE} (id, title, schedule, related_refs, reminde
 VALUES (?, ?, ?, ?, ?)
 `;
 const SQL_SELECT_SCHEDULED_EVENT_BY_ID = `SELECT * FROM ${SCHEDULED_EVENT_TABLE} WHERE id = ?`;
-const CORRUPT$1 = (what, detail) => {
+const CORRUPT$2 = (what, detail) => {
 	throw new Error(`reporting row corruption at ${what}: ${detail}`);
 };
-function decodeJson$1(value, what) {
-	if (typeof value !== "string") return CORRUPT$1(what, `expected JSON string, got ${typeof value}`);
+function decodeJson$2(value, what) {
+	if (typeof value !== "string") return CORRUPT$2(what, `expected JSON string, got ${typeof value}`);
 	try {
 		return JSON.parse(value);
 	} catch (cause) {
-		return CORRUPT$1(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+		return CORRUPT$2(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
 	}
 }
 function decodeStringArray(value, what) {
-	const arr = decodeJson$1(value, what);
-	if (!Array.isArray(arr) || arr.some((item) => typeof item !== "string")) return CORRUPT$1(what, `expected a JSON string array, got ${JSON.stringify(String(value)).slice(0, 80)}`);
+	const arr = decodeJson$2(value, what);
+	if (!Array.isArray(arr) || arr.some((item) => typeof item !== "string")) return CORRUPT$2(what, `expected a JSON string array, got ${JSON.stringify(String(value)).slice(0, 80)}`);
 	return arr;
 }
 function decodeTypedRefs(value, what) {
-	const arr = decodeJson$1(value, what);
-	if (!Array.isArray(arr) || arr.some((item) => item === null || typeof item !== "object" || typeof item.kind !== "string" || typeof item.id !== "string")) return CORRUPT$1(what, `expected a JSON TypedRef array, got ${JSON.stringify(String(value)).slice(0, 80)}`);
+	const arr = decodeJson$2(value, what);
+	if (!Array.isArray(arr) || arr.some((item) => item === null || typeof item !== "object" || typeof item.kind !== "string" || typeof item.id !== "string")) return CORRUPT$2(what, `expected a JSON TypedRef array, got ${JSON.stringify(String(value)).slice(0, 80)}`);
 	return arr;
 }
 /** Decode a `schedule` cell (ONCE / RECURRING 封闭联合; 冻结形状校验). */
 function decodeSchedule(value, what) {
-	const obj = decodeJson$1(value, what);
-	if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return CORRUPT$1(what, `expected a schedule object, got ${typeof value}`);
+	const obj = decodeJson$2(value, what);
+	if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return CORRUPT$2(what, `expected a schedule object, got ${typeof value}`);
 	if (obj.kind === "ONCE") {
-		if (typeof obj.at !== "number" || !Number.isSafeInteger(obj.at) || obj.at < 0) return CORRUPT$1(`${what}.at`, `expected non-negative epoch ms, got ${JSON.stringify(obj.at)}`);
+		if (typeof obj.at !== "number" || !Number.isSafeInteger(obj.at) || obj.at < 0) return CORRUPT$2(`${what}.at`, `expected non-negative epoch ms, got ${JSON.stringify(obj.at)}`);
 		return {
 			kind: "ONCE",
 			at: obj.at
 		};
 	}
 	if (obj.kind === "RECURRING") {
-		if (!isSevFreq(obj.freq)) return CORRUPT$1(`${what}.freq`, `unknown freq ${JSON.stringify(obj.freq)}`);
+		if (!isSevFreq(obj.freq)) return CORRUPT$2(`${what}.freq`, `unknown freq ${JSON.stringify(obj.freq)}`);
 		const result = {
 			kind: "RECURRING",
 			freq: obj.freq
 		};
 		if (obj.interval !== void 0) {
-			if (typeof obj.interval !== "number" || !Number.isSafeInteger(obj.interval) || obj.interval < 1) return CORRUPT$1(`${what}.interval`, `expected integer ≥ 1, got ${JSON.stringify(obj.interval)}`);
+			if (typeof obj.interval !== "number" || !Number.isSafeInteger(obj.interval) || obj.interval < 1) return CORRUPT$2(`${what}.interval`, `expected integer ≥ 1, got ${JSON.stringify(obj.interval)}`);
 			result.interval = obj.interval;
 		}
 		if (obj.until !== void 0) {
-			if (typeof obj.until !== "number" || !Number.isSafeInteger(obj.until) || obj.until < 0) return CORRUPT$1(`${what}.until`, `expected non-negative epoch ms, got ${JSON.stringify(obj.until)}`);
+			if (typeof obj.until !== "number" || !Number.isSafeInteger(obj.until) || obj.until < 0) return CORRUPT$2(`${what}.until`, `expected non-negative epoch ms, got ${JSON.stringify(obj.until)}`);
 			result.until = obj.until;
 		}
 		return result;
 	}
-	return CORRUPT$1(`${what}.kind`, `unknown schedule kind ${JSON.stringify(obj.kind)}`);
+	return CORRUPT$2(`${what}.kind`, `unknown schedule kind ${JSON.stringify(obj.kind)}`);
 }
 /** The normalized schedule cell form (interval default 1 落库 — 确定性展示). */
 function encodeSchedule(schedule) {
@@ -8960,10 +8960,10 @@ function interactionToParams(r) {
 }
 /** Decode an `interaction` row back to the record (throws on corruption). */
 function rowToInteraction(row) {
-	if (typeof row.id !== "string") return CORRUPT$1("interaction.id", `expected string, got ${typeof row.id}`);
-	if (!isInteractionKind(row.kind)) return CORRUPT$1("interaction.kind", `unknown kind ${JSON.stringify(String(row.kind))}`);
-	if (typeof row.title !== "string") return CORRUPT$1("interaction.title", `expected string, got ${typeof row.title}`);
-	if (typeof row.occurred_at !== "number") return CORRUPT$1("interaction.occurred_at", `expected number, got ${typeof row.occurred_at}`);
+	if (typeof row.id !== "string") return CORRUPT$2("interaction.id", `expected string, got ${typeof row.id}`);
+	if (!isInteractionKind(row.kind)) return CORRUPT$2("interaction.kind", `unknown kind ${JSON.stringify(String(row.kind))}`);
+	if (typeof row.title !== "string") return CORRUPT$2("interaction.title", `expected string, got ${typeof row.title}`);
+	if (typeof row.occurred_at !== "number") return CORRUPT$2("interaction.occurred_at", `expected number, got ${typeof row.occurred_at}`);
 	return {
 		id: row.id,
 		kind: row.kind,
@@ -8992,11 +8992,11 @@ function reportingItemToParams(r) {
 }
 /** Decode a `reporting_item` row back to the record (throws on corruption). */
 function rowToReportingItem(row) {
-	if (typeof row.id !== "string") return CORRUPT$1("reporting_item.id", `expected string, got ${typeof row.id}`);
-	if (typeof row.audience !== "string") return CORRUPT$1("reporting_item.audience", `expected string, got ${typeof row.audience}`);
-	if (typeof row.statement !== "string") return CORRUPT$1("reporting_item.statement", `expected string, got ${typeof row.statement}`);
-	if (!isRptStatus(row.status)) return CORRUPT$1("reporting_item.status", `unknown status ${JSON.stringify(String(row.status))}`);
-	if (typeof row.created_at !== "number") return CORRUPT$1("reporting_item.created_at", `expected number, got ${typeof row.created_at}`);
+	if (typeof row.id !== "string") return CORRUPT$2("reporting_item.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.audience !== "string") return CORRUPT$2("reporting_item.audience", `expected string, got ${typeof row.audience}`);
+	if (typeof row.statement !== "string") return CORRUPT$2("reporting_item.statement", `expected string, got ${typeof row.statement}`);
+	if (!isRptStatus(row.status)) return CORRUPT$2("reporting_item.status", `unknown status ${JSON.stringify(String(row.status))}`);
+	if (typeof row.created_at !== "number") return CORRUPT$2("reporting_item.created_at", `expected number, got ${typeof row.created_at}`);
 	return {
 		id: row.id,
 		audience: row.audience,
@@ -9023,8 +9023,8 @@ function scheduledEventToParams(r) {
 }
 /** Decode a `scheduled_event` row back to the record (throws on corruption). */
 function rowToScheduledEvent(row) {
-	if (typeof row.id !== "string") return CORRUPT$1("scheduled_event.id", `expected string, got ${typeof row.id}`);
-	if (typeof row.title !== "string") return CORRUPT$1("scheduled_event.title", `expected string, got ${typeof row.title}`);
+	if (typeof row.id !== "string") return CORRUPT$2("scheduled_event.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.title !== "string") return CORRUPT$2("scheduled_event.title", `expected string, got ${typeof row.title}`);
 	const result = {
 		id: row.id,
 		title: row.title,
@@ -9032,11 +9032,11 @@ function rowToScheduledEvent(row) {
 	};
 	if (row.related_refs != null) {
 		const refs = decodeTypedRefs(row.related_refs, "scheduled_event.related_refs");
-		for (const ref of refs) if (!isSevRelatedRefKind(ref.kind)) return CORRUPT$1("scheduled_event.related_refs", `ref kind ${JSON.stringify(ref.kind)} is not one of REPORTING_ITEM|INTERVENTION|TOPIC`);
+		for (const ref of refs) if (!isSevRelatedRefKind(ref.kind)) return CORRUPT$2("scheduled_event.related_refs", `ref kind ${JSON.stringify(ref.kind)} is not one of REPORTING_ITEM|INTERVENTION|TOPIC`);
 		result.related_refs = refs;
 	}
 	if (row.reminder_lead_ms != null) {
-		if (typeof row.reminder_lead_ms !== "number") return CORRUPT$1("scheduled_event.reminder_lead_ms", `expected number, got ${typeof row.reminder_lead_ms}`);
+		if (typeof row.reminder_lead_ms !== "number") return CORRUPT$2("scheduled_event.reminder_lead_ms", `expected number, got ${typeof row.reminder_lead_ms}`);
 		result.reminder_lead_ms = row.reminder_lead_ms;
 	}
 	return result;
@@ -9367,7 +9367,7 @@ var ReportingService = class {
 				message: "relatedRefs must be a TypedRef array"
 			});
 			for (const ref of params.relatedRefs) {
-				assertTypedRef$2(ref, "relatedRefs");
+				assertTypedRef$3(ref, "relatedRefs");
 				if (!isSevRelatedRefKind(ref.kind)) throw new ReportingError({
 					code: "SEV_INPUT",
 					message: `relatedRefs kind ${JSON.stringify(ref.kind)} is not one of REPORTING_ITEM | INTERVENTION | TOPIC (reporting.schema.json 冻结限制)`
@@ -9552,7 +9552,7 @@ function assertReportingItemId(id, what) {
 	});
 }
 /** `TypedRef` 形状 (kind 非空 + id 良构 — 前缀注册表可解析). */
-function assertTypedRef$2(ref, what) {
+function assertTypedRef$3(ref, what) {
 	if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || ref.kind.length === 0 || typeof ref.id !== "string" || ref.id.length === 0) throw new ReportingError({
 		code: "RPT_INPUT",
 		message: `${what} entries must be TypedRef {kind, id} (frozen shape)`
@@ -9568,7 +9568,7 @@ function assertTypedRefArray(refs, what) {
 		message: `${what} must be a TypedRef array`
 	});
 	for (const ref of refs) {
-		assertTypedRef$2(ref, what);
+		assertTypedRef$3(ref, what);
 		if (!OBJECT_KIND_VALUES.includes(ref.kind)) throw new ReportingError({
 			code: "RPT_INPUT",
 			message: `${what} kind ${JSON.stringify(ref.kind)} is not a §1.3 ObjectKind`
@@ -9931,7 +9931,7 @@ var InterventionService = class {
 	* actor 必须 USER（运行面断言 — 类型面在参数上）。
 	*/
 	createUserIntervention(params, actor) {
-		assertUserActor$2(actor, "createUserIntervention");
+		assertUserActor$3(actor, "createUserIntervention");
 		return this.#create(params, {
 			origin: "USER",
 			actor
@@ -10149,7 +10149,7 @@ var InterventionService = class {
 	* 结果 DTO 与共享契约 `UpdateInterventionStateResult` 字段 1:1。
 	*/
 	updateState(interventionId, status, actor, resolutionNote) {
-		assertUserActor$2(actor, "updateState");
+		assertUserActor$3(actor, "updateState");
 		if (typeof interventionId !== "string" || !IV_ID_PATTERN.test(interventionId)) throw new InterventionError({
 			code: "IV_INPUT",
 			message: `updateState: interventionId must be a well-formed IV id (got ${JSON.stringify(String(interventionId))})`
@@ -10230,7 +10230,7 @@ var InterventionService = class {
 		});
 	}
 };
-function assertUserActor$2(actor, operation) {
+function assertUserActor$3(actor, operation) {
 	if (actor === null || typeof actor !== "object" || actor.kind !== "USER") throw new InterventionError({
 		code: "IV_ACTOR_FORBIDDEN",
 		message: `${operation}: requires a USER actor (INV-PERM-4: Intervention 状态/用户创建面只允许用户显式操作; ARCHITECTURE §6 矩阵 U 栏) — got ${JSON.stringify(actor)}`
@@ -10471,7 +10471,7 @@ var InboxService = class {
 	* source 参数 — 类型即闭集）; actor 必须 USER（运行面断言）。
 	*/
 	captureHuman(params, actor) {
-		assertUserActor$1(actor, "captureHuman");
+		assertUserActor$2(actor, "captureHuman");
 		return this.#capture(HUMAN_INBOX_SOURCE, params, "captureHuman");
 	}
 	/**
@@ -10499,7 +10499,7 @@ var InboxService = class {
 			code: "IN_INPUT",
 			message: `${operation}: payload must be a non-empty string (DOMAIN_SCHEMA §11; frozen schema minLength 1)`
 		});
-		const contextRefs = (params.contextRefs ?? []).map((ref, i) => assertTypedRef$1(ref, `${operation}.contextRefs[${i}]`));
+		const contextRefs = (params.contextRefs ?? []).map((ref, i) => assertTypedRef$2(ref, `${operation}.contextRefs[${i}]`));
 		const raw = params.raw;
 		const createdAt = this.#now();
 		let res = null;
@@ -10530,7 +10530,7 @@ var InboxService = class {
 	*   4. 条件 UPDATE（`AND state = ?`; 0 行 ⇒ IN_CONCURRENT_STATE）。
 	*/
 	dismiss(inboxItemId, actor) {
-		assertUserActor$1(actor, "dismiss");
+		assertUserActor$2(actor, "dismiss");
 		const item = this.#requireItem(inboxItemId, "dismiss");
 		assertInboxTransition(inboxItemId, item.state, "DISMISSED");
 		if (this.#store.updateState(inboxItemId, "DISMISSED", null, item.state) === 0) throw this.#concurrent(inboxItemId, item.state, "dismiss");
@@ -10546,7 +10546,7 @@ var InboxService = class {
 	* ①–④。
 	*/
 	convert(params, actor) {
-		assertUserActor$1(actor, "convert");
+		assertUserActor$2(actor, "convert");
 		const inboxItemId = params.inboxItemId;
 		if (typeof inboxItemId !== "string" || !IN_ID_PATTERN.test(inboxItemId)) throw new InboxError({
 			code: "IN_INPUT",
@@ -10766,7 +10766,7 @@ var InboxService = class {
 		});
 	}
 };
-function assertUserActor$1(actor, operation) {
+function assertUserActor$2(actor, operation) {
 	if (actor === null || typeof actor !== "object" || actor.kind !== "USER") throw new InboxError({
 		code: "IN_ACTOR_FORBIDDEN",
 		message: `${operation}: requires a USER actor (plan §28: 转换/忽略需要用户显式确认; §13 迁移仅用户 — ARCHITECTURE §6 矩阵 U 栏) — got ${JSON.stringify(actor)}`
@@ -10797,7 +10797,7 @@ function toUserActorRef(actor) {
 /** TypedRef 形状断言（冻结 {kind, id} 廉价边界 — 精确指名失败项;
 *  kind 的 objectKind 枚举面与 id 模式面归冻结形状网在 insert 时复验 —
 *  与 WP-5.1 source_refs 断言同款分工）。 */
-function assertTypedRef$1(value, what) {
+function assertTypedRef$2(value, what) {
 	const kind = value === null || typeof value !== "object" ? void 0 : value.kind;
 	const id = value === null || typeof value !== "object" ? void 0 : value.id;
 	if (typeof kind !== "string" || kind.length === 0 || typeof id !== "string" || id.length === 0) throw new InboxError({
@@ -10848,7 +10848,7 @@ function assertTypedRef$1(value, what) {
 *     同 WP-3.5 closed_at 共现注释口径）。
 */
 const INBOX_ITEM_TABLE = "inbox_item";
-const DDL = `
+const DDL$1 = `
 CREATE TABLE IF NOT EXISTS ${INBOX_ITEM_TABLE} (
   id            TEXT    NOT NULL PRIMARY KEY,
   source        TEXT    NOT NULL CHECK (source IN (${INBOX_SOURCES.map((s) => `'${s}'`).join(", ")})),
@@ -10885,7 +10885,7 @@ CREATE TRIGGER IF NOT EXISTS inbox_item_no_content_update
 `;
 /** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
 function inboxItemDdl() {
-	return DDL;
+	return DDL$1;
 }
 const SQL_INSERT_INBOX_ITEM = `
 INSERT INTO ${INBOX_ITEM_TABLE} (id, source, payload, raw, context_refs, state, converted_to, created_at)
@@ -10906,19 +10906,19 @@ UPDATE ${INBOX_ITEM_TABLE}
 SET state = ?, converted_to = ?
 WHERE id = ? AND state = ?
 `;
-const CORRUPT = (what, detail) => {
+const CORRUPT$1 = (what, detail) => {
 	throw new Error(`inbox row corruption at ${what}: ${detail}`);
 };
-function decodeJson(value, what) {
-	if (typeof value !== "string") return CORRUPT(what, `expected JSON string, got ${typeof value}`);
+function decodeJson$1(value, what) {
+	if (typeof value !== "string") return CORRUPT$1(what, `expected JSON string, got ${typeof value}`);
 	try {
 		return JSON.parse(value);
 	} catch (cause) {
-		return CORRUPT(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+		return CORRUPT$1(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
 	}
 }
-function assertTypedRef(value, what) {
-	if (value === null || typeof value !== "object" || typeof value.kind !== "string" || typeof value.id !== "string") return CORRUPT(what, `element must be a {kind, id} typedRef (got ${JSON.stringify(value)})`);
+function assertTypedRef$1(value, what) {
+	if (value === null || typeof value !== "object" || typeof value.kind !== "string" || typeof value.id !== "string") return CORRUPT$1(what, `element must be a {kind, id} typedRef (got ${JSON.stringify(value)})`);
 }
 /** Encode `InboxItemRecord` into the INSERT parameter list（列序 = DDL）。 */
 function inboxItemToParams(r) {
@@ -10942,19 +10942,19 @@ function inboxItemToParams(r) {
 /** Decode an `inbox_item` row back to the record（throws on corruption）。 */
 function rowToInboxItem(row) {
 	const source = row.source;
-	if (typeof source !== "string" || !INBOX_SOURCES.includes(source)) return CORRUPT("inbox_item.source", `unknown source ${JSON.stringify(String(source))}`);
+	if (typeof source !== "string" || !INBOX_SOURCES.includes(source)) return CORRUPT$1("inbox_item.source", `unknown source ${JSON.stringify(String(source))}`);
 	const state = row.state;
-	if (typeof state !== "string" || !INBOX_STATES.includes(state)) return CORRUPT("inbox_item.state", `unknown state ${JSON.stringify(String(state))}`);
-	if (typeof row.id !== "string") return CORRUPT("inbox_item.id", `expected string, got ${typeof row.id}`);
-	if (typeof row.payload !== "string") return CORRUPT("inbox_item.payload", `expected string, got ${typeof row.payload}`);
-	if (typeof row.context_refs !== "string") return CORRUPT("inbox_item.context_refs", `expected JSON string, got ${typeof row.context_refs}`);
-	if (typeof row.created_at !== "number") return CORRUPT("inbox_item.created_at", `expected number, got ${typeof row.created_at}`);
-	const contextRefs = decodeJson(row.context_refs, "inbox_item.context_refs");
-	if (!Array.isArray(contextRefs)) return CORRUPT("inbox_item.context_refs", "expected JSON array of typedRef");
-	for (const ref of contextRefs) assertTypedRef(ref, "inbox_item.context_refs");
-	const convertedTo = row.converted_to === null || row.converted_to === void 0 ? void 0 : decodeJson(row.converted_to, "inbox_item.converted_to");
-	if (convertedTo !== void 0) assertTypedRef(convertedTo, "inbox_item.converted_to");
-	const raw = row.raw === null || row.raw === void 0 ? void 0 : decodeJson(row.raw, "inbox_item.raw");
+	if (typeof state !== "string" || !INBOX_STATES.includes(state)) return CORRUPT$1("inbox_item.state", `unknown state ${JSON.stringify(String(state))}`);
+	if (typeof row.id !== "string") return CORRUPT$1("inbox_item.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.payload !== "string") return CORRUPT$1("inbox_item.payload", `expected string, got ${typeof row.payload}`);
+	if (typeof row.context_refs !== "string") return CORRUPT$1("inbox_item.context_refs", `expected JSON string, got ${typeof row.context_refs}`);
+	if (typeof row.created_at !== "number") return CORRUPT$1("inbox_item.created_at", `expected number, got ${typeof row.created_at}`);
+	const contextRefs = decodeJson$1(row.context_refs, "inbox_item.context_refs");
+	if (!Array.isArray(contextRefs)) return CORRUPT$1("inbox_item.context_refs", "expected JSON array of typedRef");
+	for (const ref of contextRefs) assertTypedRef$1(ref, "inbox_item.context_refs");
+	const convertedTo = row.converted_to === null || row.converted_to === void 0 ? void 0 : decodeJson$1(row.converted_to, "inbox_item.converted_to");
+	if (convertedTo !== void 0) assertTypedRef$1(convertedTo, "inbox_item.converted_to");
+	const raw = row.raw === null || row.raw === void 0 ? void 0 : decodeJson$1(row.raw, "inbox_item.raw");
 	return {
 		id: row.id,
 		source,
@@ -11189,7 +11189,7 @@ function loadInboxSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "..", "common.schema.json"),
 			message: "common.schema.json is missing or has no $id"
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	try {
 		ajv.addSchema(common, common.$id);
@@ -11198,7 +11198,7 @@ function loadInboxSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "..", "common.schema.json"),
 			message: `common.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	const doc = readJson(pjoin(schemaDir, "inbox.schema.json"));
 	if (doc === null || typeof doc.$id !== "string") {
@@ -11206,7 +11206,7 @@ function loadInboxSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "inbox.schema.json"),
 			message: "inbox.schema.json is missing or has no $id"
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	try {
 		ajv.addSchema(doc, doc.$id);
@@ -11215,7 +11215,7 @@ function loadInboxSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "inbox.schema.json"),
 			message: `inbox.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	const recordValidator = ajv.getSchema(`${doc.$id}#/$defs/InboxItem`);
 	if (recordValidator === void 0) {
@@ -11223,32 +11223,32 @@ function loadInboxSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "inbox.schema.json"),
 			message: "schema compile failed for $defs/InboxItem"
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	return {
 		schemaDir,
 		isUsable: true,
 		loadErrors: [],
-		checkInboxShape: (record) => runCheck(recordValidator, record)
+		checkInboxShape: (record) => runCheck$1(recordValidator, record)
 	};
 }
-function mapErrors(validator) {
+function mapErrors$1(validator) {
 	return (validator.errors ?? []).map((err) => ({
 		path: err.instancePath,
 		message: schemaErrorSummary(err)
 	}));
 }
-function runCheck(validator, value) {
+function runCheck$1(validator, value) {
 	if (validator(value)) return {
 		ok: true,
 		errors: []
 	};
 	return {
 		ok: false,
-		errors: mapErrors(validator)
+		errors: mapErrors$1(validator)
 	};
 }
-function unavailable(schemaDir, errors) {
+function unavailable$1(schemaDir, errors) {
 	const unavailableCheck = {
 		ok: false,
 		errors: [{
@@ -14906,7 +14906,7 @@ var RunBindingService = class {
 	* RUN_STARTED remains a valid History entry — module header ②/③ note).
 	*/
 	bindDiscoveredSession(dsId, params, actor = USER_ACTOR) {
-		assertUserActor(actor, "bindDiscoveredSession");
+		assertUserActor$1(actor, "bindDiscoveredSession");
 		assertNonEmptyString(dsId, "dsId");
 		if (params === void 0 || typeof params !== "object") throw new RunBindingError("RB_INPUT", "bindDiscoveredSession: params are required");
 		const ds = this.#tables.getDiscoveredSession(dsId);
@@ -14964,7 +14964,7 @@ var RunBindingService = class {
 	* After DETACH the session is never re-discovered (TC-DSH-003).
 	*/
 	detachDiscoveredSession(dsId, actor = USER_ACTOR) {
-		assertUserActor(actor, "detachDiscoveredSession");
+		assertUserActor$1(actor, "detachDiscoveredSession");
 		assertNonEmptyString(dsId, "dsId");
 		const ds = this.#tables.getDiscoveredSession(dsId);
 		if (ds === null) throw new RunBindingError("RB_DS_NOT_FOUND", `no DiscoveredSession with id ${dsId}`);
@@ -14979,7 +14979,7 @@ var RunBindingService = class {
 	* After IGNORE the session is never re-discovered (TC-DSH-003).
 	*/
 	ignoreDiscoveredSession(dsId, actor = USER_ACTOR) {
-		assertUserActor(actor, "ignoreDiscoveredSession");
+		assertUserActor$1(actor, "ignoreDiscoveredSession");
 		assertNonEmptyString(dsId, "dsId");
 		const ds = this.#tables.getDiscoveredSession(dsId);
 		if (ds === null) throw new RunBindingError("RB_DS_NOT_FOUND", `no DiscoveredSession with id ${dsId}`);
@@ -15265,7 +15265,7 @@ var RunBindingService = class {
 		};
 	}
 };
-function assertUserActor(actor, operation) {
+function assertUserActor$1(actor, operation) {
 	if (typeof actor?.kind !== "string" || actor.kind !== "USER") throw new RunBindingError("RB_ACTOR_FORBIDDEN", `${operation}: requires a USER actor (DOMAIN_SCHEMA §6.2 「用户 BIND/DETACH/IGNORE」; ARCHITECTURE §6: no agent lane for session-binding operations) — got ${describeActor(actor)}`);
 }
 function assertUserOrAgentActor(actor, operation) {
@@ -17746,6 +17746,1091 @@ function assertDeps(deps) {
 	if (typeof deps.recordCheckpoint !== "function") throw new TypeError("createResearchTools: deps.recordCheckpoint must be the RunBindingService.recordCheckpoint surface (WP-2.4)");
 }
 //#endregion
+//#region src/host/service/investigator/types.ts
+/**
+* The agent preset the plugin authors and the launcher mounts
+* (`research-investigator/agent.cordis.yml` under the user preset root
+* `$DSH_HOME/.agent-presets` — DSH_ADAPTER §10.2 路径 A step 3 「专用
+* agent preset（agent.cordis.yml 只挂只读工具）」）。The id IS a path
+* segment (DSH `PRESET_ID = /^[a-z0-9][a-z0-9-]*$/`), so a lowercase
+* hyphenated literal.
+*/
+const INVESTIGATOR_PRESET_ID = "research-investigator";
+/**
+* The permission preset the launcher submits as `/permission read-only`
+* (DSH_ADAPTER §10.2 路径 A step 2). The name is FROZEN by the host's
+* preset table (checkout `packages/bundle/base/cordis.patch.yml:197-199`:
+* `read-only: {sandbox: read-only, approval: ask}` — the web profile) and
+* by the `SandboxMode` vocabulary (`packages/sandbox/sandbox-policy/src/
+* session-mode.ts:42` — `'read-only'` is the first, fail-safe mode;
+* `sandbox-policy/src/index.ts:94` default). Only this literal is
+* launchable — `workspace-write` / `danger-full-access` are compile
+* errors on the request face (INV-PERM-3 类型面).
+*/
+const READ_ONLY_PERMISSION_PRESET = "read-only";
+/**
+* The closed set of DSH tool packages the investigator preset
+* composition may mount (DSH_ADAPTER §10.2: 「preset 只注册只读工具」—
+* INV-PERM-3 第一层). Chosen for 计划书 §26.1 可读清单:
+*  - `@deepseek-ai/dsh-tool-bash` — workspace files + Git history/diff
+*    (read commands; every write is rejected by the read-only sandbox
+*    backend — session-mode.ts:11-12 「EXECUTION honors the same fold」);
+*  - `@deepseek-ai/dsh-tool-fs-search` — pure workspace file search
+*    (no write function exists in the tool).
+* `@deepseek-ai/dsh-tool-fs` is deliberately EXCLUDED (its `write`/`edit`
+* functions would sit in the catalog and be rejected per-call — noise for
+* the model; bash + search cover §26.1's file reads). The 4 read-only
+* research tools (ARCHITECTURE §7.2) need no preset row: the plugin's
+* host service registers them on the GLOBAL tools layer, and the
+* per-agent restriction below denies only the writable 7.
+*/
+const INVESTIGATOR_PRESET_TOOL_NAMES = ["@deepseek-ai/dsh-tool-bash", "@deepseek-ai/dsh-tool-fs-search"];
+/**
+* The closed set of capabilities a read-only Investigator may have —
+* the whitelist the runtime assertion measures against（INV-PERM-3:
+* 「无任何写路径」; 计划书 §26.1 可读清单的机械编码）。**No write
+* capability exists in the set — not even as a refused option**（the
+* matrix column is all-❌, ARCHITECTURE §6）.
+*/
+const INVESTIGATOR_CAPABILITIES = [
+	"read-workspace-files",
+	"read-git-history",
+	"read-research-state"
+];
+var InvestigatorLaunchError = class extends Error {
+	code;
+	constructor(init) {
+		super(init.message, init.cause === void 0 ? void 0 : { cause: init.cause });
+		this.name = "InvestigatorLaunchError";
+		this.code = init.code;
+	}
+};
+//#endregion
+//#region src/host/service/investigator/context.ts
+/**
+* 前置校验错误码归一: 缝入口的输入畸形统一 `IVL_INPUT`（模块边界参数
+* 畸形 — 同 IV_INPUT 口径）; 指名失败项进 message（fail loud, 不猜）。
+*/
+function badInput(what, value) {
+	return new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: `buildInvestigationContext: ${what} is invalid: ${JSON.stringify(value)}`
+	});
+}
+/** `IV-<n>` 形状（DOMAIN_SCHEMA §1.1 — 与 IdAllocator 产物同形, 不跨包
+*  import 解析器: 缝只验形状, id 注册表归 shared/ids 单一来源）。 */
+const IV_ID = /^IV-\d+$/u;
+/**
+* 从 Intervention 行构建一键启动上下文（任务目标 3）。
+*
+* @param intervention - Intervention 记录（WP-3.5 `InterventionRecord`
+*   1:1 类型 — 不复制字段面; 本函数只**读**）。
+* @param question - 用户的调查问题（trim 后非空 — 「进一步解释」的
+*   解释目标; 空问题无调查, IVL_INPUT）。
+* @param cwd - 研究工作区根（absolute — 只读沙箱的 workspace 边界;
+*   相对路径 IVL_INPUT: 沙箱边界必须是 canonical 绝对路径）。
+* @returns 冻结的 `InvestigationContext`（引用相关上下文 ①-④: id/title/
+*   detail/origin/workstreams/sourceRefs + question + cwd）。
+* @throws {@link InvestigatorLaunchError} `IVL_INPUT` — 空 question /
+*   非 absolute cwd / 坏 intervention id / 未知 origin。
+*/
+function buildInvestigationContext(intervention, question, cwd) {
+	if (typeof question !== "string" || question.trim() === "") throw badInput("question", question);
+	if (typeof cwd !== "string" || !cwd.startsWith("/")) throw badInput("cwd (must be an absolute path)", cwd);
+	if (typeof intervention.id !== "string" || !IV_ID.test(intervention.id)) throw badInput("intervention.id", intervention.id);
+	if (typeof intervention.title !== "string" || intervention.title.trim() === "") throw badInput("intervention.title", intervention.title);
+	if (!isInterventionOrigin(intervention.origin)) throw badInput("intervention.origin (§1.4 4 值闭集)", intervention.origin);
+	const workstreamIds = [];
+	for (const ws of intervention.workstream_ids) {
+		if (typeof ws !== "string" || ws.trim() === "") throw badInput("intervention.workstream_ids entry", ws);
+		workstreamIds.push(ws);
+	}
+	const sourceRefs = [];
+	for (const ref of intervention.source_refs) {
+		if (typeof ref !== "object" || ref === null || typeof ref.kind !== "string" || typeof ref.id !== "string" || ref.kind === "" || ref.id === "") throw badInput("intervention.source_refs entry (TypedRef {kind,id})", ref);
+		sourceRefs.push({
+			kind: ref.kind,
+			id: ref.id
+		});
+	}
+	return Object.freeze({
+		interventionId: intervention.id,
+		title: intervention.title,
+		...intervention.detail === void 0 ? {} : { detail: intervention.detail },
+		origin: intervention.origin,
+		workstreamIds: Object.freeze(workstreamIds),
+		sourceRefs: Object.freeze(sourceRefs),
+		question: question.trim(),
+		cwd
+	});
+}
+/** §1.4 origin 4 值闭集守卫（运行面 — 类型面是 InterventionOrigin）。 */
+function isInterventionOrigin(value) {
+	return value === "USER" || value === "AGENT_REPORT" || value === "AUTO_FLOODING" || value === "AUTO_AUDIT";
+}
+/**
+* 上下文 → 任务 prompt（纯渲染 — 冻结格式, tests 逐字钉）。
+*
+* 结构: 调查对象（Intervention id/title/origin）→ 范围（workstreams /
+* source refs / detail）→ 问题 → 只读立场（INV-PERM-3 口径: 可读面 =
+* 闭集能力清单 `INVESTIGATOR_CAPABILITIES` 的展开; 写路径声明不存在 —
+* 与 preset 闭集 / restriction 黑名单 / sandbox read-only 同一事实的
+* prompt 面表述）。
+*/
+/**
+* 英文列举收尾（`a, b and c` — 无 Oxford comma, tests 逐字钉）.
+*
+* 不用正则替换尾逗号（V8 对 lookahead 内 `$` 锚的求值位置与 `[^,]*$`
+* 组合的行为不可依赖 — WP-7.1 第二次尝试的实证缺陷）: 显式 slice 拼接,
+* 确定性 + 无引擎差异。
+*/
+function andList(items) {
+	if (items.length === 0) return "nothing";
+	if (items.length === 1) return items[0];
+	return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+function investigationTask(context) {
+	const workstreams = context.workstreamIds.length === 0 ? "none" : context.workstreamIds.join(", ");
+	const refs = context.sourceRefs.length === 0 ? "none" : context.sourceRefs.map((ref) => `${ref.kind}:${ref.id}`).join(", ");
+	const lines = [
+		`Read-only investigation of Intervention ${context.interventionId} "${context.title}".`,
+		`Origin: ${context.origin}`,
+		`Workstreams: ${workstreams}`,
+		`Source refs: ${refs}`
+	];
+	if (context.detail !== void 0) lines.push(`Evidence: ${context.detail}`);
+	lines.push("", `Question: ${context.question}`, "", `You are read-only. You may ${andList(INVESTIGATOR_CAPABILITIES)} — nothing else: you cannot modify the workspace, the plan, history, claims/facts, or any research state, and your answer is transient (only the user can save it). Ground every statement in the readable context (workspace files, git history/diff, plugin state, ResearchHistory).`);
+	return lines.join("\n");
+}
+//#endregion
+//#region src/host/service/investigator/preset.ts
+/** The fs-search package name（the one row that carries the config）. */
+const FS_SEARCH_TOOL_NAME = "@deepseek-ai/dsh-tool-fs-search";
+/**
+* 渲染 `research-investigator` 的 `agent.cordis.yml` 文本（确定性 —
+* 同一闭集永远渲染同一文本, tests 逐字钉; 注释声明只读契约与「勿加行」
+* 纪律 — launcher 会回读解析并拒绝非闭集行）。
+*
+* @param presetId - the preset id（必须是 `INVESTIGATOR_PRESET_ID` —
+*   本插件只拥有这一个 investigator preset; 其他 id 是 IVL_INPUT,
+*   防误用）。
+* @returns the complete composition text.
+* @throws {@link InvestigatorLaunchError} `IVL_INPUT` — 非闭集 presetId.
+*/
+function renderInvestigatorPresetComposition(presetId) {
+	if (presetId !== "research-investigator") throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: `renderInvestigatorPresetComposition: presetId must be "${INVESTIGATOR_PRESET_ID}" (the plugin authors exactly one investigator preset), got ${JSON.stringify(presetId)}`
+	});
+	const rows = INVESTIGATOR_PRESET_TOOL_NAMES.map((name) => {
+		const lines = [`- id: ${name.replace(/^@deepseek-ai\/dsh-/, "")}`, `  name: '${name}'`];
+		if (name === FS_SEARCH_TOOL_NAME) lines.push("  config:", "    sampleOverCapGlobResults: false");
+		return lines.join("\n");
+	});
+	return [
+		`# ${INVESTIGATOR_PRESET_ID} — read-only Investigator agent preset (dsh-research-control WP-7.1).`,
+		"#",
+		"# AGENT-PLANE composition: read-only tools ONLY (INV-PERM-3 layer 1 —",
+		"# DSH_ADAPTER §10.2 「preset 只注册只读工具」). The write path is excluded at",
+		"# THREE layers: this composition (no write tool registers), the per-agent",
+		"# tools.restrict() deny list over the research write set, and the",
+		"# `/permission read-only` sandbox mode (the fs/bash backends reject every",
+		"# write — the preset itself CANNOT set the sandbox mode: the permission",
+		"# stack is host-plane, U5 resolution — see the plugin WP-7.1 report).",
+		"#",
+		"# Do not add rows or config keys: the plugin launcher parses this file",
+		"# back and refuses to launch when a row (or the one audited fs-search",
+		"# config key) is not in its closed read-only set.",
+		...rows,
+		""
+	].join("\n");
+}
+//#endregion
+//#region src/host/service/investigator/guard.ts
+/**
+* WP-7.1 — INV-PERM-3 运行面（任务目标 2 的运行半边: 「运行时断言
+* （非白名单能力即拒）」）。
+*
+* 类型面（types.ts 闭集 4 字段 + 两个字面量）挡不住**运行时**伪造:
+* `as InvestigatorLaunchRequest` cast、JSON 反序列化、原型注入都能带进
+* 多余键。守卫在**触达宿主前**把闭集重新验一遍（launcher 的 build 后
+* 一验 + 适配器端口边界再一验 — 双钉）:
+*
+*  - 键闭集: 请求对象的自有属性键必须 ⊆ {presetId, permissionPreset,
+*    cwd, task}（多余键 — 无论叫什么 — 即非白名单能力, 拒）;
+*  - 能力键具名拒: 已知写能力键（sandbox / sandboxMode / approval /
+*    approvalPolicy / mode / policy / tools / capabilities / capability /
+*    permission / permissions / write / writable / allowWrite / signal /
+*    sessionId / …）在拒因里**指名**（INV-PERM-3: 写能力注入零容忍,
+*    错误消息是审计面）;
+*  - 值闭集: presetId / permissionPreset 必须逐字等于字面量常量;
+*    cwd 必须 absolute; task 必须非空纯文本字符串;
+*  - 原型纯净: 请求对象必须是 null-原型或 Object 原型（原型链上夹带
+*    方法/字段 = 注入面, 拒）。
+*
+* 全部拒绝 = `IVL_WRITE_CAPABILITY`（非白名单能力即拒 — 单一错误码,
+* 字段名进 message）或 `IVL_INPUT`（值畸形 — 闭集内但值不合法）;
+* 零宿主调用（断言在 agents.create / commands.execute 之前, 失败路径
+* 不碰宿主 — tests 以假宿主计数钉死）。
+*/
+/** 请求闭集键（types.ts 的 4 字段 — 单一来源, 不复制字面）。 */
+const REQUEST_KEYS = [
+	"presetId",
+	"permissionPreset",
+	"cwd",
+	"task"
+];
+/**
+* 已知写能力键（具名拒因 — 审计面: 错误消息点名「这是写能力」而非
+* 泛泛的未知键）。键集是**识别表**不是白名单: 白名单是 REQUEST_KEYS,
+* 这里只为拒因措辞服务（未知多余键同样拒, 只是措辞为 unknown field）。
+*/
+const KNOWN_CAPABILITY_KEYS = /* @__PURE__ */ new Map([
+	["sandbox", "a sandbox mode override"],
+	["sandboxMode", "a sandbox mode override"],
+	["approval", "an approval policy override"],
+	["approvalPolicy", "an approval policy override"],
+	["mode", "a sandbox mode override"],
+	["policy", "an approval policy override"],
+	["tools", "a tool set override"],
+	["toolFilter", "a tool filter override (path B host capability — not a launch parameter)"],
+	["capabilities", "a capability list override"],
+	["capability", "a capability override"],
+	["permission", "a permission override"],
+	["permissions", "a permission override"],
+	["write", "a write-capability flag"],
+	["writable", "a write-capability flag"],
+	["allowWrite", "a write-capability flag"],
+	["signal", "a caller cancellation signal (not a launch parameter)"],
+	["sessionId", "a preallocated session id (not a launch parameter)"],
+	["parent", "a parent-session capability (not a launch parameter)"],
+	["persona", "a persona override (not a launch parameter)"],
+	["outputSchema", "an output schema (not a launch parameter)"],
+	["maxDepth", "a delegation depth (not a launch parameter)"]
+]);
+function ownKeys(value) {
+	return Object.getOwnPropertyNames(value);
+}
+function prototypeIsClean(value) {
+	const proto = Object.getPrototypeOf(value);
+	return proto === null || proto === Object.prototype;
+}
+/**
+* 闭集断言: 一个启动请求是否可提交给宿主（INV-PERM-3 运行面）。
+*
+* @param request - the candidate request（可以是任何值 — 非对象即
+*   IVL_INPUT; 键/值/原型逐层验）.
+* @throws {@link InvestigatorLaunchError} `IVL_INPUT`（非对象 / 值畸形）
+*   或 `IVL_WRITE_CAPABILITY`（多余键 / 字面量不符 — 指名 + INV-PERM-3）。
+*/
+function assertReadonlyLaunchRequest(request) {
+	if (typeof request !== "object" || request === null || Array.isArray(request)) throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: `assertReadonlyLaunchRequest: the launch request must be an object, got ${request === null ? "null" : typeof request}`
+	});
+	if (!prototypeIsClean(request)) throw new InvestigatorLaunchError({
+		code: "IVL_WRITE_CAPABILITY",
+		message: "assertReadonlyLaunchRequest: the launch request carries a non-clean prototype (a method or field inherited off Object.prototype is an injection surface — INV-PERM-3)"
+	});
+	const keys = ownKeys(request);
+	for (const key of keys) if (!REQUEST_KEYS.includes(key)) throw new InvestigatorLaunchError({
+		code: "IVL_WRITE_CAPABILITY",
+		message: `assertReadonlyLaunchRequest: the field "${key}" is ${KNOWN_CAPABILITY_KEYS.get(key) ?? "an unknown field"} — the closed launch request carries exactly [${REQUEST_KEYS.join(", ")}]; a non-whitelisted capability is refused (INV-PERM-3)`
+	});
+	for (const key of REQUEST_KEYS) if (!keys.includes(key)) throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: `assertReadonlyLaunchRequest: the field "${key}" is missing (the closed launch request requires exactly [${REQUEST_KEYS.join(", ")}])`
+	});
+	if (request.presetId !== "research-investigator") throw new InvestigatorLaunchError({
+		code: "IVL_WRITE_CAPABILITY",
+		message: `assertReadonlyLaunchRequest: presetId ${JSON.stringify(request.presetId)} is not the investigator preset "${INVESTIGATOR_PRESET_ID}" (only the closed read-only preset is launchable — INV-PERM-3)`
+	});
+	if (request.permissionPreset !== "read-only") throw new InvestigatorLaunchError({
+		code: "IVL_WRITE_CAPABILITY",
+		message: `assertReadonlyLaunchRequest: permissionPreset ${JSON.stringify(request.permissionPreset)} is not "${READ_ONLY_PERMISSION_PRESET}" (only the read-only permission preset is launchable — INV-PERM-3)`
+	});
+	assertAbsoluteCwd(request.cwd);
+	if (typeof request.task !== "string" || request.task.trim() === "") throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: "assertReadonlyLaunchRequest: task must be a non-empty string"
+	});
+}
+/**
+* 上下文闭集断言（一键缝的运行面 — build 后 / launch 前; 同口径）。
+*
+* @param context - the candidate context.
+* @throws {@link InvestigatorLaunchError} `IVL_INPUT` / `IVL_WRITE_CAPABILITY`.
+*/
+function assertInvestigationContext(context) {
+	if (typeof context !== "object" || context === null || Array.isArray(context)) throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: "assertInvestigationContext: the context must be an object"
+	});
+	if (!prototypeIsClean(context)) throw new InvestigatorLaunchError({
+		code: "IVL_WRITE_CAPABILITY",
+		message: "assertInvestigationContext: the context carries a non-clean prototype (an injection surface — INV-PERM-3)"
+	});
+	const allowed = [
+		"interventionId",
+		"title",
+		"detail",
+		"origin",
+		"workstreamIds",
+		"sourceRefs",
+		"question",
+		"cwd"
+	];
+	for (const key of ownKeys(context)) if (!allowed.includes(key)) throw new InvestigatorLaunchError({
+		code: "IVL_WRITE_CAPABILITY",
+		message: `assertInvestigationContext: the field "${key}" is ${KNOWN_CAPABILITY_KEYS.get(key) ?? "an unknown field"} — the context carries exactly [${allowed.join(", ")}]; a non-whitelisted capability is refused (INV-PERM-3)`
+	});
+	if (typeof context.interventionId !== "string" || !/^IV-\d+$/u.test(context.interventionId)) throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: `assertInvestigationContext: interventionId must match "IV-<n>", got ${JSON.stringify(context.interventionId)}`
+	});
+	if (typeof context.title !== "string" || context.title.trim() === "") throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: "assertInvestigationContext: title must be a non-empty string"
+	});
+	if (context.detail !== void 0 && typeof context.detail !== "string") throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: "assertInvestigationContext: detail must be a string when present"
+	});
+	if (context.origin !== "USER" && context.origin !== "AGENT_REPORT" && context.origin !== "AUTO_FLOODING" && context.origin !== "AUTO_AUDIT") throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: `assertInvestigationContext: origin must be one of the §1.4 4 值闭集 [USER, AGENT_REPORT, AUTO_FLOODING, AUTO_AUDIT], got ${JSON.stringify(context.origin)}`
+	});
+	if (!Array.isArray(context.workstreamIds) || !context.workstreamIds.every((ws) => typeof ws === "string" && ws !== "")) throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: "assertInvestigationContext: workstreamIds must be an array of non-empty strings"
+	});
+	if (!Array.isArray(context.sourceRefs) || !context.sourceRefs.every((ref) => typeof ref === "object" && ref !== null && typeof ref.kind === "string" && typeof ref.id === "string")) throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: "assertInvestigationContext: sourceRefs must be an array of {kind, id} refs"
+	});
+	if (typeof context.question !== "string" || context.question.trim() === "") throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: "assertInvestigationContext: question must be a non-empty string"
+	});
+	assertAbsoluteCwd(context.cwd);
+}
+/** absolute 路径守卫（沙箱边界必须是 canonical 绝对路径 — IVL_INPUT）。 */
+function assertAbsoluteCwd(cwd) {
+	if (typeof cwd !== "string" || !cwd.startsWith("/")) throw new InvestigatorLaunchError({
+		code: "IVL_INPUT",
+		message: `assertAbsoluteCwd: cwd must be an absolute path, got ${JSON.stringify(cwd)}`
+	});
+}
+//#endregion
+//#region src/host/service/investigator/launcher.ts
+/**
+* WP-7.1 — `InvestigatorLauncher`（任务目标 1 的 service 半边 + 任务目标 3
+* 的一键缝）: 从 `InvestigationContext` 构造只读启动请求, 过闭集断言,
+* 交给 `DshAgentLauncherAdapter` 端口（host 半边 = dsh-adapter/launcher,
+* 路径 A 执行: ensure preset → agents.create(+setup) → /permission
+* read-only → followup task）。
+*
+* 本类是**纯编排**（无 DSH import — INV-PERM-5; 无 I/O）:
+*  - `launch(context)` — 一键入口（Gate P7 三）: 上下文断言 →
+*    `buildRequest`（纯构造）→ 请求断言（INV-PERM-3 运行面 — 失败不
+*    触达端口）→ 端口 `launchInvestigator`（宿主面）;
+*  - `buildRequest(context)` — 纯构造（导出 — 测试钉全形态 + 未来接线
+*    复用; 构造值必然过断言: 字面量常量 + 已校验的 cwd/question）;
+*  - `presetComposition()` — 渲染 `agent.cordis.yml`（ensure 的输入 —
+*    文件落盘归适配器, 文本构造归本包: 组合文本是 service 的冻结产物,
+*    适配器只是搬运工 + 回读校验方）。
+*
+* 依赖注入: 构造器只收一个端口（`DshAgentLauncherAdapter`）— 零其他
+* 依赖（无 store / 无 registry / 无 allocator — 启动是瞬态操作, 输出
+* transient, 不落 operational DB, INV-PERM-3 / 计划书 §26.2）。
+*/
+var InvestigatorLauncher = class {
+	#launcher;
+	/**
+	* @param options - the port-only options（fail loud on a missing port —
+	*   构造期配置错是组合期错误, 不是调用期惊喜, 同 createResearchTools
+	*   `assertDeps` 先例）。
+	*/
+	constructor(options) {
+		if (typeof options?.launcher?.launchInvestigator !== "function") throw new TypeError("InvestigatorLauncher: options.launcher.launchInvestigator must be the DshAgentLauncherAdapter port (the host half — src/host/dsh-adapter/launcher)");
+		this.#launcher = options.launcher;
+	}
+	/**
+	* 一键启动（任务目标 3 — Gate P7 三条之三）: Intervention 上下文 →
+	* 只读 Investigator 会话 + 任务提交。
+	*
+	* 序（fail-fast, 失败零宿主调用）:
+	*  1. `assertInvestigationContext`（运行面 — 上下文闭集）;
+	*  2. `buildRequest`（纯构造 — 闭集 4 字段）;
+	*  3. `assertReadonlyLaunchRequest`（INV-PERM-3 运行面 — 非白名单
+	*     能力即拒, 端口不被触达）;
+	*  4. 端口 `launchInvestigator`（宿主面 — 路径 A 全序, 适配器在端口
+	*     边界再断言一次）。
+	*
+	* @param context - the one-click context（`buildInvestigationContext`
+	*   产物; 直接构造的对象同样过断言）。
+	* @returns the settled launch result（sessionId + echoes — transient
+	*   输出, 落 AnalysisRecord 归 WP-7.3 用户显式保存）.
+	* @throws {@link InvestigatorLaunchError} — 断言拒因（IVL_INPUT /
+	*   IVL_WRITE_CAPABILITY）或端口透传（IVL_PRESET* / IVL_PERMISSION /
+	*   IVL_LAUNCH — cause 保留）。
+	*/
+	async launch(context) {
+		assertInvestigationContext(context);
+		const request = this.buildRequest(context);
+		assertReadonlyLaunchRequest(request);
+		return this.#launcher.launchInvestigator(request);
+	}
+	/**
+	* 纯构造: 上下文 → 闭集启动请求（4 字段, 两个字面量 — 构造面零自由
+	* 度: preset / permission 是常量, cwd / task 来自已校验上下文）。
+	* 导出供测试逐字钉全形态 + 未来接线（RPC/GUI 缝）复用同一构造。
+	*
+	* @param context - the investigation context.
+	* @returns the closed-set request（frozen）.
+	*/
+	buildRequest(context) {
+		return Object.freeze({
+			presetId: INVESTIGATOR_PRESET_ID,
+			permissionPreset: READ_ONLY_PERMISSION_PRESET,
+			cwd: context.cwd,
+			task: investigationTask(context)
+		});
+	}
+	/**
+	* The investigator preset composition text（`agent.cordis.yml`）—
+	* the ensure 步的输入（适配器落盘 + 回读解析 + 闭集断言）。
+	* @returns the deterministic composition text.
+	*/
+	presetComposition() {
+		return renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID);
+	}
+	/**
+	* 便捷缝: Intervention 行 + 问题 + 根 → 一键启动（组合
+	* `buildInvestigationContext` + `launch` — 调用方一步到底）。
+	*
+	* @param intervention - the Intervention record（WP-3.5 冻结形状）.
+	* @param question - the user's investigation question.
+	* @param cwd - the research workspace root（absolute）.
+	* @returns the settled launch result.
+	* @throws {@link InvestigatorLaunchError} — 缝校验 / 断言 / 端口透传.
+	*/
+	async launchFromIntervention(intervention, question, cwd) {
+		return this.launch(buildInvestigationContext(intervention, question, cwd));
+	}
+};
+//#endregion
+//#region src/host/service/analysis/types.ts
+/** 冻结 AN id 模式（common.schema.json `idAnalysisRecord`）。 */
+const AN_ID_PATTERN = /^AN-[1-9][0-9]*$/;
+/** 冻结 R id 模式（common.schema.json `idRun` — investigator_run_id）。 */
+const RUN_ID_PATTERN = /^R-[1-9][0-9]*$/;
+/** 冻结 typedRef id 模式（common.schema.json `typedRef.id`）。 */
+const TYPED_REF_ID_PATTERN = /^[A-Z]+-[1-9][0-9]*$/;
+var AnalysisError = class extends Error {
+	code;
+	constructor(init) {
+		super(init.message, init.cause === void 0 ? void 0 : { cause: init.cause });
+		this.name = "AnalysisError";
+		this.code = init.code;
+	}
+};
+function isAnalysisError(error) {
+	return error instanceof AnalysisError;
+}
+//#endregion
+//#region src/host/service/analysis/service.ts
+var AnalysisRecordService = class {
+	#store;
+	#allocator;
+	#projectId;
+	#now;
+	constructor(options) {
+		if (options.store === void 0 || options.store === null || typeof options.store.insertRecord !== "function") throw new AnalysisError({
+			code: "AN_INPUT",
+			message: "store: an AnalysisStore is required"
+		});
+		if (options.allocator === void 0 || options.allocator === null || typeof options.allocator.reserve !== "function") throw new AnalysisError({
+			code: "AN_INPUT",
+			message: "allocator: the shared IdAllocator is required"
+		});
+		if (typeof options.projectId !== "string" || options.projectId.length === 0) throw new AnalysisError({
+			code: "AN_INPUT",
+			message: "projectId must be a non-empty string"
+		});
+		this.#store = options.store;
+		this.#allocator = options.allocator;
+		this.#projectId = options.projectId;
+		this.#now = options.now ?? Date.now;
+	}
+	/**
+	* 用户显式保存一条 investigator 分析（module header 顺序纪律 ①–④）。
+	*
+	* @param actor - 必须是 USER actor（类型面 `UserActorRef` + 运行面
+	*   `assertUserActor` 双面; 非 USER ⇒ AN_ACTOR_FORBIDDEN, 零写入）。
+	*/
+	saveAsAnalysisRecord(params, actor) {
+		assertUserActor(actor, "saveAsAnalysisRecord");
+		const sourceRef = assertSourceRef(params.sourceRef, "saveAsAnalysisRecord.sourceRef");
+		const content = assertContent(params.content, "saveAsAnalysisRecord.content");
+		const investigatorRunId = assertOptionalRunId(params.investigatorRunId, "saveAsAnalysisRecord.investigatorRunId");
+		const dshSessionId = assertOptionalSessionId(params.dshSessionId, "saveAsAnalysisRecord.dshSessionId");
+		const createdAt = this.#now();
+		let res = null;
+		try {
+			res = this.#allocator.reserve("ANALYSIS_RECORD", this.#projectId);
+			const record = {
+				id: res.id,
+				source_ref: sourceRef,
+				content,
+				created_at: createdAt,
+				...investigatorRunId !== void 0 ? { investigator_run_id: investigatorRunId } : {},
+				...dshSessionId !== void 0 ? { dsh_session_id: dshSessionId } : {}
+			};
+			this.#store.insertRecord(record);
+			this.#allocator.commit(res);
+			return { record };
+		} catch (cause) {
+			if (res !== null) this.#releaseQuietly(res);
+			throw this.#wrapCause(cause);
+		}
+	}
+	/** One record by id（`null` when absent — 缺席是正常结果, 非错误）。 */
+	getAnalysisRecord(id) {
+		return this.#store.getRecord(id);
+	}
+	/** List by (sourceKind?, sourceId?) — 稳定顺序 created_at ASC, id ASC
+	*  （全缺省 = 全量）。 */
+	listAnalysisRecords(filter = {}) {
+		return this.#store.listRecords(filter);
+	}
+	#releaseQuietly(res) {
+		try {
+			this.#allocator.release(res);
+		} catch {}
+	}
+	#wrapCause(cause) {
+		if (isAnalysisError(cause)) return cause;
+		return new AnalysisError({
+			code: "AN_STORE",
+			message: cause instanceof Error ? cause.message : String(cause),
+			cause
+		});
+	}
+};
+/**
+* actor 运行面门（类型面的运行半边 — INV-PERM-3「仅用户显式保存才落
+* AnalysisRecord」; 同 WP-5.1 `assertUserActor` / WP-6.4 先例）。
+*/
+function assertUserActor(actor, operation) {
+	if (actor === null || typeof actor !== "object" || actor.kind !== "USER") throw new AnalysisError({
+		code: "AN_ACTOR_FORBIDDEN",
+		message: `${operation}: requires a USER actor (INV-PERM-3 — investigator 输出默认 transient, 仅用户显式保存才落 AnalysisRecord; ARCHITECTURE §6 矩阵: INVESTIGATOR/AGENT 无任何落库路径) — got ${JSON.stringify(actor)}`
+	});
+	if (actor.user_id !== void 0 && typeof actor.user_id !== "string") throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${operation}: actor.user_id must be a string (common.schema.json actorRef)`
+	});
+	if (actor.label !== void 0 && (typeof actor.label !== "string" || actor.label.length > 200)) throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${operation}: actor.label must be a string of ≤200 chars (common.schema.json actorRef)`
+	});
+}
+/** source_ref 形状断言（冻结 typedRef: kind ∈ 24 ObjectKind + id 模式）。 */
+function assertSourceRef(value, what) {
+	if (value === null || typeof value !== "object") throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${what} must be a {kind, id} typedRef (got ${JSON.stringify(value)})`
+	});
+	const kind = value.kind;
+	const id = value.id;
+	if (typeof kind !== "string" || kind.length === 0) throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${what}.kind must be a non-empty string ObjectKind (got ${JSON.stringify(kind)})`
+	});
+	if (!OBJECT_KIND_VALUES.includes(kind)) throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${what}.kind ${JSON.stringify(kind)} is not a member of the frozen 24-kind ObjectKind registry (DOMAIN_SCHEMA §1.3; §12.2 source_ref: Intervention / Audit finding / Brief 引用经此形状)`
+	});
+	if (typeof id !== "string" || !TYPED_REF_ID_PATTERN.test(id)) throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${what}.id must be a well-formed object id (^[A-Z]+-[1-9][0-9]*$; got ${JSON.stringify(String(id))})`
+	});
+	return {
+		kind,
+		id
+	};
+}
+/** content 断言（Markdown — 非空, 冻结 schema minLength 1）。 */
+function assertContent(value, what) {
+	if (typeof value !== "string" || value.length === 0) throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${what} must be a non-empty Markdown string (DOMAIN_SCHEMA §12.2 content; frozen schema minLength 1; got ${JSON.stringify(String(value))})`
+	});
+	return value;
+}
+/** investigator_run_id 断言（冻结 idRun 模式; 缺席 = 合法）。 */
+function assertOptionalRunId(value, what) {
+	if (value === void 0) return void 0;
+	if (typeof value !== "string" || !RUN_ID_PATTERN.test(value)) throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${what} must be a well-formed R id (^R-[1-9][0-9]*$; common.schema.json idRun; got ${JSON.stringify(String(value))})`
+	});
+	return value;
+}
+/** dsh_session_id 断言（自由文本 — 冻结 schema 只钉 string; 缺席 = 合法）。 */
+function assertOptionalSessionId(value, what) {
+	if (value === void 0) return void 0;
+	if (typeof value !== "string" || value.length === 0) throw new AnalysisError({
+		code: "AN_INPUT",
+		message: `${what} must be a non-empty string (got ${JSON.stringify(String(value))})`
+	});
+	return value;
+}
+//#endregion
+//#region src/host/service/analysis/schema.ts
+const ANALYSIS_RECORD_TABLE = "analysis_record";
+const DDL = `
+CREATE TABLE IF NOT EXISTS ${ANALYSIS_RECORD_TABLE} (
+  id                  TEXT    NOT NULL PRIMARY KEY,
+  source_ref          TEXT    NOT NULL,          -- JSON TypedRef（Intervention / Audit finding / Brief — 冻结 typedRef 形状）
+  investigator_run_id TEXT,                      -- R-<n>（§12.2 可选 — 冻结 idRun 模式; NULL = 未提供）
+  dsh_session_id      TEXT,                      -- DSH session id（§12.2 可选; INV-DB-2 只存指针）
+  content             TEXT    NOT NULL,          -- Markdown（§12.2 必填, minLength 1）
+  created_at          INTEGER NOT NULL           -- epoch ms（§1.2, A-3 修订）
+);
+-- §15 通则 / INV-HIST-7: 一等 identity 行不 hard delete。
+CREATE TRIGGER IF NOT EXISTS analysis_record_no_delete
+  BEFORE DELETE ON ${ANALYSIS_RECORD_TABLE}
+  BEGIN
+    SELECT RAISE(ABORT, 'analysis_record rows are never deleted (DOMAIN_SCHEMA §15 通则; ARCHITECTURE §5.4 INV-HIST-7)');
+  END;
+-- 快照不可变: §12.2 AnalysisRecord 是保存时点快照（无状态面 — 6 列全是
+-- 内容列）— 任何 UPDATE 都 ABORT; 修正 = 新记录（用户再次显式保存）。
+CREATE TRIGGER IF NOT EXISTS analysis_record_no_update
+  BEFORE UPDATE ON ${ANALYSIS_RECORD_TABLE}
+  BEGIN
+    SELECT RAISE(ABORT, 'analysis_record is immutable after save (DOMAIN_SCHEMA §12.2 — a saved analysis is a snapshot; a correction is a NEW record, user-explicit; no UPDATE face exists)');
+  END;
+`;
+/** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
+function analysisRecordDdl() {
+	return DDL;
+}
+const SQL_INSERT_ANALYSIS_RECORD = `
+INSERT INTO ${ANALYSIS_RECORD_TABLE} (id, source_ref, investigator_run_id, dsh_session_id, content, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+`;
+const SQL_SELECT_ANALYSIS_RECORD_BY_ID = `SELECT * FROM ${ANALYSIS_RECORD_TABLE} WHERE id = ?`;
+/** 列表查询（稳定顺序 created_at ASC, id ASC — 全序兜底; §15 无索引。
+*  source_ref 过滤在 store 层对解码后的行做 — JSON 文本列不做 SQL 侧
+*  模式猜测, 无隐藏过滤器, 调用方指名才过滤）。 */
+const SQL_LIST_ANALYSIS_RECORDS = `SELECT * FROM ${ANALYSIS_RECORD_TABLE} ORDER BY created_at ASC, id ASC`;
+const CORRUPT = (what, detail) => {
+	throw new Error(`analysis_record row corruption at ${what}: ${detail}`);
+};
+function decodeJson(value, what) {
+	if (typeof value !== "string") return CORRUPT(what, `expected JSON string, got ${typeof value}`);
+	try {
+		return JSON.parse(value);
+	} catch (cause) {
+		return CORRUPT(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+	}
+}
+function assertTypedRef(value, what) {
+	if (value === null || typeof value !== "object" || typeof value.kind !== "string" || typeof value.id !== "string") return CORRUPT(what, `must be a {kind, id} typedRef (got ${JSON.stringify(value)})`);
+}
+/** Encode `AnalysisRecordRecord` into the INSERT parameter list（列序 = DDL）。 */
+function analysisRecordToParams(r) {
+	return [
+		r.id,
+		JSON.stringify({
+			kind: r.source_ref.kind,
+			id: r.source_ref.id
+		}),
+		r.investigator_run_id === void 0 ? null : r.investigator_run_id,
+		r.dsh_session_id === void 0 ? null : r.dsh_session_id,
+		r.content,
+		r.created_at
+	];
+}
+/** Decode an `analysis_record` row back to the record（throws on corruption）。 */
+function rowToAnalysisRecord(row) {
+	if (typeof row.id !== "string") return CORRUPT("analysis_record.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.source_ref !== "string") return CORRUPT("analysis_record.source_ref", `expected JSON string, got ${typeof row.source_ref}`);
+	if (typeof row.content !== "string") return CORRUPT("analysis_record.content", `expected string, got ${typeof row.content}`);
+	if (typeof row.created_at !== "number") return CORRUPT("analysis_record.created_at", `expected number, got ${typeof row.created_at}`);
+	const sourceRef = decodeJson(row.source_ref, "analysis_record.source_ref");
+	assertTypedRef(sourceRef, "analysis_record.source_ref");
+	const investigatorRunId = row.investigator_run_id === null || row.investigator_run_id === void 0 ? void 0 : row.investigator_run_id;
+	if (investigatorRunId !== void 0 && typeof investigatorRunId !== "string") return CORRUPT("analysis_record.investigator_run_id", `expected string or NULL, got ${typeof investigatorRunId}`);
+	const dshSessionId = row.dsh_session_id === null || row.dsh_session_id === void 0 ? void 0 : row.dsh_session_id;
+	if (dshSessionId !== void 0 && typeof dshSessionId !== "string") return CORRUPT("analysis_record.dsh_session_id", `expected string or NULL, got ${typeof dshSessionId}`);
+	return {
+		id: row.id,
+		source_ref: sourceRef,
+		content: row.content,
+		created_at: row.created_at,
+		...investigatorRunId !== void 0 ? { investigator_run_id: investigatorRunId } : {},
+		...dshSessionId !== void 0 ? { dsh_session_id: dshSessionId } : {}
+	};
+}
+//#endregion
+//#region src/host/service/analysis/store.ts
+var AnalysisStore = class {
+	#db;
+	#schemas;
+	closed = false;
+	constructor(options) {
+		if (options.db === void 0 || typeof options.db.exec !== "function" || typeof options.db.run !== "function") throw new AnalysisError({
+			code: "AN_INPUT",
+			message: "db: the injected operational-DB face (exec/run/get/all) is required"
+		});
+		if (options.schemas === void 0 || typeof options.schemas.checkAnalysisShape !== "function") throw new AnalysisError({
+			code: "AN_INPUT",
+			message: "schemas: the frozen provenance schema face (loadAnalysisSchemas) is required"
+		});
+		this.#db = options.db;
+		this.#schemas = options.schemas;
+		this.#db.exec(analysisRecordDdl());
+	}
+	/**
+	* Insert ONE analysis_record row（单语句 autocommit）。落库前: 整行过
+	* **真实冻结** `$defs/AnalysisRecord`（shape net 不可用 ⇒ AN_STORE 大声
+	* 失败, 绝不在无 schema 时放行 — 同 WP-6.4 口径; 整行违例 ⇒ AN_INPUT）。
+	* 调用方（service）负责 AN 号 reserve/commit + 用户门。
+	*/
+	insertRecord(record) {
+		this.#assertOpen("insertRecord");
+		if (record === null || typeof record !== "object") throw new AnalysisError({
+			code: "AN_INPUT",
+			message: "insertRecord: record must be an AnalysisRecordRecord object"
+		});
+		if (!this.#schemas.isUsable) throw new AnalysisError({
+			code: "AN_STORE",
+			message: "frozen provenance schema set unavailable — no analysis record can be shape-checked (see AnalysisSchemas.loadErrors)"
+		});
+		const shape = this.#schemas.checkAnalysisShape(record);
+		if (!shape.ok) throw new AnalysisError({
+			code: "AN_INPUT",
+			message: `internal: analysis record failed the frozen AnalysisRecord schema: ${shape.errors.map((e) => `${e.path || "/"}: ${e.message}`).join(" | ")}`
+		});
+		try {
+			this.#db.run(SQL_INSERT_ANALYSIS_RECORD, ...analysisRecordToParams(record));
+		} catch (cause) {
+			throw this.#wrap("insertRecord", cause);
+		}
+		return record;
+	}
+	/** One record by id（`null` when absent）。 */
+	getRecord(id) {
+		this.#assertOpen("getRecord");
+		if (typeof id !== "string" || !AN_ID_PATTERN.test(id)) throw new AnalysisError({
+			code: "AN_INPUT",
+			message: `getRecord: id must be a well-formed AN id (got ${JSON.stringify(String(id))})`
+		});
+		try {
+			const row = this.#db.get(SQL_SELECT_ANALYSIS_RECORD_BY_ID, id);
+			return row === void 0 ? null : rowToAnalysisRecord(row);
+		} catch (cause) {
+			throw this.#wrap("getRecord", cause);
+		}
+	}
+	/** List by (sourceKind?, sourceId?) — 稳定顺序 created_at ASC, id ASC
+	*  （全缺省 = 全量; 过滤参数由调用方显式指名 — 无隐藏过滤器）。 */
+	listRecords(filter = {}) {
+		this.#assertOpen("listRecords");
+		if (filter.sourceKind !== void 0 && (typeof filter.sourceKind !== "string" || filter.sourceKind.length === 0)) throw new AnalysisError({
+			code: "AN_INPUT",
+			message: `listRecords.filter.sourceKind must be a non-empty string (got ${JSON.stringify(filter.sourceKind)})`
+		});
+		if (filter.sourceId !== void 0 && (typeof filter.sourceId !== "string" || filter.sourceId.length === 0)) throw new AnalysisError({
+			code: "AN_INPUT",
+			message: `listRecords.filter.sourceId must be a non-empty string (got ${JSON.stringify(filter.sourceId)})`
+		});
+		try {
+			const records = this.#db.all(SQL_LIST_ANALYSIS_RECORDS).map((row) => rowToAnalysisRecord(row));
+			const kind = filter.sourceKind;
+			const id = filter.sourceId;
+			if (kind === void 0 && id === void 0) return records;
+			return records.filter((r) => (kind === void 0 || r.source_ref.kind === kind) && (id === void 0 || r.source_ref.id === id));
+		} catch (cause) {
+			throw this.#wrap("listRecords", cause);
+		}
+	}
+	#assertOpen(operation) {
+		if (this.closed) throw new AnalysisError({
+			code: "AN_STORE",
+			message: `${operation}: store is closed`
+		});
+	}
+	/** Test/inspection seam（no-op 语义: store 无生命周期状态可关 — 连接
+	*  归 wiring 的单一 disposer, 同 WP-6.4 先例）。 */
+	close() {
+		this.closed = true;
+	}
+	#wrap(context, cause) {
+		if (cause instanceof AnalysisError) throw cause;
+		return new AnalysisError({
+			code: "AN_STORE",
+			message: `${context}: ${cause instanceof Error ? cause.message : String(cause)}`,
+			cause
+		});
+	}
+};
+//#endregion
+//#region src/host/service/analysis/transient.ts
+/**
+* WP-7.3 — `AnalysisTransientReader`: transient 结果读取面（任务目标 1 —
+* 计划书 §26.2「默认 transient」的 GUI 数据面）。
+*
+* ## 数据来源链（任务书逐字: 「launcher 的会话指针 → sessionlink 读取面」）
+*
+* `InvestigatorLaunchResult.sessionId`（WP-7.1 launcher 的会话指针 —
+* transient 宿主引用, 不虚构持久化）→ `read(sessionId)` → 三个注入的
+* **只读**端口（`AnalysisTransientReaderInput`）:
+*
+*   1. `pointerOf(sessionId)` — sessionlink 指针行（WP-2.6
+*      `SessionLinkService.pointerOf` — meta KV 直读; INV-DB-2「只存
+*      session_id、Run 绑定、事件指针、摘要」的唯一持久绑定面; 未绑定 =
+*      null 诚实透出 — investigator 会话通常不绑定 formal workstream,
+*      它是一次性只读调查; 不用 cwd 猜, 同 WP-7.2 绑定语义口径）;
+*   2. `listSessions()` — DSH live session 摘要（WP-0.4
+*      `DshSessionAdapter.listSessions` 端口面 — 只读列出, **不进 session
+*      内容** — INV-DB-2 不复制 raw log; investigator 的中间输出文本在
+*      DSH session 内, 由 DSH GUI 呈现; 本面只呈现指针/摘要/运行状态 —
+*      这正是 transient 的语义: 不落任何 operational 表）;
+*   3. `runs({dshSessionId})` — run 表 `dsh_session_id` 关联（§6.1 记录面;
+*      每 session 至多一条 formal run）。
+*
+* ## 零写入的类型面断言（INV-PERM-3 — 任务测试项「transient 零写入」）
+*
+*  - `AnalysisTransientReaderInput` 的成员集合**全是读操作** — 接口上
+*    不存在任何 run/exec/insert/set/update 成员: 写能力在该面上**无法
+*    表达**（同 WP-7.1 请求闭集纪律的读面对偶: 不是「拒绝写」, 而是「写
+*    不存在」）;
+*  - 本类只有 `read` 一个公开方法 — 原型面零写方法（tests/analysis/
+*    transient.test.ts 钉死 `Object.getOwnPropertyNames(prototype)` 面）;
+*  - 行为面: `read` 的全部 I/O 都是经上述三个只读端口的 SELECT 语义 —
+*    测试以真实 sqlite + 写计数探针钉死「transient 路径零写入」
+*    （`analysis_record` 行数不变 + 驱动 write 调用计数零）。
+*
+* 只读边界: 零 DSH import（经注入的端口 face — `SessionSummary` 是插件
+* 自有 shared 接口, 实现在 dsh-adapter, 本层不见 ctx, INV-PERM-5）。
+*/
+/**
+* transient 读取面（构造注入三个只读端口; `read` 是唯一公开方法）。
+*
+* @throws {AnalysisError} `AN_INPUT` — 端口缺位（构造）/ sessionId 畸形;
+*   `AN_STORE` — 只读端口调用失败（cause 保留）。
+*/
+var AnalysisTransientReader = class {
+	#input;
+	constructor(input) {
+		if (input === null || typeof input !== "object" || typeof input.pointerOf !== "function" || typeof input.listSessions !== "function" || typeof input.runs !== "function") throw new AnalysisError({
+			code: "AN_INPUT",
+			message: "AnalysisTransientReader: input must carry the three READ faces (pointerOf / listSessions / runs) — the transient face has no write members by construction (INV-PERM-3 零写入类型面)"
+		});
+		this.#input = input;
+	}
+	/**
+	* 读取一个 investigator 会话的 transient 快照（全读 — 零写入）。
+	*
+	* 诚实透出（不虚构）: `session = null`（live 列表无此 id — 已 dispose）/
+	* `pointer = null`（未绑定 workstream）/ `run = null`（无 formal run）—
+	* 三个 null 各自独立, 展示层逐字段渲染缺席态。
+	*/
+	read(sessionId) {
+		if (typeof sessionId !== "string" || sessionId.length === 0) throw new AnalysisError({
+			code: "AN_INPUT",
+			message: `read: sessionId must be a non-empty string (the launcher session pointer — InvestigatorLaunchResult.sessionId; got ${JSON.stringify(String(sessionId))})`
+		});
+		let pointer;
+		try {
+			pointer = this.#input.pointerOf(sessionId);
+		} catch (cause) {
+			throw this.#wrap("pointerOf", cause);
+		}
+		if (pointer !== null && (pointer === void 0 || typeof pointer !== "object")) throw new AnalysisError({
+			code: "AN_STORE",
+			message: `read: pointerOf(${sessionId}) returned a non-pointer value (expected SessionPointer or null; got ${JSON.stringify(pointer)}) — port contract violation, loud`
+		});
+		let session = null;
+		try {
+			const sessions = this.#input.listSessions();
+			for (const s of sessions) if (s !== null && typeof s === "object" && s.id === sessionId) {
+				session = s;
+				break;
+			}
+		} catch (cause) {
+			throw this.#wrap("listSessions", cause);
+		}
+		let run = null;
+		try {
+			const rows = this.#input.runs({ dshSessionId: sessionId });
+			if (rows.length > 0) run = rows[0];
+		} catch (cause) {
+			throw this.#wrap("runs", cause);
+		}
+		return {
+			sessionId,
+			session,
+			pointer,
+			run
+		};
+	}
+	#wrap(face, cause) {
+		if (cause instanceof AnalysisError) return cause;
+		return new AnalysisError({
+			code: "AN_STORE",
+			message: `transient read: the ${face} face failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+			cause
+		});
+	}
+};
+//#endregion
+//#region src/host/service/analysis/schemas.ts
+/**
+* WP-7.3 — 冻结 operational provenance schema 装载（loader 模式, 同 WP-3.1
+* `loadPlanForkSchemas` / WP-3.5 `loadInterventionSchemas` / WP-6.4
+* `loadInboxSchemas` 先例）。
+*
+* 通过注入的 `ResearchFileReader` 装载**冻结** `schema/operational/
+* provenance.schema.json`（+ 父 `schema/common.schema.json` 的
+* idAnalysisRecord/idRun/typedRef/epochMs refs）:
+*
+*   - 校验器直接取自冻结文档（`ajv.getSchema($id + '#/$defs/AnalysisRecord')`）
+*     — 零派生 schema, 零 `schema/` 改写（冻结只读）;
+*   - 失败聚合（loadErrors; isUsable=false ⇒ `AnalysisStore` 拒绝写入,
+*     fail loud — 绝不在无 schema 时放行, 同 WP-6.4 口径）;
+*   - AJV 2020-12（冻结 `$schema` 方言）, allErrors + verbose
+*     （精确定位）, useDefaults off（operational 记录无 schema 默认 —
+*     每字段显式）。
+*
+* 消费: `AnalysisStore.insertRecord`（行落库前的整行冻结形状网 — 类型面
+* 同构的运行时保证）+ tests/analysis 的模型往返断言面。
+*/
+/**
+* 装载 + 编译冻结 provenance schema（AnalysisRecord def）。
+* 聚合失败, 永不抛（loader 模式）。
+*/
+function loadAnalysisSchemas(reader, schemaDir) {
+	const errors = [];
+	const ajv = new Ajv2020({
+		allErrors: true,
+		strict: false,
+		verbose: true
+	});
+	addFormats(ajv);
+	const readJson = (path) => {
+		let text;
+		try {
+			text = reader.readFile(path);
+		} catch (cause) {
+			errors.push({
+				path,
+				message: `schema file read failed: ${cause instanceof Error ? cause.message : String(cause)}`
+			});
+			return null;
+		}
+		if (text === null) {
+			errors.push({
+				path,
+				message: `schema file not found (schemaDir=${schemaDir})`
+			});
+			return null;
+		}
+		try {
+			return JSON.parse(text);
+		} catch (cause) {
+			errors.push({
+				path,
+				message: `schema file is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`
+			});
+			return null;
+		}
+	};
+	const common = readJson(pjoin(schemaDir, "..", "common.schema.json"));
+	if (common === null || typeof common.$id !== "string") {
+		errors.push({
+			path: pjoin(schemaDir, "..", "common.schema.json"),
+			message: "common.schema.json is missing or has no $id"
+		});
+		return unavailable(schemaDir, errors);
+	}
+	try {
+		ajv.addSchema(common, common.$id);
+	} catch (cause) {
+		errors.push({
+			path: pjoin(schemaDir, "..", "common.schema.json"),
+			message: `common.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
+		});
+		return unavailable(schemaDir, errors);
+	}
+	const doc = readJson(pjoin(schemaDir, "provenance.schema.json"));
+	if (doc === null || typeof doc.$id !== "string") {
+		errors.push({
+			path: pjoin(schemaDir, "provenance.schema.json"),
+			message: "provenance.schema.json is missing or has no $id"
+		});
+		return unavailable(schemaDir, errors);
+	}
+	try {
+		ajv.addSchema(doc, doc.$id);
+	} catch (cause) {
+		errors.push({
+			path: pjoin(schemaDir, "provenance.schema.json"),
+			message: `provenance.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
+		});
+		return unavailable(schemaDir, errors);
+	}
+	const recordValidator = ajv.getSchema(`${doc.$id}#/$defs/AnalysisRecord`);
+	if (recordValidator === void 0) {
+		errors.push({
+			path: pjoin(schemaDir, "provenance.schema.json"),
+			message: "schema compile failed for $defs/AnalysisRecord"
+		});
+		return unavailable(schemaDir, errors);
+	}
+	return {
+		schemaDir,
+		isUsable: true,
+		loadErrors: [],
+		checkAnalysisShape: (record) => runCheck(recordValidator, record)
+	};
+}
+function mapErrors(validator) {
+	return (validator.errors ?? []).map((err) => ({
+		path: err.instancePath,
+		message: schemaErrorSummary(err)
+	}));
+}
+function runCheck(validator, value) {
+	if (validator(value)) return {
+		ok: true,
+		errors: []
+	};
+	return {
+		ok: false,
+		errors: mapErrors(validator)
+	};
+}
+function unavailable(schemaDir, errors) {
+	const unavailableCheck = {
+		ok: false,
+		errors: [{
+			path: "",
+			message: "analysis schema set unavailable — see AnalysisSchemas.loadErrors"
+		}]
+	};
+	return {
+		schemaDir,
+		isUsable: false,
+		loadErrors: errors,
+		checkAnalysisShape: () => unavailableCheck
+	};
+}
+//#endregion
 //#region src/host/service/wiring/types.ts
 /** A structured wiring failure (never a raw driver/service exception). */
 var HostWiringError = class extends Error {
@@ -19794,6 +20879,37 @@ function createHostWiring(options) {
 			now,
 			logger
 		});
+		let investigator;
+		try {
+			investigator = new InvestigatorLauncher({ launcher: options.launcherAdapter });
+		} catch (cause) {
+			throw new HostWiringError("WIRING_INVESTIGATOR", `the investigator launcher port is unusable: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+		}
+		const analysisDb = openSecondConnection("analysis");
+		const analysisSchemas = loadAnalysisSchemas(reader, join(schemaRoot, "operational"));
+		if (!analysisSchemas.isUsable) throw new HostWiringError("WIRING_ANALYSIS", `the frozen analysis schemas are unusable — no AnalysisRecord can be shape-checked: ` + analysisSchemas.loadErrors.map((e) => `${e.path || "/"}: ${e.message}`).join("; "));
+		const analysisStore = new AnalysisStore({
+			db: adaptDatabaseSync(analysisDb),
+			schemas: analysisSchemas
+		});
+		const analysisService = new AnalysisRecordService({
+			store: analysisStore,
+			allocator,
+			projectId: options.projectId,
+			now
+		});
+		const analysisTransient = new AnalysisTransientReader({
+			pointerOf: (sessionId) => sessionLink.pointerOf(sessionId),
+			listSessions: () => options.adapter.listSessions(),
+			runs: (filter) => [...tables.listRuns({ dshSessionId: filter.dshSessionId })].map((row) => ({
+				id: row.id,
+				workstreamId: row.workstream_id,
+				status: row.status,
+				startedAt: row.started_at,
+				endedAt: row.ended_at ?? null
+			}))
+		});
+		logger?.info("investigator", "the production investigator face is wired (launcher port bound + analysis_record face + all-read transient reader — WP-7.4 / G7 S1)");
 		const contentHashCapturer = makeContentHashCapturer(researchRoot);
 		const loadPolicy = () => {
 			const result = loadPlanForkPolicy(reader, researchRoot, declarativeDir);
@@ -19890,6 +21006,10 @@ function createHostWiring(options) {
 			sessionAdapter: options.adapter,
 			inbox,
 			auditRefresh,
+			investigator,
+			analysisStore,
+			analysisService,
+			analysisTransient,
 			startup,
 			externalState,
 			createPlanFork: async (params) => {
@@ -20278,6 +21398,18 @@ function makeFakeAdapter() {
 		}
 	};
 }
+/**
+* The WP-7.4 factory fake for the investigator launcher port (the seed
+* never launches an investigator — the e2e one-click spec does, through
+* the REAL host half). The wiring requires the port (no guessed launch
+* capability), so the factory supplies a failing loud fake: a call here
+* means the seed reached code that must not exist.
+*/
+function makeFakeLauncherAdapter() {
+	return { launchInvestigator: async () => {
+		throw new Error("factory seed: no investigator launch in the seed phase");
+	} };
+}
 /** Read the first registered session id of the workspace (the RUN_STARTED
 *  pointer of R-1 — 「在宿主会话列表中打开」 then targets a REAL session). */
 function firstRegisteredSession(home, repo) {
@@ -20311,6 +21443,7 @@ async function main() {
 		projectId: "PRJ-1",
 		dataDir,
 		adapter: makeFakeAdapter(),
+		launcherAdapter: makeFakeLauncherAdapter(),
 		workspaceRoots: [repo]
 	});
 	const summary = {

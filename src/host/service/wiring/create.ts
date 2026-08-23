@@ -93,7 +93,7 @@ import {
   SQL_INSERT_MANAGEMENT_ACTION,
   type ManagementActionRecord,
 } from '../../domain/planfork/index.js'
-import type { DshSessionAdapter } from '../../../shared/host-adapter-ports.js'
+import type { DshSessionAdapter, SessionSummary } from '../../../shared/host-adapter-ports.js'
 import {
   createAuditRefreshRunner,
   type AuditRefreshRunner,
@@ -123,6 +123,14 @@ import {
   type ResearchToolDefinition,
 } from '../../tools/index.js'
 import { PlanForkError } from '../../domain/planfork/index.js'
+import { InvestigatorLauncher } from '../../service/investigator/index.js'
+import {
+  AnalysisRecordService,
+  AnalysisStore,
+  AnalysisTransientReader,
+  loadAnalysisSchemas,
+  type TransientRunRow,
+} from '../../service/analysis/index.js'
 
 import { adaptDatabaseSync } from './db-adapter.js'
 import { makeContentHashCapturer } from './content-hash-capture.js'
@@ -214,6 +222,22 @@ export interface HostWiring {
    * strategy; failures are loud and never block the query path.
    */
   readonly auditRefresh: AuditRefreshRunner
+  /**
+   * The WP-7.4 / G7 S1 investigator face (INV-PERM-3): the launcher over
+   * the injected `launcherAdapter` port (production = `HostAgentLauncher-
+   * Adapter`, the plugin's ONE DSH-touching launcher file — the wiring
+   * itself stays DSH-free, INV-PERM-5) + the analysis half assembled on
+   * the SAME graph: `analysisStore` (the 4th second connection, the frozen
+   * provenance schemas, insert-only DDL) + `analysisService` (the user-
+   * gated `saveAsAnalysisRecord` + the read faces, the SHARED allocator)
+   * + `analysisTransient` (the all-read transient reader over sessionlink
+   * `pointerOf` + the adapter `listSessions` + the run tables
+   * `dshSessionId` face — no extra state of its own).
+   */
+  readonly investigator: InvestigatorLauncher
+  readonly analysisStore: AnalysisStore
+  readonly analysisService: AnalysisRecordService
+  readonly analysisTransient: AnalysisTransientReader
   /** The startup reconciliation + rebuild reports. */
   readonly startup: HostWiringStartup
   /** The live declarative snapshot (mutated by the realize flip — the
@@ -732,6 +756,66 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     })
 
     // ---------------------------------------------------------------- *
+    // 11e. The WP-7.4 / G7 S1 production investigator + analysis face.
+    //      (a) the InvestigatorLauncher over the injected launcher port —
+    //      the DSH-touching half (`HostAgentLauncherAdapter`) lives in
+    //      src/host/dsh-adapter/launcher (INV-PERM-5: this graph stays
+    //      DSH-free; the port is the seam);
+    //      (b) the analysis half on the SAME graph — the 4th second
+    //      connection (the analysis_record table, the WP-7.3 DDL face) +
+    //      the REAL frozen provenance schemas + AnalysisStore (insert-
+    //      only: no delete/update surface exists — the triggers ABORT)
+    //      + AnalysisRecordService (the user-gated save; the SHARED
+    //      allocator keeps the AN id stream project-scoped, §1.1 规则 2)
+    //      + AnalysisTransientReader (all-read ports: sessionlink
+    //      pointerOf / adapter listSessions / run tables dshSessionId —
+    //      no subscription, no state of its own; nulls = honest absence).
+    // ---------------------------------------------------------------- *
+    let investigator: InvestigatorLauncher
+    try {
+      investigator = new InvestigatorLauncher({ launcher: options.launcherAdapter })
+    } catch (cause) {
+      throw new HostWiringError(
+        'WIRING_INVESTIGATOR',
+        `the investigator launcher port is unusable: ${cause instanceof Error ? cause.message : String(cause)}`,
+        { cause },
+      )
+    }
+
+    const analysisDb = openSecondConnection('analysis')
+    const analysisSchemas = loadAnalysisSchemas(reader, join(schemaRoot, 'operational'))
+    if (!analysisSchemas.isUsable) {
+      throw new HostWiringError(
+        'WIRING_ANALYSIS',
+        `the frozen analysis schemas are unusable — no AnalysisRecord can be shape-checked: ` +
+          analysisSchemas.loadErrors.map((e) => `${e.path || '/'}: ${e.message}`).join('; '),
+      )
+    }
+    const analysisStore = new AnalysisStore({ db: adaptDatabaseSync(analysisDb), schemas: analysisSchemas })
+    const analysisService = new AnalysisRecordService({
+      store: analysisStore,
+      allocator,
+      projectId: options.projectId,
+      now,
+    })
+    const analysisTransient = new AnalysisTransientReader({
+      pointerOf: (sessionId: string) => sessionLink.pointerOf(sessionId),
+      listSessions: (): readonly SessionSummary[] => options.adapter.listSessions(),
+      runs: (filter: { readonly dshSessionId: string }): readonly TransientRunRow[] =>
+        [...tables.listRuns({ dshSessionId: filter.dshSessionId })].map((row) => ({
+          id: row.id,
+          workstreamId: row.workstream_id,
+          status: row.status,
+          startedAt: row.started_at,
+          endedAt: row.ended_at ?? null,
+        })),
+    })
+    logger?.info(
+      'investigator',
+      'the production investigator face is wired (launcher port bound + analysis_record face + all-read transient reader — WP-7.4 / G7 S1)',
+    )
+
+    // ---------------------------------------------------------------- *
     // 12. The agent tool face (WP-3.3) — deps composed from the LIVE
     //     services. The dsh-adapter registers each definition (DSH_ADAPTER
     //     §10.1); this layer only builds them (no ctx, no DSH).
@@ -863,6 +947,10 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       sessionAdapter: options.adapter,
       inbox,
       auditRefresh,
+      investigator,
+      analysisStore,
+      analysisService,
+      analysisTransient,
       startup,
       externalState,
       createPlanFork: async (params): Promise<PlanForkRecord> => {

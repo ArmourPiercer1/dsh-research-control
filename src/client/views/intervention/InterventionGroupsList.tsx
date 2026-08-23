@@ -12,6 +12,13 @@
  * Intervention）; 关闭行携带备注输入（「关闭时用户填写」, §9.2 —
  * 必填校验在容器层, 失败反馈走容器的 fault 面）。
  *
+ * WP-7.4 / G7 S1b — 一键调查入口（「调查此事项」）: 非 CLOSED 行渲染
+ * 调查问题输入（data-iv-question, 容器持有）+ 「调查此事项」按钮
+ * （data-iv-investigate — 点击 = 用户启动只读 Investigator, §6 矩阵
+ * 启动 U ✅ / P ❌; 校验与 busy 态在容器层, 成功/失败经容器 fault 面
+ * 反馈; 通道 = DSH 内置 commands/execute 网关域, 零新增 RPC — 见
+ * dsh-adapter/remote/investigate.ts）。
+ *
  * INV-ATTN-1（只排序不隐藏）: 本组件**全量**渲染传入的每组 items —
  * 不截断、不折叠、不隐藏（空组渲染空态文案 — 组本身不消失）。
  */
@@ -45,6 +52,10 @@ export interface InterventionRowCallbacks {
   readonly onTransition: (item: InterventionDto, status: 'OPEN' | 'PENDING' | 'CLOSED') => void
   readonly onNote: (id: string, note: string) => void
   readonly onOpenWorkstream: (workstreamId: string) => void
+  /** WP-7.4 一键调查: 调查问题输入变更（容器持有每行值）. */
+  readonly onQuestion: (id: string, question: string) => void
+  /** WP-7.4 一键调查: 「调查此事项」点击（容器校验 + 调通道）. */
+  readonly onInvestigate: (item: InterventionDto, question: string) => void
 }
 
 /** 单行（数据属性全暴露 — 测试断言面）。 */
@@ -52,14 +63,18 @@ function InterventionGroupsRow({
   item,
   busy,
   note,
+  question,
+  investigateBusy,
   callbacks,
 }: {
   readonly item: InterventionDto
   readonly busy: boolean
   readonly note: string
+  readonly question: string
+  readonly investigateBusy: boolean
   readonly callbacks: InterventionRowCallbacks
 }): ReactElement {
-  const { onTransition, onNote, onOpenWorkstream } = callbacks
+  const { onTransition, onNote, onOpenWorkstream, onQuestion, onInvestigate } = callbacks
   return (
     <li className={styles.row} data-iv-id={item.id} data-iv-origin={item.origin} data-iv-status={item.status}>
       <p className={styles.rowTitle}>{item.title}</p>
@@ -98,6 +113,25 @@ function InterventionGroupsRow({
           <button type="button" className={styles.buttonClose} data-iv-action="close" data-iv-id={item.id} disabled={busy} onClick={() => onTransition(item, 'CLOSED')}>
             关闭
           </button>
+          {/* WP-7.4 / G7 S1b — 一键调查入口（只读 Investigator —
+              transient 输出, 落库需用户显式保存; §6 启动 U ✅ / P ❌）。 */}
+          <input
+            className={styles.noteInput}
+            data-iv-question={item.id}
+            value={question}
+            placeholder="调查问题（Investigator 将只读调查此事项）"
+            onChange={(e) => onQuestion(item.id, e.target.value)}
+          />
+          <button
+            type="button"
+            className={styles.button}
+            data-iv-action="investigate"
+            data-iv-investigate={item.id}
+            disabled={busy || investigateBusy}
+            onClick={() => onInvestigate(item, question)}
+          >
+            {investigateBusy ? '调查中…' : '调查此事项'}
+          </button>
         </p>
       )}
     </li>
@@ -110,10 +144,19 @@ export interface InterventionGroupsListProps {
   readonly total: number
   /** 每行关闭备注（容器层持有）。 */
   readonly notes: ReadonlyMap<string, string>
+  /** WP-7.4 每行调查问题（容器层持有）。 */
+  readonly questions: ReadonlyMap<string, string>
   /** 迁移进行中（全部按钮禁用 — 防双击竞态）。 */
   readonly busy: boolean
+  /** WP-7.4 调查进行中（调查按钮禁用; 状态迁移按钮不受影响 — 调查
+   *  不改变 Intervention 状态, 两个操作面可并行）。 */
+  readonly investigateBusy: boolean
   readonly onTransition: (item: InterventionDto, status: 'OPEN' | 'PENDING' | 'CLOSED') => void
   readonly onNote: (id: string, note: string) => void
+  /** WP-7.4 调查问题输入变更。 */
+  readonly onQuestion: (id: string, question: string) => void
+  /** WP-7.4 「调查此事项」点击（容器校验 + 调通道; 抛错 = fault 面）。 */
+  readonly onInvestigate: (item: InterventionDto, question: string) => void
   readonly onOpenWorkstream?: (workstreamId: string) => void
 }
 
@@ -126,9 +169,13 @@ export function InterventionGroupsList({
   groups,
   total,
   notes,
+  questions,
   busy,
+  investigateBusy,
   onTransition,
   onNote,
+  onQuestion,
+  onInvestigate,
   onOpenWorkstream,
 }: InterventionGroupsListProps): ReactElement {
   return (
@@ -151,9 +198,13 @@ export function InterventionGroupsList({
                   item={item}
                   busy={busy}
                   note={notes.get(item.id) ?? ''}
+                  question={questions.get(item.id) ?? ''}
+                  investigateBusy={investigateBusy}
                   callbacks={{
                     onTransition,
                     onNote,
+                    onQuestion,
+                    onInvestigate,
                     onOpenWorkstream: (wsId) => {
                       onOpenWorkstream?.(wsId)
                     },

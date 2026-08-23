@@ -231,9 +231,16 @@ seed_research() {
   # once-only guard is PRESERVED (below: an existing research.sqlite still
   # skips the factory) — --reset is the operator's declared intent to
   # reseed, and it is what makes a re-run over a used root green.
+  # WP-7.4 / G7 S2: the reset ALSO wipes the plugin-ensured investigator
+  # preset ($DSH_HOME/.agent-presets/research-investigator) — it is the
+  # plugin's own ensure artifact in the SMOKE home (this home exists only
+  # for smoke runs; never a user-authored file), so wiping it lets the next
+  # launch re-ensure the CURRENT closed-set composition (the launcher never
+  # overwrites an existing file by design — a stale shape would otherwise
+  # survive resets and pin the machine half to an outdated preset).
   if [ "$RESET" = "1" ]; then
-    log "reset: removing $E2E_REPO (smoke workspace) and $DSH_HOME/research-control (research DB)"
-    rm -rf "$E2E_REPO" "$DSH_HOME/research-control"
+    log "reset: removing $E2E_REPO (smoke workspace), $DSH_HOME/research-control (research DB) and $DSH_HOME/.agent-presets/research-investigator (ensured investigator preset)"
+    rm -rf "$E2E_REPO" "$DSH_HOME/research-control" "$DSH_HOME/.agent-presets/research-investigator"
     mkdir -p "$E2E_REPO"
   fi
   if [ -f "$data_dir/research.sqlite" ]; then
@@ -302,6 +309,15 @@ set_plugin_state enabled
 seed_research
 start_server loaded-baseline
 run_spec smoke.loaded.spec.ts
+# WP-7.4 / G7 S2: TC-DSH-010 — the read-only Investigator machine half
+# (GUI one-click launch → real session under the closed-set preset →
+# /permission read-only settle; write-refusal evidence recorded honestly).
+# Runs BEFORE tc-e2e on purpose: tc-e2e's TC-E2E-011 drives the only seeded
+# intervention to CLOSED (terminal), and CLOSED rows carry no investigate
+# face (§13); this spec performs ZERO research mutations, so tc-e2e's
+# baseline is untouched by the investigator session it launches.
+E2E_PHASE="a"
+run_spec tc-dsh-010.spec.ts
 # WP-4.6: TC-E2E phase a — the pre-restart baseline assertions (structure,
 # zones, ordering, timeline, drill-down, PF select, intervention, flooding).
 E2E_PHASE="a"

@@ -211,11 +211,17 @@ describe('InterventionGroupsList（展示层纯面）', () => {
         ]}
         total={1}
         notes={new Map()}
+        questions={new Map()}
         busy={false}
+        investigateBusy={false}
         onTransition={() => {
           throw new Error('no transition face should be reachable for CLOSED')
         }}
         onNote={() => undefined}
+        onQuestion={() => undefined}
+        onInvestigate={() => {
+          throw new Error('no investigate face should be reachable for CLOSED')
+        }}
       />
     )
     const row = document.querySelector('[data-iv-id="IV-9"]')!
@@ -223,6 +229,8 @@ describe('InterventionGroupsList（展示层纯面）', () => {
     expect(row.querySelector('[data-iv-badge="CLOSED"]')).not.toBeNull()
     expect(row.querySelector('[data-iv-action]')).toBeNull()
     expect(row.querySelector('[data-iv-note]')).toBeNull()
+    expect(row.querySelector('[data-iv-question]')).toBeNull()
+    expect(row.querySelector('[data-iv-investigate]')).toBeNull()
   })
 
   it('空组渲染空态文案（组不消失 — INV-ATTN-1 不隐藏组）', () => {
@@ -234,9 +242,13 @@ describe('InterventionGroupsList（展示层纯面）', () => {
         ]}
         total={0}
         notes={new Map()}
+        questions={new Map()}
         busy={false}
+        investigateBusy={false}
         onTransition={() => undefined}
         onNote={() => undefined}
+        onQuestion={() => undefined}
+        onInvestigate={() => undefined}
       />
     )
     // CSS Modules 类名被哈希 — 经文本定位后按组归属断言（两组各一条空态）。
@@ -247,5 +259,117 @@ describe('InterventionGroupsList（展示层纯面）', () => {
     }
     expect(empties[0]!.closest('[data-group-source="MECHANICAL"]')).not.toBeNull()
     expect(empties[1]!.closest('[data-group-source="USER_CREATED"]')).not.toBeNull()
+  })
+})
+
+describe('InterventionGroupsView（WP-7.4 一键调查入口）', () => {
+  it('OPEN/PENDING 行渲染调查问题输入 + 「调查此事项」按钮（数据属性可断言）', async () => {
+    const stub = makeStubRpc()
+    render(
+      <StrictMode>
+        <InterventionGroupsView store={makeStore(stub)} />
+      </StrictMode>,
+    )
+    await screen.findByText('事项 IV-1')
+    // 全部 4 行都是 OPEN/PENDING — 每行一个调查输入 + 一个调查按钮。
+    expect(document.querySelectorAll('[data-iv-question]').length).toBe(4)
+    expect(document.querySelectorAll('[data-iv-investigate]').length).toBe(4)
+    expect(document.querySelector('[data-iv-id="IV-1"] [data-iv-investigate="IV-1"]')?.textContent).toBe('调查此事项')
+  })
+
+  it('空问题点击 = fault + 零通道调用（同关闭备注必填纪律）', async () => {
+    const stub = makeStubRpc()
+    const calls: string[] = []
+    render(
+      <StrictMode>
+        <InterventionGroupsView
+          store={makeStore(stub)}
+          onInvestigate={async (item, question) => {
+            calls.push(`${item.id}:${question}`)
+            return '只读调查已启动 — 会话 investigator-x（transient 输出; 保存为 AnalysisRecord 需用户显式操作）'
+          }}
+        />
+      </StrictMode>,
+    )
+    await screen.findByText('事项 IV-1')
+    fireEvent.click(document.querySelector('[data-iv-id="IV-1"] [data-iv-investigate="IV-1"]')!)
+    await waitFor(() => expect(document.querySelector('[data-iv-inv-fault]')).not.toBeNull())
+    expect(document.querySelector('[data-iv-inv-fault]')?.textContent).toContain('调查需要填写调查问题')
+    expect(calls).toEqual([])
+  })
+
+  it('成功 → 状态行显示命令返回文本（含调查会话 id）+ 回调入参逐字', async () => {
+    const stub = makeStubRpc()
+    const calls: Array<{ id: string; question: string }> = []
+    render(
+      <StrictMode>
+        <InterventionGroupsView
+          store={makeStore(stub)}
+          onInvestigate={async (item, question) => {
+            calls.push({ id: item.id, question })
+            return '只读调查已启动 — 会话 investigator-abc-123（transient 输出; 保存为 AnalysisRecord 需用户显式操作）'
+          }}
+        />
+      </StrictMode>,
+    )
+    await screen.findByText('事项 IV-1')
+    fireEvent.change(document.querySelector('[data-iv-question="IV-1"]')!, { target: { value: '  为什么   PF 在堆积? ' } })
+    fireEvent.click(document.querySelector('[data-iv-id="IV-1"] [data-iv-investigate="IV-1"]')!)
+    await waitFor(() => expect(document.querySelector('[data-iv-inv-launched]')).not.toBeNull())
+    const launched = document.querySelector('[data-iv-inv-launched]')!
+    expect(launched.getAttribute('data-iv-inv-launched')).not.toBeNull()
+    expect(launched.textContent).toContain('investigator-abc-123')
+    // 问题经容器两端 trim 后传给通道（内部空白折叠是共享构建器
+    // buildInvestigationCommandLine 的单一真源 — 此处不重复归一化）。
+    expect(calls).toEqual([{ id: 'IV-1', question: '为什么   PF 在堆积?' }])
+  })
+
+  it('失败 → fault 行显示通道错误（命令错误 / 载包契约偏离均透出）', async () => {
+    const stub = makeStubRpc()
+    render(
+      <StrictMode>
+        <InterventionGroupsView
+          store={makeStore(stub)}
+          onInvestigate={async () => {
+            throw new Error('[command-error] 调查启动失败: IVL_PERMISSION /permission read-only 未注册')
+          }}
+        />
+      </StrictMode>,
+    )
+    await screen.findByText('事项 IV-2')
+    fireEvent.change(document.querySelector('[data-iv-question="IV-2"]')!, { target: { value: '检查 contract 漂移' } })
+    fireEvent.click(document.querySelector('[data-iv-id="IV-2"] [data-iv-investigate="IV-2"]')!)
+    await waitFor(() => expect(document.querySelector('[data-iv-inv-fault]')).not.toBeNull())
+    const fault = document.querySelector('[data-iv-inv-fault]')!
+    expect(fault.textContent).toContain('[command-error]')
+    expect(fault.textContent).toContain('IVL_PERMISSION')
+  })
+
+  it('调查中 busy = 调查按钮禁用 + 文案切换（状态迁移按钮不受影响 — 两操作面并行）', async () => {
+    const stub = makeStubRpc()
+    let release: ((message: string) => void) | undefined
+    const gate = new Promise<string>((resolve) => {
+      release = resolve
+    })
+    render(
+      <StrictMode>
+        <InterventionGroupsView
+          store={makeStore(stub)}
+          onInvestigate={async () => gate}
+        />
+      </StrictMode>,
+    )
+    await screen.findByText('事项 IV-1')
+    fireEvent.change(document.querySelector('[data-iv-question="IV-1"]')!, { target: { value: '问题' } })
+    fireEvent.click(document.querySelector('[data-iv-id="IV-1"] [data-iv-investigate="IV-1"]')!)
+    // busy 态: 按钮禁用 + 文案「调查中…」。
+    const btn = document.querySelector('[data-iv-id="IV-1"] [data-iv-investigate="IV-1"]') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(btn.textContent).toBe('调查中…')
+    // 状态迁移按钮（待处理）不受调查 busy 影响 — 独立操作面。
+    expect(document.querySelector('[data-iv-id="IV-1"] [data-iv-action="pending"]')?.hasAttribute('disabled')).toBe(false)
+    release?.('只读调查已启动 — 会话 investigator-y（transient 输出; 保存为 AnalysisRecord 需用户显式操作）')
+    await waitFor(() => expect(document.querySelector('[data-iv-inv-launched]')).not.toBeNull())
+    expect(document.querySelector('[data-iv-inv-launched]')?.textContent).toContain('investigator-y')
   })
 })

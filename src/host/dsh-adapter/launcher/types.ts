@@ -193,13 +193,24 @@ export interface CommandsRuntimeLike {
 }
 
 /**
- * The host context the launcher adapter binds to（`RemoteContext` 模式:
- * 基础 cordis `Context` + 结构注入面）。`agents` 是硬面（构造器类型即
- * 声明）; `agentPresets` / `commands` 走 `ctx.get`（可选宿主服务 —
- * `ctx.get` 读全局服务面, 与 WP-0.4 的 `ctx.get('agents')` 同口径;
- * 其声明合并对无 devDep 的插件不可见, 故结构消费）。
+ * The host context the launcher adapter binds to（plain cordis
+ * `Context` — WP-7.4 / G7 S1: `agents` is NOT a hard face. The adapter
+ * resolves every host service through the documented optional-service
+ * read `ctx.get(name)`（DSH_ADAPTER §4 要点 「可选服务用 `ctx.get('name')`」
+ * — the production `HostSessionAdapter` (WP-0.4, real-machine verified)
+ * reads `ctx.get('agents')` the same way）. Consequences, all deliberate:
+ *  - the plugin's `static inject` keeps its DSH_ADAPTER §4-verbatim four
+ *    items — a deployment without the `agents` service still LOADS the
+ *    plugin (a missing hard inject keeps the whole fiber PENDING — the
+ *    §4 documented pitfall; no load-time coupling to one launch
+ *    capability);
+ *  - a launch on such a deployment fails loud `IVL_LAUNCH` at use time
+ *    （the gap is named at the operation — no silent downgrade, no
+ *    writable session, INV-PERM-3）;
+ *  - `agentPresets` / `commands` were already `ctx.get` optional faces
+ *    （same pattern — absent = the adapter's documented degradation /
+ *    IVL_PERMISSION paths）; the declaration merges stay invisible to
+ *    this plugin（no devDep on the agent package — structural
+ *    consumption only）.
  */
-export type LauncherHostContext = Context & {
-  /** The host agent registry（`ctx.agents` — 路径 A 第 1+2 步宿主面）. */
-  readonly agents: AgentsStoreLike
-}
+export type LauncherHostContext = Context

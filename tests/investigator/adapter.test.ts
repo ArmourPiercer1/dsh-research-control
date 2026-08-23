@@ -23,6 +23,8 @@
  *  - 命令面失败（无注册表 / undefined / kind error / throw）⇒
  *    IVL_PERMISSION（零 followup — 不降级启动）;
  *  - create / mount / restrict 失败 ⇒ IVL_LAUNCH（零命令零 followup）;
+ *  - 无 agent 注册表（`ctx.get('agents')` 缺席）⇒ IVL_LAUNCH 使用大声
+ *    + 零副作用（WP-7.4 / G7 S1 — §4 无 `agents` 硬 inject 裁决面）;
  *  - 端口边界再断言: 伪造请求（多余能力键）⇒ IVL_WRITE_CAPABILITY
  *    （零 create — 双钉的宿主半边）。
  *
@@ -221,10 +223,13 @@ describe('ensure preset（DSH_ADAPTER 映射行第 1 步）', () => {
   it('已存在不覆写（名册视图滞后 — ensure 见文件已存在 ⇒ present, 内容原样）', async () => {
     const { presetRoot, shipped } = makeTempDirs()
     void shipped
-    // 用户自撰（过闭集解析的只读组合 — 行序不同的等价面）, 落 user 根。
+    // 用户自撰（过闭集解析的只读组合 — 行序不同的等价面; fs-search 行
+    // 携带上游必需的审计 config 键）, 落 user 根。
     const authored = [
-      "- id: search",
+      '- id: search',
       "  name: '@deepseek-ai/dsh-tool-fs-search'",
+      '  config:',
+      '    sampleOverCapGlobResults: false',
       '- id: shell',
       "  name: '@deepseek-ai/dsh-tool-bash'",
       '',
@@ -372,6 +377,23 @@ describe('create / setup 失败（IVL_LAUNCH — all-or-nothing）', () => {
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_LAUNCH')
     expect(caught.cause).toBe(cause)
+  })
+
+  it('无 agent 注册表部署（ctx.get("agents") 缺席）⇒ IVL_LAUNCH 使用大声 + 零副作用（WP-7.4 / G7 S1 — §4 无 `agents` 硬 inject 裁决面）', async () => {
+    const { presetRoot, shipped } = makeTempDirs()
+    const host = makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({}).commands })
+    host.setAgents(undefined)
+    const adapter = makeAdapter(presetRoot, host.ctx)
+
+    const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_LAUNCH')
+    expect(caught.message).toContain('no agent registry')
+    expect(caught.message).toContain('DSH_ADAPTER §4')
+    // 使用大声, 零宿主副作用: 不创建会话、不驱动命令、不落 preset 文件
+    // （能力缺席的部署连调查员 preset 都不该被 ensure 出 — 插件本体
+    // 仍可加载, 缺口在使用点名, 不静默降级）。
+    expect(host.createCalls).toHaveLength(0)
+    expect(host.events).toEqual([])
+    expect(existsSync(join(presetRoot, INVESTIGATOR_PRESET_ID, 'agent.cordis.yml'))).toBe(false)
   })
 
   it('preset mount 拒绝 ⇒ IVL_LAUNCH（零命令零 followup — setup 回滚镜像）', async () => {

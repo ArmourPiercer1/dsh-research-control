@@ -43,6 +43,7 @@ import { createHostWiring } from '../../src/host/service/wiring/create.js'
 import { makeValidateHook, buildObjectContext } from '../../src/host/service/runbinding/index.js'
 import type { Reservation } from '../../src/shared/ids/index.js'
 import type { DshSessionAdapter } from '../../src/shared/host-adapter-ports.js'
+import type { DshAgentLauncherAdapter } from '../../src/host/service/investigator/index.js'
 import type {
   ArtifactSnapshot,
   ClaimSnapshot,
@@ -378,6 +379,21 @@ function makeFakeAdapter(): DshSessionAdapter {
   }
 }
 
+/**
+ * The WP-7.4 factory fake for the investigator launcher port (the seed
+ * never launches an investigator — the e2e one-click spec does, through
+ * the REAL host half). The wiring requires the port (no guessed launch
+ * capability), so the factory supplies a failing loud fake: a call here
+ * means the seed reached code that must not exist.
+ */
+function makeFakeLauncherAdapter(): DshAgentLauncherAdapter {
+  return {
+    launchInvestigator: async () => {
+      throw new Error('factory seed: no investigator launch in the seed phase')
+    },
+  }
+}
+
 /** Read the first registered session id of the workspace (the RUN_STARTED
  *  pointer of R-1 — 「在宿主会话列表中打开」 then targets a REAL session). */
 function firstRegisteredSession(home: string, repo: string): string | null {
@@ -434,6 +450,7 @@ async function main(): Promise<void> {
     projectId: 'PRJ-1',
     dataDir,
     adapter: makeFakeAdapter(),
+    launcherAdapter: makeFakeLauncherAdapter(),
     workspaceRoots: [repo],
   })
 

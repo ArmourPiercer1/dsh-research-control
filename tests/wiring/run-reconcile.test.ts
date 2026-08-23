@@ -52,6 +52,7 @@ function reopen(bundle: WiringBundle, policy?: 'rebuild' | 'failLoud') {
     projectId: 'PRJ-1',
     dataDir: bundle.dataDir,
     adapter: bundle.adapter,
+    launcherAdapter: bundle.launcherAdapter,
     workspaceRoots: [bundle.repoRoot],
     now: () => Date.now(),
     ...(policy !== undefined ? { reconcileRuns: policy } : {}),

@@ -200,7 +200,9 @@ export function makeCommands(options: {
   }
 }
 
-/** 假宿主上下文（`LauncherHostContext` 双 cast — WP-0.4 模式）。 */
+/** 假宿主上下文（plain cordis `Context` 双 cast — WP-0.4 模式; WP-7.4 /
+ *  G7 S1: 宿主服务全部经 `ctx.get` 可选面解析 — 与生产 `LauncherHostContext`
+ *  同口径, `agents` 缺席 = 使用大声 IVL_LAUNCH 的部署面）。 */
 export interface FakeHost {
   readonly ctx: LauncherHostContext
   readonly events: FakeEvent[]
@@ -209,6 +211,8 @@ export interface FakeHost {
   /** 注入可选面（launch 前配置 — 默认: 名册命中 + 命令 success）. */
   setRoster(roster: AgentPresetsLike | undefined): void
   setCommands(commands: CommandsRuntimeLike | undefined): void
+  /** 注入 agent 注册表可选面（缺席 = 无 agent 能力部署 — IVL_LAUNCH 面）. */
+  setAgents(agents: AgentsStoreLike | undefined): void
   /** create 抛错（agents.create 失败面）. */
   failCreate(error: Error): void
 }
@@ -243,7 +247,7 @@ export function makeHost(options?: {
   // 日志 — 测试断言 U5 路径 A 全序）。
   if (isRosterWrapper(rosterInput)) rosterInput.wireEvents(events)
   if (isCommandsWrapper(commandsInput)) commandsInput.wireEvents(events)
-  const agents: AgentsStoreLike = {
+  const agentsStore: AgentsStoreLike = {
     async create(createOptions: CreateAgentOptionsLike) {
       createCalls.push(createOptions)
       events.push({ kind: 'create-start', sessionId: createOptions.sessionId })
@@ -266,10 +270,17 @@ export function makeHost(options?: {
       return createdAgents.find(agent => agent.id === id)
     },
   }
+  // WP-7.4 / G7 S1: 宿主服务全部经 `ctx.get` 可选面解析（生产同口径 —
+  // DSH_ADAPTER §4 无 `agents` 硬 inject）; `agents` 可置 undefined 以
+  // 钉「无 agent 注册表部署 ⇒ IVL_LAUNCH 使用大声」面。
+  let agents: AgentsStoreLike | undefined = agentsStore
   return {
     ctx: {
-      agents,
-      get: (name: string): unknown => (name === 'agentPresets' ? roster : name === 'commands' ? commands : undefined),
+      get: (name: string): unknown =>
+        name === 'agentPresets' ? roster
+          : name === 'commands' ? commands
+            : name === 'agents' ? agents
+              : undefined,
     } as unknown as LauncherHostContext,
     events,
     createCalls,
@@ -279,6 +290,9 @@ export function makeHost(options?: {
     },
     setCommands(next: CommandsRuntimeLike | undefined) {
       commands = next
+    },
+    setAgents(next: AgentsStoreLike | undefined) {
+      agents = next
     },
     failCreate(error: Error) {
       createError = error

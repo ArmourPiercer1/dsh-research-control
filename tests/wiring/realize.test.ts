@@ -405,6 +405,7 @@ function createWiringOver(bundle: WiringBundle) {
     projectId: 'PRJ-1',
     dataDir: bundle.dataDir,
     adapter: bundle.adapter,
+    launcherAdapter: bundle.launcherAdapter,
     workspaceRoots: [bundle.repoRoot],
     now: () => Date.now(),
   })

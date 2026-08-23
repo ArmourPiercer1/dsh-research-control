@@ -28,7 +28,12 @@
  *    sandbox 两层（文档化降级 — 该部署下插件的 11 研究工具中可写 7 个
  *    仍被 restriction 拒之门外, workspace 写仍被 read-only sandbox 后端
  *    拒绝 — INV-PERM-3 不依赖 preset 层成立）。
- * 2. **agents.create（路径 A 第 1 步的 host 面）**: `sessionId` 预分配
+ * 2. **agents.create（路径 A 第 1 步的 host 面）**: 宿主注册表经
+ *    **可选服务面** `ctx.get('agents')` 解析（DSH_ADAPTER §4 要点
+ *    「可选服务用 `ctx.get('name')`」— 生产 `HostSessionAdapter`
+ *    (WP-0.4, 实机验证) 同口径; `agents` **不**进硬 inject — 无
+ *    `agents` 服务的部署插件仍可加载, 启动在使用时大声 IVL_LAUNCH,
+ *    见 `types.ts` `LauncherHostContext` 头注）. `sessionId` 预分配
  *    `investigator-<uuid>`; `meta.cwd` = 请求 cwd（沙箱 workspace
  *    边界）; `meta.agentPreset` = 定案 preset id（header 创建事实 —
  *    冷重启重建同一组合）; `setup(agentCtx)` = **组合面 only**
@@ -103,6 +108,7 @@ import type {
   AgentLike,
   AgentPresetRowLike,
   AgentPresetsLike,
+  AgentsStoreLike,
   CommandsRuntimeLike,
   LauncherHostContext,
 } from './types.js'
@@ -134,7 +140,11 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
   lastPresetEnsure: 'written' | 'present' | 'skipped' | undefined
 
   /**
-   * @param ctx - the host context（`agents` 硬面 + `ctx.get` 可选面）.
+   * @param ctx - the host context（plain cordis `Context` — every host
+   *  service, `agents` included, is resolved at launch time through the
+   *  documented optional-service read `ctx.get`; see the `types.ts`
+   *  `LauncherHostContext` doc for the §4-verbatim no-hard-inject
+   *  ruling + the absent-service loud-failure path）.
    * @param options - optional preset-root override（tests 面）.
    */
   constructor(ctx: LauncherHostContext, options?: HostAgentLauncherAdapterOptions) {
@@ -179,9 +189,18 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
       this.lastPresetEnsure = 'skipped'
     }
     const sessionId = `investigator-${randomUUID()}`
+    // 路径 A 第 1 步的宿主注册表（可选服务面 — 缺席 = 该部署无 agent
+    // 创建能力; 不降级启动, 大声 IVL_LAUNCH, 见 types.ts 头注）。
+    const agents = this.#ctx.get('agents') as AgentsStoreLike | undefined
+    if (agents === undefined || typeof agents.create !== 'function') {
+      throw new InvestigatorLaunchError({
+        code: 'IVL_LAUNCH',
+        message: 'launchInvestigator: the host composes no agent registry (`ctx.get("agents")` is absent — a non-web or minimal deployment) — no investigator session can be created; the launch capability is unavailable in this deployment (loud at use time, the plugin itself stays loadable — DSH_ADAPTER §4 no-hard-inject ruling)',
+      })
+    }
     let agent: AgentLike
     try {
-      const handle = await this.#ctx.agents.create({
+      const handle = await agents.create({
         sessionId,
         meta: {
           cwd: request.cwd,

@@ -42,7 +42,7 @@ function expectPresetRejection(fn: () => unknown, needle: string): void {
 }
 
 describe('renderInvestigatorPresetComposition（闭集构造 — 逐字钉）', () => {
-  it('闭集 2 行 + 只读契约注释（agent.cordis.yml 全文冻结）', () => {
+  it('闭集 2 行 + 只读契约注释（agent.cordis.yml 全文冻结; fs-search 行携带上游必需读呈现键）', () => {
     expect(renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID)).toBe(
       '# research-investigator — read-only Investigator agent preset (dsh-research-control WP-7.1).'
       + '\n#'
@@ -54,13 +54,19 @@ describe('renderInvestigatorPresetComposition（闭集构造 — 逐字钉）', 
       + '\n# write — the preset itself CANNOT set the sandbox mode: the permission'
       + '\n# stack is host-plane, U5 resolution — see the plugin WP-7.1 report).'
       + '\n#'
-      + '\n# Do not add rows: the plugin launcher parses this file back and refuses'
-      + '\n# to launch when a row is not in its closed read-only set.'
+      + '\n# Do not add rows or config keys: the plugin launcher parses this file'
+      + '\n# back and refuses to launch when a row (or the one audited fs-search'
+      + '\n# config key) is not in its closed read-only set.'
       + '\n- id: tool-bash'
       + "\n  name: '@deepseek-ai/dsh-tool-bash'"
       + '\n- id: tool-fs-search'
+      + "\n  name: '@deepseek-ai/dsh-tool-fs-search'"
+      // WP-7.4 / G7 S2: pin 版 dsh@0.1.0-rc.8 该键 required 无 fallback —
+      // 上游 standard/code preset 同行逐字（缺此键实机 mount 失败, TC-
+      // DSH-010 发现）。纯读呈现排序控制 — 零写能力面。
+      + '\n  config:'
       // 文件尾换行（agent.cordis.yml 落盘形态 — YAML 文件惯例）。
-      + "\n  name: '@deepseek-ai/dsh-tool-fs-search'\n",
+      + '\n    sampleOverCapGlobResults: false\n',
     )
   })
 
@@ -79,12 +85,12 @@ describe('renderInvestigatorPresetComposition（闭集构造 — 逐字钉）', 
 })
 
 describe('parsePresetComposition（严格回读 — 非白名单能力即拒）', () => {
-  it('render → parse 闭环: 行序 + 闭集 2 行同构', () => {
+  it('render → parse 闭环: 行序 + 闭集 2 行同构（fs-search 行携带审计 config）', () => {
     const spec: InvestigatorPresetSpec = parsePresetComposition(INVESTIGATOR_PRESET_ID, renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID))
     expect(spec.id).toBe('research-investigator')
     expect(spec.rows).toEqual([
       { id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash' },
-      { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search' },
+      { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
     ])
     expect(Object.isFrozen(spec)).toBe(true)
     expect(Object.isFrozen(spec.rows)).toBe(true)
@@ -92,8 +98,10 @@ describe('parsePresetComposition（严格回读 — 非白名单能力即拒）'
 
   it('手写等价组合（行序不同）也过解析（解析不依赖渲染器）', () => {
     const spec = parsePresetComposition(INVESTIGATOR_PRESET_ID, [
-      "- id: search",
+      '- id: search',
       "  name: '@deepseek-ai/dsh-tool-fs-search'",
+      '  config:',
+      '    sampleOverCapGlobResults: false',
       '- id: shell',
       "  name: '@deepseek-ai/dsh-tool-bash'",
       '',
@@ -113,10 +121,31 @@ describe('parsePresetComposition（严格回读 — 非白名单能力即拒）'
     )
   })
 
-  it('多余键 config ⇒ 拒（行形状闭集 {id,name} — 未审计的键不猜语义）', () => {
+  it('别行带 config ⇒ 拒（config 例外只审计在 fs-search 行 — bash+timeoutMs 即拒）', () => {
     expectPresetRejection(
       () => parsePresetComposition(INVESTIGATOR_PRESET_ID, "- id: bash\n  name: '@deepseek-ai/dsh-tool-bash'\n  config:\n    timeoutMs: 1\n"),
-      'closed row shape',
+      'only the fs-search row may carry',
+    )
+  })
+
+  it('fs-search 行缺 config ⇒ 拒（上游 required 键 — 缺失实机 mount 失败, 不放行）', () => {
+    expectPresetRejection(
+      () => parsePresetComposition(INVESTIGATOR_PRESET_ID, "- id: search\n  name: '@deepseek-ai/dsh-tool-fs-search'\n"),
+      'must be present',
+    )
+  })
+
+  it('fs-search 行 config 值漂移（true）⇒ 拒（审计值单源 = false — 其他值不猜语义）', () => {
+    expectPresetRejection(
+      () => parsePresetComposition(INVESTIGATOR_PRESET_ID, "- id: search\n  name: '@deepseek-ai/dsh-tool-fs-search'\n  config:\n    sampleOverCapGlobResults: true\n"),
+      'exactly false',
+    )
+  })
+
+  it('fs-search 行 config 键集漂移（+timeoutMs）⇒ 拒（审计面恰一键）', () => {
+    expectPresetRejection(
+      () => parsePresetComposition(INVESTIGATOR_PRESET_ID, "- id: search\n  name: '@deepseek-ai/dsh-tool-fs-search'\n  config:\n    sampleOverCapGlobResults: false\n    timeoutMs: 1\n"),
+      'exactly {sampleOverCapGlobResults: false}',
     )
   })
 

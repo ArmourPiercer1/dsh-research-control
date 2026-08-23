@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { accessSync, chmodSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { YAMLMap, parseAllDocuments, parseDocument, stringify } from "yaml";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -221,7 +221,11 @@ const PREFIX_TO_ENTRY = new Map(ID_PREFIX_REGISTRY.map((entry) => [entry.prefix,
 const KIND_TO_ENTRY = new Map(ID_PREFIX_REGISTRY.map((entry) => [entry.kind, entry]));
 /** All 25 prefixes, in §1.1 table order. */
 const ALL_PREFIXES = ID_PREFIX_REGISTRY.map((entry) => entry.prefix);
-ID_PREFIX_REGISTRY.map((entry) => entry.kind).filter((kind) => kind !== "MANAGEMENT_ACTION");
+/**
+* The 24 §1.3 ObjectKind values (the 25 IdKinds minus MANAGEMENT_ACTION),
+* in §1.1 table order.
+*/
+const OBJECT_KIND_VALUES = ID_PREFIX_REGISTRY.map((entry) => entry.kind).filter((kind) => kind !== "MANAGEMENT_ACTION");
 /** Exact registry lookup by prefix (§1.1 row); undefined for unregistered prefixes. */
 function entryForPrefix(prefix) {
 	return PREFIX_TO_ENTRY.get(prefix);
@@ -1760,9 +1764,9 @@ function loadPlanForkSchemas(reader, schemaDir) {
 		schemaDir,
 		isUsable: true,
 		loadErrors: [],
-		checkRecordShape: (record) => runCheck$1(recordValidator, record),
-		checkProposedItem: (item) => runCheck$1(proposedItemValidator, item),
-		checkNewItemSpec: (kind, spec) => runCheck$1(specValidatorFor(kind), spec),
+		checkRecordShape: (record) => runCheck$2(recordValidator, record),
+		checkProposedItem: (item) => runCheck$2(proposedItemValidator, item),
+		checkNewItemSpec: (kind, spec) => runCheck$2(specValidatorFor(kind), spec),
 		checkBasePlanObjects: (objects) => {
 			if (!Array.isArray(objects) || objects.length === 0) return {
 				ok: false,
@@ -1786,20 +1790,20 @@ function loadPlanForkSchemas(reader, schemaDir) {
 		}
 	};
 }
-function mapErrors$1(validator) {
+function mapErrors$2(validator) {
 	return (validator.errors ?? []).map((err) => ({
 		path: err.instancePath,
 		message: schemaErrorSummary(err)
 	}));
 }
-function runCheck$1(validator, value) {
+function runCheck$2(validator, value) {
 	if (validator(value)) return {
 		ok: true,
 		errors: []
 	};
 	return {
 		ok: false,
-		errors: mapErrors$1(validator)
+		errors: mapErrors$2(validator)
 	};
 }
 function unavailableSchemas(schemaDir, errors) {
@@ -1931,13 +1935,13 @@ function loadPlanForkPolicy(reader, researchRoot, schemaDir) {
 		};
 	}
 	return {
-		policy: normalizePolicy(validated),
+		policy: normalizePolicy$1(validated),
 		defaulted: false,
 		errors: []
 	};
 }
 /** Field-for-field normalization (validator-accepted shape → frozen policy type). */
-function normalizePolicy(doc) {
+function normalizePolicy$1(doc) {
 	const d = DEFAULT_AGENT_PLAN_FORK_POLICY;
 	const anchors = doc.anchors ?? {};
 	const flooding = doc.flooding ?? {};
@@ -2804,15 +2808,15 @@ const SQL_INSERT_MANAGEMENT_ACTION = `
 INSERT INTO ${MANAGEMENT_ACTION_TABLE} (id, action_kind, actor, subject_refs, git_commit_oid, git_blob_oids, detail, occurred_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `;
-const CORRUPT$1 = (what, detail) => {
+const CORRUPT$4 = (what, detail) => {
 	throw new Error(`planfork row corruption at ${what}: ${detail}`);
 };
-function decodeJson$1(value, what) {
-	if (typeof value !== "string") return CORRUPT$1(what, `expected JSON string, got ${typeof value}`);
+function decodeJson$4(value, what) {
+	if (typeof value !== "string") return CORRUPT$4(what, `expected JSON string, got ${typeof value}`);
 	try {
 		return JSON.parse(value);
 	} catch (cause) {
-		return CORRUPT$1(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+		return CORRUPT$4(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
 	}
 }
 /** Encode `PlanForkRecord` into the INSERT parameter list (column order = DDL). */
@@ -2854,7 +2858,7 @@ function planForkToParams(r) {
 /** Decode a `plan_fork` row back to the record (throws on corruption). */
 function rowToPlanFork(row) {
 	const status = row.status;
-	if (typeof status !== "string" || !isPfStatus(status)) return CORRUPT$1("plan_fork.status", `unknown status ${JSON.stringify(String(status))}`);
+	if (typeof status !== "string" || !isPfStatus(status)) return CORRUPT$4("plan_fork.status", `unknown status ${JSON.stringify(String(status))}`);
 	for (const name of [
 		"id",
 		"workstream_id",
@@ -2863,16 +2867,16 @@ function rowToPlanFork(row) {
 		"reason",
 		"necessity",
 		"created_by_run"
-	]) if (typeof row[name] !== "string") return CORRUPT$1(`plan_fork.${name}`, `expected string, got ${typeof row[name]}`);
-	if (typeof row.created_at !== "number") return CORRUPT$1("plan_fork.created_at", `expected number, got ${typeof row.created_at}`);
+	]) if (typeof row[name] !== "string") return CORRUPT$4(`plan_fork.${name}`, `expected string, got ${typeof row[name]}`);
+	if (typeof row.created_at !== "number") return CORRUPT$4("plan_fork.created_at", `expected number, got ${typeof row.created_at}`);
 	return {
 		id: row.id,
 		workstream_id: row.workstream_id,
-		base_plan_objects: decodeJson$1(row.base_plan_objects, "plan_fork.base_plan_objects"),
+		base_plan_objects: decodeJson$4(row.base_plan_objects, "plan_fork.base_plan_objects"),
 		fork_anchor: row.fork_anchor,
 		merge_anchor: row.merge_anchor,
-		proposed_items: decodeJson$1(row.proposed_items, "plan_fork.proposed_items"),
-		trigger_refs: decodeJson$1(row.trigger_refs, "plan_fork.trigger_refs"),
+		proposed_items: decodeJson$4(row.proposed_items, "plan_fork.proposed_items"),
+		trigger_refs: decodeJson$4(row.trigger_refs, "plan_fork.trigger_refs"),
 		reason: row.reason,
 		necessity: row.necessity,
 		created_by_run: row.created_by_run,
@@ -2880,7 +2884,7 @@ function rowToPlanFork(row) {
 		status,
 		...row.base_git_commit != null ? { base_git_commit: String(row.base_git_commit) } : {},
 		...row.selected_at != null ? { selected_at: row.selected_at } : {},
-		...row.selected_by != null ? { selected_by: decodeJson$1(row.selected_by, "plan_fork.selected_by") } : {},
+		...row.selected_by != null ? { selected_by: decodeJson$4(row.selected_by, "plan_fork.selected_by") } : {},
 		...row.dismissed_at != null ? { dismissed_at: row.dismissed_at } : {},
 		...row.stale_reason != null ? { stale_reason: String(row.stale_reason) } : {}
 	};
@@ -2903,17 +2907,17 @@ function managementActionToParams(a) {
 }
 /** Decode a `management_action` row (throws on corruption). */
 function rowToManagementAction(row) {
-	if (typeof row.id !== "string") return CORRUPT$1("management_action.id", `expected string, got ${typeof row.id}`);
-	if (typeof row.action_kind !== "string") return CORRUPT$1("management_action.action_kind", `expected string, got ${typeof row.action_kind}`);
-	if (typeof row.occurred_at !== "number") return CORRUPT$1("management_action.occurred_at", `expected number, got ${typeof row.occurred_at}`);
+	if (typeof row.id !== "string") return CORRUPT$4("management_action.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.action_kind !== "string") return CORRUPT$4("management_action.action_kind", `expected string, got ${typeof row.action_kind}`);
+	if (typeof row.occurred_at !== "number") return CORRUPT$4("management_action.occurred_at", `expected number, got ${typeof row.occurred_at}`);
 	return {
 		id: row.id,
 		action_kind: row.action_kind,
-		actor: decodeJson$1(row.actor, "management_action.actor"),
-		subject_refs: decodeJson$1(row.subject_refs, "management_action.subject_refs"),
+		actor: decodeJson$4(row.actor, "management_action.actor"),
+		subject_refs: decodeJson$4(row.subject_refs, "management_action.subject_refs"),
 		occurred_at: row.occurred_at,
 		...row.git_commit_oid != null ? { git_commit_oid: String(row.git_commit_oid) } : {},
-		...row.git_blob_oids != null ? { git_blob_oids: decodeJson$1(row.git_blob_oids, "management_action.git_blob_oids") } : {},
+		...row.git_blob_oids != null ? { git_blob_oids: decodeJson$4(row.git_blob_oids, "management_action.git_blob_oids") } : {},
 		...row.detail != null ? { detail: String(row.detail) } : {}
 	};
 }
@@ -4473,10 +4477,10 @@ function stringifyCanonical(value) {
 function collectAllEvents(store, workstreams, order) {
 	assertOrder(order);
 	if (!Array.isArray(workstreams)) throw new ReplayInputError("collectAllEvents: workstreams must be an array");
-	const all = [...new Set(workstreams.map(assertWorkstreamId))].flatMap((ws) => store.listRange(ws, 1));
+	const all = [...new Set(workstreams.map(assertWorkstreamId$1))].flatMap((ws) => store.listRange(ws, 1));
 	return order === "semantic" ? semanticOrder(all) : auditOrder(all);
 }
-function assertWorkstreamId(value) {
+function assertWorkstreamId$1(value) {
 	if (typeof value !== "string" || value.length === 0) throw new ReplayInputError("ownerWorkstreamId must be a non-empty string");
 	return value;
 }
@@ -5166,15 +5170,15 @@ function createStore(db, abs, userVersion, now) {
 		const upsertStmt = prepare(operation, "INSERT INTO derived_state (object_kind, object_id, state) VALUES (?, ?, ?) ON CONFLICT(object_kind, object_id) DO UPDATE SET state = excluded.state");
 		return {
 			getDerivedState(objectKind, objectId) {
-				const kind = assertNonEmptyString$1(objectKind, "objectKind");
-				const id = assertNonEmptyString$1(objectId, "objectId");
+				const kind = assertNonEmptyString$2(objectKind, "objectKind");
+				const id = assertNonEmptyString$2(objectId, "objectId");
 				const row = getStmt.get(kind, id);
 				if (row === void 0) return null;
 				return safeParse(String(row.state), `derived_state[${kind}:${id}].state`);
 			},
 			setDerivedState(objectKind, objectId, state) {
-				const kind = assertNonEmptyString$1(objectKind, "objectKind");
-				const id = assertNonEmptyString$1(objectId, "objectId");
+				const kind = assertNonEmptyString$2(objectKind, "objectKind");
+				const id = assertNonEmptyString$2(objectId, "objectId");
 				upsertStmt.run(kind, id, safeStringify(state, `derived_state[${kind}:${id}].state`));
 			}
 		};
@@ -5264,14 +5268,14 @@ function createStore(db, abs, userVersion, now) {
 	}
 	function getEventImpl(ownerWorkstreamId, seq) {
 		const dbConn = assertOpen("getEvent");
-		const ws = assertNonEmptyString$1(ownerWorkstreamId, "ownerWorkstreamId");
+		const ws = assertNonEmptyString$2(ownerWorkstreamId, "ownerWorkstreamId");
 		assertSeq(seq, "seq");
 		const row = dbConn.prepare("SELECT * FROM history_event WHERE owner_workstream_id = ? AND event_seq = ?").get(ws, seq);
 		return row === void 0 ? null : dbRowToRecord(row);
 	}
 	function listRangeImpl(ownerWorkstreamId, fromSeq, toSeq) {
 		const dbConn = assertOpen("listRange");
-		const ws = assertNonEmptyString$1(ownerWorkstreamId, "ownerWorkstreamId");
+		const ws = assertNonEmptyString$2(ownerWorkstreamId, "ownerWorkstreamId");
 		assertSeq(fromSeq, "fromSeq");
 		let rows;
 		if (toSeq === void 0) rows = dbConn.prepare("SELECT * FROM history_event WHERE owner_workstream_id = ? AND event_seq >= ? ORDER BY event_seq").all(ws, fromSeq);
@@ -5289,9 +5293,9 @@ function parseEventInput(ev, index) {
 	const e = ev;
 	if ("eventSeq" in e) throw new StoreInputError(`appendEvents: ${what}.eventSeq is store-assigned (per owner WS, MAX+1 inside the transaction — TC-HIST-003); remove it from the input (HISTORY_EVENT_CATALOG §1)`);
 	if ("recordedAt" in e) throw new StoreInputError(`appendEvents: ${what}.recordedAt is generated by the plugin at write time (HISTORY_EVENT_CATALOG §1 L33); remove it from the input`);
-	const eventId = assertNonEmptyString$1(e.eventId, `${what}.eventId`);
-	const ownerWorkstreamId = assertNonEmptyString$1(e.ownerWorkstreamId, `${what}.ownerWorkstreamId`);
-	const eventType = assertNonEmptyString$1(e.eventType, `${what}.eventType`);
+	const eventId = assertNonEmptyString$2(e.eventId, `${what}.eventId`);
+	const ownerWorkstreamId = assertNonEmptyString$2(e.ownerWorkstreamId, `${what}.ownerWorkstreamId`);
+	const eventType = assertNonEmptyString$2(e.eventType, `${what}.eventType`);
 	const schemaVersion = e.schemaVersion;
 	if (typeof schemaVersion !== "number" || !Number.isSafeInteger(schemaVersion) || schemaVersion < 1) throw new StoreInputError(`appendEvents: ${what}.schemaVersion must be a positive safe integer`);
 	const occurredAt = e.occurredAt;
@@ -5329,7 +5333,7 @@ function normalizeRealizeOptions(realize) {
 	if (realize === void 0) return null;
 	if (typeof realize !== "object" || realize === null) throw new StoreInputError("appendEvents: options.realize must be an object");
 	if (!Array.isArray(realize.workstreamIds)) throw new StoreInputError("appendEvents: options.realize.workstreamIds must be an array");
-	for (const ws of realize.workstreamIds) assertNonEmptyString$1(ws, "options.realize.workstreamIds entry");
+	for (const ws of realize.workstreamIds) assertNonEmptyString$2(ws, "options.realize.workstreamIds entry");
 	if (typeof realize.apply !== "function") throw new StoreInputError("appendEvents: options.realize.apply must be a function");
 	return realize;
 }
@@ -5338,8 +5342,8 @@ function normalizeDerivedState(patches) {
 	if (!Array.isArray(patches)) throw new StoreInputError("appendEvents: options.derivedState must be an array");
 	for (const [i, p] of patches.entries()) {
 		if (typeof p !== "object" || p === null) throw new StoreInputError(`appendEvents: options.derivedState[${i}] is not an object`);
-		assertNonEmptyString$1(p.objectKind, `options.derivedState[${i}].objectKind`);
-		assertNonEmptyString$1(p.objectId, `options.derivedState[${i}].objectId`);
+		assertNonEmptyString$2(p.objectKind, `options.derivedState[${i}].objectKind`);
+		assertNonEmptyString$2(p.objectId, `options.derivedState[${i}].objectId`);
 		if (p.state === void 0) throw new StoreInputError(`appendEvents: options.derivedState[${i}].state must not be undefined`);
 	}
 	return patches;
@@ -5517,7 +5521,7 @@ function verifyHistoryEventStructure(db, abs) {
 function errMsg$1(e) {
 	return e instanceof Error ? e.message : String(e);
 }
-function assertNonEmptyString$1(value, what) {
+function assertNonEmptyString$2(value, what) {
 	if (typeof value !== "string" || value.length === 0) throw new StoreInputError(`${what} must be a non-empty string`);
 	return value;
 }
@@ -5626,7 +5630,7 @@ function isFloodingError(error) {
 /** §8 规则原文（证据可读性 + 测试锚点）。 */
 const FLOODING_RULE = "count(status == OPEN, per workstream) > threshold";
 /** 冻结 idWorkstream 模式（common.schema.json `^WS-[1-9][0-9]*$`）。 */
-const WS_ID_PATTERN = /^WS-[1-9][0-9]*$/;
+const WS_ID_PATTERN$1 = /^WS-[1-9][0-9]*$/;
 /**
 * §8 判定（module header 规则原文的机械实现）。
 *
@@ -5644,7 +5648,7 @@ function detectPlanForkFlooding(params) {
 		code: "FLOODING_INPUT",
 		message: "workstreamId must be a non-empty string"
 	});
-	if (!WS_ID_PATTERN.test(ws)) throw new FloodingError({
+	if (!WS_ID_PATTERN$1.test(ws)) throw new FloodingError({
 		code: "FLOODING_INPUT",
 		message: `workstreamId ${JSON.stringify(ws)} is not a well-formed WS id (common.schema.json idWorkstream: ^WS-[1-9][0-9]*$)`
 	});
@@ -5735,7 +5739,7 @@ const AUTO_FLOODING_PLUGIN_ACTOR = {
 	label: "research-control"
 };
 /** 冻结 IV id 模式（common.schema.json idIntervention）。 */
-const IV_ID_PATTERN = /^IV-[1-9][0-9]*$/;
+const IV_ID_PATTERN$1 = /^IV-[1-9][0-9]*$/;
 /** 冻结 H id 模式（common.schema.json idHistoryEvent; 与 WP-2.1 一致）。 */
 const H_ID_PATTERN = /^H-[1-9][0-9]*$/;
 /** §8 原文 title（逐字: `Review accumulated agent plan forks [WS-<n>]`）。 */
@@ -5756,7 +5760,7 @@ function buildAutoFloodingDetail(evidence) {
 */
 function buildAutoFloodingIntervention(params) {
 	const id = params.id;
-	if (typeof id !== "string" || !IV_ID_PATTERN.test(id)) throw new FloodingError({
+	if (typeof id !== "string" || !IV_ID_PATTERN$1.test(id)) throw new FloodingError({
 		code: "FLOODING_INPUT",
 		message: `intervention id ${JSON.stringify(String(id))} is not a well-formed IV id (common.schema.json idIntervention: ^IV-[1-9][0-9]*$)`
 	});
@@ -5826,6 +5830,68 @@ function buildInterventionCreatedEvent(params) {
 	};
 }
 //#endregion
+//#region src/host/service/flooding/state-machine.ts
+/**
+* WP-3.5 — Intervention 状态机（DOMAIN_SCHEMA §13 冻结表, 纯函数面）。
+*
+* §13 原文:
+*   Intervention | `OPEN ↔ PENDING`; `OPEN | PENDING → CLOSED`（终态;
+*                 重开 = 新 Intervention）; **仅用户**
+*
+* 冻结表:
+*   OPEN    → PENDING | CLOSED
+*   PENDING → OPEN    | CLOSED
+*   CLOSED  → （终态, 无出口; 重开 = 新 Intervention, 不是迁移）
+*
+* INV-PERM-4（「Intervention 状态只允许用户显式修改」）的**类型面**落地:
+* 本模块只交付纯判定函数（供未来用户面 WP 与其测试消费）——本 WP 的
+* `InterventionStore` **没有任何迁移/更新方法**（API 面零迁移口, 测试以
+* 原型键审计钉死）, service 同样无迁移操作。非用户（AGENT/PLUGIN/SYSTEM）
+* 因此在本 WP 交付物中**不存在**任何可调用面。存储层另以 trigger 限制
+* 内容列 UPDATE（状态缓存列 status/closed_at/resolution_note 是冻结
+* 迁移语义的唯一合法行侧面, 供未来用户面使用）。
+*/
+/** §13 冻结迁移表（逐字: OPEN ↔ PENDING; OPEN|PENDING → CLOSED 终态）。 */
+const IV_TRANSITIONS = {
+	OPEN: ["PENDING", "CLOSED"],
+	PENDING: ["OPEN", "CLOSED"],
+	CLOSED: []
+};
+/** 类型守卫（冻结 3 值）。 */
+function isIvStatus(value) {
+	return typeof value === "string" && IV_STATUSES.includes(value);
+}
+/** `from` 的合法目标集（终态 = 空集）。 */
+function legalInterventionTargets(from) {
+	return IV_TRANSITIONS[from];
+}
+/** §13 合法性判定（自环一律非法 — 表中无自环边）。 */
+function isLegalInterventionTransition(from, to) {
+	return IV_TRANSITIONS[from].includes(to);
+}
+/**
+* §13 门（非法迁移抛 FLOODING_ILLEGAL_TRANSITION, 消息列合法集 + 终态点名 —
+* 同 WP-3.1 `checkPfTransition` 纪律）。本 WP 无调用面; 交付给未来用户面
+* WP（actor 门 = USER, INV-PERM-4）与测试。
+*/
+function checkInterventionTransition(id, from, to) {
+	if (!isIvStatus(from)) throw new FloodingError({
+		code: "FLOODING_INPUT",
+		message: `checkInterventionTransition: from must be one of ${IV_STATUSES.join("|")} (got ${JSON.stringify(String(from))})`
+	});
+	if (!isIvStatus(to)) throw new FloodingError({
+		code: "FLOODING_INPUT",
+		message: `checkInterventionTransition: to must be one of ${IV_STATUSES.join("|")} (got ${JSON.stringify(String(to))})`
+	});
+	if (!isLegalInterventionTransition(from, to)) {
+		const legal = legalInterventionTargets(from);
+		throw new FloodingError({
+			code: "FLOODING_ILLEGAL_TRANSITION",
+			message: `illegal intervention transition for ${JSON.stringify(id)}: ${from} -> ${to}; ` + (legal.length === 0 ? `${from} is terminal (DOMAIN_SCHEMA §13; 重开 = 新 Intervention)` : `legal targets from ${from}: [${legal.join(", ")}] (DOMAIN_SCHEMA §13, INV-TASK-1)`) + " — and transitions are USER-only (INV-PERM-4); this WP provides no transition face"
+		});
+	}
+}
+//#endregion
 //#region src/host/service/flooding/schemas.ts
 /**
 * WP-3.5 — frozen operational attention schema loading (loader pattern,
@@ -5890,7 +5956,7 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "..", "common.schema.json"),
 			message: "common.schema.json is missing or has no $id"
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	try {
 		ajv.addSchema(common, common.$id);
@@ -5899,7 +5965,7 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "..", "common.schema.json"),
 			message: `common.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	const doc = readJson(pjoin(schemaDir, "attention.schema.json"));
 	if (doc === null || typeof doc.$id !== "string") {
@@ -5907,7 +5973,7 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "attention.schema.json"),
 			message: "attention.schema.json is missing or has no $id"
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	try {
 		ajv.addSchema(doc, doc.$id);
@@ -5916,7 +5982,7 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "attention.schema.json"),
 			message: `attention.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	const recordValidator = ajv.getSchema(`${doc.$id}#/$defs/Intervention`);
 	if (recordValidator === void 0) {
@@ -5924,32 +5990,32 @@ function loadInterventionSchemas(reader, schemaDir) {
 			path: pjoin(schemaDir, "attention.schema.json"),
 			message: "schema compile failed for $defs/Intervention"
 		});
-		return unavailable(schemaDir, errors);
+		return unavailable$1(schemaDir, errors);
 	}
 	return {
 		schemaDir,
 		isUsable: true,
 		loadErrors: [],
-		checkInterventionShape: (record) => runCheck(recordValidator, record)
+		checkInterventionShape: (record) => runCheck$1(recordValidator, record)
 	};
 }
-function mapErrors(validator) {
+function mapErrors$1(validator) {
 	return (validator.errors ?? []).map((err) => ({
 		path: err.instancePath,
 		message: schemaErrorSummary(err)
 	}));
 }
-function runCheck(validator, value) {
+function runCheck$1(validator, value) {
 	if (validator(value)) return {
 		ok: true,
 		errors: []
 	};
 	return {
 		ok: false,
-		errors: mapErrors(validator)
+		errors: mapErrors$1(validator)
 	};
 }
-function unavailable(schemaDir, errors) {
+function unavailable$1(schemaDir, errors) {
 	const unavailableCheck = {
 		ok: false,
 		errors: [{
@@ -6003,7 +6069,7 @@ function unavailable(schemaDir, errors) {
 * 有明确必填语义, 这里没有）。
 */
 const INTERVENTION_TABLE = "intervention";
-const DDL = `
+const DDL$2 = `
 CREATE TABLE IF NOT EXISTS ${INTERVENTION_TABLE} (
   id              TEXT    NOT NULL PRIMARY KEY,
   title           TEXT    NOT NULL,
@@ -6045,7 +6111,7 @@ CREATE TRIGGER IF NOT EXISTS intervention_no_content_update
 `;
 /** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
 function interventionDdl() {
-	return DDL;
+	return DDL$2;
 }
 const SQL_INSERT_INTERVENTION = `
 INSERT INTO ${INTERVENTION_TABLE} (id, title, detail, origin, workstream_ids, source_refs, status, created_by, created_at, closed_at, resolution_note)
@@ -6062,15 +6128,15 @@ SELECT * FROM ${INTERVENTION_TABLE}
 WHERE origin = 'AUTO_FLOODING' AND status = 'OPEN'
 ORDER BY created_at ASC, id ASC
 `;
-const CORRUPT = (what, detail) => {
+const CORRUPT$3 = (what, detail) => {
 	throw new Error(`flooding row corruption at ${what}: ${detail}`);
 };
-function decodeJson(value, what) {
-	if (typeof value !== "string") return CORRUPT(what, `expected JSON string, got ${typeof value}`);
+function decodeJson$3(value, what) {
+	if (typeof value !== "string") return CORRUPT$3(what, `expected JSON string, got ${typeof value}`);
 	try {
 		return JSON.parse(value);
 	} catch (cause) {
-		return CORRUPT(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+		return CORRUPT$3(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
 	}
 }
 /** Encode `InterventionRecord` into the INSERT parameter list（列序 = DDL）。 */
@@ -6095,21 +6161,21 @@ function interventionToParams(r) {
 /** Decode an `intervention` row back to the record（throws on corruption）。 */
 function rowToIntervention(row) {
 	const status = row.status;
-	if (typeof status !== "string" || !IV_STATUSES.includes(status)) return CORRUPT("intervention.status", `unknown status ${JSON.stringify(String(status))}`);
+	if (typeof status !== "string" || !IV_STATUSES.includes(status)) return CORRUPT$3("intervention.status", `unknown status ${JSON.stringify(String(status))}`);
 	const origin = row.origin;
-	if (typeof origin !== "string" || !INTERVENTION_ORIGINS.includes(origin)) return CORRUPT("intervention.origin", `unknown origin ${JSON.stringify(String(origin))}`);
+	if (typeof origin !== "string" || !INTERVENTION_ORIGINS.includes(origin)) return CORRUPT$3("intervention.origin", `unknown origin ${JSON.stringify(String(origin))}`);
 	for (const name of [
 		"id",
 		"title",
 		"workstream_ids",
 		"source_refs",
 		"created_by"
-	]) if (typeof row[name] !== "string") return CORRUPT(`intervention.${name}`, `expected string, got ${typeof row[name]}`);
-	if (typeof row.created_at !== "number") return CORRUPT("intervention.created_at", `expected number, got ${typeof row.created_at}`);
-	const workstreamIds = decodeJson(row.workstream_ids, "intervention.workstream_ids");
-	for (const ws of workstreamIds) if (typeof ws !== "string") return CORRUPT("intervention.workstream_ids", `element must be a string (got ${typeof ws})`);
-	const sourceRefs = decodeJson(row.source_refs, "intervention.source_refs");
-	for (const ref of sourceRefs) if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string") return CORRUPT("intervention.source_refs", `element must be a {kind, id} typedRef`);
+	]) if (typeof row[name] !== "string") return CORRUPT$3(`intervention.${name}`, `expected string, got ${typeof row[name]}`);
+	if (typeof row.created_at !== "number") return CORRUPT$3("intervention.created_at", `expected number, got ${typeof row.created_at}`);
+	const workstreamIds = decodeJson$3(row.workstream_ids, "intervention.workstream_ids");
+	for (const ws of workstreamIds) if (typeof ws !== "string") return CORRUPT$3("intervention.workstream_ids", `element must be a string (got ${typeof ws})`);
+	const sourceRefs = decodeJson$3(row.source_refs, "intervention.source_refs");
+	for (const ref of sourceRefs) if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string") return CORRUPT$3("intervention.source_refs", `element must be a {kind, id} typedRef`);
 	return {
 		id: row.id,
 		title: row.title,
@@ -6117,7 +6183,7 @@ function rowToIntervention(row) {
 		workstream_ids: workstreamIds,
 		source_refs: sourceRefs,
 		status,
-		created_by: decodeJson(row.created_by, "intervention.created_by"),
+		created_by: decodeJson$3(row.created_by, "intervention.created_by"),
 		created_at: row.created_at,
 		...row.detail != null ? { detail: String(row.detail) } : {},
 		...row.closed_at != null ? { closed_at: row.closed_at } : {},
@@ -6542,7 +6608,7 @@ var FloodingService = class {
 			}
 			let appended;
 			try {
-				appended = this.#store.appendEvents([event], { validate: makeValidateHook$1(this.#registry, () => this.#buildEventContext(ivRes.id)) }).events[0];
+				appended = this.#store.appendEvents([event], { validate: makeValidateHook$2(this.#registry, () => this.#buildEventContext(ivRes.id)) }).events[0];
 			} catch (cause) {
 				releaseAll();
 				return {
@@ -6626,7 +6692,7 @@ var FloodingService = class {
 * 抛结构化 `FloodingError`（FLOODING_EVENT）⇒ store 全批回滚
 * （未过校验的事件永不落地）。registry 不可用 ⇒ fail loud。
 */
-function makeValidateHook$1(registry, buildContext) {
+function makeValidateHook$2(registry, buildContext) {
 	return (events) => {
 		if (!registry.isUsable) throw new FloodingError({
 			code: "FLOODING_EVENT",
@@ -6646,172 +6712,5951 @@ function describe(cause) {
 	return cause instanceof Error ? cause.message : String(cause);
 }
 //#endregion
-//#region src/host/service/stale/types.ts
-/**
-* A stale-service violation (ARCHITECTURE §10: 错误信息指明失败项 — precise
-* message, no guess-repair). Domain-level failures (PF_NOT_FOUND /
-* PF_WRONG_STATE / PF_BASE_CAPTURE …) propagate as WP-3.1 `PlanForkError`
-* unchanged — this class only covers service-boundary conditions.
-*/
-var StaleServiceError = class extends Error {
+//#region src/host/service/actions/types.ts
+/** 本模块的唯一错误载体（caller-owned — 同 PlanForkError 纪律）。 */
+var ActionsError = class extends Error {
 	code;
 	constructor(code, message, options) {
 		super(message, options);
-		this.name = "StaleServiceError";
+		this.name = "ActionsError";
 		this.code = code;
 	}
 };
+const ID_PATTERNS = {
+	ws: /^WS-[1-9][0-9]*$/,
+	task: /^T-[1-9][0-9]*$/,
+	run: /^R-[1-9][0-9]*$/,
+	objective: /^OBJ-[1-9][0-9]*$/
+};
+/** 冻结 actorRef 形状校验（common.schema.json：kind 枚举；run_id 前缀；label ≤200）。 */
+function assertActorShape(actor, context) {
+	if (actor === null || typeof actor !== "object" || typeof actor.kind !== "string" || ![
+		"USER",
+		"AGENT",
+		"PLUGIN",
+		"SYSTEM"
+	].includes(actor.kind)) throw new ActionsError("ACT_INPUT", `${context}: actor must be a frozen actorRef (kind ∈ USER|AGENT|PLUGIN|SYSTEM; got ${JSON.stringify(actor)})`);
+	const a = actor;
+	if (a.run_id !== void 0 && !ID_PATTERNS.run.test(a.run_id)) throw new ActionsError("ACT_INPUT", `${context}: actor.run_id ${JSON.stringify(a.run_id)} is not a well-formed R id (common.schema.json actorRef)`);
+	if (a.label !== void 0 && (typeof a.label !== "string" || a.label.length > 200)) throw new ActionsError("ACT_INPUT", `${context}: actor.label must be a string of ≤200 chars (common.schema.json actorRef)`);
+}
 //#endregion
-//#region src/host/service/stale/closure.ts
+//#region src/host/service/actions/schema.ts
+const NEXT_ACTION_TABLE = "next_action";
+const BLOCKER_TABLE = "blocker";
+const DDL$1 = `
+CREATE TABLE IF NOT EXISTS ${NEXT_ACTION_TABLE} (
+  id                  TEXT    NOT NULL PRIMARY KEY,
+  workstream_id       TEXT,                         -- 可选（§9.3 ❌）
+  statement           TEXT    NOT NULL,
+  rationale           TEXT,
+  status              TEXT    NOT NULL CHECK (status IN ('PROPOSED', 'PROMOTED', 'DISMISSED')),
+  promoted_to_task_id TEXT,
+  created_by          TEXT    NOT NULL,             -- ActorRef JSON（USER 或 AGENT）
+  created_at          INTEGER NOT NULL,             -- epoch ms（§1.2, A-3）
+  -- 字段共现（§9.3: promoted_to_task_id 「PROMOTE 时生成」）:
+  CHECK (status = 'PROMOTED' OR promoted_to_task_id IS NULL),
+  CHECK (status <> 'PROMOTED' OR promoted_to_task_id IS NOT NULL)
+);
+-- 查询面索引（GUI: 按状态分组 / 按 WS 过滤; §15 未列 ⇒ 本 WP 自加, 只增）。
+CREATE INDEX IF NOT EXISTS idx_next_action_status
+  ON ${NEXT_ACTION_TABLE} (status);
+CREATE INDEX IF NOT EXISTS idx_next_action_workstream
+  ON ${NEXT_ACTION_TABLE} (workstream_id);
+-- §15 通则 / INV-HIST-7: 一等 identity 行不 hard delete。
+CREATE TRIGGER IF NOT EXISTS next_action_no_delete
+  BEFORE DELETE ON ${NEXT_ACTION_TABLE}
+  BEGIN
+    SELECT RAISE(ABORT, 'next_action rows are never deleted (DOMAIN_SCHEMA §15 通则; ARCHITECTURE §5.4 INV-HIST-7)');
+  END;
+-- 内容不可变半边: 创建后的 6 个内容列任何 UPDATE 都 ABORT（状态缓存列
+-- status/promoted_to_task_id 是 §13 迁移的唯一合法行侧面 — PROMOTE/DISMISS
+-- 仅用户, ARCHITECTURE §6 矩阵行; trigger 只钉「内容列不可动」）。
+CREATE TRIGGER IF NOT EXISTS next_action_no_content_update
+  BEFORE UPDATE ON ${NEXT_ACTION_TABLE}
+  WHEN NEW.id IS NOT OLD.id
+   OR IFNULL(NEW.workstream_id, '') IS NOT IFNULL(OLD.workstream_id, '')
+   OR NEW.statement IS NOT OLD.statement
+   OR IFNULL(NEW.rationale, '') IS NOT IFNULL(OLD.rationale, '')
+   OR NEW.created_by IS NOT OLD.created_by
+   OR NEW.created_at IS NOT OLD.created_at
+  BEGIN
+    SELECT RAISE(ABORT, 'next_action content is immutable after creation (DOMAIN_SCHEMA §9.3; only the state-cache columns status/promoted_to_task_id may change, user-only per ARCHITECTURE §6)');
+  END;
+-- 终态无出边（§13: PROMOTED/DISMISSED 均为终态）: 任何从终态出发的状态
+-- UPDATE 都 ABORT — 含「复活」回 PROPOSED 与跨终态跳转（service 层有 §13
+-- 纯守卫, 本 trigger 是并发双迁移竞争与 raw SQL 改写的存储层兜底）。
+CREATE TRIGGER IF NOT EXISTS next_action_no_status_regression
+  BEFORE UPDATE ON ${NEXT_ACTION_TABLE}
+  WHEN OLD.status IN ('PROMOTED', 'DISMISSED') AND NEW.status IS NOT OLD.status
+  BEGIN
+    SELECT RAISE(ABORT, 'next_action terminal states (PROMOTED/DISMISSED) have no outgoing edges (DOMAIN_SCHEMA §13)');
+  END;
+-- promoted_to_task_id 一经生成不可更换（§13 终态 ⇒ 行状态面冻结）。
+CREATE TRIGGER IF NOT EXISTS next_action_promoted_task_immutable
+  BEFORE UPDATE ON ${NEXT_ACTION_TABLE}
+  WHEN OLD.promoted_to_task_id IS NOT NULL AND NEW.promoted_to_task_id IS NOT OLD.promoted_to_task_id
+  BEGIN
+    SELECT RAISE(ABORT, 'next_action.promoted_to_task_id is immutable once set (DOMAIN_SCHEMA §13)');
+  END;
+
+CREATE TABLE IF NOT EXISTS ${BLOCKER_TABLE} (
+  id          TEXT    NOT NULL PRIMARY KEY,
+  statement   TEXT    NOT NULL,
+  affects     TEXT    NOT NULL,                     -- JSON [{kind,id}]（§9.4 必填 ≥1）
+  status      TEXT    NOT NULL CHECK (status IN ('ACTIVE', 'CLEARED')),
+  source      TEXT    NOT NULL,                     -- 来源说明（§9.4 必填）
+  "references"    TEXT,                           -- JSON string[]（可选; references 是 SQLite 关键字, 须引号）
+  created_at  INTEGER NOT NULL,                     -- epoch ms（§1.2, A-3）
+  cleared_at  INTEGER,
+  -- 字段共现（§9.4: cleared_at 在 CLEAR 时落）:
+  CHECK (status = 'CLEARED' OR cleared_at IS NULL),
+  CHECK (status <> 'CLEARED' OR cleared_at IS NOT NULL)
+);
+-- 查询面索引（GUI: 显著区按状态取 ACTIVE; §15 未列 ⇒ 本 WP 自加, 只增）。
+CREATE INDEX IF NOT EXISTS idx_blocker_status
+  ON ${BLOCKER_TABLE} (status);
+-- §15 通则 / INV-HIST-7: 一等 identity 行不 hard delete。
+CREATE TRIGGER IF NOT EXISTS blocker_no_delete
+  BEFORE DELETE ON ${BLOCKER_TABLE}
+  BEGIN
+    SELECT RAISE(ABORT, 'blocker rows are never deleted (DOMAIN_SCHEMA §15 通则; ARCHITECTURE §5.4 INV-HIST-7)');
+  END;
+-- 内容不可变半边: 创建后的 6 个内容列任何 UPDATE 都 ABORT（状态缓存列
+-- status/cleared_at 是 §13 迁移的唯一合法行侧面 — CLEARED 仅用户,
+-- ARCHITECTURE §5.9 INV-PERM-1 闭集外）。
+CREATE TRIGGER IF NOT EXISTS blocker_no_content_update
+  BEFORE UPDATE ON ${BLOCKER_TABLE}
+  WHEN NEW.id IS NOT OLD.id
+   OR NEW.statement IS NOT OLD.statement
+   OR NEW.affects IS NOT OLD.affects
+   OR NEW.source IS NOT OLD.source
+   OR IFNULL(NEW."references", '') IS NOT IFNULL(OLD."references", '')
+   OR NEW.created_at IS NOT OLD.created_at
+  BEGIN
+    SELECT RAISE(ABORT, 'blocker content is immutable after creation (DOMAIN_SCHEMA §9.4; only the state-cache columns status/cleared_at may change, user-only per INV-PERM-1)');
+  END;
+-- 终态无出边（§13: CLEARED 终态; 复发 = 新 Blocker）: 任何从 CLEARED 出
+-- 发的状态 UPDATE 都 ABORT（storage 层兜底 — 同 next_action 口径）。
+CREATE TRIGGER IF NOT EXISTS blocker_no_status_regression
+  BEFORE UPDATE ON ${BLOCKER_TABLE}
+  WHEN OLD.status IS 'CLEARED' AND NEW.status IS NOT OLD.status
+  BEGIN
+    SELECT RAISE(ABORT, 'blocker CLEARED is terminal — recurrence is a new blocker row (DOMAIN_SCHEMA §13)');
+  END;
+-- cleared_at 一经落定不可改写（§13 终态 ⇒ 行状态面冻结）。
+CREATE TRIGGER IF NOT EXISTS blocker_cleared_at_immutable
+  BEFORE UPDATE ON ${BLOCKER_TABLE}
+  WHEN OLD.cleared_at IS NOT NULL AND NEW.cleared_at IS NOT OLD.cleared_at
+  BEGIN
+    SELECT RAISE(ABORT, 'blocker.cleared_at is immutable once set (DOMAIN_SCHEMA §13)');
+  END;
+`;
+/** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
+function actionsDdl() {
+	return DDL$1;
+}
+const SQL_INSERT_NEXT_ACTION = `
+INSERT INTO ${NEXT_ACTION_TABLE} (id, workstream_id, statement, rationale, status, promoted_to_task_id, created_by, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`;
+const SQL_SELECT_NEXT_ACTION_BY_ID = `SELECT * FROM ${NEXT_ACTION_TABLE} WHERE id = ?`;
 /**
-* WP-3.2 — the §5 stale-detection set comparison (PURE — zero I/O).
-*
-* Frozen contract (PLAN_FORK_SPEC §5, 原文):
-*
-*   ```text
-*   stale(PF) ⇔ currentClosure(WS) ≠ PF.base_plan_objects     # (path, oid) 集合不相等
-*   ```
-*
-*   - 集合比较：路径集合不同（增/删文件）或任一同路径文件 blob OID 不同，
-*     均判 stale；文件缺失视为不同；
-*   - 判 stale 后：`stale_reason` 记录**首个差异**（path + old/new oid）。
-*
-* This module is the mechanical heart of the algorithm: it receives the
-* frozen base set (`base_plan_objects`, creation order) and the recomputed
-* current set (working-copy OIDs, `null` = the file is not a regular file on
-* disk — 「文件缺失视为不同」) and produces the structured diff + the
-* `stale_reason` string. No git, no fs, no DB — unit-testable in isolation
-* (tests/stale/compare.test.ts 钉死全部分支).
-*
-* Determinism: the diff is ordered by (1) CURRENT closure order (plan.yaml
-* first, then canonical order — the same stable order §3.2 bases use) for
-* added/changed/missing entries, then (2) BASE closure order for removed
-* entries. `diff[0]` is therefore THE 「首个差异」 of §5: plan.yaml comes
-* first in both orders, and within each order the canonical item order is
-* preserved.
+* §13 迁移的条件 UPDATE（乐观并发门 — 同 WP-3.1 planfork 先例）:
+* `WHERE id=? AND status='PROPOSED'` ⇒ 并发双迁移只有一个成功; 0 行由
+* 调用方重读判别 NA_NOT_FOUND / NA_WRONG_STATE。
 */
-/** The `items/<dir>` subdirectory per item kind (DOMAIN_SCHEMA §14 布局 — mirrors the WP-3.1 anchors.ts table). */
+const SQL_TRANSITION_NEXT_ACTION = `
+UPDATE ${NEXT_ACTION_TABLE} SET status = ?, promoted_to_task_id = ? WHERE id = ? AND status = 'PROPOSED'
+`;
+const SQL_INSERT_BLOCKER = `
+INSERT INTO ${BLOCKER_TABLE} (id, statement, affects, status, source, "references", created_at, cleared_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`;
+const SQL_SELECT_BLOCKER_BY_ID = `SELECT * FROM ${BLOCKER_TABLE} WHERE id = ?`;
+/** §13 迁移的条件 UPDATE（乐观并发门）: `WHERE id=? AND status='ACTIVE'`。 */
+const SQL_TRANSITION_BLOCKER = `
+UPDATE ${BLOCKER_TABLE} SET status = ?, cleared_at = ? WHERE id = ? AND status = 'ACTIVE'
+`;
+const CORRUPT$2 = (what, detail) => {
+	throw new Error(`actions row corruption at ${what}: ${detail}`);
+};
+function decodeJson$2(value, what) {
+	if (typeof value !== "string") return CORRUPT$2(what, `expected JSON string, got ${typeof value}`);
+	try {
+		return JSON.parse(value);
+	} catch (cause) {
+		return CORRUPT$2(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+	}
+}
+const NA_STATUSES$1 = [
+	"PROPOSED",
+	"PROMOTED",
+	"DISMISSED"
+];
+const BLK_STATUSES$1 = ["ACTIVE", "CLEARED"];
+const AFFECTS_KINDS = [
+	"WORKSTREAM",
+	"TASK",
+	"RUN"
+];
+/** Encode `NextActionRecord` into the INSERT parameter list（列序 = DDL）。 */
+function nextActionToParams(r) {
+	return [
+		r.id,
+		r.workstream_id ?? null,
+		r.statement,
+		r.rationale ?? null,
+		r.status,
+		r.promoted_to_task_id ?? null,
+		JSON.stringify(r.created_by),
+		r.created_at
+	];
+}
+/** Decode a `next_action` row back to the record（throws on corruption）。 */
+function rowToNextAction(row) {
+	const status = row.status;
+	if (typeof status !== "string" || !NA_STATUSES$1.includes(status)) return CORRUPT$2("next_action.status", `unknown status ${JSON.stringify(String(status))}`);
+	for (const name of [
+		"id",
+		"statement",
+		"created_by"
+	]) if (typeof row[name] !== "string") return CORRUPT$2(`next_action.${name}`, `expected string, got ${typeof row[name]}`);
+	if (typeof row.created_at !== "number") return CORRUPT$2("next_action.created_at", `expected number, got ${typeof row.created_at}`);
+	const affectedTaskId = row.promoted_to_task_id;
+	if (affectedTaskId !== null && typeof affectedTaskId !== "string") return CORRUPT$2("next_action.promoted_to_task_id", `expected string or null, got ${typeof affectedTaskId}`);
+	return {
+		id: row.id,
+		statement: row.statement,
+		status,
+		created_by: decodeJson$2(row.created_by, "next_action.created_by"),
+		created_at: row.created_at,
+		...row.workstream_id != null ? { workstream_id: String(row.workstream_id) } : {},
+		...row.rationale != null ? { rationale: String(row.rationale) } : {},
+		...affectedTaskId != null ? { promoted_to_task_id: String(affectedTaskId) } : {}
+	};
+}
+/** Encode `BlockerRecord` into the INSERT parameter list（列序 = DDL）。 */
+function blockerToParams(r) {
+	return [
+		r.id,
+		r.statement,
+		JSON.stringify(r.affects.map((ref) => ({
+			kind: ref.kind,
+			id: ref.id
+		}))),
+		r.status,
+		r.source,
+		r.references !== void 0 ? JSON.stringify(r.references) : null,
+		r.created_at,
+		r.cleared_at ?? null
+	];
+}
+/** Decode a `blocker` row back to the record（throws on corruption）。 */
+function rowToBlocker(row) {
+	const status = row.status;
+	if (typeof status !== "string" || !BLK_STATUSES$1.includes(status)) return CORRUPT$2("blocker.status", `unknown status ${JSON.stringify(String(status))}`);
+	for (const name of [
+		"id",
+		"statement",
+		"affects",
+		"source"
+	]) if (typeof row[name] !== "string") return CORRUPT$2(`blocker.${name}`, `expected string, got ${typeof row[name]}`);
+	if (typeof row.created_at !== "number") return CORRUPT$2("blocker.created_at", `expected number, got ${typeof row.created_at}`);
+	const affects = decodeJson$2(row.affects, "blocker.affects");
+	for (const ref of affects) if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string" || !AFFECTS_KINDS.includes(ref.kind)) return CORRUPT$2("blocker.affects", `element must be a {kind ∈ WORKSTREAM|TASK|RUN, id} typedRef (got ${JSON.stringify(ref)})`);
+	const references = row.references;
+	let referencesValue;
+	if (references != null) {
+		const decoded = decodeJson$2(references, "blocker.references");
+		if (!Array.isArray(decoded)) return CORRUPT$2("blocker.references", `expected a JSON array of strings, got ${typeof decoded}`);
+		for (const item of decoded) if (typeof item !== "string") return CORRUPT$2("blocker.references", `element must be a string (got ${typeof item})`);
+		referencesValue = [...decoded];
+	}
+	return {
+		id: row.id,
+		statement: row.statement,
+		affects,
+		status,
+		source: row.source,
+		created_at: row.created_at,
+		...referencesValue !== void 0 ? { references: referencesValue } : {},
+		...row.cleared_at != null ? { cleared_at: row.cleared_at } : {}
+	};
+}
+//#endregion
+//#region src/host/service/actions/state-machine.ts
+const NA_STATUSES = [
+	"PROPOSED",
+	"PROMOTED",
+	"DISMISSED"
+];
+const BLK_STATUSES = ["ACTIVE", "CLEARED"];
+function isNaStatus(v) {
+	return typeof v === "string" && NA_STATUSES.includes(v);
+}
+function isBlkStatus(v) {
+	return typeof v === "string" && BLK_STATUSES.includes(v);
+}
+/** NextAction 合法迁移集（§13 行原文; 双终态）。 */
+const NA_TRANSITIONS = {
+	PROPOSED: ["PROMOTED", "DISMISSED"],
+	PROMOTED: [],
+	DISMISSED: []
+};
+/** Blocker 合法迁移集（§13 行原文; CLEARED 终态, 复发 = 新行）。 */
+const BLK_TRANSITIONS = {
+	ACTIVE: ["CLEARED"],
+	CLEARED: []
+};
+/** Objective 合法迁移集（§13 行原文; ACHIEVED/DROPPED 终态, 仅用户）。 */
+const OBJ_TRANSITIONS = {
+	ACTIVE: ["ACHIEVED", "DROPPED"],
+	ACHIEVED: [],
+	DROPPED: []
+};
+function guard(code, objectName, id, from, to, legal) {
+	const allowed = legal[from];
+	if (allowed.includes(to)) return;
+	throw new ActionsError(code, `${objectName} ${JSON.stringify(id)}: illegal ${from} → ${to} (DOMAIN_SCHEMA §13: from ${from} the legal targets are [${allowed.join(", ")}] — 终态无出边)`);
+}
+/** §13 NextAction 行: `PROPOSED → PROMOTED | DISMISSED`（终态; PROMOTE 仅用户）。 */
+function checkNextActionTransition(id, from, to) {
+	guard("NA_WRONG_STATE", "next action", id, from, to, NA_TRANSITIONS);
+}
+/** §13 Blocker 行: `ACTIVE → CLEARED`（终态; 复发 = 新 Blocker）。 */
+function checkBlockerTransition(id, from, to) {
+	guard("BLK_WRONG_STATE", "blocker", id, from, to, BLK_TRANSITIONS);
+}
+/** §13 Objective 行: `ACTIVE → ACHIEVED | DROPPED`（仅用户）。 */
+function checkObjectiveTransition(id, from, to) {
+	guard("OBJ_WRONG_STATE", "objective", id, from, to, OBJ_TRANSITIONS);
+}
+/**
+* USER-only 门（PROMOTE/DISMISS、Blocker 全泳道、Objective 全泳道）。
+* 裸 `{ kind: 'USER' }` 合法（WP-3.4 `assertUserActor` 同款口径 —
+* RPC 面转发的 USER_ACTOR 即此形状）。`code` 供调用方保留对象维度的
+* 错误码（NA_ACTOR / BLK_ACTOR / OBJ_ACTOR）。
+*/
+function assertUserActor$3(actor, operation, code = "NA_ACTOR") {
+	assertActorShape(actor, operation);
+	if (actor.kind !== "USER") throw new ActionsError(code, `${operation}: user-only operation (ARCHITECTURE §6 矩阵 / INV-PERM-1 闭集 / §13「仅用户」) — actor.kind is ${JSON.stringify(actor.kind)}, expected USER`);
+}
+/**
+* NextAction 创建面泳道（§6 行「NextAction 创建 | ✅ | ✅ | ❌ | ❌」）:
+* USER 或 AGENT; AGENT 必须携 well-formed run_id（R-<n>）。
+* （INV-PERM-1: 创建 NextAction 在 Agent 可写闭集内; PLUGIN/SYSTEM 无授权行。）
+*/
+function assertNextActionCreator(actor, operation) {
+	assertActorShape(actor, operation);
+	if (actor.kind === "USER") return;
+	if (actor.kind === "AGENT") {
+		if (typeof actor.run_id !== "string") throw new ActionsError("NA_ACTOR", `${operation}: an AGENT creator must carry its run (actor.run_id, common.schema.json actorRef) — the tool face requires a run-bound context`);
+		return;
+	}
+	throw new ActionsError("NA_ACTOR", `${operation}: only USER or AGENT may create a NextAction (ARCHITECTURE §6 行「NextAction 创建 ✅/✅/❌/❌」) — actor.kind is ${JSON.stringify(actor.kind)}`);
+}
+//#endregion
+//#region src/host/service/actions/store.ts
+var ActionsStore = class {
+	db;
+	allocator;
+	projectId;
+	now;
+	closed = false;
+	constructor(options) {
+		this.db = options.db;
+		this.allocator = options.allocator;
+		this.projectId = options.projectId;
+		this.now = options.now ?? Date.now;
+		this.db.exec(actionsDdl());
+	}
+	/**
+	* Create one PROPOSED NextAction（§9.3; 矩阵行「NextAction 创建
+	* ✅/✅」— USER 或 AGENT）。`workstreamId` 可选（形状在此钉, 存在性
+	* 归 service 层 §16.3）.
+	*/
+	createNextAction(params, actor) {
+		this.assertOpen("createNextAction");
+		assertNextActionCreator(actor, "createNextAction");
+		const record = this.validateNextActionInput(params);
+		const at = this.now();
+		const res = this.allocator.reserve("NEXT_ACTION", this.projectId);
+		const finalRecord = {
+			...record,
+			id: res.id,
+			status: "PROPOSED",
+			created_by: actor,
+			created_at: at
+		};
+		try {
+			this.db.run(SQL_INSERT_NEXT_ACTION, ...nextActionToParams(finalRecord));
+		} catch (cause) {
+			this.allocator.release(res);
+			throw this.wrap("createNextAction", cause);
+		}
+		this.allocator.commit(res);
+		return finalRecord;
+	}
+	validateNextActionInput(params) {
+		if (typeof params.statement !== "string" || params.statement.length === 0) throw new ActionsError("ACT_INPUT", "createNextAction: statement must be a non-empty string (DOMAIN_SCHEMA §9.3)");
+		let workstream_id;
+		if (params.workstreamId !== void 0) {
+			if (typeof params.workstreamId !== "string" || !ID_PATTERNS.ws.test(params.workstreamId)) throw new ActionsError("ACT_INPUT", `createNextAction: workstreamId ${JSON.stringify(params.workstreamId)} is not a well-formed WS id (common.schema.json idWorkstream)`);
+			workstream_id = params.workstreamId;
+		}
+		let rationale;
+		if (params.rationale !== void 0) {
+			if (typeof params.rationale !== "string" || params.rationale.length === 0) throw new ActionsError("ACT_INPUT", "createNextAction: rationale must be a non-empty string when present (DOMAIN_SCHEMA §9.3)");
+			rationale = params.rationale;
+		}
+		return workstream_id === void 0 ? {
+			statement: params.statement,
+			...rationale !== void 0 ? { rationale } : {}
+		} : {
+			workstream_id,
+			statement: params.statement,
+			...rationale !== void 0 ? { rationale } : {}
+		};
+	}
+	/**
+	* PROMOTE（§9.3「转正为 Task」的行侧 — **仅用户**, §6 矩阵行）。
+	* `taskId` 由调用方（service 层物化流）给出; 本方法只做行状态面:
+	* 乐观条件 UPDATE `PROPOSED → PROMOTED`（0 行 ⇒ 重读判别）。
+	* 存储层 trigger 钉死 promoted_to_task_id 一经生成不可更换。
+	*/
+	promoteNextAction(id, taskId, actor) {
+		this.assertOpen("promoteNextAction");
+		assertUserActor$3(actor, `promoteNextAction(${id})`);
+		if (typeof taskId !== "string" || !ID_PATTERNS.task.test(taskId)) throw new ActionsError("ACT_INPUT", `promoteNextAction(${id}): taskId ${JSON.stringify(taskId)} is not a well-formed T id (common.schema.json idTask)`);
+		const current = this.readNextActionRow(id);
+		if (current === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} does not exist`);
+		checkNextActionTransition(id, current.status, "PROMOTED");
+		if (this.db.run(SQL_TRANSITION_NEXT_ACTION, "PROMOTED", taskId, id) === 0) this.reportConcurrent(id);
+		const updated = this.readNextActionRow(id);
+		if (updated === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} vanished after transition (no-delete trigger in effect — investigate)`);
+		return updated;
+	}
+	/**
+	* DISMISS（§13 终态 — **仅用户**, §6 矩阵行「NextAction PROMOTE/DISMISS」）。
+	*/
+	dismissNextAction(id, actor) {
+		this.assertOpen("dismissNextAction");
+		assertUserActor$3(actor, `dismissNextAction(${id})`);
+		const current = this.readNextActionRow(id);
+		if (current === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} does not exist`);
+		checkNextActionTransition(id, current.status, "DISMISSED");
+		if (this.db.run(SQL_TRANSITION_NEXT_ACTION, "DISMISSED", null, id) === 0) this.reportConcurrent(id);
+		const updated = this.readNextActionRow(id);
+		if (updated === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} vanished after transition (no-delete trigger in effect — investigate)`);
+		return updated;
+	}
+	/** 条件 UPDATE 0 行的判别（同 WP-3.1 transition 先例）: 行消失 vs 状态已动。 */
+	reportConcurrent(id) {
+		const reread = this.readNextActionRow(id);
+		if (reread === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} vanished during transition (no-delete trigger in effect — investigate)`);
+		if (reread.status !== "PROPOSED") throw new ActionsError("NA_WRONG_STATE", `next action ${JSON.stringify(id)} moved concurrently (expected PROPOSED, now ${reread.status}) — refetch and retry`);
+		throw new ActionsError("NA_WRONG_STATE", `next action ${JSON.stringify(id)} moved concurrently (expected PROPOSED) — refetch and retry`);
+	}
+	/**
+	* Create one ACTIVE Blocker（§9.4 — **USER-only**: INV-PERM-1 闭集外,
+	* §6 无 Blocker 行 — state-machine.ts 头注②）.
+	*/
+	createBlocker(params, actor) {
+		this.assertOpen("createBlocker");
+		assertUserActor$3(actor, "createBlocker", "BLK_ACTOR");
+		const record = this.validateBlockerInput(params);
+		const at = this.now();
+		const res = this.allocator.reserve("BLOCKER", this.projectId);
+		const finalRecord = {
+			...record,
+			id: res.id,
+			status: "ACTIVE",
+			created_at: at
+		};
+		try {
+			this.db.run(SQL_INSERT_BLOCKER, ...blockerToParams(finalRecord));
+		} catch (cause) {
+			this.allocator.release(res);
+			throw this.wrap("createBlocker", cause);
+		}
+		this.allocator.commit(res);
+		return finalRecord;
+	}
+	validateBlockerInput(params) {
+		if (typeof params.statement !== "string" || params.statement.length === 0) throw new ActionsError("ACT_INPUT", "createBlocker: statement must be a non-empty string (DOMAIN_SCHEMA §9.4)");
+		if (typeof params.source !== "string" || params.source.length === 0) throw new ActionsError("ACT_INPUT", "createBlocker: source must be a non-empty string (DOMAIN_SCHEMA §9.4 必填「来源说明」)");
+		if (!Array.isArray(params.affects) || params.affects.length === 0) throw new ActionsError("ACT_INPUT", "createBlocker: affects must be a non-empty TypedRef[] (DOMAIN_SCHEMA §9.4 必填, kind 限 WORKSTREAM/TASK/RUN)");
+		const affects = params.affects.map((ref, i) => {
+			if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string" || ref.id.length === 0) throw new ActionsError("ACT_INPUT", `createBlocker: affects[${i}] must be a {kind, id} typedRef (DOMAIN_SCHEMA §9.4)`);
+			const kind = ref.kind;
+			if (kind !== "WORKSTREAM" && kind !== "TASK" && kind !== "RUN") throw new ActionsError("ACT_INPUT", `createBlocker: affects[${i}].kind ${JSON.stringify(kind)} not allowed (attention.schema.json $defs/Blocker.affects: WORKSTREAM/TASK/RUN)`);
+			if (!(kind === "WORKSTREAM" ? ID_PATTERNS.ws : kind === "TASK" ? ID_PATTERNS.task : ID_PATTERNS.run).test(ref.id)) throw new ActionsError("ACT_INPUT", `createBlocker: affects[${i}].id ${JSON.stringify(ref.id)} is not a well-formed ${kind} id`);
+			return {
+				kind,
+				id: ref.id
+			};
+		});
+		let references;
+		if (params.references !== void 0) {
+			if (!Array.isArray(params.references) || params.references.some((r) => typeof r !== "string")) throw new ActionsError("ACT_INPUT", "createBlocker: references must be a string[] when present (DOMAIN_SCHEMA §9.4)");
+			references = [...params.references];
+		}
+		return references === void 0 ? {
+			statement: params.statement,
+			affects,
+			source: params.source
+		} : {
+			statement: params.statement,
+			affects,
+			source: params.source,
+			references
+		};
+	}
+	/**
+	* CLEAR（§13 终态 — **USER-only**; 复发 = 新 Blocker 行, 不改旧行）。
+	* `cleared_at` 落迁移时刻（乐观条件 UPDATE `ACTIVE → CLEARED`）。
+	*/
+	clearBlocker(id, actor) {
+		this.assertOpen("clearBlocker");
+		assertUserActor$3(actor, `clearBlocker(${id})`, "BLK_ACTOR");
+		const current = this.readBlockerRow(id);
+		if (current === null) throw new ActionsError("BLK_NOT_FOUND", `blocker ${JSON.stringify(id)} does not exist`);
+		checkBlockerTransition(id, current.status, "CLEARED");
+		if (this.db.run(SQL_TRANSITION_BLOCKER, "CLEARED", this.now(), id) === 0) {
+			const reread = this.readBlockerRow(id);
+			if (reread === null) throw new ActionsError("BLK_NOT_FOUND", `blocker ${JSON.stringify(id)} vanished during transition (no-delete trigger in effect — investigate)`);
+			throw new ActionsError("BLK_WRONG_STATE", `blocker ${JSON.stringify(id)} moved concurrently (expected ACTIVE, now ${reread.status}) — refetch and retry`);
+		}
+		const updated = this.readBlockerRow(id);
+		if (updated === null) throw new ActionsError("BLK_NOT_FOUND", `blocker ${JSON.stringify(id)} vanished after transition (no-delete trigger in effect — investigate)`);
+		return updated;
+	}
+	/** One record by id (`null` when absent). */
+	getNextAction(id) {
+		this.assertOpen("getNextAction");
+		return this.readNextActionRow(id);
+	}
+	/**
+	* List by (status?, workstreamId?) — schema.ts 索引面（GUI 分组/过滤）.
+	* Order: created_at ASC, id ASC (stable — 同 planfork 先例)。
+	*/
+	listNextActions(filter = {}) {
+		this.assertOpen("listNextActions");
+		const clauses = [];
+		const params = [];
+		if (filter.status !== void 0) {
+			if (!isNaStatus(filter.status)) throw new ActionsError("ACT_INPUT", `listNextActions: filter.status must be one of PROPOSED|PROMOTED|DISMISSED (got ${JSON.stringify(filter.status)})`);
+			clauses.push("status = ?");
+			params.push(filter.status);
+		}
+		if (filter.workstreamId !== void 0) {
+			if (typeof filter.workstreamId !== "string" || !ID_PATTERNS.ws.test(filter.workstreamId)) throw new ActionsError("ACT_INPUT", `listNextActions: filter.workstreamId ${JSON.stringify(filter.workstreamId)} is not a well-formed WS id`);
+			clauses.push("workstream_id = ?");
+			params.push(filter.workstreamId);
+		}
+		const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
+		return this.db.all(`SELECT * FROM ${NEXT_ACTION_TABLE} ${where} ORDER BY created_at ASC, id ASC`, ...params).map((r) => rowToNextAction(r));
+	}
+	/** One record by id (`null` when absent). */
+	getBlocker(id) {
+		this.assertOpen("getBlocker");
+		return this.readBlockerRow(id);
+	}
+	/** List by (status?) — 显著区面（ACTIVE 优先展示归视图层）。 */
+	listBlockers(filter = {}) {
+		this.assertOpen("listBlockers");
+		const clauses = [];
+		const params = [];
+		if (filter.status !== void 0) {
+			if (!isBlkStatus(filter.status)) throw new ActionsError("ACT_INPUT", `listBlockers: filter.status must be one of ACTIVE|CLEARED (got ${JSON.stringify(filter.status)})`);
+			clauses.push("status = ?");
+			params.push(filter.status);
+		}
+		const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
+		return this.db.all(`SELECT * FROM ${BLOCKER_TABLE} ${where} ORDER BY created_at ASC, id ASC`, ...params).map((r) => rowToBlocker(r));
+	}
+	/** The id families this store allocates (diagnostics). */
+	get allocatedCounters() {
+		return {
+			nextAction: this.allocator.peek("NEXT_ACTION", this.projectId),
+			blocker: this.allocator.peek("BLOCKER", this.projectId)
+		};
+	}
+	readNextActionRow(id) {
+		if (typeof id !== "string" || id.length === 0) throw new ActionsError("ACT_INPUT", "next action id must be a non-empty string");
+		const row = this.db.get(SQL_SELECT_NEXT_ACTION_BY_ID, id);
+		return row === void 0 ? null : rowToNextAction(row);
+	}
+	readBlockerRow(id) {
+		if (typeof id !== "string" || id.length === 0) throw new ActionsError("ACT_INPUT", "blocker id must be a non-empty string");
+		const row = this.db.get(SQL_SELECT_BLOCKER_BY_ID, id);
+		return row === void 0 ? null : rowToBlocker(row);
+	}
+	assertOpen(operation) {
+		if (this.closed) throw new ActionsError("STORE", `${operation}: store is closed`);
+	}
+	wrap(context, cause) {
+		return new ActionsError("STORE", `${context}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+	}
+};
+//#endregion
+//#region src/host/domain/plan/serialize.ts
+/** Pinned `yaml` options (frozen for byte-stability; see module doc). */
+const YAML_OPTIONS = { lineWidth: 0 };
+/**
+* §1.2: epoch ms (memory carrier) → ISO 8601 UTC string (YAML carrier).
+* Whole-second values drop the `.000` group: `…09:00:00.000Z` → `…09:00:00Z`.
+*/
+function epochToIso(ms) {
+	if (!Number.isFinite(ms)) return "Invalid Date";
+	const iso = new Date(ms).toISOString();
+	return iso.endsWith(".000Z") ? `${iso.slice(0, -5)}Z` : iso;
+}
+/**
+* Serialize `plan.yaml` for `wsId` with the given ordered item ids.
+*
+* Output form (the frozen §4.4 example, byte-for-byte shape):
+* ```yaml
+* workstream: WS-1
+* ordered_items: [G-1, T-1, T-2, T-3, M-1, T-4, G-2]
+* ```
+* Empty plan: `ordered_items: []`.
+*
+* @precondition ids are validated T/G/M ids (pattern-safe); `wsId` a validated WS id.
+*/
+function serializePlan(wsId, orderedItems) {
+	return `workstream: ${wsId}\nordered_items: ${orderedItems.length === 0 ? "[]" : `[${orderedItems.join(", ")}]`}\n`;
+}
+/**
+* The DEFINITION (declarative) fields of each kind, frozen field-table order.
+* This is the single authority for `updateItem` patch-key checks: a patch key
+* outside this list is either a typo or DERIVED/runtime state (execution /
+* validation / blockage / completion, INV-PLAN-9 / INV-TASK-2) and is
+* rejected — the frozen schemas' `additionalProperties: false` agree.
+*/
+const DEFINITION_FIELDS = {
+	task: [
+		"id",
+		"workstream_id",
+		"title",
+		"goal",
+		"deliverables",
+		"acceptance_criteria",
+		"created_by",
+		"created_at",
+		"note"
+	],
+	gate: [
+		"id",
+		"workstream_id",
+		"title",
+		"criteria",
+		"references",
+		"created_by",
+		"created_at"
+	],
+	milestone: [
+		"id",
+		"workstream_id",
+		"title",
+		"statement",
+		"created_by",
+		"created_at"
+	]
+};
+/** common.schema.json actorRef property order. */
+const ACTOR_FIELDS = [
+	"kind",
+	"user_id",
+	"run_id",
+	"session_id",
+	"label"
+];
+/**
+* Re-order one doc into a plain object in frozen field-table order,
+* converting `created_at` to its YAML carrier (§1.2) and skipping absent
+* (undefined) optional fields. The result is the EXACT object that gets
+* serialized — field order is the insertion order.
+*/
+function toYamlCarrier(kind, doc) {
+	const src = doc;
+	const ordered = {};
+	for (const field of DEFINITION_FIELDS[kind]) {
+		const value = src[field];
+		if (value === void 0) continue;
+		if (field === "created_at") ordered[field] = epochToIso(value);
+		else if (field === "created_by") ordered[field] = orderActor(value);
+		else ordered[field] = value;
+	}
+	return ordered;
+}
+/** Re-order an ActorRef into frozen actorRef property order (skip absent). */
+function orderActor(actor) {
+	const out = {};
+	for (const field of ACTOR_FIELDS) {
+		const value = actor[field];
+		if (value !== void 0) out[field] = value;
+	}
+	return out;
+}
+//#endregion
+//#region src/host/service/actions/objectives.ts
+/**
+* WP-5.2 — Objective 声明式变更服务面（`.research/objectives.yaml` 原子写）。
+*
+* 冻结契约依据:
+*  - DOMAIN_SCHEMA §9.1: Objective 是**声明式**对象（`.research/objectives.yaml`，
+*    计划书 §17.3）— 真源是文件 + Git; loader（WP-1.1）已能加载
+*    （`tree.objectives: ObjectiveDoc[]`，schema 校验 + §16.1 交叉引用全量
+*    校验 + 默认值物化）;
+*  - §13 状态机: `Objective | ACTIVE → ACHIEVED | DROPPED（仅用户）`;
+*  - §12.1 ManagementAction: `action_kind` 冻结枚举含 **`OBJECTIVE_EDITED`**
+*    （三对象中唯一有对应 kind 的 — 无 NA_* 与 BLK_* kind, 冻结不可扩）⇒
+*    每次文件改写 append 一行 `OBJECTIVE_EDITED` 账本（provenance: 谁在
+*    何时把 objectives.yaml 改成了什么形态 — 不存 before/after 快照,
+*    §12.1 原文; 声明式状态的历史回放以 Git 为准）;
+*  - ARCHITECTURE §10 失效面: 「插件崩溃 ⇒ 原子文件写（临时文件+rename）
+*    保证 `.research/` 不留半写状态」（INV-DB-3）; §6 矩阵首行
+*    「创建/编辑 … manifest ✅/❌/❌/❌」⇒ 编辑面 USER-only;
+*  - HISTORY_EVENT_CATALOG §4: **无** Objective 事件 ⇒ 不构造 History 事件
+*    （同 WP-3.1 核查口径）; ResearchHistory 也不记录管理操作（§12.1 原文:
+*    「ResearchHistory 不记录 plan reorder、contract edit 等管理操作」）—
+*    账本行是唯一落库痕迹。
+*
+* 写协议（同 WP-3.4 SELECT 物化/补偿纪律, 文件半边先行）:
+*   1. 前置: 现状 `loadResearchTree`（真 reader — 文件是当下真值, 无缓存）;
+*      树错误 ⇒ 拒绝（不给一棵坏树叠写 — 同 RPC 面 `#loadTree` 口径）;
+*   2. **虚拟 reader 预校验**: 包装 reader（objectives.yaml 路径回注新内容,
+*      其余字节原样）跑同一个 `loadResearchTree` — 新文档与**其余文件**的
+*      §16.1 交叉引用在项目内闭环才许落盘（失败 = 精确 file+path 错误,
+*      零字节落地）;
+*   3. 原子写（tmp+rename — `PlanFileWriter` 面, 同 WP-1.3 内核;
+*      写前留存旧文件精确字节, 补偿用）;
+*   4. 后置校验: 再跑 `loadResearchTree`（真 reader）— 与第 1 步基线比对,
+*      **新增**的 objectives.yaml 错误 ⇒ 回写旧字节（补偿）+ 大声错误
+*      （第 2 步已预校验, 此处只兜「写后并发他文件变更」的理论窗口 +
+*       writer 故障注入 — 测试实证）;
+*   5. `OBJECTIVE_EDITED` 账本行（reserve/commit/release 协议同 WP-3.1;
+*      账本失败 ⇒ 文件已在盘 — 大声错误 + 手动对账, 同 reorderPlan 先例;
+*      绝不回滚文件 — Git 是声明式真源的版本面, 用户可显式 restore）。
+*
+* 序列化: 确定性 YAML（§9.1 字段表顺序; epoch ms → ISO 8601 UTC 走
+* WP-1.3 `epochToIso` 单一来源; `YAML_OPTIONS` 固定 `lineWidth: 0` —
+* 同数据 ⇒ 同字节, TC-DOM-005 同款保证）。
+*/
+/** §9.1 字段表顺序（L401-412）— 序列化单一来源（同 WP-1.3 TASK_FIELDS 先例）。 */
+const OBJECTIVE_FIELDS = [
+	"id",
+	"scope",
+	"topic_id",
+	"statement",
+	"success_criteria",
+	"status",
+	"target_date",
+	"priority",
+	"linked_refs",
+	"created_at"
+];
+/**
+* 把一个 Objective doc 排成冻结字段表顺序的 YAML carrier（跳过 absent
+* 可选字段; `created_at`/`target_date` 跨 §1.2 序列化边界 → ISO 8601 UTC）。
+*/
+function toObjectiveCarrier(doc) {
+	const out = {};
+	for (const field of OBJECTIVE_FIELDS) {
+		const value = doc[field];
+		if (value === void 0) continue;
+		if (field === "created_at" || field === "target_date") out[field] = epochToIso(value);
+		else if (field === "linked_refs") out[field] = value.map((ref) => ({
+			kind: ref.kind,
+			id: ref.id
+		}));
+		else if (field === "success_criteria") out[field] = [...value];
+		else out[field] = value;
+	}
+	return out;
+}
+/**
+* 确定性序列化 `.research/objectives.yaml`（顶层 `objectives:` 包装 —
+* objectives.schema.json 冻结形状; 同数据 ⇒ 同字节）。
+*/
+function serializeObjectives(objectives) {
+	const wrapper = { objectives: objectives.map((doc) => toObjectiveCarrier(doc)) };
+	return stringify(wrapper, YAML_OPTIONS);
+}
+var ObjectiveFileService = class {
+	reader;
+	writer;
+	researchRoot;
+	schemaDir;
+	allocator;
+	projectId;
+	db;
+	now;
+	constructor(options) {
+		this.reader = options.reader;
+		this.writer = options.writer;
+		this.researchRoot = options.researchRoot;
+		this.schemaDir = options.schemaDir;
+		this.allocator = options.allocator;
+		this.projectId = options.projectId;
+		this.db = options.db;
+		this.now = options.now ?? Date.now;
+	}
+	/** The objectives.yaml path (absolute, reader/writer 面). */
+	objectivesPath() {
+		return pjoin(this.researchRoot, "objectives.yaml");
+	}
+	/**
+	* 读取面（声明式真源 — 新鲜加载, 无缓存; 同 RPC 面 `#loadTree` 口径）.
+	* 树错误 ⇒ 拒绝服务（错误聚合逐条报出 — 不给坏树投影）。
+	*/
+	loadObjectives() {
+		const load = this.loadTreeOrThrow("loadObjectives");
+		return {
+			present: this.reader.readFile(this.objectivesPath()) !== null,
+			objectives: load.tree.objectives.map((o) => ({ ...o }))
+		};
+	}
+	/**
+	* 整文件保存面（用户经 GUI 编辑 objectives.yaml — 任务书目标 1）。
+	* `objectives` = 完整的新文档列表（含未变项 — 文件级原子替换, 无行级
+	* diff 语义; §13 状态迁移的便捷面走 `setObjectiveStatus`）。
+	* 协议见模块头（虚拟 reader 预校验 → 原子写 → 后置校验/补偿 → 账本）。
+	*/
+	saveObjectives(objectives, actor) {
+		assertUserActor$3(actor, "saveObjectives", "OBJ_ACTOR");
+		this.assertObjectiveDocs(objectives);
+		const baseline = this.loadTreeOrThrow("saveObjectives");
+		const previousBytes = this.reader.readFile(this.objectivesPath());
+		const beforeStatus = new Map(baseline.tree.objectives.map((o) => [o.id, o.status]));
+		const content = serializeObjectives(objectives);
+		const preObjectiveErrors = this.loadTree(this.virtualReader(content)).errors.filter((e) => e.file === "objectives.yaml");
+		if (preObjectiveErrors.length > 0) {
+			const e = preObjectiveErrors[0];
+			throw new ActionsError("OBJ_FILE", `saveObjectives: the new objectives.yaml fails validation — refusing the write: [${e.code}]${e.path !== void 0 ? ` ${e.path}` : ""}: ${e.message}` + (preObjectiveErrors.length > 1 ? ` (+${preObjectiveErrors.length - 1} more)` : ""));
+		}
+		let writeFailed = null;
+		try {
+			this.writer.writeAtomic(this.objectivesPath(), content);
+		} catch (cause) {
+			writeFailed = cause;
+		}
+		if (writeFailed !== null) throw new ActionsError("OBJ_FILE", `saveObjectives: atomic write failed: ${writeFailed instanceof Error ? writeFailed.message : String(writeFailed)}`, { cause: writeFailed });
+		const postObjectiveErrors = this.loadTree(this.reader).errors.filter((e) => e.file === "objectives.yaml");
+		if (postObjectiveErrors.length > 0) {
+			const msg = postObjectiveErrors.map((e) => `[${e.code}] ${e.path ?? "/"}: ${e.message}`).join(" | ");
+			let compensateFailed = null;
+			if (previousBytes !== null) try {
+				this.writer.writeAtomic(this.objectivesPath(), previousBytes);
+			} catch (cause) {
+				compensateFailed = cause;
+			}
+			if (compensateFailed !== null || previousBytes === null) {
+				const cmsg = compensateFailed instanceof Error ? compensateFailed.message : String(compensateFailed);
+				throw new ActionsError("OBJ_FILE", `saveObjectives: the written objectives.yaml failed post-validation (${msg}) AND ${previousBytes === null ? "no previous file bytes exist to restore (the file was newly created)" : `restoring the previous bytes also failed: ${cmsg}`} — manual reconciliation required (git restore ${pjoin(this.researchRoot, "objectives.yaml")})`, { cause: compensateFailed ?? void 0 });
+			}
+			throw new ActionsError("OBJ_FILE", `saveObjectives: the written objectives.yaml failed post-validation (${msg}) — the previous file content was restored atomically (concurrent tree change outside this service; re-read and retry)`);
+		}
+		const maRes = this.allocator.reserve("MANAGEMENT_ACTION", this.projectId);
+		const ma = this.buildObjectiveEditedAction(maRes.id, actor, objectives, beforeStatus, previousBytes === null, this.now());
+		try {
+			this.db.run(SQL_INSERT_MANAGEMENT_ACTION, ...managementActionToParams(ma));
+		} catch (cause) {
+			this.allocator.release(maRes);
+			throw new ActionsError("OBJ_STORE", `saveObjectives: the objectives.yaml was rewritten but the OBJECTIVE_EDITED ledger row failed — the file is on disk, the provenance row is missing (manual reconciliation): ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+		}
+		this.allocator.commit(maRes);
+		return {
+			objectives: objectives.map((o) => ({ ...o })),
+			managementActionId: maRes.id,
+			fileCreated: previousBytes === null
+		};
+	}
+	/**
+	* §13 状态迁移便捷面（`ACTIVE → ACHIEVED | DROPPED`, 仅用户）:
+	* 读现状 → 守卫 → 单字段改写 → `saveObjectives`（同一写协议 + 账本）。
+	*/
+	setObjectiveStatus(objectiveId, status, actor) {
+		assertUserActor$3(actor, `setObjectiveStatus(${objectiveId})`, "OBJ_ACTOR");
+		if (typeof objectiveId !== "string" || !ID_PATTERNS.objective.test(objectiveId)) throw new ActionsError("ACT_INPUT", `setObjectiveStatus: objective id ${JSON.stringify(objectiveId)} is not a well-formed OBJ id (common.schema.json idObjective)`);
+		const current = this.loadObjectives().objectives;
+		const target = current.find((o) => o.id === objectiveId);
+		if (target === void 0) throw new ActionsError("OBJ_NOT_FOUND", `objective ${JSON.stringify(objectiveId)} does not exist in objectives.yaml`);
+		checkObjectiveTransition(objectiveId, target.status, status);
+		const next = current.map((o) => o.id === objectiveId ? {
+			...o,
+			status
+		} : o);
+		return this.saveObjectives(next, actor);
+	}
+	/** 全树加载（错误聚合原样返回 — 调用方决定拒绝口径）。 */
+	loadTree(reader) {
+		return loadResearchTree(reader, this.researchRoot, this.schemaDir);
+	}
+	/** 树错误 ⇒ 拒绝（精确错误聚合 — 同 RPC 面 `#loadTree`）。 */
+	loadTreeOrThrow(operation) {
+		const load = this.loadTree(this.reader);
+		if (load.errors.length > 0) {
+			const e = load.errors[0];
+			throw new ActionsError("OBJ_FILE", `${operation}: the declarative tree failed to load — refusing to write on a broken tree: [${e.code}] ${e.file || "<root>"}${e.path !== void 0 ? ` ${e.path}` : ""}: ${e.message}` + (load.errors.length > 1 ? ` (+${load.errors.length - 1} more)` : ""));
+		}
+		return load;
+	}
+	/** 虚拟 reader: 仅 objectives.yaml 路径回注新内容, 其余字节原样委托。 */
+	virtualReader(objectivesContent) {
+		const self = this;
+		const target = this.objectivesPath();
+		return {
+			readDir(path) {
+				return self.reader.readDir(path);
+			},
+			readFile(path) {
+				if (path === target) return objectivesContent;
+				return self.reader.readFile(path);
+			}
+		};
+	}
+	/** 入参文档形状钉死（id 形状/必填字段 — 落盘前的类型面兜底）。 */
+	assertObjectiveDocs(objectives) {
+		if (!Array.isArray(objectives)) throw new ActionsError("ACT_INPUT", "saveObjectives: objectives must be an array (objectives.schema.json top-level `objectives` list)");
+		const seen = /* @__PURE__ */ new Set();
+		objectives.forEach((doc, i) => {
+			if (doc === null || typeof doc !== "object") throw new ActionsError("ACT_INPUT", `saveObjectives: objectives[${i}] must be an object`);
+			if (typeof doc.id !== "string" || !ID_PATTERNS.objective.test(doc.id)) throw new ActionsError("ACT_INPUT", `saveObjectives: objectives[${i}].id ${JSON.stringify(doc.id)} is not a well-formed OBJ id`);
+			if (seen.has(doc.id)) throw new ActionsError("ACT_INPUT", `saveObjectives: duplicate objective id ${JSON.stringify(doc.id)} (DOMAIN_SCHEMA §1.1 — 预校验; loader 亦拒)`);
+			seen.add(doc.id);
+			if (doc.scope !== "PROJECT" && doc.scope !== "TOPIC") throw new ActionsError("ACT_INPUT", `saveObjectives: objectives[${i}].scope ${JSON.stringify(doc.scope)} not allowed (PROJECT|TOPIC)`);
+			if (doc.scope === "TOPIC" && (typeof doc.topic_id !== "string" || doc.topic_id.length === 0)) throw new ActionsError("ACT_INPUT", `saveObjectives: objectives[${i}] (scope=TOPIC) requires topic_id (objectives.schema.json if/then)`);
+			if (typeof doc.statement !== "string" || doc.statement.length === 0) throw new ActionsError("ACT_INPUT", `saveObjectives: objectives[${i}].statement must be a non-empty string`);
+			if (!Array.isArray(doc.success_criteria) || doc.success_criteria.length === 0) throw new ActionsError("ACT_INPUT", `saveObjectives: objectives[${i}].success_criteria must be a non-empty string[] (objectives.schema.json minItems:1)`);
+			if (typeof doc.created_at !== "number" || !Number.isSafeInteger(doc.created_at) || doc.created_at < 0) throw new ActionsError("ACT_INPUT", `saveObjectives: objectives[${i}].created_at must be a non-negative epoch ms (DOMAIN_SCHEMA §1.2)`);
+		});
+	}
+	/** §12.1 `OBJECTIVE_EDITED` 账本行（不存 before/after 快照 — 原文）。 */
+	buildObjectiveEditedAction(maId, actor, objectives, beforeStatus, fileCreated, at) {
+		const changes = [];
+		for (const o of objectives) {
+			const before = beforeStatus.get(o.id);
+			if (before === void 0) changes.push(`${o.id} added`);
+			else if (before !== o.status) changes.push(`${o.id}: ${before} → ${o.status}`);
+		}
+		const detail = `objectives.yaml ${fileCreated ? "created" : "updated"} via GUI edit: ${objectives.length} objective(s) [${objectives.map((o) => o.id).join(", ")}]` + (changes.length > 0 ? `; status changes: ${changes.join("; ")}` : "");
+		return {
+			id: maId,
+			action_kind: "OBJECTIVE_EDITED",
+			actor,
+			subject_refs: objectives.map((o) => ({
+				kind: "OBJECTIVE",
+				id: o.id
+			})),
+			detail,
+			occurred_at: at
+		};
+	}
+};
+//#endregion
+//#region src/host/domain/plan/types.ts
+/** The shared/ids IdKind each plan item kind resolves to (§1.1 registry). */
+const KIND_TO_ID_KIND = {
+	task: "TASK",
+	gate: "GATE",
+	milestone: "MILESTONE"
+};
+/** The `items/` subdirectory per kind (DOMAIN_SCHEMA §14 layout). */
 const KIND_TO_DIR$1 = {
-	TASK: "tasks",
-	GATE: "gates",
-	MILESTONE: "milestones"
+	task: "tasks",
+	gate: "gates",
+	milestone: "milestones"
 };
 /**
-* The §3.1 closure paths in LENIENT form — for stale rechecks where the
-* canonical plan may be INCONSISTENT (user mid-edit: a malformed
-* `ordered_items` element, a dangling definition file …):
-*
-*   1. `<wsDir>/plan.yaml`
-*   2. one definition file per WELL-FORMED T/G/M element of `ordered_items`,
-*      canonical order (`<wsDir>/items/<tasks|gates|milestones>/<id>.yaml`);
-*      malformed elements are skipped (they have no definition file — the
-*      §5 set comparison then runs on the computable part, and plan.yaml's
-*      own OID almost certainly changed too).
-*
-* The STRICT face (creation path) is WP-3.1 `closureRelativePaths` (a
-* malformed element is an upstream validation failure ⇒ PF_INPUT). This
-* lenient face never throws on element shape — it only computes paths;
-* disk presence is judged by the caller (hashing layer).
-*
-* Duplicates in `ordered_items` (inconsistent plan) are deduplicated — a
-* closure is a SET (§5 集合比较).
+* One precisely-located plan-store violation (ARCHITECTURE §10: file +
+* field + 违规内容摘要, no guess-repair). Mutating operations throw the
+* FIRST violated check (fail before any write); `loadPlan` AGGREGATES
+* (WP-1.1 style) into `PlanLoadResult.errors`.
 */
-function closurePathsLenient(wsDir, orderedItems) {
-	const normalized = wsDir.endsWith("/") ? wsDir.slice(0, -1) : wsDir;
-	const paths = [`${normalized}/plan.yaml`];
-	const seen = new Set(paths);
-	for (const id of orderedItems) {
+var PlanStoreError = class extends Error {
+	code;
+	/** File (or entry) location, relative to the `.research/` root, POSIX-style. */
+	file;
+	/** JSON-pointer-style path inside the document; `undefined` for document-level errors. */
+	path;
+	constructor(init) {
+		super(init.message);
+		this.name = "PlanStoreError";
+		this.code = init.code;
+		this.file = init.file;
+		this.path = init.path;
+	}
+};
+//#endregion
+//#region src/host/domain/plan/plan-store.ts
+/**
+* WP-1.3 — `PlanStore`: canonical plan CRUD for one workstream.
+*
+* Frozen contracts (read-only):
+*  - DOMAIN_SCHEMA §4.4 — `plan.yaml`: `{ workstream, ordered_items }`;
+*    elements must satisfy 「定义文件存在 ∧ 属于本 WS ∧ 无重复」; order is
+*    user intent and MUST be persisted verbatim (INV-PLAN-1);
+*  - DOMAIN_SCHEMA §4.1/§4.2/§4.3 — G/T/M definition files: declarative
+*    content only (INV-PLAN-9); file name = id (§1.1 规则 2/3);
+*    `workstream_id` path-bound;
+*  - DOMAIN_SCHEMA §1.1 规则 1 — ids are immutable once assigned;
+*  - ARCHITECTURE §5.4 INV-PLAN-1/9 (see types.ts);
+*  - schema/declarative/{plan,task,gate,milestone}.schema.json consumed
+*    VERBATIM through the WP-1.1 `loadSchemas` (frozen, no mutation).
+*
+* ## Design (pure kernel, ARCHITECTURE §2.2 rule 1)
+*
+*  - ZERO direct I/O: reads go through the injected WP-1.1
+*    `ResearchFileReader`, writes through the injected `PlanFileWriter`
+*    (atomic tmp+rename is the writer's obligation — see types.ts).
+*  - STATELESS & reentrant: every public operation re-reads the current
+*    state (no cache); a "restart" is a fresh instance over the same files
+*    (TC-DOM-005).
+*  - VALIDATE BEFORE WRITE: mutations throw the first violated check before
+*    any write happens; `loadPlan` aggregates (WP-1.1 style). Mutating
+*    operations additionally refuse to build on an already-inconsistent
+*    plan.yaml (no guess-repair, ARCHITECTURE §10).
+*  - §1.2 time boundary: in-memory carriers carry epoch ms (the WP-1.1
+*    loader's carriers); file carriers carry ISO 8601 UTC strings — the
+*    conversion happens here, in `serialize.ts` / `carrierToMemory`, at the
+*    same serialization boundary the loader owns on the read side.
+*/
+/** Reverse of KIND_TO_ID_KIND: the plan kinds that are plan-item kinds (§4.4 T/G/M). */
+const ID_KIND_TO_PLAN_KIND = {
+	TASK: "task",
+	GATE: "gate",
+	MILESTONE: "milestone"
+};
+function errMsg(cause) {
+	return cause instanceof Error ? cause.message : String(cause);
+}
+var PlanStore = class {
+	opts;
+	schemas;
+	constructor(options) {
+		if (!idMatchesKind(options.topicId, "TOPIC")) throw new PlanStoreError({
+			code: "PATH_RULE",
+			file: `topics/${options.topicId}`,
+			message: `topicId ${JSON.stringify(options.topicId)} is not a well-formed TPC id (DOMAIN_SCHEMA §14)`
+		});
+		if (!idMatchesKind(options.wsId, "WORKSTREAM")) throw new PlanStoreError({
+			code: "PATH_RULE",
+			file: `topics/${options.topicId}/workstreams/${options.wsId}`,
+			message: `wsId ${JSON.stringify(options.wsId)} is not a well-formed WS id (DOMAIN_SCHEMA §14)`
+		});
+		const loadErrors = [];
+		const compiled = loadSchemas(options.reader, options.schemaDir, loadErrors);
+		const missing = [
+			"plan",
+			"task",
+			"gate",
+			"milestone"
+		].filter((t) => !compiled.validators.has(t));
+		if (missing.length > 0 || loadErrors.length > 0) throw new PlanStoreError({
+			code: "SCHEMA_LOAD",
+			file: loadErrors[0]?.file ?? options.schemaDir,
+			message: `frozen schema set unavailable for canonical plan CRUD` + (missing.length > 0 ? ` (missing validators: ${missing.join(", ")})` : "") + (loadErrors.length > 0 ? ` — ${loadErrors.map((e) => e.message).join(" | ")}` : "")
+		});
+		this.schemas = compiled;
+		this.opts = options;
+		const wsRel = this.wsPath();
+		let entries;
+		try {
+			entries = options.reader.readDir(this.abs(wsRel));
+		} catch (cause) {
+			throw new PlanStoreError({
+				code: "READ",
+				file: wsRel,
+				message: `read failed: ${errMsg(cause)}`
+			});
+		}
+		if (entries === null) throw new PlanStoreError({
+			code: "WORKSTREAM_MISSING",
+			file: wsRel,
+			message: `workstream directory ${JSON.stringify(wsRel)} does not exist (DOMAIN_SCHEMA §14)`
+		});
+	}
+	/** `topics/<t>/workstreams/<w>` — the managed workstream directory. */
+	wsPath() {
+		return `topics/${this.opts.topicId}/workstreams/${this.opts.wsId}`;
+	}
+	/** `topics/<t>/workstreams/<w>/plan.yaml` — the canonical plan file. */
+	planPath() {
+		return `${this.wsPath()}/plan.yaml`;
+	}
+	/** `topics/<t>/workstreams/<w>/items/<dir>/<id>.yaml` — a definition file. */
+	itemPath(kind, id) {
+		return `${this.wsPath()}/items/${KIND_TO_DIR$1[kind]}/${id}.yaml`;
+	}
+	abs(rel) {
+		return pjoin(this.opts.researchRoot, rel);
+	}
+	/**
+	* Load `plan.yaml` (aggregated-error result, WP-1.1 style).
+	*
+	* `items` is the file's `ordered_items` VERBATIM (no sort, no dedup —
+	* INV-PLAN-1). Missing file ⇒ `{ present: false, items: [], errors: [] }`
+	* (a workstream without a plan is legal — the loader marks plan.yaml
+	* optional). Non-empty `errors` ⇒ the plan is inconsistent; mutating
+	* operations then refuse to build on it (the FIRST error is thrown).
+	*/
+	loadPlan() {
+		const rel = this.planPath();
+		let text;
+		try {
+			text = this.opts.reader.readFile(this.abs(rel));
+		} catch (cause) {
+			return {
+				present: false,
+				items: [],
+				errors: [new PlanStoreError({
+					code: "READ",
+					file: rel,
+					message: `read failed: ${errMsg(cause)}`
+				})]
+			};
+		}
+		if (text === null) return {
+			present: false,
+			items: [],
+			errors: []
+		};
+		const errors = [];
+		const carrier = this.parseSingleYamlDoc(rel, text, errors);
+		if (carrier === null) return {
+			present: true,
+			items: [],
+			errors
+		};
+		const validator = this.schemas.validators.get("plan");
+		if (!validator(carrier)) {
+			for (const err of validator.errors ?? []) errors.push(new PlanStoreError({
+				code: "SCHEMA",
+				file: rel,
+				path: err.instancePath === "" ? void 0 : err.instancePath,
+				message: schemaErrorSummary(err)
+			}));
+			return {
+				present: true,
+				items: [],
+				errors
+			};
+		}
+		const doc = carrier;
+		if (doc.workstream !== this.opts.wsId) errors.push(new PlanStoreError({
+			code: "PATH_ID_MISMATCH",
+			file: rel,
+			path: "/workstream",
+			message: `workstream ${JSON.stringify(doc.workstream)} does not match containing workstream directory ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.4)`
+		}));
+		const items = [];
+		const firstAt = /* @__PURE__ */ new Map();
+		doc.ordered_items.forEach((id, i) => {
+			items.push(id);
+			const first = firstAt.get(id);
+			if (first !== void 0) {
+				errors.push(new PlanStoreError({
+					code: "DUPLICATE_ID",
+					file: rel,
+					path: `/ordered_items/${i}`,
+					message: `duplicate item ${JSON.stringify(id)} (first listed at position ${first}) (DOMAIN_SCHEMA §4.4)`
+				}));
+				return;
+			}
+			firstAt.set(id, i);
+			const problem = this.definitionProblem(id);
+			if (problem !== null) errors.push(new PlanStoreError({
+				code: "DANGLING_REF",
+				file: rel,
+				path: `/ordered_items/${i}`,
+				message: `ordered_items[${i}] ${JSON.stringify(id)}: ${problem} (DOMAIN_SCHEMA §4.4/§16.1)`
+			}));
+		});
+		return {
+			present: true,
+			items,
+			errors
+		};
+	}
+	/**
+	* Validate and atomically (re)write `plan.yaml` with the given ordered
+	* ids — the SINGLE canonical write path of the store (all mutating
+	* operations funnel through it).
+	*
+	* Checks, in order, BEFORE any write:
+	*   1. frozen plan schema (类型一致性: elements must be T/G/M ids, §4.4);
+	*   2. no duplicate ids (DUPLICATE_ID, pointer to the second occurrence);
+	*   3. every id has a VALID definition file in THIS workstream
+	*      (DANGLING_REF — exists ∧ belongs to this WS, §4.4/§16.1).
+	* The serialization is deterministic (serialize.ts): same data ⇒ same
+	* bytes (TC-DOM-005), order preserved position-for-position (INV-PLAN-1).
+	*/
+	savePlan(orderedItems) {
+		const rel = this.planPath();
+		const doc = {
+			workstream: this.opts.wsId,
+			ordered_items: [...orderedItems]
+		};
+		const validator = this.schemas.validators.get("plan");
+		if (!validator(doc)) for (const err of validator.errors ?? []) throw new PlanStoreError({
+			code: "SCHEMA",
+			file: rel,
+			path: err.instancePath === "" ? void 0 : err.instancePath,
+			message: schemaErrorSummary(err)
+		});
+		const firstAt = /* @__PURE__ */ new Map();
+		doc.ordered_items.forEach((id, i) => {
+			const first = firstAt.get(id);
+			if (first !== void 0) throw new PlanStoreError({
+				code: "DUPLICATE_ID",
+				file: rel,
+				path: `/ordered_items/${i}`,
+				message: `duplicate item ${JSON.stringify(id)} (first listed at position ${first}) (DOMAIN_SCHEMA §4.4)`
+			});
+			firstAt.set(id, i);
+		});
+		for (const [id, i] of firstAt) {
+			const problem = this.definitionProblem(id);
+			if (problem !== null) throw new PlanStoreError({
+				code: "DANGLING_REF",
+				file: rel,
+				path: `/ordered_items/${i}`,
+				message: `ordered_items[${i}] ${JSON.stringify(id)}: ${problem} (DOMAIN_SCHEMA §4.4/§16.1)`
+			});
+		}
+		this.writeAtomicOrThrow(rel, serializePlan(this.opts.wsId, doc.ordered_items));
+	}
+	readItem(kind, id) {
+		return this.readItemImpl(kind, id);
+	}
+	readItemImpl(kind, id) {
+		this.assertItemKind(kind, id, this.itemPath(kind, id));
+		const rel = this.itemPath(kind, id);
+		let text;
+		try {
+			text = this.opts.reader.readFile(this.abs(rel));
+		} catch (cause) {
+			throw new PlanStoreError({
+				code: "READ",
+				file: rel,
+				message: `read failed: ${errMsg(cause)}`
+			});
+		}
+		if (text === null) throw new PlanStoreError({
+			code: "NOT_FOUND",
+			file: rel,
+			message: `no ${kind} definition file for ${JSON.stringify(id)} at ${JSON.stringify(rel)} (DOMAIN_SCHEMA §4.1/§4.2/§4.3)`
+		});
+		const errors = [];
+		const carrier = this.parseSingleYamlDoc(rel, text, errors);
+		if (carrier !== null) this.validateDefinitionCarrier(kind, rel, carrier, errors);
+		if (errors.length > 0) throw errors[0];
+		if (carrier === null) throw new PlanStoreError({
+			code: "PARSE",
+			file: rel,
+			message: "internal invariant: no YAML document and no error recorded"
+		});
+		return this.carrierToMemory(rel, carrier);
+	}
+	createItem(kind, doc) {
+		const rel = this.itemPath(kind, doc.id);
+		const content = this.prepareDefinitionWrite(kind, doc, rel);
+		this.writeAtomicOrThrow(rel, content);
+	}
+	updateItem(kind, id, changes) {
+		const rel = this.itemPath(kind, id);
+		this.assertItemKind(kind, id, rel);
+		const current = this.readItemImpl(kind, id);
+		const fields = DEFINITION_FIELDS[kind];
+		for (const key of Object.keys(changes)) {
+			if (key === "id" || key === "workstream_id") throw new PlanStoreError({
+				code: "IMMUTABLE_FIELD",
+				file: rel,
+				path: `/${key}`,
+				message: `field "${key}" is immutable in updateItem — id is frozen once assigned (DOMAIN_SCHEMA §1.1 规则 1; file name = id); workstream_id is path-bound to ${JSON.stringify(`${this.wsPath()}/items/${KIND_TO_DIR$1[kind]}`)}`
+			});
+			if (!fields.includes(key)) throw new PlanStoreError({
+				code: "SCHEMA",
+				file: rel,
+				path: `/${key}`,
+				message: `unknown field "${key}" — not a definition field of the frozen ${kind} schema (derived/runtime state is rejected, INV-PLAN-9/INV-TASK-2; additionalProperties: false)`
+			});
+		}
+		const merged = {};
+		for (const field of fields) {
+			const raw = Object.prototype.hasOwnProperty.call(changes, field) ? changes[field] : current[field];
+			if (raw === void 0) continue;
+			merged[field] = raw;
+		}
+		const carrier = toYamlCarrier(kind, merged);
+		const errors = [];
+		this.validateDefinitionCarrier(kind, rel, carrier, errors);
+		if (errors.length > 0) throw errors[0];
+		this.writeAtomicOrThrow(rel, stringify(carrier, YAML_OPTIONS));
+	}
+	/**
+	* List an EXISTING item definition into the plan at `index`
+	* (0 = head, length = tail). Rejects: non-item ids (TYPE_MISMATCH),
+	* out-of-range `index` (BOUNDARY), already-listed ids (DUPLICATE_ID),
+	* ids without a valid definition in this WS (DANGLING_REF).
+	*/
+	insertItemAt(id, index) {
+		const items = this.currentItems();
+		const rel = this.planPath();
+		this.assertPlanItemId(id);
+		this.assertInsertIndex("insertItemAt", id, index, items.length);
+		const existingAt = items.indexOf(id);
+		if (existingAt !== -1) throw new PlanStoreError({
+			code: "DUPLICATE_ID",
+			file: rel,
+			path: `/ordered_items/${existingAt}`,
+			message: `item ${JSON.stringify(id)} is already listed at position ${existingAt} (DOMAIN_SCHEMA §4.4)`
+		});
+		const problem = this.definitionProblem(id);
+		if (problem !== null) throw new PlanStoreError({
+			code: "DANGLING_REF",
+			file: rel,
+			path: `/ordered_items/${index}`,
+			message: `ordered_items[${index}] ${JSON.stringify(id)}: ${problem} (DOMAIN_SCHEMA §4.4/§16.1)`
+		});
+		this.savePlan([
+			...items.slice(0, index),
+			id,
+			...items.slice(index)
+		]);
+	}
+	/**
+	* Move a listed item to `toIndex` (position in the RESULTING list: the
+	* item is removed first, leaving `length-1` slots, so `0..length-1`).
+	* Rejects: unlisted ids (NOT_FOUND), out-of-range targets (BOUNDARY).
+	* All other ids keep their relative order (INV-PLAN-1: only the moved
+	* item's position changes).
+	*/
+	moveItem(id, toIndex) {
+		const items = this.currentItems();
+		const rel = this.planPath();
+		const from = items.indexOf(id);
+		if (from === -1) throw new PlanStoreError({
+			code: "NOT_FOUND",
+			file: rel,
+			path: "/ordered_items",
+			message: `moveItem(${JSON.stringify(id)}): item is not listed in the plan of ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.4)`
+		});
+		if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex > items.length - 1) throw new PlanStoreError({
+			code: "BOUNDARY",
+			file: rel,
+			path: "/ordered_items",
+			message: `moveItem(${JSON.stringify(id)}, ${String(toIndex)}): target position out of range — the item is removed first, leaving ${items.length - 1} slots (0..${items.length - 1}) (INV-PLAN-1 position bounds)`
+		});
+		const rest = items.filter((_, i) => i !== from);
+		rest.splice(toIndex, 0, id);
+		this.savePlan(rest);
+	}
+	/**
+	* Remove an item from `plan.yaml` ONLY (INV-PLAN-9): the G/T/M definition
+	* file is RETAINED — it leaves the current Future zone but is not deleted
+	* (long-term retention; a later re-insert lists it again without any
+	* definition work). Rejects unlisted ids (NOT_FOUND).
+	*/
+	removeItem(id) {
+		const items = this.currentItems();
+		const rel = this.planPath();
+		const at = items.indexOf(id);
+		if (at === -1) throw new PlanStoreError({
+			code: "NOT_FOUND",
+			file: rel,
+			path: "/ordered_items",
+			message: `removeItem(${JSON.stringify(id)}): item is not listed in the plan of ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.4)`
+		});
+		this.savePlan(items.filter((_, i) => i !== at));
+	}
+	addItem(kind, doc, index) {
+		const rel = this.itemPath(kind, doc.id);
+		const items = this.currentItems();
+		const at = index === void 0 ? items.length : index;
+		this.assertInsertIndex(`addItem(${JSON.stringify(doc.id)}, …)`, doc.id, at, items.length);
+		const content = this.prepareDefinitionWrite(kind, doc, rel);
+		this.writeAtomicOrThrow(rel, content);
+		this.writeAtomicOrThrow(this.planPath(), serializePlan(this.opts.wsId, [
+			...items.slice(0, at),
+			doc.id,
+			...items.slice(at)
+		]));
+	}
+	/** The current plan's ordered ids, or throw the first inconsistency. */
+	currentItems() {
+		const result = this.loadPlan();
+		if (result.errors.length > 0) throw result.errors[0];
+		return result.items;
+	}
+	/**
+	* §4.4 element check for one plan id: a valid definition file in THIS
+	* workstream. Returns `null` when the id is OK, else the precise reason
+	* (embedded into the caller's DANGLING_REF/TYPE_MISMATCH message).
+	*/
+	definitionProblem(id) {
 		const parsed = parseId(id);
-		if (parsed === null) continue;
-		if (parsed.kind !== "TASK" && parsed.kind !== "GATE" && parsed.kind !== "MILESTONE") continue;
-		const p = `${normalized}/items/${KIND_TO_DIR$1[parsed.kind]}/${id}.yaml`;
-		if (!seen.has(p)) {
-			seen.add(p);
-			paths.push(p);
+		if (parsed === null) return `not a well-formed research id (DOMAIN_SCHEMA §1.1)`;
+		const kind = ID_KIND_TO_PLAN_KIND[parsed.kind];
+		if (kind === void 0) return `id kind ${parsed.kind} is not a plan item kind (T/G/M required, DOMAIN_SCHEMA §4.4)`;
+		const rel = this.itemPath(kind, id);
+		let text;
+		try {
+			text = this.opts.reader.readFile(this.abs(rel));
+		} catch {
+			return `definition file read failed at ${JSON.stringify(rel)} (I/O)`;
+		}
+		if (text === null) return `has no definition file at ${JSON.stringify(rel)} (DOMAIN_SCHEMA §4.4/§16.1)`;
+		const errors = [];
+		const carrier = this.parseSingleYamlDoc(rel, text, errors);
+		if (carrier !== null) this.validateDefinitionCarrier(kind, rel, carrier, errors);
+		if (errors.length > 0) return `definition file ${JSON.stringify(rel)} failed validation: ${errors[0].message}`;
+		return null;
+	}
+	/**
+	* All pre-write checks for a definition file, shared by `createItem` and
+	* `addItem` — returns the serialized (validated) file content:
+	* id kind (TYPE_MISMATCH) → 文件名=id (shared/ids 一致性助手, §1.1 规则 2/3)
+	* → workstream_id path match → no overwrite (FILE_EXISTS) → frozen schema.
+	*/
+	prepareDefinitionWrite(kind, doc, rel) {
+		this.assertItemKind(kind, doc.id, rel);
+		const nameCheck = checkFileNameId(`${doc.id}.yaml`, doc.id);
+		if (nameCheck.status !== "match") throw new PlanStoreError({
+			code: "PATH_ID_MISMATCH",
+			file: rel,
+			path: "/id",
+			message: `file name ${JSON.stringify(nameCheck.fileNameId ?? "(no id in name)")} does not match declared id ${JSON.stringify(doc.id)} (DOMAIN_SCHEMA §1.1 规则 2/3)`
+		});
+		if (doc.workstream_id !== this.opts.wsId) throw new PlanStoreError({
+			code: "PATH_ID_MISMATCH",
+			file: rel,
+			path: "/workstream_id",
+			message: `workstream_id ${JSON.stringify(doc.workstream_id)} does not match containing workstream directory ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.1/§4.2/§4.3)`
+		});
+		let existing;
+		try {
+			existing = this.opts.reader.readFile(this.abs(rel));
+		} catch (cause) {
+			throw new PlanStoreError({
+				code: "READ",
+				file: rel,
+				message: `read failed: ${errMsg(cause)}`
+			});
+		}
+		if (existing !== null) throw new PlanStoreError({
+			code: "FILE_EXISTS",
+			file: rel,
+			message: `definition file for ${JSON.stringify(doc.id)} already exists (create refused — use updateItem; no overwrite, DOMAIN_SCHEMA §1.1 规则 3)`
+		});
+		const carrier = toYamlCarrier(kind, doc);
+		const errors = [];
+		this.validateDefinitionCarrier(kind, rel, carrier, errors);
+		if (errors.length > 0) throw errors[0];
+		return stringify(carrier, YAML_OPTIONS);
+	}
+	/**
+	* Frozen-schema + path-id validation of one definition CARRIER (the
+	* on-file shape: ISO timestamps, field order irrelevant). Aggregates into
+	* `errors`; returns true when the carrier is accepted. Mirrors the WP-1.1
+	* loader's per-file pipeline (schema → §1.1 规则 3 文件名↔id → §4.x
+	* workstream field), so store and loader reject the same files.
+	*/
+	validateDefinitionCarrier(kind, rel, carrier, errors) {
+		const validator = this.schemas.validators.get(kind);
+		if (!validator(carrier)) {
+			for (const err of validator.errors ?? []) errors.push(new PlanStoreError({
+				code: "SCHEMA",
+				file: rel,
+				path: err.instancePath === "" ? void 0 : err.instancePath,
+				message: schemaErrorSummary(err)
+			}));
+			return false;
+		}
+		const fileName = rel.slice(rel.lastIndexOf("/") + 1);
+		const nameCheck = checkFileNameId(fileName, String(carrier.id));
+		if (nameCheck.status !== "match") {
+			errors.push(new PlanStoreError({
+				code: "PATH_ID_MISMATCH",
+				file: rel,
+				message: `id ${JSON.stringify(nameCheck.declaredId)} does not match file name ${JSON.stringify(fileName)} (DOMAIN_SCHEMA §1.1 规则 3/§4.1-4.3)`
+			}));
+			return false;
+		}
+		if (carrier.workstream_id !== this.opts.wsId) {
+			errors.push(new PlanStoreError({
+				code: "PATH_ID_MISMATCH",
+				file: rel,
+				path: "/workstream_id",
+				message: `workstream_id ${JSON.stringify(String(carrier.workstream_id))} does not match containing workstream directory ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.1/§4.2/§4.3)`
+			}));
+			return false;
+		}
+		return true;
+	}
+	/** Parse exactly one YAML document (WP-1.1 loader semantics, throwing-free). */
+	parseSingleYamlDoc(rel, text, errors) {
+		let docs;
+		try {
+			docs = parseAllDocuments(text);
+		} catch (cause) {
+			errors.push(new PlanStoreError({
+				code: "PARSE",
+				file: rel,
+				message: `YAML parse failed: ${errMsg(cause)}`
+			}));
+			return null;
+		}
+		const substantive = docs.filter((d) => d.errors.length > 0 || d.contents !== null && d.contents !== void 0);
+		if (substantive.length === 0) {
+			errors.push(new PlanStoreError({
+				code: "PARSE",
+				file: rel,
+				message: "empty or comment-only YAML file (expected a mapping)"
+			}));
+			return null;
+		}
+		if (substantive.length > 1) {
+			errors.push(new PlanStoreError({
+				code: "PARSE",
+				file: rel,
+				message: `multiple YAML documents (${substantive.length}); expected exactly one (DOMAIN_SCHEMA §14)`
+			}));
+			return null;
+		}
+		const doc = substantive[0];
+		if (doc.errors.length > 0) {
+			for (const e of doc.errors) {
+				const first = e.linePos?.[0];
+				const shortMsg = e.message.split("\n")[0];
+				const where = first ? ` (line ${first.line}, col ${first.col})` : "";
+				errors.push(new PlanStoreError({
+					code: "PARSE",
+					file: rel,
+					message: `YAML: ${shortMsg}${where}`
+				}));
+			}
+			return null;
+		}
+		let value;
+		try {
+			value = doc.toJS();
+		} catch (cause) {
+			errors.push(new PlanStoreError({
+				code: "PARSE",
+				file: rel,
+				message: `YAML parse failed: ${errMsg(cause)}`
+			}));
+			return null;
+		}
+		if (value === null || typeof value !== "object" || Array.isArray(value)) {
+			const what = value === null ? "null" : Array.isArray(value) ? "sequence" : typeof value;
+			errors.push(new PlanStoreError({
+				code: "SCHEMA",
+				file: rel,
+				message: `top-level YAML document must be a mapping (got ${what})`
+			}));
+			return null;
+		}
+		return value;
+	}
+	/** §1.2 boundary (read side): carrier `created_at` ISO string → epoch ms. */
+	carrierToMemory(rel, carrier) {
+		const raw = carrier.created_at;
+		const ms = typeof raw === "string" ? Date.parse(raw) : NaN;
+		if (!Number.isFinite(ms)) throw new PlanStoreError({
+			code: "PARSE",
+			file: rel,
+			path: "/created_at",
+			message: `timestamp ${JSON.stringify(String(raw))} cannot be converted to epoch ms (internal invariant)`
+		});
+		return {
+			...carrier,
+			created_at: ms
+		};
+	}
+	/** `id` must be a well-formed id of exactly the requested kind (类型一致性). */
+	assertItemKind(kind, id, file) {
+		const expected = KIND_TO_ID_KIND[kind];
+		const parsed = parseId(id);
+		if (parsed === null) throw new PlanStoreError({
+			code: "TYPE_MISMATCH",
+			file,
+			path: "/id",
+			message: `id ${JSON.stringify(id)} is not a well-formed research id (<PREFIX>-<positive integer>, DOMAIN_SCHEMA §1.1); expected a ${expected} id for items/${KIND_TO_DIR$1[kind]}/`
+		});
+		if (parsed.kind !== expected) throw new PlanStoreError({
+			code: "TYPE_MISMATCH",
+			file,
+			path: "/id",
+			message: `id ${JSON.stringify(id)} is a ${parsed.kind} id, not a ${expected} id (type mismatch for items/${KIND_TO_DIR$1[kind]}/, DOMAIN_SCHEMA §1.1/§4.4)`
+		});
+	}
+	/** A plan-operation id must be a well-formed T/G/M id (§4.4 类型一致性). */
+	assertPlanItemId(id) {
+		const parsed = parseId(id);
+		if (parsed === null) throw new PlanStoreError({
+			code: "TYPE_MISMATCH",
+			file: this.planPath(),
+			path: "/ordered_items",
+			message: `id ${JSON.stringify(id)} is not a well-formed research id (<PREFIX>-<positive integer>, DOMAIN_SCHEMA §1.1); plan items must be T/G/M ids (§4.4)`
+		});
+		if (ID_KIND_TO_PLAN_KIND[parsed.kind] === void 0) throw new PlanStoreError({
+			code: "TYPE_MISMATCH",
+			file: this.planPath(),
+			path: "/ordered_items",
+			message: `id ${JSON.stringify(id)} is a ${parsed.kind} id, not a plan item kind (T/G/M required, DOMAIN_SCHEMA §4.4)`
+		});
+	}
+	/** Insert position bounds: integer `0..length` (inserting into `length` items). */
+	assertInsertIndex(op, id, index, length) {
+		if (!Number.isInteger(index) || index < 0 || index > length) throw new PlanStoreError({
+			code: "BOUNDARY",
+			file: this.planPath(),
+			path: "/ordered_items",
+			message: `${op} ${JSON.stringify(id)}: position ${String(index)} out of range — inserting into a plan of ${length} items allows 0..${length} (INV-PLAN-1 position bounds)`
+		});
+	}
+	writeAtomicOrThrow(rel, content) {
+		try {
+			this.opts.writer.writeAtomic(this.abs(rel), content);
+		} catch (cause) {
+			throw new PlanStoreError({
+				code: "WRITE",
+				file: rel,
+				message: `write failed: ${errMsg(cause)}`
+			});
 		}
 	}
-	return paths;
+};
+//#endregion
+//#region src/host/service/actions/service.ts
+/**
+* WP-5.2 — `ActionsService`: NextAction / Blocker 的用户+Agent 业务面
+* （§16.3 写时引用校验 + §13 状态机 + §6 权限矩阵 + PROMOTE 物化流）。
+*
+* 与 `ActionsStore` 的分工（同 WP-3.1 create.ts/store.ts 先例）:
+*   - store = 纯 DB 面（DDL/INSERT/条件 UPDATE/查询 + 存储层权限门）;
+*   - service = 需要**上下文**的业务面: 声明式树（§16.3 存在性）、
+*     run 表（RUN 引用）、PlanStore 物化（PROMOTE 转正为 Task）。
+*
+* 面清单（任务书目标 2 + §6 矩阵泳道）:
+*   - `createNextAction`      — USER ✅ / AGENT ✅（§6 行「NextAction 创建」;
+*     AGENT 经 `research_next_action_create` 工具面转发, WP-3.3 stub 的
+*     plannedService 即本面）;
+*   - `promoteNextAction`     — **USER only**（§6 行「NextAction
+*     PROMOTE/DISMISS ✅/❌/❌/❌」; §9.3「用户才 PROMOTE（转正为 Task）」）
+*     — 完整物化流（见下）;
+*   - `dismissNextAction`     — **USER only**（同上矩阵行）;
+*   - `createBlocker` / `clearBlocker` — **USER only**（INV-PERM-1 闭集外;
+*     §6 无 Blocker 行 — state-machine.ts 头注②）;
+*   - 查询面透传（RPC/视图数据缝 — 冻结 13 RPC 无注意力面, 接线面归
+*     后续集成, 见报告「实现要点」§3）。
+*
+* ## PROMOTE 物化流（§9.3「转正为 Task」— 同 WP-3.4 SELECT 物化/补偿纪律）
+*
+*   前置 `NA.status == PROPOSED`（§13 守卫）⇒
+*   1. **目标 WS 判定**: `params.workstreamId ?? NA.workstream_id` —
+*      Task 必须属一个 WS（task.schema.json 必填 workstream_id）⇒
+*      无 workstream_id 的 NA 在 PROMOTE 时**必须**显式给 WS（GUI 选择面）;
+*      NA 已带 WS 时显式参数必须一致（不允许静默改挂）; WS 必须在树中存在
+*      （§16.3）;
+*   2. **计划前置**: 目标 WS 的 `plan.yaml` 必须存在（物化 = 插入既有
+*      canonical plan — 无计划文件的 WS 先建计划; 同时此前置让补偿面
+*      永远有旧字节可恢复 — writer 无 unlink 面, 不制造「补偿即删除」）;
+*   3. **物化 Task 定义文件**（§4.1）: 分配 T id（共享 allocator, §1.1
+*      规则 2）→ `PlanStore.createItem('task', doc)`（冻结 task.schema.json
+*      前置校验 + 原子写; title = NA.statement（≤200, schema maxLength）,
+*      goal = statement + rationale 附注, acceptance_criteria=[] ⇒
+*      validation 只能 NOT_REQUIRED — INV-TASK-3 合法; created_by = USER
+*      执行者）;
+*   4. **重写 plan.yaml**（§4.4）: 旧文件精确字节留存（补偿用）→
+*      `PlanStore.savePlan(新序)`（§4.4 三校验 + 原子写）; 插入位置
+*      `params.index`（默认末尾）;
+*   5. **DB 事务**: NA 行乐观条件 UPDATE `PROPOSED → PROMOTED`
+*      （promoted_to_task_id 落定 — 存储层 trigger 钉死一经生成不可更换）
+*      + `PLAN_ITEM_ADDED` 账本行（§12.1 冻结 kind — 「新 item 进计划」的
+*      provenance; actor = USER 执行者）; 0 行 ⇒ 并发迁移 ⇒ 整事务回滚;
+*   6. **补偿**（文件半边已落而 DB 失败 / 并发迁移）: 恢复旧 plan.yaml
+*      精确字节（原子回写）; Task 定义文件**保留**为未列入定义
+*      （INV-PLAN-9 合法部分态 — 本服务从不删除 .research 文件, §10
+*      「restore 显式触发」）; 烧号留 gap（§1.1 规则 2）; 大声错误
+*      （PROMOTE_CONCURRENT / PROMOTE_DB_FAILED; 补偿自身失败 ⇒
+*      PROMOTE_COMPENSATION_FAILED — 人工介入, 同 WP-3.4 §6.6 口径）。
+*   7. §12.1/§13: 不写 ResearchHistory（CATALOG 无 NA 事件 — 模块头核查
+*      口径; 账本行是唯一落库痕迹）。
+*/
+/**
+* 物化 Task 的下一个 id（WP-3.4 `computeNewPlan` 同款先例 — 目标 plan 内
+* 该 kind 最大序号 + 1; Task 定义在声明式层, 其 id 面是 plan-local 的,
+* 不经 §1.1 meta 计数器 — 与既有声明式 T 序号零碰撞）。
+*/
+function nextTaskSequence(planItems) {
+	let max = 0;
+	for (const id of planItems) {
+		if (!ID_PATTERNS.task.test(id)) continue;
+		const n = Number(id.slice(2));
+		if (n > max) max = n;
+	}
+	return max + 1;
 }
 /**
-* The §5 set comparison: `stale(PF) ⇔ current ≠ base`.
-*
-* Returns the structured diff (EMPTY ⇔ the sets are EQUAL — not stale).
-* Kinds (see `ClosureDiffKind`):
-*  - current-only path, on disk        → `added`       (base_oid=null, current_oid=oid)
-*  - current-only path, not on disk    → `missing`     (base_oid=null, current_oid=null)
-*  - base+current path, OIDs differ    → `oid_changed` (both OIDs set)
-*  - base+current path, not on disk    → `missing`     (base_oid set,   current_oid=null)
-*  - base-only path                    → `removed`     (base_oid set,   current_oid=null)
-*
-* Order: current-set order first, then base-set order for removed entries
-* (见模块头注 — `diff[0]` = §5 「首个差异」).
-*
-* Set semantics: element ORDER is irrelevant (a canonical reorder keeps the
-* same file set — it is caught via plan.yaml's OID instead); duplicate paths
-* on either side are first-occurrence-wins (a closure is a set).
+* 下一个**可用** Task id（nextTaskSequence 起, 跳过已存在定义文件的 id —
+* 上一次失败物化留下的未列入孤儿定义: §1.1 规则 3 禁覆盖, 孤儿按
+* INV-PLAN-9 保留不删 ⇒ 本物化取下一个空位, 孤儿留在盘上合法）。
 */
-function compareClosureBases(base, current) {
-	const baseByPath = /* @__PURE__ */ new Map();
-	for (const b of base) if (!baseByPath.has(b.path)) baseByPath.set(b.path, b.git_blob_oid);
-	const currentByPath = /* @__PURE__ */ new Map();
-	for (const c of current) if (!currentByPath.has(c.path)) currentByPath.set(c.path, c.oid);
-	const diff = [];
-	for (const c of current) {
-		const baseOid = baseByPath.get(c.path);
-		if (baseOid === void 0) diff.push(c.oid === null ? {
-			path: c.path,
-			kind: "missing",
-			base_oid: null,
-			current_oid: null
+function allocateTaskId(planItems, definitionExists) {
+	let seq = nextTaskSequence(planItems);
+	let taskId = `T-${seq}`;
+	while (definitionExists(taskId)) {
+		seq += 1;
+		taskId = `T-${seq}`;
+	}
+	return taskId;
+}
+var ActionsService = class {
+	store;
+	reader;
+	writer;
+	researchRoot;
+	schemaDir;
+	allocator;
+	projectId;
+	db;
+	runExists;
+	now;
+	/** Objective 声明式面（任务书目标 1 — 同一模块的第三对象）。 */
+	objectives;
+	constructor(options) {
+		this.store = options.store;
+		this.reader = options.reader;
+		this.writer = options.writer;
+		this.researchRoot = options.researchRoot;
+		this.schemaDir = options.schemaDir;
+		this.allocator = options.allocator;
+		this.projectId = options.projectId;
+		this.db = options.db;
+		this.runExists = options.runExists;
+		this.now = options.now ?? Date.now;
+		this.objectives = new ObjectiveFileService({
+			reader: this.reader,
+			writer: this.writer,
+			researchRoot: this.researchRoot,
+			schemaDir: this.schemaDir,
+			allocator: this.allocator,
+			projectId: this.projectId,
+			db: this.db,
+			now: this.now
+		});
+	}
+	/**
+	* Create one PROPOSED NextAction（USER 或 AGENT — AGENT 泳道经
+	* `research_next_action_create` 工具面; `workstreamId` 存在性在此
+	* 按 §16.3 第 2 条写时校验）。
+	*/
+	createNextAction(params, actor) {
+		assertNextActionCreator(actor, "createNextAction");
+		if (params.workstreamId !== void 0) this.assertWorkstreamExists(params.workstreamId, "createNextAction", "ACT_INPUT");
+		return this.store.createNextAction(params, actor);
+	}
+	/**
+	* PROMOTE — 转正为 Task（用户 only; 物化流见模块头）。
+	*/
+	promoteNextAction(id, params = {}, actor) {
+		assertUserActor$3(actor, `promoteNextAction(${id})`);
+		if (typeof id !== "string" || id.length === 0) throw new ActionsError("ACT_INPUT", "promoteNextAction: next action id must be a non-empty string");
+		if (params.index !== void 0 && (!Number.isSafeInteger(params.index) || params.index < 0)) throw new ActionsError("PROMOTE_INPUT", `promoteNextAction(${id}): index must be a non-negative safe integer (got ${String(params.index)})`);
+		const na = this.store.getNextAction(id);
+		if (na === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} does not exist`);
+		checkNextActionTransition(id, na.status, "PROMOTED");
+		const wsId = params.workstreamId ?? na.workstream_id;
+		if (wsId === void 0) throw new ActionsError("PROMOTE_INPUT", `promoteNextAction(${id}): a Task must belong to a workstream (task.schema.json required workstream_id) — this NextAction carries no workstream_id, so the PROMOTE call must name one (GUI 选择面)`);
+		if (na.workstream_id !== void 0 && na.workstream_id !== wsId) throw new ActionsError("PROMOTE_INPUT", `promoteNextAction(${id}): the NextAction is tied to ${na.workstream_id} but the call targets ${wsId} — a promote never re-hangs the action onto another workstream (explicit mismatch, fail loud)`);
+		const tree = this.loadTreeOrThrow(`promoteNextAction(${id})`, "PROMOTE_PLAN");
+		const wsNode = this.findWorkstream(tree, wsId, `promoteNextAction(${id})`, "PROMOTE_INPUT");
+		const planStore = this.planStore(wsNode);
+		const plan = planStore.loadPlan();
+		if (plan.errors.length > 0) {
+			const e = plan.errors[0];
+			throw new ActionsError("PROMOTE_PLAN", `promoteNextAction(${id}): the canonical plan of ${wsId} is inconsistent — refusing to build on it: [${e.code}] ${e.file}${e.path !== void 0 ? ` ${e.path}` : ""}: ${e.message}`);
+		}
+		if (!plan.present) throw new ActionsError("PROMOTE_PLAN", `promoteNextAction(${id}): ${wsId} has no canonical plan.yaml — materialization inserts into an EXISTING plan; create/seed the plan first`);
+		const oldPlanBytes = this.reader.readFile(pjoin(this.researchRoot, planStore.planPath()));
+		if (oldPlanBytes === null) throw new ActionsError("PROMOTE_PLAN", `promoteNextAction(${id}): the plan file of ${wsId} is present per loadPlan but unreadable — internal reader inconsistency`);
+		const index = params.index ?? plan.items.length;
+		if (index > plan.items.length) throw new ActionsError("PROMOTE_INPUT", `promoteNextAction(${id}): index ${index} is beyond the plan length ${plan.items.length} (0..${plan.items.length})`);
+		const now = this.now();
+		const taskId = allocateTaskId(plan.items, (tid) => this.reader.readFile(pjoin(this.researchRoot, planStore.itemPath("task", tid))) !== null);
+		let newOrder;
+		try {
+			const taskDoc = this.buildTaskDoc(taskId, wsId, na, actor, now);
+			planStore.createItem("task", taskDoc);
+			newOrder = [
+				...plan.items.slice(0, index),
+				taskId,
+				...plan.items.slice(index)
+			];
+			planStore.savePlan(newOrder);
+		} catch (cause) {
+			if (cause instanceof ActionsError) throw cause;
+			throw new ActionsError("PROMOTE_PLAN", `promoteNextAction(${id}): the file stage failed (${cause instanceof Error ? cause.message : String(cause)}) — plan.yaml was not successfully rewritten; the new task definition file, if written, remains unlisted (INV-PLAN-9 合法部分态); the NextAction stays PROPOSED and is retryable`, { cause });
+		}
+		const maRes = this.allocator.reserve("MANAGEMENT_ACTION", this.projectId);
+		try {
+			this.db.transaction(() => {
+				if (this.db.run(SQL_TRANSITION_NEXT_ACTION, "PROMOTED", taskId, id) === 0) {
+					const reread = this.store.getNextAction(id);
+					if (reread === null) throw new ActionsError("NA_NOT_FOUND", `next action ${JSON.stringify(id)} vanished during transition (no-delete trigger in effect — investigate)`);
+					throw new ActionsError("PROMOTE_CONCURRENT", `next action ${JSON.stringify(id)} moved concurrently (expected PROPOSED, now ${reread.status}) — refetch and retry`);
+				}
+				const ma = {
+					id: maRes.id,
+					action_kind: "PLAN_ITEM_ADDED",
+					actor,
+					subject_refs: [{
+						kind: "TASK",
+						id: taskId
+					}, {
+						kind: "WORKSTREAM",
+						id: wsId
+					}],
+					detail: `next action ${id} promoted to task ${taskId} in ${wsId} plan (index ${index}; new plan length ${newOrder.length})`,
+					occurred_at: now
+				};
+				this.db.run(SQL_INSERT_MANAGEMENT_ACTION, ...managementActionToParams(ma));
+			});
+		} catch (cause) {
+			this.allocator.release(maRes);
+			this.compensatePlan(planStore, oldPlanBytes, `promoteNextAction(${id})`, true);
+			if (cause instanceof ActionsError && (cause.code === "PROMOTE_CONCURRENT" || cause.code === "NA_NOT_FOUND")) throw cause;
+			throw new ActionsError("PROMOTE_DB_FAILED", `promoteNextAction(${id}): the DB transaction failed (${cause instanceof Error ? cause.message : String(cause)}) — plan.yaml was restored to its previous bytes; the new task definition file remains unlisted (INV-PLAN-9); the NextAction stays PROPOSED and is retryable`, { cause });
+		}
+		this.allocator.commit(maRes);
+		return {
+			nextActionId: id,
+			taskId,
+			workstreamId: wsId,
+			planPath: planStore.planPath(),
+			newOrder,
+			managementActionId: maRes.id
+		};
+	}
+	/**
+	* DISMISS（§13 终态; 用户 only）。无物化面 — 纯行状态迁移。
+	*/
+	dismissNextAction(id, actor) {
+		assertUserActor$3(actor, `dismissNextAction(${id})`);
+		return this.store.dismissNextAction(id, actor);
+	}
+	/**
+	* Create one ACTIVE Blocker（§9.4; `affects` 引用存在性按 §16.3 写时
+	* 校验: WS/T 经声明式树, RUN 经 run 表面 — 「写入新引用时失败 = 拒绝」）。
+	*/
+	createBlocker(params, actor) {
+		assertUserActor$3(actor, "createBlocker", "BLK_ACTOR");
+		this.assertAffectsExist(params.affects, "createBlocker");
+		return this.store.createBlocker(params, actor);
+	}
+	/**
+	* CLEAR（§13 终态; 用户 only; 复发 = 新 Blocker 行）。
+	*/
+	clearBlocker(id, actor) {
+		assertUserActor$3(actor, `clearBlocker(${id})`, "BLK_ACTOR");
+		return this.store.clearBlocker(id, actor);
+	}
+	listNextActions(filter = {}) {
+		return this.store.listNextActions(filter);
+	}
+	listBlockers(filter = {}) {
+		return this.store.listBlockers(filter);
+	}
+	listObjectives() {
+		return this.objectives.loadObjectives().objectives;
+	}
+	planStore(wsNode) {
+		return new PlanStore({
+			reader: this.reader,
+			writer: this.writer,
+			researchRoot: this.researchRoot,
+			schemaDir: this.schemaDir,
+			topicId: wsNode.topicId,
+			wsId: wsNode.id
+		});
+	}
+	/**
+	* 补偿: 恢复旧 plan.yaml 精确字节（原子回写）。定义文件保留（INV-PLAN-9
+	* 未列入定义合法态 — 本服务零删除）。补偿失败 ⇒ PROMOTE_COMPENSATION_FAILED
+	* （人工介入, 同 WP-3.4 §6.6 口径）— 原错误丢失, 补偿失败是更严重的状态。
+	*/
+	compensatePlan(planStore, oldPlanBytes, context, planDirty) {
+		if (!planDirty) return;
+		const absPlan = pjoin(this.researchRoot, planStore.planPath());
+		try {
+			this.writer.writeAtomic(absPlan, oldPlanBytes);
+		} catch (cause) {
+			throw new ActionsError("PROMOTE_COMPENSATION_FAILED", `COMPENSATION FAILED: ${context} — the plan.yaml could not be restored to its previous bytes (${cause instanceof Error ? cause.message : String(cause)}); the plan file may hold the NEW materialized order while the NextAction is still PROPOSED. Manual intervention required (git restore — INV-GIT-8)`, { cause });
+		}
+	}
+	/** PROMOTE 物化的 TaskDoc（§4.1 字段面; acceptance_criteria=[] — INV-TASK-3）。 */
+	buildTaskDoc(taskId, wsId, na, actor, at) {
+		return {
+			id: taskId,
+			workstream_id: wsId,
+			title: na.statement.length > 200 ? `${na.statement.slice(0, 197)}…` : na.statement,
+			goal: na.rationale !== void 0 ? `${na.statement}\n\n（NextAction 提案理由）${na.rationale}` : na.statement,
+			deliverables: [],
+			acceptance_criteria: [],
+			created_by: { ...actor },
+			created_at: at
+		};
+	}
+	loadTreeOrThrow(operation, code) {
+		const load = loadResearchTree(this.reader, this.researchRoot, this.schemaDir);
+		if (load.errors.length > 0) {
+			const e = load.errors[0];
+			throw new ActionsError(code, `${operation}: the declarative tree failed to load — refusing to operate on a broken tree: [${e.code}] ${e.file || "<root>"}${e.path !== void 0 ? ` ${e.path}` : ""}: ${e.message}`);
+		}
+		return load.tree;
+	}
+	findWorkstream(tree, wsId, operation, code) {
+		for (const topic of tree.topics) {
+			const ws = topic.workstreams.find((w) => w.id === wsId);
+			if (ws !== void 0) return ws;
+		}
+		throw new ActionsError(code, `${operation}: workstream ${JSON.stringify(wsId)} does not exist (DOMAIN_SCHEMA §16.3 — 写入时引用校验 = 拒绝)`);
+	}
+	/** §16.3 第 2 条: operational → 声明式, 写入时校验（WS 存在）。 */
+	assertWorkstreamExists(wsId, operation, code) {
+		const tree = this.loadTreeOrThrow(operation, code);
+		this.findWorkstream(tree, wsId, operation, code);
+	}
+	/** §16.3 写时校验: affects 引用逐一存在（WS/T 树; RUN 表面）。 */
+	assertAffectsExist(affects, operation) {
+		const tree = this.loadTreeOrThrow(operation, "ACT_INPUT");
+		const wsIds = /* @__PURE__ */ new Set();
+		const taskIds = /* @__PURE__ */ new Set();
+		for (const topic of tree.topics) for (const ws of topic.workstreams) {
+			wsIds.add(ws.id);
+			for (const t of ws.tasks) taskIds.add(t.id);
+		}
+		for (const ref of affects) if (ref.kind === "WORKSTREAM") {
+			if (!wsIds.has(ref.id)) throw new ActionsError("BLK_REF_MISSING", `${operation}: affects reference {kind: WORKSTREAM, id: ${JSON.stringify(ref.id)}} does not exist (DOMAIN_SCHEMA §16.3 — 写入新引用时失败 = 拒绝)`);
+		} else if (ref.kind === "TASK") {
+			if (!taskIds.has(ref.id)) throw new ActionsError("BLK_REF_MISSING", `${operation}: affects reference {kind: TASK, id: ${JSON.stringify(ref.id)}} does not exist (DOMAIN_SCHEMA §16.3)`);
+		} else if (!this.runExists.exists(ref.id)) throw new ActionsError("BLK_REF_MISSING", `${operation}: affects reference {kind: RUN, id: ${JSON.stringify(ref.id)}} does not exist in the run table (DOMAIN_SCHEMA §16.3 第 3 条)`);
+	}
+};
+//#endregion
+//#region src/host/service/reporting/types.ts
+/**
+* WP-5.3 — reporting layer shared types: Interaction / ReportingItem /
+* ScheduledEvent (DOMAIN_SCHEMA §10, operational 真源 = research.sqlite;
+* the frozen row projection is `schema/operational/reporting.schema.json`).
+*
+* Layering (ARCHITECTURE §2.2): this module is pure data + pure guards —
+* zero I/O, zero driver import, zero DSH import (INV-PERM-5). The DB is
+* reached only through the injected `ReportingDb` structural port (the
+* established dual-connection pattern: runbinding / planfork / flooding
+* each carry the same five-method face — re-declared here field-for-field
+* so the reporting layer has no cross-WP dependency; the wiring's
+* `adaptDatabaseSync` satisfies it structurally).
+*
+* 对象纪律 (per 任务边界 + §10/§13):
+*  - 三对象全部 operational, 全部**登记制** (no delete / no content
+*    update — 存储层 trigger 兜底, schema.ts);
+*  - Interaction / ScheduledEvent 无状态列 ⇒ 创建后整体不可变;
+*  - ReportingItem 有状态机 (§13): `OPEN → MATERIAL_READY →
+*    READY_TO_REPORT → REPORTED → FOLLOW_UP_REQUIRED` (+回退边), 状态列
+*    status/reported_at 是派生缓存列 (合法 UPDATE 面), 其余内容列不可变;
+*  - ScheduledEvent **不接外部 Calendar** (§10.3 原文): 只管理用户登记的
+*    事件; V1 无调度器/提醒推送 (到期语义 = 查询面按时间窗过滤,
+*    schedule.ts 头注)。
+*/
+/** `InteractionKind` (reporting.schema.json $defs/Interaction.kind). */
+const INTERACTION_KINDS = [
+	"MEETING",
+	"AD_HOC_DISCUSSION",
+	"SUPERVISOR_UPDATE",
+	"COLLABORATOR_DISCUSSION",
+	"EXPERIMENT_SHIFT_HANDOFF",
+	"OTHER"
+];
+function isInteractionKind(value) {
+	return typeof value === "string" && INTERACTION_KINDS.includes(value);
+}
+/** `RptStatus` (reporting.schema.json $defs/ReportingItem.status). */
+const RPT_STATUSES = [
+	"OPEN",
+	"MATERIAL_READY",
+	"READY_TO_REPORT",
+	"REPORTED",
+	"FOLLOW_UP_REQUIRED"
+];
+function isRptStatus(value) {
+	return typeof value === "string" && RPT_STATUSES.includes(value);
+}
+/** `SevFreq` (reporting.schema.json $defs/ScheduledEvent.schedule RECURRING). */
+const SEV_FREQS = [
+	"DAILY",
+	"WEEKLY",
+	"MONTHLY"
+];
+function isSevFreq(value) {
+	return typeof value === "string" && SEV_FREQS.includes(value);
+}
+/**
+* The frozen `related_refs` kind restriction of ScheduledEvent
+* (reporting.schema.json: 「提醒 research-aware: 显示关联 RPT/IV/TPC」).
+*/
+const SEV_RELATED_REF_KINDS = [
+	"REPORTING_ITEM",
+	"INTERVENTION",
+	"TOPIC"
+];
+function isSevRelatedRefKind(value) {
+	return typeof value === "string" && SEV_RELATED_REF_KINDS.includes(value);
+}
+/** A structured reporting-layer failure (never a raw driver exception). */
+var ReportingError = class extends Error {
+	code;
+	constructor(options) {
+		super(options.message, options.cause !== void 0 ? { cause: options.cause } : void 0);
+		this.name = "ReportingError";
+		this.code = options.code;
+	}
+};
+//#endregion
+//#region src/host/service/reporting/schema.ts
+/**
+* WP-5.3 — interaction / reporting_item / scheduled_event tables: DDL +
+* 行↔记录映射 (纯数据).
+*
+* 表映射 (DOMAIN_SCHEMA §15 L624, 逐字):
+*   - `interaction`          §10.1 — PK `id` (INT-<n>, PROJECT scope);
+*   - `reporting_item`       §10.2 — PK `id` (RPT-<n>, PROJECT scope);
+*   - `scheduled_event`      §10.3 — PK `id` (SEV-<n>, PROJECT scope).
+* §15 对本三表的「关键约束/索引」列为空 (PK only) — 本 DDL 严格对齐,
+* 不额外加索引 (V1 规模 10^4 行直接扫描即可, 计划书 §29)。
+* 行形状 = 冻结 `schema/operational/reporting.schema.json` $defs 逐字段
+* (additionalProperties:false — 行即投影, 不加任何内部审计列)。
+*
+* DatabaseSync 封装模式 (同 planfork/runbinding 先例): DB 文件的
+* open/初始化归 WP-2.1 `openDatabase`; 本模块 DDL 在**第二连接**上以
+* 幂等 `IF NOT EXISTS` 应用 (`ReportingService` 构造时经注入
+* `ReportingDb.exec` — 域/服务层零 sqlite import, ARCHITECTURE §2.2)。
+*
+* 存储层不变量 (trigger 级, 任何连接上生效 — 同 planfork 双触发器形态):
+*   - §15 通则 / INV-HIST-7: 三张表各一个 `_no_delete` trigger, ABORT
+*     任何 DELETE (含第二连接 raw SQL) — operational 表不 hard delete
+*     一等 identity 行;
+*   - 内容不可变: 三张表各一个 `_no_content_update` trigger:
+*     * `interaction` / `scheduled_event` — 无状态缓存列 (冻结 schema
+*       无 status), 全部内容列任何 UPDATE 都 ABORT (创建后整体不可变);
+*     * `reporting_item` — 6 个内容列 (id/audience/statement/
+*       material_refs/occasion_ref/created_at) ABORT; 合法 UPDATE 面 =
+*       状态缓存列 status/reported_at (§13 状态机的行侧机制, 同
+*       intervention 的 state-cache 列先例)。
+*   - CHECK 约束: kind/status/freq 枚举面 + reminder_lead_ms ≥ 0 (冻结
+*     词汇的第二道防线 — 参数化写入之外的任何连接都过 CHECK)。
+*
+* 纯模块: DDL 字符串 + 行映射 + SQL 语句常量 (零 I/O, 零驱动 import)。
+*/
+const INTERACTION_TABLE = "interaction";
+const REPORTING_ITEM_TABLE = "reporting_item";
+const SCHEDULED_EVENT_TABLE = "scheduled_event";
+const INTERACTION_DDL = `
+CREATE TABLE IF NOT EXISTS ${INTERACTION_TABLE} (
+  id                  TEXT    NOT NULL PRIMARY KEY,   -- INT-<n> (§1.1 L37)
+  kind                TEXT    NOT NULL CHECK (kind IN ('MEETING', 'AD_HOC_DISCUSSION', 'SUPERVISOR_UPDATE', 'COLLABORATOR_DISCUSSION', 'EXPERIMENT_SHIFT_HANDOFF', 'OTHER')),
+  title               TEXT    NOT NULL,
+  occurred_at         INTEGER NOT NULL,               -- epoch ms (§1.2)
+  participants        TEXT,                           -- JSON string[] (可选)
+  notes               TEXT,                           -- Markdown 会议纪要等
+  related_workstreams TEXT                            -- JSON WS id[] (可选, §10.1)
+);
+-- §15 通则 / INV-HIST-7: 一等 identity 行不 hard delete。
+CREATE TRIGGER IF NOT EXISTS interaction_no_delete
+  BEFORE DELETE ON ${INTERACTION_TABLE}
+  BEGIN
+    SELECT RAISE(ABORT, 'interaction rows are never deleted (DOMAIN_SCHEMA §15 通则; ARCHITECTURE §5.4 INV-HIST-7)');
+  END;
+-- 内容不可变: 冻结 schema 无状态缓存列 ⇒ 7 个内容列任何 UPDATE 都 ABORT。
+CREATE TRIGGER IF NOT EXISTS interaction_no_content_update
+  BEFORE UPDATE ON ${INTERACTION_TABLE}
+  WHEN NEW.id IS NOT OLD.id
+   OR NEW.kind IS NOT OLD.kind
+   OR NEW.title IS NOT OLD.title
+   OR NEW.occurred_at IS NOT OLD.occurred_at
+   OR IFNULL(NEW.participants, '') IS NOT IFNULL(OLD.participants, '')
+   OR IFNULL(NEW.notes, '') IS NOT IFNULL(OLD.notes, '')
+   OR IFNULL(NEW.related_workstreams, '') IS NOT IFNULL(OLD.related_workstreams, '')
+  BEGIN
+    SELECT RAISE(ABORT, 'interaction content is immutable after registration (reporting.schema.json 无状态列; WP-5.3 V1)');
+  END;
+`;
+const REPORTING_ITEM_DDL = `
+CREATE TABLE IF NOT EXISTS ${REPORTING_ITEM_TABLE} (
+  id            TEXT    NOT NULL PRIMARY KEY,         -- RPT-<n> (§1.1 L38)
+  audience      TEXT    NOT NULL,
+  statement     TEXT    NOT NULL,
+  material_refs TEXT,                                 -- JSON TypedRef[] (可选)
+  status        TEXT    NOT NULL CHECK (status IN ('OPEN', 'MATERIAL_READY', 'READY_TO_REPORT', 'REPORTED', 'FOLLOW_UP_REQUIRED')),
+  occasion_ref  TEXT,                                 -- SEV-<n> (可选; 写入时存在性校验)
+  created_at    INTEGER NOT NULL,                     -- epoch ms (§1.2)
+  reported_at   INTEGER                               -- 首次 REPORTED 时写入 (状态缓存列)
+);
+-- §15 通则 / INV-HIST-7: 一等 identity 行不 hard delete。
+CREATE TRIGGER IF NOT EXISTS reporting_item_no_delete
+  BEFORE DELETE ON ${REPORTING_ITEM_TABLE}
+  BEGIN
+    SELECT RAISE(ABORT, 'reporting_item rows are never deleted (DOMAIN_SCHEMA §15 通则; ARCHITECTURE §5.4 INV-HIST-7)');
+  END;
+-- 内容不可变半边: 6 个内容列任何 UPDATE 都 ABORT; 合法 UPDATE 面 =
+-- 状态缓存列 status/reported_at (DOMAIN_SCHEMA §13 状态机的行侧机制)。
+CREATE TRIGGER IF NOT EXISTS reporting_item_no_content_update
+  BEFORE UPDATE ON ${REPORTING_ITEM_TABLE}
+  WHEN NEW.id IS NOT OLD.id
+   OR NEW.audience IS NOT OLD.audience
+   OR NEW.statement IS NOT OLD.statement
+   OR IFNULL(NEW.material_refs, '') IS NOT IFNULL(OLD.material_refs, '')
+   OR IFNULL(NEW.occasion_ref, '') IS NOT IFNULL(OLD.occasion_ref, '')
+   OR NEW.created_at IS NOT OLD.created_at
+  BEGIN
+    SELECT RAISE(ABORT, 'reporting_item content is immutable after creation (only the state-cache columns status/reported_at may change — DOMAIN_SCHEMA §13/§15)');
+  END;
+`;
+const SCHEDULED_EVENT_DDL = `
+CREATE TABLE IF NOT EXISTS ${SCHEDULED_EVENT_TABLE} (
+  id               TEXT    NOT NULL PRIMARY KEY,      -- SEV-<n> (§1.1 L39)
+  title            TEXT    NOT NULL,
+  schedule         TEXT    NOT NULL,                  -- JSON {kind:ONCE,at} | {kind:RECURRING,freq,interval?,until?}
+  related_refs     TEXT,                              -- JSON TypedRef[] (kind ∈ RPT/IV/TPC)
+  reminder_lead_ms INTEGER CHECK (reminder_lead_ms IS NULL OR reminder_lead_ms >= 0)
+);
+-- §15 通则 / INV-HIST-7: 一等 identity 行不 hard delete。
+CREATE TRIGGER IF NOT EXISTS scheduled_event_no_delete
+  BEFORE DELETE ON ${SCHEDULED_EVENT_TABLE}
+  BEGIN
+    SELECT RAISE(ABORT, 'scheduled_event rows are never deleted (DOMAIN_SCHEMA §15 通则; ARCHITECTURE §5.4 INV-HIST-7)');
+  END;
+-- 内容不可变: 冻结 schema 无状态缓存列 ⇒ 5 个内容列任何 UPDATE 都 ABORT
+-- (§10.3 「只管理用户登记的事件」— 登记制, 无修改面)。
+CREATE TRIGGER IF NOT EXISTS scheduled_event_no_content_update
+  BEFORE UPDATE ON ${SCHEDULED_EVENT_TABLE}
+  WHEN NEW.id IS NOT OLD.id
+   OR NEW.title IS NOT OLD.title
+   OR NEW.schedule IS NOT OLD.schedule
+   OR IFNULL(NEW.related_refs, '') IS NOT IFNULL(OLD.related_refs, '')
+   OR IFNULL(NEW.reminder_lead_ms, -1) IS NOT IFNULL(OLD.reminder_lead_ms, -1)
+  BEGIN
+    SELECT RAISE(ABORT, 'scheduled_event content is immutable after registration (reporting.schema.json 无状态列; §10.3 不接外部 Calendar, WP-5.3 V1)');
+  END;
+`;
+/** Full DDL (idempotent — re-applied on every service open, 同先例). */
+function reportingDdl() {
+	return INTERACTION_DDL + REPORTING_ITEM_DDL + SCHEDULED_EVENT_DDL;
+}
+const SQL_INSERT_INTERACTION = `
+INSERT INTO ${INTERACTION_TABLE} (id, kind, title, occurred_at, participants, notes, related_workstreams)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`;
+const SQL_SELECT_INTERACTION_BY_ID = `SELECT * FROM ${INTERACTION_TABLE} WHERE id = ?`;
+const SQL_INSERT_REPORTING_ITEM = `
+INSERT INTO ${REPORTING_ITEM_TABLE} (id, audience, statement, material_refs, status, occasion_ref, created_at, reported_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`;
+const SQL_SELECT_REPORTING_ITEM_BY_ID = `SELECT * FROM ${REPORTING_ITEM_TABLE} WHERE id = ?`;
+/**
+* The optimistic state-machine UPDATE (WHERE status = from — 并发双迁移
+* 只有一个成功; 0 行 ⇒ 重读判别 RPT_NOT_FOUND / RPT_WRONG_STATE, 同
+* planfork/intervention 先例). `reported_at` = 新值由 service 计算
+* (进入 REPORTED 且尚未记录时写入 now; 其余情况保持原值 — 历史事实列)。
+*/
+const SQL_TRANSITION_REPORTING_ITEM = `
+UPDATE ${REPORTING_ITEM_TABLE} SET status = ?, reported_at = ? WHERE id = ? AND status = ?
+`;
+const SQL_INSERT_SCHEDULED_EVENT = `
+INSERT INTO ${SCHEDULED_EVENT_TABLE} (id, title, schedule, related_refs, reminder_lead_ms)
+VALUES (?, ?, ?, ?, ?)
+`;
+const SQL_SELECT_SCHEDULED_EVENT_BY_ID = `SELECT * FROM ${SCHEDULED_EVENT_TABLE} WHERE id = ?`;
+const CORRUPT$1 = (what, detail) => {
+	throw new Error(`reporting row corruption at ${what}: ${detail}`);
+};
+function decodeJson$1(value, what) {
+	if (typeof value !== "string") return CORRUPT$1(what, `expected JSON string, got ${typeof value}`);
+	try {
+		return JSON.parse(value);
+	} catch (cause) {
+		return CORRUPT$1(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+	}
+}
+function decodeStringArray(value, what) {
+	const arr = decodeJson$1(value, what);
+	if (!Array.isArray(arr) || arr.some((item) => typeof item !== "string")) return CORRUPT$1(what, `expected a JSON string array, got ${JSON.stringify(String(value)).slice(0, 80)}`);
+	return arr;
+}
+function decodeTypedRefs(value, what) {
+	const arr = decodeJson$1(value, what);
+	if (!Array.isArray(arr) || arr.some((item) => item === null || typeof item !== "object" || typeof item.kind !== "string" || typeof item.id !== "string")) return CORRUPT$1(what, `expected a JSON TypedRef array, got ${JSON.stringify(String(value)).slice(0, 80)}`);
+	return arr;
+}
+/** Decode a `schedule` cell (ONCE / RECURRING 封闭联合; 冻结形状校验). */
+function decodeSchedule(value, what) {
+	const obj = decodeJson$1(value, what);
+	if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return CORRUPT$1(what, `expected a schedule object, got ${typeof value}`);
+	if (obj.kind === "ONCE") {
+		if (typeof obj.at !== "number" || !Number.isSafeInteger(obj.at) || obj.at < 0) return CORRUPT$1(`${what}.at`, `expected non-negative epoch ms, got ${JSON.stringify(obj.at)}`);
+		return {
+			kind: "ONCE",
+			at: obj.at
+		};
+	}
+	if (obj.kind === "RECURRING") {
+		if (!isSevFreq(obj.freq)) return CORRUPT$1(`${what}.freq`, `unknown freq ${JSON.stringify(obj.freq)}`);
+		const result = {
+			kind: "RECURRING",
+			freq: obj.freq
+		};
+		if (obj.interval !== void 0) {
+			if (typeof obj.interval !== "number" || !Number.isSafeInteger(obj.interval) || obj.interval < 1) return CORRUPT$1(`${what}.interval`, `expected integer ≥ 1, got ${JSON.stringify(obj.interval)}`);
+			result.interval = obj.interval;
+		}
+		if (obj.until !== void 0) {
+			if (typeof obj.until !== "number" || !Number.isSafeInteger(obj.until) || obj.until < 0) return CORRUPT$1(`${what}.until`, `expected non-negative epoch ms, got ${JSON.stringify(obj.until)}`);
+			result.until = obj.until;
+		}
+		return result;
+	}
+	return CORRUPT$1(`${what}.kind`, `unknown schedule kind ${JSON.stringify(obj.kind)}`);
+}
+/** The normalized schedule cell form (interval default 1 落库 — 确定性展示). */
+function encodeSchedule(schedule) {
+	if (schedule.kind === "ONCE") return JSON.stringify({
+		kind: "ONCE",
+		at: schedule.at
+	});
+	return JSON.stringify({
+		kind: "RECURRING",
+		freq: schedule.freq,
+		interval: schedule.interval ?? 1,
+		...schedule.until !== void 0 ? { until: schedule.until } : {}
+	});
+}
+/** Encode `InteractionRecord` into the INSERT parameter list (column order = DDL). */
+function interactionToParams(r) {
+	return [
+		r.id,
+		r.kind,
+		r.title,
+		r.occurred_at,
+		r.participants === void 0 ? null : JSON.stringify([...r.participants]),
+		r.notes ?? null,
+		r.related_workstreams === void 0 ? null : JSON.stringify([...r.related_workstreams])
+	];
+}
+/** Decode an `interaction` row back to the record (throws on corruption). */
+function rowToInteraction(row) {
+	if (typeof row.id !== "string") return CORRUPT$1("interaction.id", `expected string, got ${typeof row.id}`);
+	if (!isInteractionKind(row.kind)) return CORRUPT$1("interaction.kind", `unknown kind ${JSON.stringify(String(row.kind))}`);
+	if (typeof row.title !== "string") return CORRUPT$1("interaction.title", `expected string, got ${typeof row.title}`);
+	if (typeof row.occurred_at !== "number") return CORRUPT$1("interaction.occurred_at", `expected number, got ${typeof row.occurred_at}`);
+	return {
+		id: row.id,
+		kind: row.kind,
+		title: row.title,
+		occurred_at: row.occurred_at,
+		...row.participants != null ? { participants: decodeStringArray(row.participants, "interaction.participants") } : {},
+		...row.notes != null ? { notes: String(row.notes) } : {},
+		...row.related_workstreams != null ? { related_workstreams: decodeStringArray(row.related_workstreams, "interaction.related_workstreams") } : {}
+	};
+}
+/** Encode `ReportingItemRecord` into the INSERT parameter list (column order = DDL). */
+function reportingItemToParams(r) {
+	return [
+		r.id,
+		r.audience,
+		r.statement,
+		r.material_refs === void 0 ? null : JSON.stringify(r.material_refs.map((t) => ({
+			kind: t.kind,
+			id: t.id
+		}))),
+		r.status,
+		r.occasion_ref ?? null,
+		r.created_at,
+		r.reported_at ?? null
+	];
+}
+/** Decode a `reporting_item` row back to the record (throws on corruption). */
+function rowToReportingItem(row) {
+	if (typeof row.id !== "string") return CORRUPT$1("reporting_item.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.audience !== "string") return CORRUPT$1("reporting_item.audience", `expected string, got ${typeof row.audience}`);
+	if (typeof row.statement !== "string") return CORRUPT$1("reporting_item.statement", `expected string, got ${typeof row.statement}`);
+	if (!isRptStatus(row.status)) return CORRUPT$1("reporting_item.status", `unknown status ${JSON.stringify(String(row.status))}`);
+	if (typeof row.created_at !== "number") return CORRUPT$1("reporting_item.created_at", `expected number, got ${typeof row.created_at}`);
+	return {
+		id: row.id,
+		audience: row.audience,
+		statement: row.statement,
+		...row.material_refs != null ? { material_refs: decodeTypedRefs(row.material_refs, "reporting_item.material_refs") } : {},
+		status: row.status,
+		...row.occasion_ref != null ? { occasion_ref: String(row.occasion_ref) } : {},
+		created_at: row.created_at,
+		...row.reported_at != null ? { reported_at: row.reported_at } : {}
+	};
+}
+/** Encode `ScheduledEventRecord` into the INSERT parameter list (column order = DDL). */
+function scheduledEventToParams(r) {
+	return [
+		r.id,
+		r.title,
+		encodeSchedule(r.schedule),
+		r.related_refs === void 0 ? null : JSON.stringify(r.related_refs.map((t) => ({
+			kind: t.kind,
+			id: t.id
+		}))),
+		r.reminder_lead_ms ?? null
+	];
+}
+/** Decode a `scheduled_event` row back to the record (throws on corruption). */
+function rowToScheduledEvent(row) {
+	if (typeof row.id !== "string") return CORRUPT$1("scheduled_event.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.title !== "string") return CORRUPT$1("scheduled_event.title", `expected string, got ${typeof row.title}`);
+	const result = {
+		id: row.id,
+		title: row.title,
+		schedule: decodeSchedule(row.schedule, "scheduled_event.schedule")
+	};
+	if (row.related_refs != null) {
+		const refs = decodeTypedRefs(row.related_refs, "scheduled_event.related_refs");
+		for (const ref of refs) if (!isSevRelatedRefKind(ref.kind)) return CORRUPT$1("scheduled_event.related_refs", `ref kind ${JSON.stringify(ref.kind)} is not one of REPORTING_ITEM|INTERVENTION|TOPIC`);
+		result.related_refs = refs;
+	}
+	if (row.reminder_lead_ms != null) {
+		if (typeof row.reminder_lead_ms !== "number") return CORRUPT$1("scheduled_event.reminder_lead_ms", `expected number, got ${typeof row.reminder_lead_ms}`);
+		result.reminder_lead_ms = row.reminder_lead_ms;
+	}
+	return result;
+}
+//#endregion
+//#region src/host/service/reporting/state-machine.ts
+/**
+* WP-5.3 — ReportingItem 状态机 (纯函数, 零 I/O).
+*
+* 合法转换表 = DOMAIN_SCHEMA §13 逐字 (ReportingItem 行):
+*
+*   OPEN               → MATERIAL_READY
+*   MATERIAL_READY     → READY_TO_REPORT | OPEN
+*   READY_TO_REPORT    → REPORTED | MATERIAL_READY
+*   REPORTED           → FOLLOW_UP_REQUIRED
+*   FOLLOW_UP_REQUIRED → READY_TO_REPORT
+*
+* 规则 (同 §13 通则 / INV-TASK-1):
+*   - 非法转换在 **service 层拒绝** (本模块的纯 guard, `ReportingError`
+*     code `RPT_WRONG_STATE`, 消息携带合法集);
+*   - 自环拒绝 (表外 — 同 intervention §13 guard 的 self-loop 纪律);
+*   - 无终态 (表内所有状态均有出边 — REPORTED 经 FOLLOW_UP_REQUIRED 回到
+*     READY_TO_REPORT, 汇报可多轮)。
+*
+* CATALOG 侧: HISTORY_EVENT_CATALOG §4 无 RPT_* 事件 (本层无 registry
+* 事件 — 与 WP-3.1 PlanFork / WP-3.5 intervention 状态缓存同口径: 状态
+* 迁移 = 条件 UPDATE 状态缓存列, 行内容不可变 trigger 兜底)。
+*/
+/** The §13 legal transition table (the single source for the guard). */
+const RPT_LEGAL_TRANSITIONS = {
+	OPEN: ["MATERIAL_READY"],
+	MATERIAL_READY: ["READY_TO_REPORT", "OPEN"],
+	READY_TO_REPORT: ["REPORTED", "MATERIAL_READY"],
+	REPORTED: ["FOLLOW_UP_REQUIRED"],
+	FOLLOW_UP_REQUIRED: ["READY_TO_REPORT"]
+};
+/** True iff `to` is a legal §13 successor of `from` (self-loops illegal). */
+function isRptTransitionLegal(from, to) {
+	return RPT_LEGAL_TRANSITIONS[from].includes(to);
+}
+/**
+* Guard one transition: throw `RPT_WRONG_STATE` when `to` is not a legal
+* successor of `from` (message carries the legal set — the same UX
+* contract as the planfork/intervention §13 guards).
+*/
+function checkRptTransition(id, from, to) {
+	if (from === to) {
+		const legal = RPT_LEGAL_TRANSITIONS[from].join(" | ");
+		throw new ReportingError({
+			code: "RPT_WRONG_STATE",
+			message: `reporting item ${JSON.stringify(id)} is already ${from} (self-loops are rejected; legal from ${from}: ${legal === "" ? "none" : legal} — DOMAIN_SCHEMA §13)`
+		});
+	}
+	if (!isRptTransitionLegal(from, to)) {
+		const legal = RPT_LEGAL_TRANSITIONS[from].join(" | ");
+		throw new ReportingError({
+			code: "RPT_WRONG_STATE",
+			message: `reporting item ${JSON.stringify(id)} cannot transition ${from} → ${to} (legal from ${from}: ${legal === "" ? "none" : legal} — DOMAIN_SCHEMA §13)`
+		});
+	}
+}
+//#endregion
+//#region src/host/service/reporting/schedule.ts
+/**
+* V1 窗口过滤 (§10.3 到期语义): 事件在窗口内「到期/活跃」当且仅当
+*  - ONCE: `at` ∈ [from, to];
+*  - RECURRING: 活跃跨度 (−∞, until or +∞) 与 [from, to] 相交。
+*/
+function eventActiveInWindow(schedule, window) {
+	if (schedule.kind === "ONCE") {
+		if (schedule.at < window.from) return false;
+		return window.to === void 0 || schedule.at <= window.to;
+	}
+	return schedule.until === void 0 || schedule.until >= window.from;
+}
+/**
+* 时间轴排序键: ONCE → `at`; RECURRING → `until` (无 until →
+* `Number.MAX_SAFE_INTEGER`, 活跃中的 recurring 排在列表尾部)。
+* 同键时由调用方以 id 破平 (确定性)。
+*/
+function scheduleSortKey(schedule) {
+	if (schedule.kind === "ONCE") return schedule.at;
+	return schedule.until ?? Number.MAX_SAFE_INTEGER;
+}
+//#endregion
+//#region src/host/service/reporting/service.ts
+var ReportingService = class {
+	db;
+	allocator;
+	projectId;
+	now;
+	closed = false;
+	constructor(options) {
+		this.db = options.db;
+		this.allocator = options.allocator;
+		this.projectId = options.projectId;
+		this.now = options.now ?? Date.now;
+		this.db.exec(reportingDdl());
+	}
+	/**
+	* 登记一个 Interaction (DOMAIN_SCHEMA §10.1; USER 语义 — 冻结 13-RPC
+	* 的 registerInteraction 经此落库). 分配 INT id (PROJECT scope) → 单
+	* 事务 INSERT → commit; 失败 release (烧号留 gap, §1.1 规则 2)。
+	*/
+	registerInteraction(params) {
+		this.assertOpen("registerInteraction");
+		assertNonEmptyString$1(params.title, "title");
+		assertEpoch(params.occurredAt, "occurredAt");
+		if (!isInteractionKind(params.kind)) throw new ReportingError({
+			code: "INT_INPUT",
+			message: `kind must be one of the 6 frozen InteractionKind values (got ${JSON.stringify(params.kind)})`
+		});
+		if (params.participants !== void 0) assertNonEmptyStringArray(params.participants, "participants");
+		if (params.notes !== void 0 && typeof params.notes !== "string") throw new ReportingError({
+			code: "INT_INPUT",
+			message: "notes must be a string (Markdown 会议纪要等)"
+		});
+		if (params.relatedWorkstreams !== void 0) {
+			assertNonEmptyStringArray(params.relatedWorkstreams, "relatedWorkstreams");
+			for (const ws of params.relatedWorkstreams) assertWorkstreamId(ws, "relatedWorkstreams");
+		}
+		const at = this.now();
+		const res = this.allocator.reserve("INTERACTION", this.projectId);
+		const record = {
+			id: res.id,
+			kind: params.kind,
+			title: params.title,
+			occurred_at: params.occurredAt,
+			...params.participants !== void 0 ? { participants: [...params.participants] } : {},
+			...params.notes !== void 0 ? { notes: params.notes } : {},
+			...params.relatedWorkstreams !== void 0 ? { related_workstreams: [...params.relatedWorkstreams] } : {}
+		};
+		try {
+			this.db.transaction(() => {
+				this.db.run(SQL_INSERT_INTERACTION, ...interactionToParams(record));
+			});
+		} catch (cause) {
+			this.allocator.release(res);
+			throw this.wrap("registerInteraction", cause);
+		}
+		this.allocator.commit(res);
+		return {
+			record,
+			createdAt: at
+		};
+	}
+	/** One record by id (`null` when absent). */
+	getInteraction(id) {
+		this.assertOpen("getInteraction");
+		return this.readInteraction(id);
+	}
+	/**
+	* List with filters (kind / workstreamId containment / occurred_at
+	* window). Order: occurred_at ASC, id ASC (stable). V1 规模全表过滤
+	* (10^4 行, §15 未要求索引)。
+	*/
+	listInteractions(filter = {}) {
+		this.assertOpen("listInteractions");
+		if (filter.kind !== void 0 && !isInteractionKind(filter.kind)) throw new ReportingError({
+			code: "INT_INPUT",
+			message: `filter.kind must be a frozen InteractionKind (got ${JSON.stringify(filter.kind)})`
+		});
+		if (filter.workstreamId !== void 0) assertWorkstreamId(filter.workstreamId, "filter.workstreamId");
+		if (filter.from !== void 0) assertEpoch(filter.from, "filter.from");
+		if (filter.to !== void 0) assertEpoch(filter.to, "filter.to");
+		if (filter.from !== void 0 && filter.to !== void 0 && filter.from > filter.to) throw new ReportingError({
+			code: "INT_INPUT",
+			message: `filter window is inverted (from ${filter.from} > to ${filter.to})`
+		});
+		const clauses = [];
+		const params = [];
+		if (filter.kind !== void 0) {
+			clauses.push("kind = ?");
+			params.push(filter.kind);
+		}
+		if (filter.workstreamId !== void 0) {
+			clauses.push("related_workstreams LIKE ?");
+			params.push(`%"${filter.workstreamId}"%`);
+		}
+		if (filter.from !== void 0) {
+			clauses.push("occurred_at >= ?");
+			params.push(filter.from);
+		}
+		if (filter.to !== void 0) {
+			clauses.push("occurred_at <= ?");
+			params.push(filter.to);
+		}
+		const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
+		return this.db.all(`SELECT * FROM ${INTERACTION_TABLE} ${where} ORDER BY occurred_at ASC, id ASC`, ...params).map((r) => rowToInteraction(r));
+	}
+	/**
+	* 登记一个 ReportingItem (DOMAIN_SCHEMA §10.2 — 「要向谁、何时、
+	* 汇报什么」; 不是 Task). 初始状态 OPEN。occasion_ref 写入时存在性
+	* 校验 (必须指向已存在的 SEV — §16 规则 3/4); material_refs 形状
+	* 校验 (kind ∈ ObjectKind + id 良构 — 跨对象存在性由调用方上下文
+	* 负责, V1 收窄)。
+	*/
+	createReportingItem(params) {
+		this.assertOpen("createReportingItem");
+		assertNonEmptyString$1(params.audience, "audience");
+		assertNonEmptyString$1(params.statement, "statement");
+		if (params.materialRefs !== void 0) assertTypedRefArray(params.materialRefs, "materialRefs");
+		if (params.occasionRef !== void 0) {
+			assertScheduledEventId(params.occasionRef, "occasionRef");
+			if (this.readScheduledEvent(params.occasionRef) === null) throw new ReportingError({
+				code: "RPT_INPUT",
+				message: `occasionRef ${JSON.stringify(params.occasionRef)} does not reference an existing scheduled event (DOMAIN_SCHEMA §16 规则 3/4 — 写入新引用失败即拒绝)`
+			});
+		}
+		const at = this.now();
+		const res = this.allocator.reserve("REPORTING_ITEM", this.projectId);
+		const record = {
+			id: res.id,
+			audience: params.audience,
+			statement: params.statement,
+			...params.materialRefs !== void 0 ? { material_refs: params.materialRefs.map((t) => ({
+				kind: t.kind,
+				id: t.id
+			})) } : {},
+			status: "OPEN",
+			...params.occasionRef !== void 0 ? { occasion_ref: params.occasionRef } : {},
+			created_at: at
+		};
+		try {
+			this.db.transaction(() => {
+				this.db.run(SQL_INSERT_REPORTING_ITEM, ...reportingItemToParams(record));
+			});
+		} catch (cause) {
+			this.allocator.release(res);
+			throw this.wrap("createReportingItem", cause);
+		}
+		this.allocator.commit(res);
+		return record;
+	}
+	/**
+	* 执行一次 §13 状态迁移 (非法转换拒绝 — INV-TASK-1)。两步并发门:
+	* ① 读行 + 纯 guard (RPT_WRONG_STATE 携带合法集); ② 乐观条件 UPDATE
+	* (WHERE status = from) — 0 行 ⇒ 并发迁移已先行, 重读判别
+	* RPT_NOT_FOUND / RPT_WRONG_STATE。`reported_at` 语义: 进入 REPORTED
+	* 且尚未记录时写入 now (历史事实列 — 后续 FOLLOW_UP_REQUIRED 保留)。
+	* Returns the UPDATED record (fresh read after commit)。
+	*/
+	transitionReportingItem(id, to) {
+		this.assertOpen("transitionReportingItem");
+		if (!isRptStatus(to)) throw new ReportingError({
+			code: "RPT_INPUT",
+			message: `target status must be one of the 5 frozen RptStatus values (got ${JSON.stringify(to)})`
+		});
+		const current = this.readReportingItem(id);
+		if (current === null) throw new ReportingError({
+			code: "RPT_NOT_FOUND",
+			message: `reporting item ${JSON.stringify(id)} does not exist`
+		});
+		checkRptTransition(id, current.status, to);
+		const reportedAt = to === "REPORTED" && current.reported_at === void 0 ? this.now() : current.reported_at;
+		try {
+			if (this.db.run(SQL_TRANSITION_REPORTING_ITEM, to, reportedAt ?? null, id, current.status) === 0) {
+				const reread = this.readReportingItem(id);
+				if (reread === null) throw new ReportingError({
+					code: "RPT_NOT_FOUND",
+					message: `reporting item ${JSON.stringify(id)} vanished during transition (no-delete trigger in effect — investigate)`
+				});
+				checkRptTransition(id, reread.status, to);
+				throw new ReportingError({
+					code: "RPT_WRONG_STATE",
+					message: `reporting item ${JSON.stringify(id)} moved concurrently (expected ${current.status}) — refetch and retry`
+				});
+			}
+		} catch (cause) {
+			if (cause instanceof ReportingError) throw cause;
+			throw this.wrap(`transitionReportingItem(${id})`, cause);
+		}
+		const updated = this.readReportingItem(id);
+		if (updated === null) throw new ReportingError({
+			code: "RPT_NOT_FOUND",
+			message: `reporting item ${JSON.stringify(id)} vanished after transition (internal)`
+		});
+		return updated;
+	}
+	/** One record by id (`null` when absent). */
+	getReportingItem(id) {
+		this.assertOpen("getReportingItem");
+		return this.readReportingItem(id);
+	}
+	/**
+	* List with filters (status / occasionRef / audience). Order:
+	* created_at ASC, id ASC (stable).
+	*/
+	listReportingItems(filter = {}) {
+		this.assertOpen("listReportingItems");
+		if (filter.status !== void 0 && !isRptStatus(filter.status)) throw new ReportingError({
+			code: "RPT_INPUT",
+			message: `filter.status must be a frozen RptStatus (got ${JSON.stringify(filter.status)})`
+		});
+		if (filter.occasionRef !== void 0) assertScheduledEventId(filter.occasionRef, "filter.occasionRef");
+		if (filter.audience !== void 0) assertNonEmptyString$1(filter.audience, "filter.audience");
+		const clauses = [];
+		const params = [];
+		if (filter.status !== void 0) {
+			clauses.push("status = ?");
+			params.push(filter.status);
+		}
+		if (filter.occasionRef !== void 0) {
+			clauses.push("occasion_ref = ?");
+			params.push(filter.occasionRef);
+		}
+		if (filter.audience !== void 0) {
+			clauses.push("audience = ?");
+			params.push(filter.audience);
+		}
+		const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
+		return this.db.all(`SELECT * FROM ${REPORTING_ITEM_TABLE} ${where} ORDER BY created_at ASC, id ASC`, ...params).map((r) => rowToReportingItem(r));
+	}
+	/**
+	* 登记一个 ScheduledEvent (DOMAIN_SCHEMA §10.3 — **只管理用户登记的
+	* 事件; 不接外部 Calendar**). related_refs 的 kind 受限
+	* (REPORTING_ITEM | INTERVENTION | TOPIC — 冻结 schema): RPT/IV 引用
+	* 写入时存在性校验 (同一 operational DB 面); TOPIC 为声明式引用
+	* (形状校验 — 树校验归调用方上下文)。
+	*/
+	createScheduledEvent(params) {
+		this.assertOpen("createScheduledEvent");
+		assertNonEmptyString$1(params.title, "title");
+		this.assertScheduleShape(params.schedule, "schedule");
+		if (params.relatedRefs !== void 0) {
+			if (!Array.isArray(params.relatedRefs)) throw new ReportingError({
+				code: "SEV_INPUT",
+				message: "relatedRefs must be a TypedRef array"
+			});
+			for (const ref of params.relatedRefs) {
+				assertTypedRef$2(ref, "relatedRefs");
+				if (!isSevRelatedRefKind(ref.kind)) throw new ReportingError({
+					code: "SEV_INPUT",
+					message: `relatedRefs kind ${JSON.stringify(ref.kind)} is not one of REPORTING_ITEM | INTERVENTION | TOPIC (reporting.schema.json 冻结限制)`
+				});
+				if (ref.kind === "REPORTING_ITEM") {
+					assertReportingItemId(ref.id, "relatedRefs");
+					if (this.readReportingItem(ref.id) === null) throw new ReportingError({
+						code: "SEV_INPUT",
+						message: `relatedRefs ${ref.id} does not reference an existing reporting item (DOMAIN_SCHEMA §16 规则 3/4)`
+					});
+				}
+				if (ref.kind === "INTERVENTION") {
+					if (!/^IV-[1-9][0-9]*$/.test(ref.id)) throw new ReportingError({
+						code: "SEV_INPUT",
+						message: `relatedRefs id ${JSON.stringify(ref.id)} is not a well-formed IV id`
+					});
+					if (this.db.get(`SELECT id FROM intervention WHERE id = ?`, ref.id) === void 0) throw new ReportingError({
+						code: "SEV_INPUT",
+						message: `relatedRefs ${ref.id} does not reference an existing intervention (DOMAIN_SCHEMA §16 规则 3/4)`
+					});
+				}
+				if (ref.kind === "TOPIC") {
+					if (!/^TPC-[1-9][0-9]*$/.test(ref.id)) throw new ReportingError({
+						code: "SEV_INPUT",
+						message: `relatedRefs id ${JSON.stringify(ref.id)} is not a well-formed TPC id`
+					});
+				}
+			}
+		}
+		if (params.reminderLeadMs !== void 0) {
+			if (typeof params.reminderLeadMs !== "number" || !Number.isSafeInteger(params.reminderLeadMs) || params.reminderLeadMs < 0) throw new ReportingError({
+				code: "SEV_INPUT",
+				message: `reminderLeadMs must be a non-negative safe integer (got ${String(params.reminderLeadMs)})`
+			});
+		}
+		const res = this.allocator.reserve("SCHEDULED_EVENT", this.projectId);
+		const record = {
+			id: res.id,
+			title: params.title,
+			schedule: params.schedule,
+			...params.relatedRefs !== void 0 ? { related_refs: params.relatedRefs.map((t) => ({
+				kind: t.kind,
+				id: t.id
+			})) } : {},
+			...params.reminderLeadMs !== void 0 ? { reminder_lead_ms: params.reminderLeadMs } : {}
+		};
+		try {
+			this.db.transaction(() => {
+				this.db.run(SQL_INSERT_SCHEDULED_EVENT, ...scheduledEventToParams(record));
+			});
+		} catch (cause) {
+			this.allocator.release(res);
+			throw this.wrap("createScheduledEvent", cause);
+		}
+		this.allocator.commit(res);
+		return record;
+	}
+	/** One record by id (`null` when absent). */
+	getScheduledEvent(id) {
+		this.assertOpen("getScheduledEvent");
+		return this.readScheduledEvent(id);
+	}
+	/**
+	* List all scheduled events, optionally V1 时间窗过滤 (到期语义,
+	* schedule.ts): ONCE → `at` ∈ 窗口; RECURRING → 活跃跨度与窗口相交。
+	* Order: scheduleSortKey ASC, id ASC (时间轴; 活跃 recurring 排尾部)。
+	*/
+	listScheduledEvents(window = null) {
+		this.assertOpen("listScheduledEvents");
+		if (window !== null) {
+			assertEpoch(window.from, "window.from");
+			if (window.to !== void 0) assertEpoch(window.to, "window.to");
+			if (window.to !== void 0 && window.from > window.to) throw new ReportingError({
+				code: "SEV_INPUT",
+				message: `window is inverted (from ${window.from} > to ${window.to})`
+			});
+		}
+		const records = this.db.all(`SELECT * FROM ${SCHEDULED_EVENT_TABLE} ORDER BY id ASC`).map((r) => rowToScheduledEvent(r));
+		return (window === null ? records : records.filter((rec) => eventActiveInWindow(rec.schedule, window))).sort((a, b) => {
+			const ka = scheduleSortKey(a.schedule);
+			const kb = scheduleSortKey(b.schedule);
+			if (ka !== kb) return ka - kb;
+			return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+		});
+	}
+	readInteraction(id) {
+		assertIdInput(id, "id");
+		const row = this.db.get(SQL_SELECT_INTERACTION_BY_ID, id);
+		return row === void 0 ? null : rowToInteraction(row);
+	}
+	readReportingItem(id) {
+		assertIdInput(id, "id");
+		const row = this.db.get(SQL_SELECT_REPORTING_ITEM_BY_ID, id);
+		return row === void 0 ? null : rowToReportingItem(row);
+	}
+	readScheduledEvent(id) {
+		assertIdInput(id, "id");
+		const row = this.db.get(SQL_SELECT_SCHEDULED_EVENT_BY_ID, id);
+		return row === void 0 ? null : rowToScheduledEvent(row);
+	}
+	assertScheduleShape(schedule, what) {
+		if (schedule === null || typeof schedule !== "object") throw new ReportingError({
+			code: "SEV_INPUT",
+			message: `${what} must be an ONCE or RECURRING schedule object`
+		});
+		const kind = schedule.kind;
+		if (schedule.kind === "ONCE") {
+			assertEpoch(schedule.at, `${what}.at`);
+			return;
+		}
+		if (schedule.kind === "RECURRING") {
+			if (!isSevFreq(schedule.freq)) throw new ReportingError({
+				code: "SEV_INPUT",
+				message: `${what}.freq must be one of DAILY | WEEKLY | MONTHLY (got ${JSON.stringify(schedule.freq)})`
+			});
+			if (schedule.interval !== void 0 && (typeof schedule.interval !== "number" || !Number.isSafeInteger(schedule.interval) || schedule.interval < 1)) throw new ReportingError({
+				code: "SEV_INPUT",
+				message: `${what}.interval must be an integer ≥ 1 (got ${String(schedule.interval)})`
+			});
+			if (schedule.until !== void 0) assertEpoch(schedule.until, `${what}.until`);
+			return;
+		}
+		throw new ReportingError({
+			code: "SEV_INPUT",
+			message: `${what}.kind must be 'ONCE' or 'RECURRING' (got ${JSON.stringify(kind)})`
+		});
+	}
+	assertOpen(operation) {
+		if (this.closed) throw new ReportingError({
+			code: "REPORTING_STORE",
+			message: `${operation}: service is closed`
+		});
+	}
+	wrap(context, cause) {
+		return new ReportingError({
+			code: "REPORTING_STORE",
+			message: `${context}: ${cause instanceof Error ? cause.message : String(cause)}`,
+			cause
+		});
+	}
+};
+function assertIdInput(id, what) {
+	if (typeof id !== "string" || id.length === 0) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} must be a non-empty string`
+	});
+}
+function assertNonEmptyString$1(value, what) {
+	if (typeof value !== "string" || value.length === 0) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} must be a non-empty string`
+	});
+}
+function assertNonEmptyStringArray(value, what) {
+	if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.length === 0)) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} must be an array of non-empty strings`
+	});
+}
+function assertEpoch(value, what) {
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} must be a non-negative safe integer epoch ms (got ${String(value)}; §1.2/A-3)`
+	});
+}
+function assertWorkstreamId(id, what) {
+	if (!/^WS-[1-9][0-9]*$/.test(id)) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} entry ${JSON.stringify(id)} is not a well-formed WS id (§1.1)`
+	});
+}
+function assertScheduledEventId(id, what) {
+	if (!/^SEV-[1-9][0-9]*$/.test(id)) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} ${JSON.stringify(id)} is not a well-formed SEV id (§1.1)`
+	});
+}
+function assertReportingItemId(id, what) {
+	if (!/^RPT-[1-9][0-9]*$/.test(id)) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} entry ${JSON.stringify(id)} is not a well-formed RPT id (§1.1)`
+	});
+}
+/** `TypedRef` 形状 (kind 非空 + id 良构 — 前缀注册表可解析). */
+function assertTypedRef$2(ref, what) {
+	if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || ref.kind.length === 0 || typeof ref.id !== "string" || ref.id.length === 0) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} entries must be TypedRef {kind, id} (frozen shape)`
+	});
+	if (parseId(ref.id) === null) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} id ${JSON.stringify(ref.id)} is not well-formed (no registered §1.1 prefix)`
+	});
+}
+function assertTypedRefArray(refs, what) {
+	if (!Array.isArray(refs)) throw new ReportingError({
+		code: "RPT_INPUT",
+		message: `${what} must be a TypedRef array`
+	});
+	for (const ref of refs) {
+		assertTypedRef$2(ref, what);
+		if (!OBJECT_KIND_VALUES.includes(ref.kind)) throw new ReportingError({
+			code: "RPT_INPUT",
+			message: `${what} kind ${JSON.stringify(ref.kind)} is not a §1.3 ObjectKind`
+		});
+	}
+}
+//#endregion
+//#region src/host/service/intervention/types.ts
+/**
+* 机械触发种类（WP-3.5 冻结闭集, INV-ATTN-5）→ Intervention origin。
+* 闭集即 §6 脚注 ¹ 三类; **不**含 Claim scientific conflict（INV-ATTN-5
+* 明言）— 该映射的键集 = 闭集, 无第四种入口。
+*/
+const MECHANICAL_TRIGGER_ORIGIN = {
+	PLAN_FORK_FLOODING: "AUTO_FLOODING",
+	AUDIT_HIGH_IMPACT_DISCREPANCY: "AUTO_AUDIT",
+	AGENT_REPORT_REQUIRES_HUMAN: "AGENT_REPORT"
+};
+/** 机械触发种类 → 允许的 actor kind（catalog §5.7: origin=AUTO_* ⇒ PLUGIN;
+*  AGENT_REPORT = Agent 报告面 ⇒ AGENT）。 */
+const MECHANICAL_TRIGGER_ACTOR_KIND = {
+	PLAN_FORK_FLOODING: "PLUGIN",
+	AUDIT_HIGH_IMPACT_DISCREPANCY: "PLUGIN",
+	AGENT_REPORT_REQUIRES_HUMAN: "AGENT"
+};
+var InterventionError = class extends Error {
+	code;
+	constructor(init) {
+		super(init.message, init.cause === void 0 ? void 0 : { cause: init.cause });
+		this.name = "InterventionError";
+		this.code = init.code;
+	}
+};
+function isInterventionError(error) {
+	return error instanceof InterventionError;
+}
+/** 供事件面/测试消费的 actor 归一（本模块 actor 面 → 冻结 ActorRef 载体）。 */
+function toActorRef(actor) {
+	const ref = { kind: actor.kind };
+	if (actor.kind === "AGENT" && actor.run_id !== void 0) ref.run_id = actor.run_id;
+	if (actor.kind === "USER" && actor.user_id !== void 0) ref.user_id = actor.user_id;
+	if (actor.label !== void 0) ref.label = actor.label;
+	return ref;
+}
+//#endregion
+//#region src/host/service/intervention/state-machine.ts
+/**
+* WP-5.1 — §13 Intervention 状态机的**服务面**（门 + 查询）。
+*
+* 冻结迁移表本身在 WP-3.5 `service/flooding/state-machine.ts`（单一来源,
+* 本模块只加门语义 + 本模块错误码, 不复制表 — 决策见报告「实现要点 1」）:
+*
+*   OPEN    → PENDING | CLOSED
+*   PENDING → OPEN    | CLOSED
+*   CLOSED  → （终态, 无出口; 重开 = 新 Intervention, 不是迁移）
+*
+* INV-PERM-4（「Intervention 状态只允许用户显式修改」）: 本模块的门函数
+* **不携带 actor 参数** — actor 门在 `InterventionService.updateState`
+* （UserActorRef 类型面 + 运行面断言, 双面拒绝）; 状态机只管「迁移本身
+* 是否合法」这一维。
+*/
+/**
+* §13 门（service 面）: 非法迁移抛 `IV_ILLEGAL_TRANSITION`, 消息列合法集
+* + 终态点名（同 WP-3.1 `checkPfTransition` / WP-3.5 纪律）。
+*
+* 与 WP-3.5 纯面的唯一差别 = 错误载体: 本面抛 `InterventionError`
+* （service 错误分类法）, WP-3.5 面抛 `FloodingError`（其调用面用）。
+* 判定逻辑零重复（`checkInterventionTransition` 委托 + 重包）。
+*/
+function assertInterventionTransition(id, from, to) {
+	try {
+		checkInterventionTransition(id, from, to);
+	} catch (cause) {
+		if (isFloodingError(cause) && cause.code === "FLOODING_ILLEGAL_TRANSITION") throw new InterventionError({
+			code: "IV_ILLEGAL_TRANSITION",
+			message: cause.message
+		});
+		throw new InterventionError({
+			code: "IV_INPUT",
+			message: cause instanceof Error ? cause.message : String(cause)
+		});
+	}
+}
+//#endregion
+//#region src/host/service/intervention/schema.ts
+/**
+* WP-5.1 — intervention 表生命周期 SQL（纯数据, 零 I/O）。
+*
+* 表 DDL / 行映射 / INSERT / 查询 SQL 的**单一来源在 WP-3.5**
+* `service/flooding/schema.ts`（本模块原样复用, 不复制 — 决策见报告
+* 「实现要点 1」: 复用既有表, 不迁移新模块、不建第二张表）。本文件只
+* 交付 WP-5.1 新增的唯一 SQL: 状态缓存列的条件 UPDATE。
+*
+* 冻结触发器语义（flooding DDL `intervention_no_content_update`）:
+* 创建后**只有** status/closed_at/resolution_note 三个状态缓存列可
+* UPDATE（§13 迁移的合法行侧面 — 仅用户, INV-PERM-4）。本 SQL 恰好只
+* 触这三列; 任何内容列写入会被存储层 trigger ABORT（任何连接生效,
+* 双保险）。
+*
+* 乐观并发门 `AND status = ?`（同 WP-4.1a 原线面 / planfork 条件 UPDATE
+* 模式）: 迁移前读到的状态与写时不一致 ⇒ 0 行 ⇒ service 大声失败
+* （IV_CONCURRENT_STATE）, 不猜。
+*/
+/**
+* 状态缓存列条件 UPDATE（INV-PERM-4 用户面唯一行侧写; DDL 触发器放行的
+* 三列 = 本 SQL 的 SET 列表, 逐字对齐）。
+* 参数序: (status, closed_at, resolution_note, id, expectedStatus)。
+*/
+const SQL_UPDATE_INTERVENTION_STATE = `UPDATE ${INTERVENTION_TABLE} SET status = ?, closed_at = ?, resolution_note = ? WHERE id = ? AND status = ?`;
+//#endregion
+//#region src/host/service/intervention/store.ts
+/**
+* WP-5.1 — `InterventionLifecycleStore`: intervention 行的**生命周期面**
+* （insert + 全量查询 + 用户状态缓存 UPDATE; append-only）。
+*
+* 表 / 触发器 / 行形状 = WP-3.5 冻结面（复用 — 本文件**不**含 CREATE
+* TABLE; 构造时对注入连接幂等应用 WP-3.5 `interventionDdl()` — 第二连接
+* 模式: 多连接 WAL 共存, 写经文件锁串行化, 同 WP-3.5/WP-3.1 先例）。
+*
+* 面（API 面即权限面 — 同 WP-3.5 纪律）:
+*   - **无 delete 方法**（§15 通则 / INV-HIST-7; 存储层 trigger 兜底任何
+*     连接的 raw DELETE）;
+*   - **无内容 UPDATE 方法**（创建后 8 个内容列不可变 — trigger 兜底;
+*     唯一的合法行侧写 = `updateState` 的状态缓存三列, §13 迁移仅用户,
+*     INV-PERM-4 — actor 门在 service 层, 本层只执行行侧机械动作）;
+*   - 查询**无隐藏过滤器**: `listInterventions` 按 (workstreamId?,
+*     status?, origin?) 任一子集过滤, 全部参数缺省 = 全量（INV-ATTN-1
+*     「完整展示」的存储半边 — 过滤只用于调用方显式指名, service 查询
+*     面从不替调用方隐藏行）。
+*
+* 组合（决策: 复用 WP-3.5 `InterventionStore` 作 insert/查询委托, 零形状
+* 网重复）:
+*   - `interventions`（WP-3.5 store, 注入的既有实例 — 生产 = wiring 的
+*     同一 intervention 连接上的实例）: insert（整行过真实冻结
+*     attention.schema.json 形状网）+ get/list;
+*   - `db`（本 store 自有连接面）: 状态缓存列条件 UPDATE
+*     （`SQL_UPDATE_INTERVENTION_STATE`, 乐观并发门 `AND status = ?`）。
+*
+* 错误纪律: 边界参数畸形 = IV_INPUT; 驱动/SQL 失败包 IV_STORE（cause
+* 保留）。
+*/
+var InterventionLifecycleStore = class {
+	#db;
+	#interventions;
+	closed = false;
+	constructor(options) {
+		if (options.db === void 0 || typeof options.db.exec !== "function" || typeof options.db.run !== "function") throw new InterventionError({
+			code: "IV_INPUT",
+			message: "db: the injected operational-DB face (exec/run/get/all/transaction) is required"
+		});
+		if (options.interventions === void 0 || typeof options.interventions.insertIntervention !== "function") throw new InterventionError({
+			code: "IV_INPUT",
+			message: "interventions: a WP-3.5 InterventionStore (insert/query face) is required"
+		});
+		this.#db = options.db;
+		this.#interventions = options.interventions;
+		this.#db.exec(interventionDdl());
+	}
+	/**
+	* Insert ONE intervention row（委托 WP-3.5 store — 整行过真实冻结
+	* `$defs/Intervention` 形状网; 单语句 autocommit）。调用方（service）
+	* 负责 IV/H 双号 reserve/commit 与事件先行纪律。
+	*/
+	insertIntervention(record) {
+		this.#assertOpen("insertIntervention");
+		try {
+			return this.#interventions.insertIntervention(record);
+		} catch (cause) {
+			if (cause instanceof InterventionError) throw cause;
+			if (isFloodingError(cause)) throw new InterventionError({
+				code: cause.code === "FLOODING_INPUT" || cause.code === "FLOODING_SCHEMA_UNAVAILABLE" ? "IV_INPUT" : "IV_STORE",
+				message: cause.message,
+				cause
+			});
+			throw this.#wrap("insertIntervention", cause);
+		}
+	}
+	/**
+	* §13 迁移的行侧写（状态缓存三列; DDL 触发器放行的唯一 UPDATE 面）:
+	* 条件 `AND status = expectedStatus`（乐观并发门）— 返回受影响行数
+	* （0 ⇒ 迁移期间状态已变, service 大声失败 IV_CONCURRENT_STATE）。
+	*/
+	updateState(id, status, closedAt, resolutionNote, expectedStatus) {
+		this.#assertOpen("updateState");
+		if (typeof id !== "string" || !/^IV-[1-9][0-9]*$/.test(id)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `updateState: id must be a well-formed IV id (got ${JSON.stringify(String(id))})`
+		});
+		assertIvStatus("updateState.status", status);
+		assertIvStatus("updateState.expectedStatus", expectedStatus);
+		if (closedAt !== null && (typeof closedAt !== "number" || !Number.isSafeInteger(closedAt) || closedAt < 0)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `updateState: closedAt must be null or a non-negative safe integer epoch ms (got ${String(closedAt)})`
+		});
+		if (resolutionNote !== null && typeof resolutionNote !== "string") throw new InterventionError({
+			code: "IV_INPUT",
+			message: `updateState: resolutionNote must be null or a string (got ${typeof resolutionNote})`
+		});
+		try {
+			return this.#db.run(SQL_UPDATE_INTERVENTION_STATE, status, closedAt, resolutionNote, id, expectedStatus);
+		} catch (cause) {
+			throw this.#wrap("updateState", cause);
+		}
+	}
+	/** One record by id（`null` when absent）。 */
+	getIntervention(id) {
+		this.#assertOpen("getIntervention");
+		try {
+			return this.#interventions.getIntervention(id);
+		} catch (cause) {
+			throw this.#wrap("getIntervention", cause);
+		}
+	}
+	/** List by (workstreamId?, status?, origin?) — 稳定顺序
+	*  created_at ASC, id ASC（继承 WP-3.5 查询面; 全缺省 = 全量）。 */
+	listInterventions(filter = {}) {
+		this.#assertOpen("listInterventions");
+		try {
+			return this.#interventions.listInterventions(filter);
+		} catch (cause) {
+			throw this.#wrap("listInterventions", cause);
+		}
+	}
+	#assertOpen(operation) {
+		if (this.closed) throw new InterventionError({
+			code: "IV_STORE",
+			message: `${operation}: store is closed`
+		});
+	}
+	/** Test/inspection seam（no-op 语义: store 无生命周期状态可关 — 连接
+	*  归 wiring 的单一 disposer）。 */
+	close() {
+		this.closed = true;
+	}
+	#wrap(context, cause) {
+		return new InterventionError({
+			code: "IV_STORE",
+			message: `${context}: ${cause instanceof Error ? cause.message : String(cause)}`,
+			cause
+		});
+	}
+};
+function assertIvStatus(what, value) {
+	if (typeof value !== "string" || !IV_STATUSES.includes(value)) throw new InterventionError({
+		code: "IV_INPUT",
+		message: `${what} must be one of ${IV_STATUSES.join("|")} (got ${JSON.stringify(String(value))})`
+	});
+}
+//#endregion
+//#region src/host/service/intervention/service.ts
+/**
+* WP-5.1 — `InterventionService`: Intervention 生命周期（创建 / 状态迁移 /
+* 全量查询）。
+*
+* ## 创建（两类来源, 任务目标 1）
+*
+*   `createUserIntervention(params, actor: UserActorRef)`
+*      — 用户类（GUI 手工登记）: origin 常量 `USER`（构建面不接受 origin
+*        参数）, created_by = actor;
+*   `createMechanicalIntervention(params, actor: MechanicalActorRef)`
+*      — 机械类: origin + actor kind 由 `trigger: MechanicalTriggerKind`
+*        （INV-ATTN-5 闭集, WP-3.5 冻结面）推导（types.ts 映射, 零自由度:
+*        AUTO_* ⇒ PLUGIN; AGENT_REPORT ⇒ AGENT）; 触发种类与 actor kind
+*        不配对 ⇒ IV_ACTOR_FORBIDDEN（运行面, 同类型面双钉）。
+*
+* 共同纪律（顺序, 同 WP-3.5 §8 动作 / WP-2.4 两连接写序）:
+*   ① 全预校验（无写）: title/WS id 模式/WS 存在性（§16 规则 2 写入时
+*      校验: 新引用失败 = 拒绝）/trigger 配对;
+*   ② reserve IV 号（+ H 号 — 仅当有 WS 关联, 无关联不发事件,
+*      TC-DOM-023）;
+*   ③ INTERVENTION_CREATED 事件经 `store.appendEvents` append — registry
+*      `validate` hook 在 store 写事务内（INV-HIST-4: 未过冻结校验的事件
+*      永不落地; E 列矩阵 U/A/P + origin=AUTO_* ⇒ actor.kind=PLUGIN 的
+*      CROSS_FIELD 在 registry 内钉; ctx 的 interventions map 排除本批
+*      新建 IV id — 「新建」检查语义, 同 WP-2.4 excludeRunIds 先例）;
+*   ④ intervention 行落库（lifecycle store; 整行过真实冻结
+*      attention.schema.json 形状网）;
+*   ⑤ commit 号。
+*
+* 失败窗口（文档化残差, 同 WP-3.5 头注）: ③ 已提交、④ 失败 ⇒ 事件在、
+* 行缺（事件是合法 catalog 事件; 行滞后收敛 — V1 无跨连接事务）; 任何
+* 失败都 release 全部预留号（§1.1 单调, gap 合法）。
+*
+* ## 状态迁移（INV-PERM-4 — 仅用户, 双面）
+*
+* `updateState(id, status, actor: UserActorRef, resolutionNote?)`:
+*   - **类型面**: actor 参数类型 `UserActorRef`（AGENT/PLUGIN/SYSTEM 是
+*     编译错误）;
+*   - **运行面**: `assertUserActor`（伪造的非 USER actor ⇒ IV_ACTOR_FORBIDDEN,
+*     零写入）— 同 WP-3.4 `assertUserActor` / WP-2.4 `UserActorRef` 先例;
+*   - §13 合法性（state-machine.ts 门, 冻结表单一来源在 WP-3.5）:
+*     OPEN ↔ PENDING; OPEN|PENDING → CLOSED 终态; 自环非法; 重开 = 新
+*     Intervention（CLOSED 无出口）;
+*   - resolutionNote 仅 CLOSED 合法（「关闭时用户填写」, §9.2; 与
+*     WP-4.1a 线面语义逐字一致 — 非关闭携带 note ⇒ IV_INPUT）;
+*   - 行侧写 = lifecycle store 的条件 UPDATE（`AND status = ?` 乐观并发
+*     门; 0 行 ⇒ IV_CONCURRENT_STATE, 大声不猜）;
+*   - **无 History 事件**: 冻结目录（CATALOG §4）的人类注意力事件**只有**
+*     INTERVENTION_CREATED — 状态迁移无对应事件, 不落事件 = 不虚构
+*     （目录 §7 新增事件需 bump schemaVersion, 归冻结文档维护面）。
+*
+* ## 查询（INV-ATTN-1 的 service 层落点: 无隐藏过滤器）
+*
+* `get` / `listOpen` / `listPending` / `listActive`（OPEN + PENDING 全量
+* 成对）/ `listClosed`: 返回该状态集的**全部**行（不排序、不截断、不
+* 按 origin/WS 筛选 — 稳定顺序 created_at ASC, id ASC 继承 WP-3.5 查询
+* 面）。「Attention Manager 只排序、不隐藏」的展示面 = client 分组视图
+* （views/intervention）, service 层保证数据完整这一半。
+*
+* Layer (ARCHITECTURE §2.2): service — 唯一写 operational DB 的层。
+* 无 DSH import (INV-PERM-5)。
+*/
+/** 冻结 WS id 模式（common.schema.json idWorkstream）。 */
+const WS_ID_PATTERN = /^WS-[1-9][0-9]*$/;
+/** 冻结 IV id 模式（common.schema.json idIntervention）。 */
+const IV_ID_PATTERN = /^IV-[1-9][0-9]*$/;
+var InterventionService = class {
+	#store;
+	#registry;
+	#lifecycle;
+	#allocator;
+	#projectId;
+	#externalState;
+	#now;
+	constructor(options) {
+		if (options.store === void 0 || options.store === null || typeof options.store.appendEvents !== "function") throw new InterventionError({
+			code: "IV_INPUT",
+			message: "store: a WP-2.1 ResearchStore is required"
+		});
+		if (options.registry === void 0 || options.registry === null) throw new InterventionError({
+			code: "IV_INPUT",
+			message: "registry: a WP-2.2 event registry is required"
+		});
+		if (options.lifecycle === void 0 || options.lifecycle === null || typeof options.lifecycle.updateState !== "function") throw new InterventionError({
+			code: "IV_INPUT",
+			message: "lifecycle: an InterventionLifecycleStore is required"
+		});
+		if (options.allocator === void 0 || options.allocator === null || typeof options.allocator.reserve !== "function") throw new InterventionError({
+			code: "IV_INPUT",
+			message: "allocator: the shared IdAllocator is required"
+		});
+		if (typeof options.projectId !== "string" || options.projectId.length === 0) throw new InterventionError({
+			code: "IV_INPUT",
+			message: "projectId must be a non-empty string"
+		});
+		if (typeof options.externalState !== "function") throw new InterventionError({
+			code: "IV_INPUT",
+			message: "externalState: a declarative-snapshot provider is required"
+		});
+		this.#store = options.store;
+		this.#registry = options.registry;
+		this.#lifecycle = options.lifecycle;
+		this.#allocator = options.allocator;
+		this.#projectId = options.projectId;
+		this.#externalState = options.externalState;
+		this.#now = options.now ?? Date.now;
+	}
+	/**
+	* 用户类创建（§6 矩阵行「Intervention 创建」U 栏）: origin 常量 USER;
+	* actor 必须 USER（运行面断言 — 类型面在参数上）。
+	*/
+	createUserIntervention(params, actor) {
+		assertUserActor$2(actor, "createUserIntervention");
+		return this.#create(params, {
+			origin: "USER",
+			actor
+		}, "createUserIntervention");
+	}
+	/**
+	* 机械类创建（§6 矩阵行 A/P 栏 — 仅机械触发¹, INV-ATTN-5 闭集）:
+	* origin 由 trigger 推导（types.ts 映射）; actor kind 必须与 trigger
+	* 配对（AUTO_* ⇒ PLUGIN; AGENT_REPORT ⇒ AGENT — 运行面断言）。
+	*/
+	createMechanicalIntervention(params, actor) {
+		const trigger = params.trigger;
+		const expectedKind = MECHANICAL_TRIGGER_ACTOR_KIND[trigger];
+		if (expectedKind === void 0) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `createMechanicalIntervention: trigger ${JSON.stringify(String(trigger))} is not a member of the INV-ATTN-5 mechanical-trigger closed set`
+		});
+		if (actor === null || typeof actor !== "object" || actor.kind !== expectedKind) throw new InterventionError({
+			code: "IV_ACTOR_FORBIDDEN",
+			message: `createMechanicalIntervention: trigger ${trigger} requires an actor of kind ${expectedKind} (catalog §5.7: origin=AUTO_* ⇒ actor.kind=PLUGIN; AGENT_REPORT = agent report lane) — got ${JSON.stringify(actor)}`
+		});
+		return this.#create(params, {
+			origin: MECHANICAL_TRIGGER_ORIGIN[trigger],
+			actor
+		}, "createMechanicalIntervention");
+	}
+	/**
+	* 共同创建管线（module header 顺序纪律 ①–⑤）。抛出 `InterventionError`
+	* （预校验/actor = IV_INPUT/IV_ACTOR_FORBIDDEN; registry 拒绝/append =
+	* IV_EVENT; 行落库 = IV_STORE; 号预留 = IV_STORE）— 直接操作面（用户
+	* GUI / agent 工具）, 失败必须大声, 与 flooding 钩子的非阻塞契约不同。
+	*/
+	#create(params, derived, operation) {
+		const title = params.title;
+		if (typeof title !== "string" || title.length === 0) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `${operation}: title must be a non-empty string (DOMAIN_SCHEMA §9.2)`
+		});
+		const detail = params.detail;
+		if (detail !== void 0 && (typeof detail !== "string" || detail.length === 0)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `${operation}: detail must be a non-empty string when present (DOMAIN_SCHEMA §9.2)`
+		});
+		const workstreamIds = params.workstream_ids ?? [];
+		for (const ws of workstreamIds) if (typeof ws !== "string" || !WS_ID_PATTERN.test(ws)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `${operation}: workstream_ids must be well-formed WS ids ^WS-[1-9][0-9]*$ (got ${JSON.stringify(ws)})`
+		});
+		const sourceRefs = (params.source_refs ?? []).map((ref, i) => {
+			if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string" || ref.id.length === 0) throw new InterventionError({
+				code: "IV_INPUT",
+				message: `${operation}: source_refs[${i}] must be a {kind, id} typedRef (got ${JSON.stringify(ref)})`
+			});
+			return {
+				kind: ref.kind,
+				id: ref.id
+			};
+		});
+		const workstreams = this.#externalState().workstreams;
+		for (const ws of workstreamIds) if (!workstreams.has(ws)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `${operation}: workstream ${ws} does not exist in the declarative snapshot (DOMAIN_SCHEMA §16 规则 2: 写入时校验)`
+		});
+		const createdAt = this.#now();
+		const origin = derived.origin;
+		const actor = toActorRef(derived.actor);
+		const ownerWs = workstreamIds[0];
+		let ivRes = null;
+		let hRes = null;
+		const releaseAll = () => {
+			for (const res of [ivRes, hRes]) {
+				if (res === null) continue;
+				try {
+					this.#allocator.release(res);
+				} catch {}
+			}
+		};
+		try {
+			ivRes = this.#allocator.reserve("INTERVENTION", this.#projectId);
+			if (ownerWs !== void 0) hRes = this.#allocator.reserve("HISTORY_EVENT", this.#projectId);
+			let eventId = null;
+			if (ownerWs !== void 0) {
+				let event;
+				try {
+					event = this.#buildCreatedEvent(hRes.id, {
+						id: ivRes.id,
+						title,
+						origin,
+						ownerWs,
+						sourceRefs,
+						actor: derived.actor,
+						occurredAt: createdAt
+					});
+				} catch (cause) {
+					releaseAll();
+					throw this.#wrapCause(cause, "IV_EVENT");
+				}
+				let appended;
+				try {
+					appended = this.#store.appendEvents([event], { validate: makeValidateHook$1(this.#registry, () => this.#buildEventContext(ivRes.id)) }).events[0];
+				} catch (cause) {
+					releaseAll();
+					throw this.#wrapCause(cause, "IV_EVENT");
+				}
+				eventId = appended.eventId;
+			}
+			const record = {
+				id: ivRes.id,
+				title,
+				origin,
+				workstream_ids: [...workstreamIds],
+				source_refs: sourceRefs,
+				status: "OPEN",
+				created_by: actor,
+				created_at: createdAt,
+				...detail !== void 0 ? { detail } : {}
+			};
+			try {
+				this.#lifecycle.insertIntervention(record);
+			} catch (cause) {
+				releaseAll();
+				throw this.#wrapCause(cause, "IV_STORE");
+			}
+			this.#allocator.commit(ivRes);
+			if (hRes !== null) this.#allocator.commit(hRes);
+			return {
+				intervention: record,
+				eventId
+			};
+		} catch (cause) {
+			releaseAll();
+			throw this.#wrapCause(cause, "IV_STORE");
+		}
+	}
+	/**
+	* CATALOG §5.7 INTERVENTION_CREATED 事件（payload 逐字:
+	* intervention_id(新建)/title/origin/source_refs?）。
+	*
+	* V1 owner 推导适配（同 WP-3.5 头注）: registry 的 owner 规则只认
+	* payload source_refs 内的 **WS-local** ref（`workstreamOf`）⇒ 事件
+	* payload 的 `source_refs` 以**显式 WORKSTREAM ref（owner WS）打头**
+	* （与 record.workstream_ids[0] 冗余一致, 非新信息）, 后跟记录本身的
+	* source_refs; 记录行保持参数原样（§9.2: workstream_ids 独立承载 WS
+	* 关联）。owner WS ref 已在记录 source_refs 内打头时不重复。
+	*/
+	#buildCreatedEvent(eventId, input) {
+		if (typeof eventId !== "string" || !/^H-[1-9][0-9]*$/.test(eventId)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `buildCreatedEvent: eventId ${JSON.stringify(String(eventId))} is not a well-formed H id (^H-[1-9][0-9]*$)`
+		});
+		if (typeof input.id !== "string" || !IV_ID_PATTERN.test(input.id)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `buildCreatedEvent: intervention id ${JSON.stringify(String(input.id))} is not a well-formed IV id`
+		});
+		if (typeof input.occurredAt !== "number" || !Number.isSafeInteger(input.occurredAt) || input.occurredAt < 0) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `buildCreatedEvent: occurredAt must be a non-negative safe integer epoch ms (got ${String(input.occurredAt)})`
+		});
+		const payloadRefs = input.sourceRefs.some((ref) => ref.kind === "WORKSTREAM" && ref.id === input.ownerWs) ? [...input.sourceRefs] : [{
+			kind: "WORKSTREAM",
+			id: input.ownerWs
+		}, ...input.sourceRefs];
+		return {
+			eventId,
+			ownerWorkstreamId: input.ownerWs,
+			eventType: "INTERVENTION_CREATED",
+			schemaVersion: 1,
+			occurredAt: input.occurredAt,
+			actor: toActorRef(input.actor),
+			payload: {
+				intervention_id: input.id,
+				title: input.title,
+				origin: input.origin,
+				source_refs: payloadRefs
+			}
+		};
+	}
+	/**
+	* INTERVENTION_CREATED 的校验 ctx（module header ③）: interventions
+	* map = 现行所有行**排除本批新建 IV id**（「新建」检查语义）;
+	* workstreams/runs = 注入的外部快照（WS 存在性 + owner 推导 + AGENT
+	* actor.run_id 存在性, catalog §5）; 其余 map 空（validator 对本事件
+	* 只查 interventions/workstreams/runs/source refs — 同 WP-3.5 先例）。
+	*/
+	#buildEventContext(excludeInterventionId) {
+		const interventions = /* @__PURE__ */ new Map();
+		for (const row of this.#lifecycle.listInterventions()) {
+			if (row.id === excludeInterventionId) continue;
+			interventions.set(row.id, { workstreamIds: row.workstream_ids });
+		}
+		const external = this.#externalState();
+		return {
+			workstreams: external.workstreams,
+			tasks: /* @__PURE__ */ new Map(),
+			runs: external.runs ?? /* @__PURE__ */ new Map(),
+			claims: /* @__PURE__ */ new Map(),
+			facts: /* @__PURE__ */ new Map(),
+			artifacts: /* @__PURE__ */ new Map(),
+			relations: /* @__PURE__ */ new Map(),
+			gates: /* @__PURE__ */ new Map(),
+			milestones: /* @__PURE__ */ new Map(),
+			interventions,
+			topologyEdges: /* @__PURE__ */ new Map()
+		};
+	}
+	/**
+	* §13 迁移（仅用户显式修改）:
+	*   1. actor 运行面断言（类型面 = `UserActorRef` 参数 — 双面, 测试钉死）;
+	*   2. 行存在（IV_NOT_FOUND）;
+	*   3. §13 合法性门（IV_ILLEGAL_TRANSITION — 含自环; CLOSED 终态）;
+	*   4. resolutionNote 仅 CLOSED（IV_INPUT — WP-4.1a 线面语义逐字）;
+	*   5. 条件 UPDATE（`AND status = ?`; 0 行 ⇒ IV_CONCURRENT_STATE）。
+	*
+	* 无 History 事件（冻结目录无对应事件 — 不虚构, module header）。
+	* 结果 DTO 与共享契约 `UpdateInterventionStateResult` 字段 1:1。
+	*/
+	updateState(interventionId, status, actor, resolutionNote) {
+		assertUserActor$2(actor, "updateState");
+		if (typeof interventionId !== "string" || !IV_ID_PATTERN.test(interventionId)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `updateState: interventionId must be a well-formed IV id (got ${JSON.stringify(String(interventionId))})`
+		});
+		if (typeof status !== "string" || ![
+			"OPEN",
+			"PENDING",
+			"CLOSED"
+		].includes(status)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: `updateState: status must be one of OPEN|PENDING|CLOSED (got ${JSON.stringify(String(status))})`
+		});
+		if (resolutionNote !== void 0 && (typeof resolutionNote !== "string" || resolutionNote.length === 0)) throw new InterventionError({
+			code: "IV_INPUT",
+			message: "updateState: resolutionNote must be a non-empty string when present (DOMAIN_SCHEMA §9.2)"
+		});
+		const current = this.#lifecycle.getIntervention(interventionId);
+		if (current === null) throw new InterventionError({
+			code: "IV_NOT_FOUND",
+			message: `intervention ${interventionId} does not exist`
+		});
+		assertInterventionTransition(interventionId, current.status, status);
+		if (resolutionNote !== void 0 && status !== "CLOSED") throw new InterventionError({
+			code: "IV_INPUT",
+			message: "resolutionNote is only valid when closing an Intervention (status CLOSED; DOMAIN_SCHEMA §9.2)"
+		});
+		const closedAt = status === "CLOSED" ? this.#now() : null;
+		let affected;
+		try {
+			affected = this.#lifecycle.updateState(interventionId, status, closedAt, resolutionNote ?? null, current.status);
+		} catch (cause) {
+			throw this.#wrapCause(cause, "IV_STORE");
+		}
+		if (affected === 0) throw new InterventionError({
+			code: "IV_CONCURRENT_STATE",
+			message: `intervention ${interventionId} moved concurrently (expected status ${current.status}) — refetch and retry`
+		});
+		return {
+			interventionId,
+			statusFrom: current.status,
+			statusTo: status,
+			closedAt,
+			resolutionNote: status === "CLOSED" ? resolutionNote ?? null : null
+		};
+	}
+	/** One record by id（`null` when absent）。 */
+	get(interventionId) {
+		return this.#lifecycle.getIntervention(interventionId);
+	}
+	/** OPEN 全量（稳定顺序 created_at ASC, id ASC; 不筛选不截断）。 */
+	listOpen() {
+		return this.#lifecycle.listInterventions({ status: "OPEN" });
+	}
+	/** PENDING 全量（同上）。 */
+	listPending() {
+		return this.#lifecycle.listInterventions({ status: "PENDING" });
+	}
+	/**
+	* OPEN + PENDING 全量成对（§9.2 GUI 两个恒显组 — INV-ATTN-1: 始终完整
+	* 展示; service 层 = 无隐藏过滤器, 展示层的排序/分组在 client 视图）。
+	*/
+	listActive() {
+		return {
+			open: this.listOpen(),
+			pending: this.listPending()
+		};
+	}
+	/** CLOSED 全量（§9.2「CLOSED 折叠」组 — 折叠是展示面, 数据仍完整）。 */
+	listClosed() {
+		return this.#lifecycle.listInterventions({ status: "CLOSED" });
+	}
+	#wrapCause(cause, code) {
+		if (isInterventionError(cause)) return cause;
+		return new InterventionError({
+			code,
+			message: cause instanceof Error ? cause.message : String(cause),
+			cause
+		});
+	}
+};
+function assertUserActor$2(actor, operation) {
+	if (actor === null || typeof actor !== "object" || actor.kind !== "USER") throw new InterventionError({
+		code: "IV_ACTOR_FORBIDDEN",
+		message: `${operation}: requires a USER actor (INV-PERM-4: Intervention 状态/用户创建面只允许用户显式操作; ARCHITECTURE §6 矩阵 U 栏) — got ${JSON.stringify(actor)}`
+	});
+	if (actor.user_id !== void 0 && typeof actor.user_id !== "string") throw new InterventionError({
+		code: "IV_INPUT",
+		message: `${operation}: actor.user_id must be a string (common.schema.json actorRef)`
+	});
+	if (actor.label !== void 0 && (typeof actor.label !== "string" || actor.label.length > 200)) throw new InterventionError({
+		code: "IV_INPUT",
+		message: `${operation}: actor.label must be a string of ≤200 chars (common.schema.json actorRef)`
+	});
+}
+/**
+* store `validate` hook 工厂: 批内每个事件过**冻结 registry** 校验
+* （payload 严格性 INV-HIST-4 / 存在性 / owner 规则 / 发射者矩阵 E 列
+* U/A/P / origin=AUTO_* ⇒ actor.kind=PLUGIN 的 CROSS_FIELD）, 任一失败
+* 抛结构化 `InterventionError`（IV_EVENT）⇒ store 全批回滚（未过校验的
+* 事件永不落地）。registry 不可用 ⇒ fail loud。
+*/
+function makeValidateHook$1(registry, buildContext) {
+	return (events) => {
+		if (!registry.isUsable) throw new InterventionError({
+			code: "IV_EVENT",
+			message: `the event registry is unusable (load errors: ${registry.loadErrors.map((e) => e.code).join(", ")}); refusing to append an unvalidated event`
+		});
+		const ctx = buildContext();
+		for (const event of events) {
+			const result = validateEvent(registry, event, ctx);
+			if (!result.ok) throw new InterventionError({
+				code: "IV_EVENT",
+				message: `${event.eventType} (${event.eventId}) rejected by the frozen registry: ` + result.errors.map((e) => `[${e.code}] ${e.message}`).join("; ")
+			});
+		}
+	};
+}
+//#endregion
+//#region src/host/service/inbox/types.ts
+/** `InboxSource` 7 值（§1.4 逐字）。 */
+const INBOX_SOURCES = [
+	"HUMAN_QUICK_CAPTURE",
+	"UNCLASSIFIED_AUDIT_FINDING",
+	"IMPORTED_MEETING_NOTE",
+	"UNREGISTERED_WORKSPACE_CHANGE",
+	"AGENT_UNSTRUCTURED_REPORT",
+	"EXTERNAL_NOTE",
+	"DISCOVERED_SESSION"
+];
+/** `InboxState` 3 值（§1.4 逐字; §13: CAPTURED → CONVERTED|DISMISSED 终态）。 */
+const INBOX_STATES = [
+	"CAPTURED",
+	"CONVERTED",
+	"DISMISSED"
+];
+/** 用户类捕获的 source（常量 — `captureHuman` 不接受 source 参数）。 */
+const HUMAN_INBOX_SOURCE = "HUMAN_QUICK_CAPTURE";
+/** 机械捕获 source 闭集（6 值 — §1.4 去掉 HUMAN_QUICK_CAPTURE）。 */
+const MECHANICAL_INBOX_SOURCES = [
+	"UNCLASSIFIED_AUDIT_FINDING",
+	"IMPORTED_MEETING_NOTE",
+	"UNREGISTERED_WORKSPACE_CHANGE",
+	"AGENT_UNSTRUCTURED_REPORT",
+	"EXTERNAL_NOTE",
+	"DISCOVERED_SESSION"
+];
+/**
+* §28 转换动作集（原文: Task / NextAction / Intervention / Claim / Fact /
+* ReportingItem / Interaction — 7 类, 逐字映射为 TypedRef.kind 词面）。
+*/
+const CONVERSION_TARGET_KINDS = [
+	"TASK",
+	"NEXT_ACTION",
+	"INTERVENTION",
+	"CLAIM",
+	"FACT",
+	"REPORTING_ITEM",
+	"INTERACTION"
+];
+/** The default user actor for GUI operations (matrix column U). */
+const USER_ACTOR$1 = {
+	kind: "USER",
+	label: "user"
+};
+/** 升级理由（机械规则名 — 冻结 3 值; 判定见 escalation.ts）。 */
+const ESCALATION_REASONS = [
+	"STRICT_TRACKED_CHANGE",
+	"DELETION",
+	"BATCH_IMPACT"
+];
+var InboxError = class extends Error {
+	code;
+	constructor(init) {
+		super(init.message, init.cause === void 0 ? void 0 : { cause: init.cause });
+		this.name = "InboxError";
+		this.code = init.code;
+	}
+};
+function isInboxError(error) {
+	return error instanceof InboxError;
+}
+//#endregion
+//#region src/host/service/inbox/state-machine.ts
+/**
+* WP-6.4 — InboxItem §13 状态机（纯迁移表 + 门; 冻结表单一来源在
+* DOMAIN_SCHEMA §13, 本文件是其 service 层门 — 同 WP-5.1
+* intervention/state-machine.ts 先例）。
+*
+* 冻结表（§13 逐字）:
+*   InboxItem: `CAPTURED → CONVERTED | DISMISSED`（终态）。
+*
+* 语义:
+*  - 自环非法（状态机无自环 — 同 §13 全部对象口径）;
+*  - CONVERTED / DISMISSED 均为终态（无出口; 重开/重转 = 新条目 —
+*    §13 同 Intervention「重开 = 新 Intervention」口径: 终态对象不可
+*    复活, capture-first 层的再次捕获 = 新 IN id）;
+*  - 非法转换在 service 层拒绝（INV-TASK-1 同款纪律 — 存储层 trigger
+*    只钉「状态缓存列才可变」, 迁移合法性归本门）。
+*/
+/** 合法迁移表（§13 逐字; 终态 = 空集）。 */
+const INBOX_TRANSITIONS = {
+	CAPTURED: ["CONVERTED", "DISMISSED"],
+	CONVERTED: [],
+	DISMISSED: []
+};
+/**
+* §13 迁移门（纯; 非法对 ⇒ `IN_ILLEGAL_TRANSITION` — 含自环、终态出口、
+* 未知状态）。
+*/
+function assertInboxTransition(inboxItemId, from, to) {
+	if (!INBOX_STATES.includes(from)) throw new InboxError({
+		code: "IN_ILLEGAL_TRANSITION",
+		message: `${inboxItemId}: unknown source state ${JSON.stringify(String(from))} (frozen InboxState = ${INBOX_STATES.join("|")})`
+	});
+	if (!INBOX_STATES.includes(to)) throw new InboxError({
+		code: "IN_ILLEGAL_TRANSITION",
+		message: `${inboxItemId}: unknown target state ${JSON.stringify(String(to))} (frozen InboxState = ${INBOX_STATES.join("|")})`
+	});
+	if (from === to) throw new InboxError({
+		code: "IN_ILLEGAL_TRANSITION",
+		message: `${inboxItemId}: self-loop ${from} -> ${to} is not a transition (DOMAIN_SCHEMA §13: InboxItem 无自环)`
+	});
+	if (!INBOX_TRANSITIONS[from].includes(to)) throw new InboxError({
+		code: "IN_ILLEGAL_TRANSITION",
+		message: `${inboxItemId}: ${from} -> ${to} is not a legal InboxItem transition (DOMAIN_SCHEMA §13: CAPTURED -> CONVERTED | DISMISSED; CONVERTED/DISMISSED 终态)`
+	});
+}
+/**
+* 机械高影响判定（纯; 永不抛 — 证据缺省字段 = 该规则不命中）。
+*
+* 证据字段口径（机械事实面, 见 `EscalationEvidence`）:
+*  - `strictTrackedPaths` — 触及的第一层路径（空/缺省 = 无关键路径触及）;
+*  - `deletedPaths` — 被删除路径（空/缺省 = 无删除）;
+*  - `affectedPathCount` — 受影响路径计数（缺省 = 0 = 不触发批量规则）。
+*/
+function assessEscalation(evidence, options = {}) {
+	const reasons = [];
+	for (const reason of ESCALATION_REASONS) if (reason === "STRICT_TRACKED_CHANGE") {
+		if ((evidence.strictTrackedPaths?.length ?? 0) > 0) reasons.push(reason);
+	} else if (reason === "DELETION") {
+		if ((evidence.deletedPaths?.length ?? 0) > 0) reasons.push(reason);
+	} else if (reason === "BATCH_IMPACT") {
+		const threshold = options.batchThreshold ?? 5;
+		if (typeof threshold !== "number" || !Number.isSafeInteger(threshold) || threshold < 1) throw new RangeError(`assessEscalation: batchThreshold must be a safe integer >= 1 (got ${String(threshold)}; frozen policy 口径 = integer minimum 1, default 5)`);
+		if ((evidence.affectedPathCount ?? 0) >= threshold) reasons.push(reason);
+	}
+	return {
+		highImpact: reasons.length > 0,
+		reasons
+	};
+}
+/**
+* 机械证据摘要（确定性格式 — 升级 Intervention 的 `detail` 落点, 同
+* WP-3.5 `buildAutoFloodingDetail` 先例: 只陈述计数/路径事实, 不判断
+* 科研理由）。
+*/
+function buildEscalationDetail(evidence, assessment, threshold) {
+	const parts = [];
+	parts.push(`escalation (plan §22.3): highImpact=${assessment.highImpact}`);
+	if (assessment.reasons.length > 0) parts.push(`reasons=[${assessment.reasons.join(", ")}]`);
+	const strictCount = evidence.strictTrackedPaths?.length ?? 0;
+	if (strictCount > 0) parts.push(`strict_tracked=${strictCount} [${evidence.strictTrackedPaths.join(", ")}]`);
+	const deletedCount = evidence.deletedPaths?.length ?? 0;
+	if (deletedCount > 0) parts.push(`deleted=${deletedCount} [${evidence.deletedPaths.join(", ")}]`);
+	parts.push(`affected_paths=${evidence.affectedPathCount ?? 0}`);
+	parts.push(`batch_threshold=${threshold}`);
+	if ((evidence.workstreamIds?.length ?? 0) > 0) parts.push(`workstreams=[${evidence.workstreamIds.join(", ")}]`);
+	return parts.join("; ");
+}
+/** 升级 Intervention 的机械标题（§9.2 title 落点 — 非冻结字符串,
+*  机械派生: 无 WS 关联 = `High-impact research discrepancy`; 有 =
+*  首 WS id 逐字嵌入（同 WP-3.5 flooding 标题的 [WS-<n>] 机械格式））。 */
+function escalationInterventionTitle(workstreamIds) {
+	const ws = workstreamIds?.[0];
+	return ws === void 0 ? "High-impact research discrepancy" : `High-impact research discrepancy [${ws}]`;
+}
+//#endregion
+//#region src/host/service/inbox/service.ts
+/** 冻结 IN id 模式（common.schema.json idInboxItem）。 */
+const IN_ID_PATTERN = /^IN-[1-9][0-9]*$/;
+var InboxService = class {
+	#store;
+	#allocator;
+	#projectId;
+	#targets;
+	#mechanicalInterventionCreator;
+	#managementActionRecorder;
+	#batchThreshold;
+	#now;
+	constructor(options) {
+		if (options.store === void 0 || options.store === null || typeof options.store.insertItem !== "function") throw new InboxError({
+			code: "IN_INPUT",
+			message: "store: an InboxStore is required"
+		});
+		if (options.allocator === void 0 || options.allocator === null || typeof options.allocator.reserve !== "function") throw new InboxError({
+			code: "IN_INPUT",
+			message: "allocator: the shared IdAllocator is required"
+		});
+		if (typeof options.projectId !== "string" || options.projectId.length === 0) throw new InboxError({
+			code: "IN_INPUT",
+			message: "projectId must be a non-empty string"
+		});
+		const threshold = options.escalation?.batchThreshold;
+		if (threshold !== void 0 && (typeof threshold !== "number" || !Number.isSafeInteger(threshold) || threshold < 1)) throw new InboxError({
+			code: "IN_INPUT",
+			message: `escalation.batchThreshold must be a safe integer >= 1 (got ${String(threshold)}; default 5)`
+		});
+		this.#store = options.store;
+		this.#allocator = options.allocator;
+		this.#projectId = options.projectId;
+		this.#targets = options.conversionTargets;
+		this.#mechanicalInterventionCreator = options.mechanicalInterventionCreator;
+		this.#managementActionRecorder = options.managementActionRecorder;
+		this.#batchThreshold = threshold ?? 5;
+		this.#now = options.now ?? Date.now;
+	}
+	/**
+	* 用户类捕获（§11 `HUMAN_QUICK_CAPTURE`）: source 常量（构建面不接受
+	* source 参数 — 类型即闭集）; actor 必须 USER（运行面断言）。
+	*/
+	captureHuman(params, actor) {
+		assertUserActor$1(actor, "captureHuman");
+		return this.#capture(HUMAN_INBOX_SOURCE, params, "captureHuman");
+	}
+	/**
+	* 机械类捕获（§11 其余 6 source — 类型面闭集; 运行面再断言）: audit /
+	* discovery / reconcile / flooding / session 机械入口的唯一落库面。
+	* actor = AGENT | PLUGIN（非 USER — §11 未冻结 per-source 配对矩阵,
+	* 本面只钉「非 USER」, 见 types.ts 头注）。
+	*/
+	captureMechanical(params, actor) {
+		assertMechanicalActor(actor, "captureMechanical");
+		if (typeof params.source !== "string" || !MECHANICAL_INBOX_SOURCES.includes(params.source)) throw new InboxError({
+			code: "IN_INPUT",
+			message: `captureMechanical: source ${JSON.stringify(String(params.source))} is not a member of the mechanical source closed set (${MECHANICAL_INBOX_SOURCES.join("|")} — DOMAIN_SCHEMA §1.4 minus HUMAN_QUICK_CAPTURE)`
+		});
+		return this.#capture(params.source, params, "captureMechanical");
+	}
+	/**
+	* 共同捕获管线（module header ①–④）。抛出 `InboxError`（预校验 =
+	* IN_INPUT; 行落库/形状网 = IN_INPUT/IN_STORE; 号预留失败 = IN_STORE）
+	* — 机械入口（WP-6.1/6.2/6.3 缝）的失败必须大声, 不静默丢弃发现。
+	*/
+	#capture(source, params, operation) {
+		const payload = params.payload;
+		if (typeof payload !== "string" || payload.length === 0) throw new InboxError({
+			code: "IN_INPUT",
+			message: `${operation}: payload must be a non-empty string (DOMAIN_SCHEMA §11; frozen schema minLength 1)`
+		});
+		const contextRefs = (params.contextRefs ?? []).map((ref, i) => assertTypedRef$1(ref, `${operation}.contextRefs[${i}]`));
+		const raw = params.raw;
+		const createdAt = this.#now();
+		let res = null;
+		try {
+			res = this.#allocator.reserve("INBOX_ITEM", this.#projectId);
+			const record = {
+				id: res.id,
+				source,
+				payload,
+				context_refs: contextRefs,
+				state: "CAPTURED",
+				created_at: createdAt,
+				...raw !== void 0 ? { raw } : {}
+			};
+			this.#store.insertItem(record);
+			this.#allocator.commit(res);
+			return { item: record };
+		} catch (cause) {
+			if (res !== null) this.#releaseQuietly(res);
+			throw this.#wrapCause(cause);
+		}
+	}
+	/**
+	* 忽略条目（CAPTURED → DISMISSED 终态; 仅用户显式操作）:
+	*   1. actor 运行面断言（类型面 = `UserActorRef` 参数 — 双面）;
+	*   2. 条目存在（IN_NOT_FOUND）;
+	*   3. §13 合法性门（IN_ILLEGAL_TRANSITION — 含自环/终态出口）;
+	*   4. 条件 UPDATE（`AND state = ?`; 0 行 ⇒ IN_CONCURRENT_STATE）。
+	*/
+	dismiss(inboxItemId, actor) {
+		assertUserActor$1(actor, "dismiss");
+		const item = this.#requireItem(inboxItemId, "dismiss");
+		assertInboxTransition(inboxItemId, item.state, "DISMISSED");
+		if (this.#store.updateState(inboxItemId, "DISMISSED", null, item.state) === 0) throw this.#concurrent(inboxItemId, item.state, "dismiss");
+		return {
+			inboxItemId,
+			stateFrom: "CAPTURED",
+			stateTo: "DISMISSED"
+		};
+	}
+	/**
+	* 条目 → 正式对象（§28 转换动作集: Task/NextAction/Intervention/
+	* Claim/Fact/ReportingItem/Interaction）— module header 顺序纪律
+	* ①–④。
+	*/
+	convert(params, actor) {
+		assertUserActor$1(actor, "convert");
+		const inboxItemId = params.inboxItemId;
+		if (typeof inboxItemId !== "string" || !IN_ID_PATTERN.test(inboxItemId)) throw new InboxError({
+			code: "IN_INPUT",
+			message: `convert: inboxItemId must be a well-formed IN id (got ${JSON.stringify(String(inboxItemId))})`
+		});
+		const targetKind = params.targetKind;
+		if (typeof targetKind !== "string" || !CONVERSION_TARGET_KINDS.includes(targetKind)) throw new InboxError({
+			code: "IN_INPUT",
+			message: `convert: targetKind ${JSON.stringify(String(targetKind))} is not a member of the §28 conversion action set (${CONVERSION_TARGET_KINDS.join("|")})`
+		});
+		const fields = params.fields;
+		if (fields === null || typeof fields !== "object" || fields.kind !== targetKind) throw new InboxError({
+			code: "IN_INPUT",
+			message: `convert: fields.kind must pair with targetKind (got fields.kind=${JSON.stringify(fields === null || typeof fields !== "object" ? fields : fields.kind)} for targetKind=${targetKind})`
+		});
+		if (this.#targets === void 0) throw new InboxError({
+			code: "IN_TARGET_NOT_WIRED",
+			message: `convert IN -> ${targetKind}: the conversion-target executor is not wired in this composition (IN_TARGET_NOT_WIRED) — the frozen 7-kind action set (§28) has no production executor; production wiring passes the real WP-5.1/5.2/5.3 service closures (WP-6.4 报告「实现要点」§2)`
+		});
+		const item = this.#requireItem(inboxItemId, "convert");
+		assertInboxTransition(inboxItemId, item.state, "CONVERTED");
+		const occurredAt = this.#now();
+		let ref;
+		try {
+			ref = this.#targets.execute(targetKind, fields, item, occurredAt);
+		} catch (cause) {
+			throw new InboxError({
+				code: "IN_CONVERT_TARGET",
+				message: `convert ${inboxItemId} -> ${targetKind} failed at the target executor: ${cause instanceof Error ? cause.message : String(cause)} — the item stays CAPTURED (fix the target, retry)`,
+				cause
+			});
+		}
+		if (ref === null || typeof ref !== "object" || typeof ref.kind !== "string" || typeof ref.id !== "string" || ref.id.length === 0 || ref.kind !== targetKind) throw new InboxError({
+			code: "IN_CONVERT_TARGET",
+			message: `convert ${inboxItemId} -> ${targetKind}: the executor returned a malformed ref (expected {kind: ${targetKind}, id: <non-empty string>}; got ${JSON.stringify(ref)})`
+		});
+		if (this.#store.updateState(inboxItemId, "CONVERTED", ref, "CAPTURED") === 0) throw new InboxError({
+			code: "IN_CONCURRENT_STATE",
+			message: `convert: inbox item ${inboxItemId} moved concurrently (expected CAPTURED) — the formal object ${targetKind} ${ref.id} WAS created; refetch and reconcile (dismiss the duplicate or re-convert a fresh capture)`
+		});
+		const converted = this.#store.getItem(inboxItemId);
+		if (converted === null) throw new InboxError({
+			code: "IN_NOT_FOUND",
+			message: `convert: item ${inboxItemId} vanished after the state update (store inconsistency — loud, no guess)`
+		});
+		let managementActionId = null;
+		if (this.#managementActionRecorder !== void 0) {
+			const maRes = this.#allocator.reserve("MANAGEMENT_ACTION", this.#projectId);
+			try {
+				const record = {
+					id: maRes.id,
+					action_kind: "INBOX_CONVERTED",
+					actor: toUserActorRef(actor),
+					subject_refs: [{
+						kind: "INBOX_ITEM",
+						id: inboxItemId
+					}, {
+						kind: targetKind,
+						id: ref.id
+					}],
+					detail: `inbox ${inboxItemId} (source ${item.source}) converted to ${targetKind} ${ref.id} (user-explicit confirmation, plan §28)`,
+					occurred_at: occurredAt
+				};
+				this.#managementActionRecorder(record);
+				this.#allocator.commit(maRes);
+				managementActionId = maRes.id;
+			} catch (cause) {
+				this.#releaseQuietly(maRes);
+				throw new InboxError({
+					code: "IN_LEDGER",
+					message: `convert ${inboxItemId} -> ${targetKind}: the INBOX_CONVERTED ledger row failed — the formal object ${targetKind} ${ref.id} exists and the item is marked CONVERTED, but the provenance row is missing (manual reconciliation): ` + (cause instanceof Error ? cause.message : String(cause)),
+					cause
+				});
+			}
+		}
+		return {
+			item: converted,
+			convertedTo: ref,
+			managementActionId
+		};
+	}
+	/**
+	* 机械升级入口（audit/discovery/reconcile 缝 — §22.3「ESCALATE: 高
+	* 影响/未知/损失 → Intervention」的落库联动面）:
+	*   1. 机械判定（纯 — 三规则; 零语义判断, escalation.ts）;
+	*   2. highImpact 且联动端口缺位 ⇒ IN_INPUT（**写前**大声, 零部分状态）;
+	*   3. 恒先捕获条目（capture-first — 机械证据 + 升级标记落 raw）;
+	*   4. highImpact ⇒ Intervention 创建联动（失败 ⇒ IN_ESCALATION 大声,
+	*      条目已捕获保留供人工复核）。
+	*/
+	escalateMechanical(params, actor) {
+		assertMechanicalActor(actor, "escalateMechanical");
+		const evidence = params.evidence;
+		if (evidence === null || typeof evidence !== "object") throw new InboxError({
+			code: "IN_INPUT",
+			message: "escalateMechanical: evidence must be an EscalationEvidence object"
+		});
+		if (typeof evidence.summary !== "string" || evidence.summary.length === 0) throw new InboxError({
+			code: "IN_INPUT",
+			message: "escalateMechanical: evidence.summary must be a non-empty string (the capture payload)"
+		});
+		const source = params.source ?? "UNCLASSIFIED_AUDIT_FINDING";
+		if (typeof source !== "string" || !MECHANICAL_INBOX_SOURCES.includes(source)) throw new InboxError({
+			code: "IN_INPUT",
+			message: `escalateMechanical: source ${JSON.stringify(String(source))} is not a member of the mechanical source closed set (${MECHANICAL_INBOX_SOURCES.join("|")})`
+		});
+		let assessment;
+		try {
+			assessment = assessEscalation(evidence, { batchThreshold: this.#batchThreshold });
+		} catch (cause) {
+			throw new InboxError({
+				code: "IN_INPUT",
+				message: `escalateMechanical: assessment failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+				cause
+			});
+		}
+		const creator = this.#mechanicalInterventionCreator;
+		if (assessment.highImpact && creator === void 0) throw new InboxError({
+			code: "IN_INPUT",
+			message: `escalateMechanical: the assessment is HIGH-IMPACT (reasons=[${assessment.reasons.join(", ")}]) but the mechanicalInterventionCreator port is not wired — the ESCALATE ⇒ Intervention linkage (plan §22.3) cannot complete; wire the WP-5.1 createMechanicalIntervention closure (trigger AUDIT_HIGH_IMPACT_DISCREPANCY) and retry`
+		});
+		const { item } = this.captureMechanical({
+			source,
+			payload: evidence.summary,
+			contextRefs: evidence.contextRefs ?? [],
+			raw: {
+				...evidence,
+				escalation: {
+					highImpact: assessment.highImpact,
+					reasons: [...assessment.reasons]
+				}
+			}
+		}, actor);
+		if (!assessment.highImpact) return {
+			item,
+			assessment,
+			intervention: null
+		};
+		const workstreamIds = evidence.workstreamIds ?? [];
+		if (creator === void 0) throw new InboxError({
+			code: "IN_ESCALATION",
+			message: "escalateMechanical: highImpact assessment but the mechanicalInterventionCreator port is missing (invariant violation — the pre-write check should have fired)"
+		});
+		let created;
+		try {
+			created = creator({
+				title: escalationInterventionTitle(workstreamIds),
+				detail: buildEscalationDetail(evidence, assessment, this.#batchThreshold),
+				workstreamIds: workstreamIds.length > 0 ? workstreamIds : void 0,
+				sourceRefs: [{
+					kind: "INBOX_ITEM",
+					id: item.id
+				}, ...evidence.contextRefs ?? []]
+			});
+		} catch (cause) {
+			throw new InboxError({
+				code: "IN_ESCALATION",
+				message: `escalateMechanical: item ${item.id} captured; the intervention creation failed: ${cause instanceof Error ? cause.message : String(cause)} — the item stays CAPTURED for manual review (create the Intervention through the user face, or dismiss)`,
+				cause
+			});
+		}
+		if (created === null || typeof created !== "object" || typeof created.id !== "string" || created.id.length === 0 || typeof created.title !== "string") throw new InboxError({
+			code: "IN_ESCALATION",
+			message: `escalateMechanical: item ${item.id} captured; the intervention creator returned a malformed ref (expected {id, title}; got ${JSON.stringify(created)}) — reconcile manually`
+		});
+		return {
+			item,
+			assessment,
+			intervention: {
+				id: created.id,
+				title: created.title
+			}
+		};
+	}
+	/** One record by id（`null` when absent）。 */
+	getItem(inboxItemId) {
+		return this.#store.getItem(inboxItemId);
+	}
+	/** List by (state?, source?) — 稳定顺序 created_at ASC, id ASC（全缺省
+	*  = 全量）。 */
+	listItems(filter) {
+		return this.#store.listItems(filter ?? {});
+	}
+	/** CAPTURED 全量（GUI 待处理组 — 视图的数据面; 终态组经 listItems 指名）。 */
+	listCaptured() {
+		return this.#store.listItems({ state: "CAPTURED" });
+	}
+	#requireItem(inboxItemId, operation) {
+		if (typeof inboxItemId !== "string" || !IN_ID_PATTERN.test(inboxItemId)) throw new InboxError({
+			code: "IN_INPUT",
+			message: `${operation}: inboxItemId must be a well-formed IN id (got ${JSON.stringify(String(inboxItemId))})`
+		});
+		const item = this.#store.getItem(inboxItemId);
+		if (item === null) throw new InboxError({
+			code: "IN_NOT_FOUND",
+			message: `inbox item ${inboxItemId} does not exist`
+		});
+		return item;
+	}
+	#concurrent(inboxItemId, expected, operation) {
+		return new InboxError({
+			code: "IN_CONCURRENT_STATE",
+			message: `${operation}: inbox item ${inboxItemId} moved concurrently (expected ${expected}) — refetch and retry`
+		});
+	}
+	#releaseQuietly(res) {
+		try {
+			this.#allocator.release(res);
+		} catch {}
+	}
+	#wrapCause(cause) {
+		if (isInboxError(cause)) return cause;
+		return new InboxError({
+			code: "IN_STORE",
+			message: cause instanceof Error ? cause.message : String(cause),
+			cause
+		});
+	}
+};
+function assertUserActor$1(actor, operation) {
+	if (actor === null || typeof actor !== "object" || actor.kind !== "USER") throw new InboxError({
+		code: "IN_ACTOR_FORBIDDEN",
+		message: `${operation}: requires a USER actor (plan §28: 转换/忽略需要用户显式确认; §13 迁移仅用户 — ARCHITECTURE §6 矩阵 U 栏) — got ${JSON.stringify(actor)}`
+	});
+	if (actor.user_id !== void 0 && typeof actor.user_id !== "string") throw new InboxError({
+		code: "IN_INPUT",
+		message: `${operation}: actor.user_id must be a string (common.schema.json actorRef)`
+	});
+	if (actor.label !== void 0 && (typeof actor.label !== "string" || actor.label.length > 200)) throw new InboxError({
+		code: "IN_INPUT",
+		message: `${operation}: actor.label must be a string of ≤200 chars (common.schema.json actorRef)`
+	});
+}
+function assertMechanicalActor(actor, operation) {
+	if (actor === null || typeof actor !== "object" || actor.kind !== "AGENT" && actor.kind !== "PLUGIN") throw new InboxError({
+		code: "IN_ACTOR_FORBIDDEN",
+		message: `${operation}: requires a mechanical actor (kind AGENT | PLUGIN — 非 USER; §11 捕获缝的机械面) — got ${JSON.stringify(actor)}`
+	});
+}
+/** actor 归一（本模块 actor 面 → 冻结 ActorRef 载体 — 账本行用）。 */
+function toUserActorRef(actor) {
+	return {
+		kind: "USER",
+		...actor.user_id !== void 0 ? { user_id: actor.user_id } : {},
+		...actor.label !== void 0 ? { label: actor.label } : {}
+	};
+}
+/** TypedRef 形状断言（冻结 {kind, id} 廉价边界 — 精确指名失败项;
+*  kind 的 objectKind 枚举面与 id 模式面归冻结形状网在 insert 时复验 —
+*  与 WP-5.1 source_refs 断言同款分工）。 */
+function assertTypedRef$1(value, what) {
+	const kind = value === null || typeof value !== "object" ? void 0 : value.kind;
+	const id = value === null || typeof value !== "object" ? void 0 : value.id;
+	if (typeof kind !== "string" || kind.length === 0 || typeof id !== "string" || id.length === 0) throw new InboxError({
+		code: "IN_INPUT",
+		message: `${what} must be a {kind, id} typedRef (got ${JSON.stringify(value)})`
+	});
+	return value;
+}
+//#endregion
+//#region src/host/service/inbox/schema.ts
+/**
+* WP-6.4 — `inbox_item` 表: DDL + 行↔记录映射 + SQL（纯数据, 零 I/O）。
+*
+* 表映射（DOMAIN_SCHEMA §15 逐字）:
+*   - `inbox_item` — PK `id`; 关键索引 `(state, created_at)`（GUI 列表面:
+*     CAPTURED 待处理组按捕获序 — 本 WP Inbox 视图的数据面）。
+* §15 通则: operational 表**不 hard delete** 一等 identity 行（INV-HIST-7）。
+*
+* 冻结行形状 = `schema/operational/inbox.schema.json` `$defs/InboxItem`
+* （7 键 snake_case, additionalProperties:false; 本文件的列集与其逐字
+* 同构 — `InboxItemRecord` 类型面同款的 SQL 侧）。
+*
+* DatabaseSync 封装模式（同 WP-3.1 planfork / WP-3.5 flooding / WP-5.3
+* reporting 双连接）:
+*   1. DB 文件的 open/初始化（0o700/0o600、WAL、user_version 门、
+*      quick_check）归 WP-2.1 `openDatabase` 封装;
+*   2. 本模块 DDL 在**第二连接**上以幂等 `IF NOT EXISTS` 应用
+*      （`InboxStore` 构造时经注入 `FloodingDb.exec` — service 层驱动
+*      是注入的 I/O, 零 sqlite import, ARCHITECTURE §2.2）;
+*   3. 多连接 WAL 共存, 写经文件锁串行化（busy_timeout 同 store 默认）。
+*
+* 存储层不变量（trigger 级, 任何连接上生效 — 同 WP-3.5 先例）:
+*   - INV-HIST-7（§15 通则）: `inbox_item_no_delete` ABORT 任何 DELETE;
+*   - 内容不可变（§11 语义: capture 后 source/payload/raw/context_refs/
+*    created_at 不变 — 条目是 staging 快照, 修正 = 新条目）:
+*     `inbox_item_no_content_update` ABORT 任何对创建后不变列的 UPDATE —
+*     允许 UPDATE 的只有状态缓存列（state / converted_to）, 即 §13 迁移
+*     （CAPTURED → CONVERTED|DISMISSED; 仅用户 — actor 门在 service 层,
+*     本层只执行行侧机械动作, 同 WP-5.1 lifecycle store 分工）。
+*
+* 列类型:
+*   - `source` / `state` = 冻结枚举 CHECK（§1.4 逐字 7 值 / 3 值）;
+*   - `raw` = 任意 JSON 文本（§11「any」— 解码后由冻结形状网复验,
+*     NULL = 未提供）;
+*   - `context_refs` = JSON TypedRef[]（冻结 typedRef 形状 — 形状网复验）;
+*   - `converted_to` = JSON TypedRef 或 NULL（仅 CONVERTED 时有值 —
+*     共现纪律在 service 层: `convert` 唯一写点; trigger 不重复判定,
+*     同 WP-3.5 closed_at 共现注释口径）。
+*/
+const INBOX_ITEM_TABLE = "inbox_item";
+const DDL = `
+CREATE TABLE IF NOT EXISTS ${INBOX_ITEM_TABLE} (
+  id            TEXT    NOT NULL PRIMARY KEY,
+  source        TEXT    NOT NULL CHECK (source IN (${INBOX_SOURCES.map((s) => `'${s}'`).join(", ")})),
+  payload       TEXT    NOT NULL,           -- 文本/摘要（§11 必填, minLength 1）
+  raw           TEXT,                       -- 原始数据 JSON（§11 可选, any — audit 细节/升级证据）
+  context_refs  TEXT    NOT NULL,           -- JSON TypedRef[]（§11 可选, 缺省 []）
+  state         TEXT    NOT NULL CHECK (state IN (${INBOX_STATES.map((s) => `'${s}'`).join(", ")})),
+  converted_to  TEXT,                       -- JSON TypedRef（§11 可选 — 仅 CONVERTED 时）
+  created_at    INTEGER NOT NULL            -- epoch ms（§1.2, A-3 修订）
+);
+-- §15 关键索引 (state, created_at): 列表面（CAPTURED 组按捕获序; 终态组归档）。
+CREATE INDEX IF NOT EXISTS idx_inbox_item_state_created
+  ON ${INBOX_ITEM_TABLE} (state, created_at);
+-- §15 通则 / INV-HIST-7: 一等 identity 行不 hard delete。
+CREATE TRIGGER IF NOT EXISTS inbox_item_no_delete
+  BEFORE DELETE ON ${INBOX_ITEM_TABLE}
+  BEGIN
+    SELECT RAISE(ABORT, 'inbox_item rows are never deleted (DOMAIN_SCHEMA §15 通则; ARCHITECTURE §5.4 INV-HIST-7)');
+  END;
+-- 内容不可变半边: 创建后的 5 个内容列任何 UPDATE 都 ABORT（状态缓存列
+-- state/converted_to 是 §13 迁移的唯一合法行侧面 — 仅用户, service 层
+-- actor 门; trigger 只钉「内容列不可动」, 迁移合法性归 state-machine）。
+CREATE TRIGGER IF NOT EXISTS inbox_item_no_content_update
+  BEFORE UPDATE ON ${INBOX_ITEM_TABLE}
+  WHEN NEW.id IS NOT OLD.id
+   OR NEW.source IS NOT OLD.source
+   OR NEW.payload IS NOT OLD.payload
+   OR IFNULL(NEW.raw, '') IS NOT IFNULL(OLD.raw, '')
+   OR NEW.context_refs IS NOT OLD.context_refs
+   OR NEW.created_at IS NOT OLD.created_at
+  BEGIN
+    SELECT RAISE(ABORT, 'inbox_item content is immutable after capture (DOMAIN_SCHEMA §11; only the state-cache columns state/converted_to may change, user-only per §13/§28 显式确认)');
+  END;
+`;
+/** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
+function inboxItemDdl() {
+	return DDL;
+}
+const SQL_INSERT_INBOX_ITEM = `
+INSERT INTO ${INBOX_ITEM_TABLE} (id, source, payload, raw, context_refs, state, converted_to, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`;
+const SQL_SELECT_INBOX_ITEM_BY_ID = `SELECT * FROM ${INBOX_ITEM_TABLE} WHERE id = ?`;
+/** 列表查询（可选 state/source 过滤; 稳定顺序 created_at ASC, id ASC —
+*  §15 索引 (state, created_at) + id 兜底全序; 无隐藏过滤器, 调用方
+*  指名才过滤 — INV-ATTN-1 同款查询面纪律）。 */
+const SQL_LIST_INBOX_ITEMS = `SELECT * FROM ${INBOX_ITEM_TABLE} ORDER BY created_at ASC, id ASC`;
+/**
+* §13 迁移的行侧写（状态缓存两列; DDL 触发器放行的唯一 UPDATE 面）:
+* 条件 `AND state = ?`（乐观并发门）— 返回受影响行数（0 ⇒ 迁移期间
+* 状态已变, service 大声失败 IN_CONCURRENT_STATE）。
+*/
+const SQL_UPDATE_INBOX_ITEM_STATE = `
+UPDATE ${INBOX_ITEM_TABLE}
+SET state = ?, converted_to = ?
+WHERE id = ? AND state = ?
+`;
+const CORRUPT = (what, detail) => {
+	throw new Error(`inbox row corruption at ${what}: ${detail}`);
+};
+function decodeJson(value, what) {
+	if (typeof value !== "string") return CORRUPT(what, `expected JSON string, got ${typeof value}`);
+	try {
+		return JSON.parse(value);
+	} catch (cause) {
+		return CORRUPT(what, `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+	}
+}
+function assertTypedRef(value, what) {
+	if (value === null || typeof value !== "object" || typeof value.kind !== "string" || typeof value.id !== "string") return CORRUPT(what, `element must be a {kind, id} typedRef (got ${JSON.stringify(value)})`);
+}
+/** Encode `InboxItemRecord` into the INSERT parameter list（列序 = DDL）。 */
+function inboxItemToParams(r) {
+	return [
+		r.id,
+		r.source,
+		r.payload,
+		r.raw === void 0 ? null : JSON.stringify(r.raw),
+		JSON.stringify(r.context_refs.map((ref) => ({
+			kind: ref.kind,
+			id: ref.id
+		}))),
+		r.state,
+		r.converted_to === void 0 ? null : JSON.stringify({
+			kind: r.converted_to.kind,
+			id: r.converted_to.id
+		}),
+		r.created_at
+	];
+}
+/** Decode an `inbox_item` row back to the record（throws on corruption）。 */
+function rowToInboxItem(row) {
+	const source = row.source;
+	if (typeof source !== "string" || !INBOX_SOURCES.includes(source)) return CORRUPT("inbox_item.source", `unknown source ${JSON.stringify(String(source))}`);
+	const state = row.state;
+	if (typeof state !== "string" || !INBOX_STATES.includes(state)) return CORRUPT("inbox_item.state", `unknown state ${JSON.stringify(String(state))}`);
+	if (typeof row.id !== "string") return CORRUPT("inbox_item.id", `expected string, got ${typeof row.id}`);
+	if (typeof row.payload !== "string") return CORRUPT("inbox_item.payload", `expected string, got ${typeof row.payload}`);
+	if (typeof row.context_refs !== "string") return CORRUPT("inbox_item.context_refs", `expected JSON string, got ${typeof row.context_refs}`);
+	if (typeof row.created_at !== "number") return CORRUPT("inbox_item.created_at", `expected number, got ${typeof row.created_at}`);
+	const contextRefs = decodeJson(row.context_refs, "inbox_item.context_refs");
+	if (!Array.isArray(contextRefs)) return CORRUPT("inbox_item.context_refs", "expected JSON array of typedRef");
+	for (const ref of contextRefs) assertTypedRef(ref, "inbox_item.context_refs");
+	const convertedTo = row.converted_to === null || row.converted_to === void 0 ? void 0 : decodeJson(row.converted_to, "inbox_item.converted_to");
+	if (convertedTo !== void 0) assertTypedRef(convertedTo, "inbox_item.converted_to");
+	const raw = row.raw === null || row.raw === void 0 ? void 0 : decodeJson(row.raw, "inbox_item.raw");
+	return {
+		id: row.id,
+		source,
+		payload: row.payload,
+		context_refs: contextRefs,
+		state,
+		created_at: row.created_at,
+		...raw !== void 0 ? { raw } : {},
+		...convertedTo !== void 0 ? { converted_to: convertedTo } : {}
+	};
+}
+//#endregion
+//#region src/host/service/inbox/store.ts
+/**
+* WP-6.4 — `InboxStore`: inbox_item 行的存储面（insert + 查询 + 状态
+* 缓存 UPDATE; append-only 内容语义）。
+*
+* 表 / 触发器 / 行形状 = 本 WP schema.ts（`inbox_item` DDL — 第二连接
+* 模式: 多连接 WAL 共存, 写经文件锁串行化, 同 WP-3.5/WP-5.3 先例;
+* 构造时对注入连接幂等应用 `inboxItemDdl()`）。
+*
+* 面（API 面即权限面 — 同 WP-3.5 纪律）:
+*   - **无 delete 方法**（§15 通则 / INV-HIST-7; 存储层 trigger 兜底任何
+*     连接的 raw DELETE）;
+*   - **无内容 UPDATE 方法**（capture 后 5 个内容列不可变 — trigger 兜底;
+*     唯一的合法行侧写 = `updateState` 的状态缓存两列 state/converted_to,
+*     §13 迁移仅用户 — actor 门在 service 层, 本层只执行行侧机械动作,
+*     同 WP-5.1 lifecycle store 分工）;
+*   - 查询**无隐藏过滤器**: `listItems` 按 (state?, source?) 任一子集
+*     过滤, 全部参数缺省 = 全量（稳定顺序 created_at ASC, id ASC —
+*     §15 索引 (state, created_at) + id 全序兜底）。
+*
+* 错误纪律: 边界参数畸形 = IN_INPUT; 形状网不可用/整行违例 = IN_INPUT
+* （与冻结网同类的「输入不合法」分类）; 驱动/SQL 失败包 IN_STORE
+* （cause 保留）。
+*/
+var InboxStore = class {
+	#db;
+	#schemas;
+	closed = false;
+	constructor(options) {
+		if (options.db === void 0 || typeof options.db.exec !== "function" || typeof options.db.run !== "function") throw new InboxError({
+			code: "IN_INPUT",
+			message: "db: the injected operational-DB face (exec/run/get/all/transaction) is required"
+		});
+		if (options.schemas === void 0 || typeof options.schemas.checkInboxShape !== "function") throw new InboxError({
+			code: "IN_INPUT",
+			message: "schemas: the frozen inbox schema face (loadInboxSchemas) is required"
+		});
+		this.#db = options.db;
+		this.#schemas = options.schemas;
+		this.#db.exec(inboxItemDdl());
+	}
+	/**
+	* Insert ONE inbox item row（单语句 autocommit）。落库前: 整行过
+	* **真实冻结** `$defs/InboxItem`（shape net 不可用 ⇒ IN_STORE 大声
+	* 失败, 绝不在无 schema 时放行 — 同 WP-3.5 口径; 整行违例 ⇒ IN_INPUT）。
+	* 调用方（service）负责 IN 号 reserve/commit。
+	*/
+	insertItem(record) {
+		this.#assertOpen("insertItem");
+		if (record === null || typeof record !== "object") throw new InboxError({
+			code: "IN_INPUT",
+			message: "insertItem: record must be an InboxItemRecord object"
+		});
+		if (!this.#schemas.isUsable) throw new InboxError({
+			code: "IN_STORE",
+			message: "frozen inbox schema set unavailable — no inbox row can be shape-checked (see InboxSchemas.loadErrors)"
+		});
+		const shape = this.#schemas.checkInboxShape(record);
+		if (!shape.ok) throw new InboxError({
+			code: "IN_INPUT",
+			message: `internal: inbox record failed the frozen inbox schema: ${shape.errors.map((e) => `${e.path || "/"}: ${e.message}`).join(" | ")}`
+		});
+		try {
+			this.#db.run(SQL_INSERT_INBOX_ITEM, ...inboxItemToParams(record));
+		} catch (cause) {
+			throw this.#wrap("insertItem", cause);
+		}
+		return record;
+	}
+	/**
+	* §13 迁移的行侧写（状态缓存两列; DDL 触发器放行的唯一 UPDATE 面）:
+	* 条件 `AND state = expectedState`（乐观并发门）— 返回受影响行数
+	* （0 ⇒ 迁移期间状态已变, service 大声失败 IN_CONCURRENT_STATE）。
+	* `convertedTo` 仅 CONVERTED 迁移携带（其余迁移 = null — 唯一写点
+	* 语义在 service 层, 本层不重复判定）。
+	*/
+	updateState(id, state, convertedTo, expectedState) {
+		this.#assertOpen("updateState");
+		if (typeof id !== "string" || !/^IN-[1-9][0-9]*$/.test(id)) throw new InboxError({
+			code: "IN_INPUT",
+			message: `updateState: id must be a well-formed IN id (got ${JSON.stringify(String(id))})`
+		});
+		assertInboxEnum("updateState.state", state, INBOX_STATES);
+		assertInboxEnum("updateState.expectedState", expectedState, INBOX_STATES);
+		if (convertedTo !== null) {
+			if (convertedTo === void 0 || typeof convertedTo !== "object" || typeof convertedTo.kind !== "string" || typeof convertedTo.id !== "string" || convertedTo.id.length === 0) throw new InboxError({
+				code: "IN_INPUT",
+				message: `updateState: convertedTo must be null or a {kind, id} typedRef (got ${JSON.stringify(convertedTo)})`
+			});
+		}
+		try {
+			return this.#db.run(SQL_UPDATE_INBOX_ITEM_STATE, state, convertedTo === null ? null : JSON.stringify({
+				kind: convertedTo.kind,
+				id: convertedTo.id
+			}), id, expectedState);
+		} catch (cause) {
+			throw this.#wrap("updateState", cause);
+		}
+	}
+	/** One record by id（`null` when absent）。 */
+	getItem(id) {
+		this.#assertOpen("getItem");
+		if (typeof id !== "string" || id.length === 0) throw new InboxError({
+			code: "IN_INPUT",
+			message: `getItem: id must be a non-empty string (got ${JSON.stringify(String(id))})`
+		});
+		try {
+			const row = this.#db.get(SQL_SELECT_INBOX_ITEM_BY_ID, id);
+			return row === void 0 ? null : rowToInboxItem(row);
+		} catch (cause) {
+			throw this.#wrap("getItem", cause);
+		}
+	}
+	/** List by (state?, source?) — 稳定顺序 created_at ASC, id ASC
+	*  （全缺省 = 全量; 过滤参数由调用方显式指名 — 无隐藏过滤器）。 */
+	listItems(filter = {}) {
+		this.#assertOpen("listItems");
+		if (filter.state !== void 0) assertInboxEnum("listItems.filter.state", filter.state, INBOX_STATES);
+		if (filter.source !== void 0) assertInboxEnum("listItems.filter.source", filter.source, INBOX_SOURCES);
+		try {
+			const items = this.#db.all(SQL_LIST_INBOX_ITEMS).map((row) => rowToInboxItem(row));
+			if (filter.state !== void 0) return items.filter((item) => item.state === filter.state);
+			if (filter.source !== void 0) return items.filter((item) => item.source === filter.source);
+			return items;
+		} catch (cause) {
+			throw this.#wrap("listItems", cause);
+		}
+	}
+	#assertOpen(operation) {
+		if (this.closed) throw new InboxError({
+			code: "IN_STORE",
+			message: `${operation}: store is closed`
+		});
+	}
+	/** Test/inspection seam（no-op 语义: store 无生命周期状态可关 — 连接
+	*  归 wiring 的单一 disposer, 同 WP-5.1 lifecycle store 先例）。 */
+	close() {
+		this.closed = true;
+	}
+	#wrap(context, cause) {
+		if (cause instanceof InboxError) throw cause;
+		return new InboxError({
+			code: "IN_STORE",
+			message: `${context}: ${cause instanceof Error ? cause.message : String(cause)}`,
+			cause
+		});
+	}
+};
+function assertInboxEnum(what, value, frozen) {
+	if (typeof value !== "string" || !frozen.includes(value)) throw new InboxError({
+		code: "IN_INPUT",
+		message: `${what} must be one of ${frozen.join("|")} (got ${JSON.stringify(String(value))})`
+	});
+}
+//#endregion
+//#region src/host/service/inbox/schemas.ts
+/**
+* WP-6.4 — 冻结 operational inbox schema 装载（loader 模式, 同 WP-3.5
+* `loadInterventionSchemas` / WP-3.1 `loadPlanForkSchemas` / WP-5.3
+* reporting schemas 先例）。
+*
+* 通过注入的 `ResearchFileReader` 装载**冻结** `schema/operational/
+* inbox.schema.json`（+ 父 `schema/common.schema.json` 的
+* idInboxItem/typedRef/epochMs refs）:
+*
+*   - 校验器直接取自冻结文档（`ajv.getSchema($id + '#/$defs/InboxItem')`）
+*     — 零派生 schema, 零 `schema/` 改写（冻结只读）;
+*   - 失败聚合（loadErrors; isUsable=false ⇒ `InboxStore` 拒绝写入,
+*     fail loud — 绝不在无 schema 时放行, 同 WP-3.5
+*     FLOODING_SCHEMA_UNAVAILABLE 口径）;
+*   - AJV 2020-12（冻结 `$schema` 方言）, allErrors + verbose
+*     （精确定位）, useDefaults off（operational 记录无 schema 默认 —
+*     每字段显式）。
+*
+* 消费: `InboxStore.insertItem`（行落库前的整行冻结形状网 — 类型面
+* 同构的运行时保证）+ tests/inbox 的模型往返断言面。
+*/
+/**
+* 装载 + 编译冻结 inbox schema。聚合失败, 永不抛（loader 模式）。
+*/
+function loadInboxSchemas(reader, schemaDir) {
+	const errors = [];
+	const ajv = new Ajv2020({
+		allErrors: true,
+		strict: false,
+		verbose: true
+	});
+	addFormats(ajv);
+	const readJson = (path) => {
+		let text;
+		try {
+			text = reader.readFile(path);
+		} catch (cause) {
+			errors.push({
+				path,
+				message: `schema file read failed: ${cause instanceof Error ? cause.message : String(cause)}`
+			});
+			return null;
+		}
+		if (text === null) {
+			errors.push({
+				path,
+				message: `schema file not found (schemaDir=${schemaDir})`
+			});
+			return null;
+		}
+		try {
+			return JSON.parse(text);
+		} catch (cause) {
+			errors.push({
+				path,
+				message: `schema file is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`
+			});
+			return null;
+		}
+	};
+	const common = readJson(pjoin(schemaDir, "..", "common.schema.json"));
+	if (common === null || typeof common.$id !== "string") {
+		errors.push({
+			path: pjoin(schemaDir, "..", "common.schema.json"),
+			message: "common.schema.json is missing or has no $id"
+		});
+		return unavailable(schemaDir, errors);
+	}
+	try {
+		ajv.addSchema(common, common.$id);
+	} catch (cause) {
+		errors.push({
+			path: pjoin(schemaDir, "..", "common.schema.json"),
+			message: `common.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
+		});
+		return unavailable(schemaDir, errors);
+	}
+	const doc = readJson(pjoin(schemaDir, "inbox.schema.json"));
+	if (doc === null || typeof doc.$id !== "string") {
+		errors.push({
+			path: pjoin(schemaDir, "inbox.schema.json"),
+			message: "inbox.schema.json is missing or has no $id"
+		});
+		return unavailable(schemaDir, errors);
+	}
+	try {
+		ajv.addSchema(doc, doc.$id);
+	} catch (cause) {
+		errors.push({
+			path: pjoin(schemaDir, "inbox.schema.json"),
+			message: `inbox.schema.json rejected: ${cause instanceof Error ? cause.message : String(cause)}`
+		});
+		return unavailable(schemaDir, errors);
+	}
+	const recordValidator = ajv.getSchema(`${doc.$id}#/$defs/InboxItem`);
+	if (recordValidator === void 0) {
+		errors.push({
+			path: pjoin(schemaDir, "inbox.schema.json"),
+			message: "schema compile failed for $defs/InboxItem"
+		});
+		return unavailable(schemaDir, errors);
+	}
+	return {
+		schemaDir,
+		isUsable: true,
+		loadErrors: [],
+		checkInboxShape: (record) => runCheck(recordValidator, record)
+	};
+}
+function mapErrors(validator) {
+	return (validator.errors ?? []).map((err) => ({
+		path: err.instancePath,
+		message: schemaErrorSummary(err)
+	}));
+}
+function runCheck(validator, value) {
+	if (validator(value)) return {
+		ok: true,
+		errors: []
+	};
+	return {
+		ok: false,
+		errors: mapErrors(validator)
+	};
+}
+function unavailable(schemaDir, errors) {
+	const unavailableCheck = {
+		ok: false,
+		errors: [{
+			path: "",
+			message: "inbox schema set unavailable — see InboxSchemas.loadErrors"
+		}]
+	};
+	return {
+		schemaDir,
+		isUsable: false,
+		loadErrors: errors,
+		checkInboxShape: () => unavailableCheck
+	};
+}
+//#endregion
+//#region src/host/audit/discovery/policy.ts
+/**
+* Thrown for policy misconfiguration (fail loud, 同 loader 口径).
+* `code` is stable for machine dispatch; `message` is human-readable.
+*/
+var DiscoveryPolicyError = class extends Error {
+	code;
+	constructor(message) {
+		super(message);
+		this.name = "DiscoveryPolicyError";
+		this.code = "DISC_POLICY_INVALID";
+	}
+};
+/**
+* Normalize one policy path entry (zone dir / ignored dir / glob).
+*
+* Rules (mechanical, frozen):
+*  - backslashes are treated as separators (user-authored YAML
+*    convenience; a literal `\` in a workspace path is out of V1 scope);
+*  - leading `./` and leading `/` are stripped;
+*  - trailing `/` is stripped (zone `results/` ≡ `results`);
+*  - an entry that is empty (or only `.`/`/`) normalizes to `''`
+*    (the workspace root) for zones and ignored; for strict globs an
+*    empty entry matches NOTHING (see `compileGlob`) — the caller
+*    decides;
+*  - any `..` segment throws `DiscoveryPolicyError`.
+*
+* `path` is the raw entry (for error messages).
+*/
+function normalizePolicyPath(path, label) {
+	if (typeof path !== "string") throw new DiscoveryPolicyError(`${label}: not a string (${String(path)})`);
+	const segments = path.replace(/\\/g, "/").split("/");
+	for (const seg of segments) if (seg === "..") throw new DiscoveryPolicyError(`${label}: "${path}" contains a ".." segment — policy paths must stay inside the workspace root`);
+	let out = "";
+	if (segments.length > 0) out = segments.filter((s) => s.length > 0 && s !== ".").join("/");
+	return out;
+}
+/**
+* Normalize the §14.1 `audit` block into a {@link DiscoveryPolicy}
+* (schema defaults materialized; zones de-duplicated by normalized dir —
+* duplicate dirs merge their `artifact_types` hints in first-seen order,
+* preserving the frozen ArtifactType vocabulary order).
+*
+* @throws DiscoveryPolicyError on `..` segments or non-array blocks.
+*/
+function normalizePolicy(audit) {
+	const rawZones = audit?.discovery_zones;
+	const rawIgnored = audit?.ignored;
+	const rawStrict = audit?.strict_tracked?.paths;
+	if (rawZones !== void 0 && !Array.isArray(rawZones)) throw new DiscoveryPolicyError("audit.discovery_zones: not an array");
+	if (rawIgnored !== void 0 && !Array.isArray(rawIgnored)) throw new DiscoveryPolicyError("audit.ignored: not an array");
+	if (rawStrict !== void 0 && !Array.isArray(rawStrict)) throw new DiscoveryPolicyError("audit.strict_tracked.paths: not an array");
+	const byDir = /* @__PURE__ */ new Map();
+	for (const zone of rawZones ?? []) {
+		const rawPath = zone?.path;
+		if (typeof rawPath !== "string" || rawPath.length === 0) throw new DiscoveryPolicyError(`audit.discovery_zones: entry without a non-empty "path" (${JSON.stringify(zone)})`);
+		const dir = normalizePolicyPath(rawPath, "audit.discovery_zones");
+		const hint = Array.isArray(zone?.artifact_types) ? zone?.artifact_types : [];
+		const existing = byDir.get(dir);
+		if (existing === void 0) byDir.set(dir, {
+			rawPath,
+			dir,
+			artifactTypes: [...hint]
+		});
+		else if (existing.artifactTypes.length === 0 && hint.length > 0) byDir.set(dir, {
+			...existing,
+			artifactTypes: [...hint]
+		});
+	}
+	const ignored = (rawIgnored ?? []).map((entry, i) => normalizePolicyPath(String(entry), `audit.ignored[${i}]`));
+	const strictTrackedGlobs = (rawStrict ?? []).map((entry, i) => normalizePolicyPath(String(entry), `audit.strict_tracked.paths[${i}]`));
+	return {
+		zones: [...byDir.values()],
+		ignored: [...new Set(ignored)],
+		strictTrackedGlobs: [...new Set(strictTrackedGlobs)]
+	};
+}
+/**
+* Compile one strict-tracked glob (计划书 §14.1「glob」) to an anchored
+* RegExp over workspace-root-relative POSIX paths. Mechanical V1 subset:
+*  - `**`  — any number (≥ 0) of whole path segments; a trailing
+*    `src/**` (or trailing `/` form `src/`) matches every file UNDER
+*    `src` at any depth;
+*  - `*`   — any run of characters except `/` (within one segment);
+*  - `?`   — exactly one character except `/`;
+*  - every other character is matched literally (escaped);
+*  - a trailing `/` marks a DIRECTORY glob (matches all files under it,
+*    any depth) — `src/` ≡ `src/**`;
+*  - a glob with no `/` (after normalization) matches exactly one file
+*    with that name at the root (standard glob semantics — NOT a
+*    directory prefix; zones are where directory-whitelist semantics
+*    live);
+*  - the empty glob matches nothing (a no-op entry).
+*
+* @returns the anchored RegExp, or `null` for the empty (no-op) glob.
+*/
+function compileGlob(glob) {
+	if (glob.length === 0) return null;
+	let body = glob;
+	let dirGlob = false;
+	if (body.endsWith("/")) {
+		dirGlob = true;
+		body = body.slice(0, -1);
+	}
+	if (body.length === 0) return /* @__PURE__ */ new RegExp("^[^/]+(?:/[^/]+)*$");
+	const segments = body.split("/");
+	let re = "";
+	for (let i = 0; i < segments.length; i++) {
+		const seg = segments[i];
+		if (seg === "**") {
+			re += "(?:[^/]+/)*";
+			continue;
+		}
+		for (const ch of seg) if (ch === "*") re += "[^/]*";
+		else if (ch === "?") re += "[^/]";
+		else re += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+		if (i < segments.length - 1) re += "/";
+	}
+	if (segments[segments.length - 1] === "**") re += "[^/]+(?:/[^/]+)*";
+	else if (dirGlob) re += "/[^/]+(?:/[^/]+)*";
+	return new RegExp(`^${re}$`);
+}
+/** Directory-prefix match: `rel` is strictly UNDER `dir` (or `dir` is the root). */
+function underDir(rel, dir) {
+	if (dir.length === 0) return true;
+	if (rel === dir) return false;
+	return rel.startsWith(dir + "/");
+}
+/** The zone whose normalized dir contains `rel` (first zone wins; `null` = none). */
+function matchZone(policy, rel) {
+	for (const zone of policy.zones) if (underDir(rel, zone.dir)) return zone;
+	return null;
+}
+/** Third layer (不扫描): `rel` is under an ignored dir, or IS one. */
+function isIgnored(policy, rel) {
+	return policy.ignored.some((dir) => rel === dir || underDir(rel, dir));
+}
+/** First layer (WP-6.1 jurisdiction): `rel` matches any strict-tracked glob. */
+function isStrictTracked(policy, rel) {
+	for (const glob of policy.strictTrackedGlobs) {
+		const re = compileGlob(glob);
+		if (re !== null && re.test(rel)) return true;
+	}
+	return false;
+}
+/**
+* The three-layer partition for one relative path (precedence frozen):
+* `.git/` and top-level `.research/` are OUT_OF_SCOPE by construction at
+* the walk/feed boundary (they never reach here as candidates);
+* otherwise IGNORED (第三层) > STRICT_TRACKED (第一层) > ZONE (第二层)
+* > OUT_OF_SCOPE.
+*/
+function classifyPath(policy, rel) {
+	if (isIgnored(policy, rel)) return "IGNORED";
+	if (isStrictTracked(policy, rel)) return "STRICT_TRACKED";
+	if (matchZone(policy, rel) !== null) return "ZONE";
+	return "OUT_OF_SCOPE";
+}
+/**
+* Validate + normalize one FEED path (git-reported, so NO backslash
+* rewriting — git porcelain on POSIX emits real names). Rules:
+* non-empty; strip a single leading `./`; reject absolute paths, `..`
+* segments, and empty-after-strip.
+*
+* @returns the normalized relative path, or `null` when the entry is a
+*   `BAD_PATH` skip.
+*/
+function normalizeFeedPath(path) {
+	if (typeof path !== "string" || path.length === 0) return null;
+	let out = path;
+	if (out.startsWith("./")) out = out.slice(2);
+	if (out.length === 0) return null;
+	if (out.startsWith("/")) return null;
+	for (const seg of out.split("/")) if (seg === "..") return null;
+	return out;
+}
+//#endregion
+//#region src/host/audit/discovery/classify.ts
+/**
+* Frozen extension table (V1 conventions). Key = extension WITHOUT the
+* leading dot, lowercased; double extensions included as full tails.
+* Anything absent → `guessFromExtension` returns `null` (→ naming
+* pattern, else `OTHER`).
+*/
+const EXTENSION_TYPE_TABLE = {
+	csv: "DATASET",
+	tsv: "DATASET",
+	json: "DATASET",
+	jsonl: "DATASET",
+	ndjson: "DATASET",
+	parquet: "DATASET",
+	feather: "DATASET",
+	arrow: "DATASET",
+	h5: "DATASET",
+	hdf5: "DATASET",
+	npy: "DATASET",
+	pkl: "DATASET",
+	pickle: "DATASET",
+	xlsx: "DATASET",
+	xls: "DATASET",
+	mat: "DATASET",
+	rdata: "DATASET",
+	rds: "DATASET",
+	db: "DATASET",
+	sqlite: "DATASET",
+	sqlite3: "DATASET",
+	dat: "DATASET",
+	avro: "DATASET",
+	"csv.gz": "DATASET",
+	"tsv.gz": "DATASET",
+	"json.gz": "DATASET",
+	"jsonl.gz": "DATASET",
+	"parquet.gz": "DATASET",
+	"npy.gz": "DATASET",
+	png: "FIGURE",
+	jpg: "FIGURE",
+	jpeg: "FIGURE",
+	gif: "FIGURE",
+	bmp: "FIGURE",
+	tiff: "FIGURE",
+	tif: "FIGURE",
+	svg: "FIGURE",
+	webp: "FIGURE",
+	ico: "FIGURE",
+	eps: "FIGURE",
+	ps: "FIGURE",
+	fig: "FIGURE",
+	heic: "FIGURE",
+	avif: "FIGURE",
+	onnx: "MODEL",
+	tflite: "MODEL",
+	pb: "MODEL",
+	pt: "MODEL",
+	pth: "MODEL",
+	safetensors: "MODEL",
+	gguf: "MODEL",
+	mnn: "MODEL",
+	py: "CODE",
+	pyi: "CODE",
+	ipynb: "CODE",
+	js: "CODE",
+	mjs: "CODE",
+	cjs: "CODE",
+	jsx: "CODE",
+	ts: "CODE",
+	tsx: "CODE",
+	r: "CODE",
+	sh: "CODE",
+	bash: "CODE",
+	zsh: "CODE",
+	jl: "CODE",
+	scala: "CODE",
+	java: "CODE",
+	c: "CODE",
+	h: "CODE",
+	cpp: "CODE",
+	cc: "CODE",
+	cxx: "CODE",
+	hpp: "CODE",
+	cs: "CODE",
+	go: "CODE",
+	rs: "CODE",
+	rb: "CODE",
+	pl: "CODE",
+	pm: "CODE",
+	lua: "CODE",
+	m: "CODE",
+	f: "CODE",
+	f90: "CODE",
+	f95: "CODE",
+	sql: "CODE",
+	proto: "CODE",
+	graphql: "CODE",
+	pdf: "REPORT",
+	tex: "REPORT",
+	rmd: "REPORT",
+	html: "REPORT",
+	htm: "REPORT",
+	doc: "REPORT",
+	docx: "REPORT",
+	odt: "REPORT",
+	ppt: "REPORT",
+	pptx: "REPORT",
+	epub: "REPORT",
+	md: "NOTE",
+	markdown: "NOTE",
+	rst: "NOTE",
+	txt: "NOTE",
+	text: "NOTE",
+	org: "NOTE"
+};
+/**
+* Frozen naming-pattern signals (substring over the lowercased stem),
+* in PRIORITY order — the first pattern that occurs anywhere in the
+* stem wins (so `model_data` → MODEL, not DATASET). Coarse by design:
+* these are mechanical string conventions (`readme`, `ckpt`, `plot`),
+* not interpretations.
+*/
+const NAMING_PATTERN_SIGNALS = [
+	["model", "MODEL"],
+	["weights", "MODEL"],
+	["checkpoint", "MODEL"],
+	["ckpt", "MODEL"],
+	["corpus", "DATASET"],
+	["sample", "DATASET"],
+	["data", "DATASET"],
+	["figure", "FIGURE"],
+	["fig", "FIGURE"],
+	["plot", "FIGURE"],
+	["chart", "FIGURE"],
+	["heatmap", "FIGURE"],
+	["manuscript", "REPORT"],
+	["report", "REPORT"],
+	["draft", "REPORT"],
+	["summary", "REPORT"],
+	["review", "REPORT"],
+	["readme", "NOTE"],
+	["note", "NOTE"],
+	["memo", "NOTE"],
+	["todo", "NOTE"],
+	["script", "CODE"],
+	["train", "CODE"],
+	["eval", "CODE"],
+	["pipeline", "CODE"],
+	["experiment", "CODE"]
+];
+/**
+* Extract the (lowercased) extension tail of a basename: the last
+* `.`-suffix, or the last TWO suffixes when the two-suffix tail is a
+* known double extension (`archive.csv.gz` → `csv.gz`). Dotfiles
+* (`.env`) and extension-less names have no extension → `null`.
+*/
+function extractExtension(basename) {
+	const name = basename.toLowerCase();
+	if (name.length === 0 || name.startsWith(".")) {
+		const rest = name.slice(1);
+		if (rest.length === 0 || !rest.includes(".")) return null;
+		return extensionOf(rest);
+	}
+	return extensionOf(name);
+}
+function extensionOf(name) {
+	const dot = name.lastIndexOf(".");
+	if (dot <= 0 || dot === name.length - 1) return null;
+	const ext = name.slice(dot + 1);
+	const prevDot = name.lastIndexOf(".", dot - 1);
+	if (prevDot > 0) {
+		const double = name.slice(prevDot + 1);
+		if (double.length > 0 && EXTENSION_TYPE_TABLE[double] !== void 0) return double;
+	}
+	return ext;
+}
+/** Extension-table guess for a basename (`null` = no table entry). */
+function guessFromExtension(basename) {
+	const ext = extractExtension(basename);
+	if (ext === null) return null;
+	return EXTENSION_TYPE_TABLE[ext] ?? null;
+}
+/** Lowercased stem (basename minus its extension tail). */
+function stemOf(basename) {
+	const name = basename.toLowerCase();
+	const eff = name.startsWith(".") ? name.slice(1) : name;
+	const dot = eff.lastIndexOf(".");
+	if (dot <= 0) return eff;
+	const prevDot = eff.lastIndexOf(".", dot - 1);
+	if (prevDot > 0 && EXTENSION_TYPE_TABLE[eff.slice(prevDot + 1)] !== void 0) return eff.slice(0, prevDot);
+	return eff.slice(0, dot);
+}
+/** Naming-pattern guess for a basename (`null` = no pattern hit). */
+function guessFromNamingPattern(basename) {
+	const stem = stemOf(basename);
+	if (stem.length === 0) return null;
+	for (const [pattern, type] of NAMING_PATTERN_SIGNALS) if (stem.includes(pattern)) return type;
+	return null;
+}
+/**
+* The frozen combination rule: extension table first, then naming
+* pattern, else `OTHER`. Pure and total — never throws, never nulls
+* the suggestion.
+*/
+function combineTypeSignal(basename) {
+	const guessedType = guessFromExtension(basename);
+	if (guessedType !== null) return {
+		guessedType,
+		suggestedType: guessedType
+	};
+	return {
+		guessedType: null,
+		suggestedType: guessFromNamingPattern(basename) ?? "OTHER"
+	};
+}
+//#endregion
+//#region src/host/audit/discovery/snapshot.ts
+/** The single operational-KV key holding the latest scan snapshot. */
+const SNAPSHOT_KEY = "discovery.scan-snapshot.v1";
+/**
+* Thrown when a stored snapshot cannot be decoded / is structurally
+* invalid (fail loud, 同 MetaStore 计数器损坏 guard 口径 — a corrupted
+* audit baseline is reported, never silently reset).
+*/
+var DiscoverySnapshotError = class extends Error {
+	code;
+	constructor(message) {
+		super(message);
+		this.name = "DiscoverySnapshotError";
+		this.code = "DISC_SNAPSHOT_CORRUPT";
+	}
+};
+/** Validate one stored path entry (relative POSIX, no escape, no dot). */
+function assertPathEntry(value, index) {
+	if (typeof value !== "string" || value.length === 0) throw new DiscoverySnapshotError(`snapshot.paths[${index}]: not a non-empty string`);
+	if (value.startsWith("/")) throw new DiscoverySnapshotError(`snapshot.paths[${index}]: absolute path ${JSON.stringify(value)}`);
+	if (value.split("/").includes("..")) throw new DiscoverySnapshotError(`snapshot.paths[${index}]: ".." segment in ${JSON.stringify(value)}`);
+	return value;
+}
+/**
+* Decode + validate one stored snapshot document.
+*
+* Structural rules (all fail loud with `DISC_SNAPSHOT_CORRUPT`):
+*  - JSON object; `v` === 1; `capturedAt` a non-negative safe integer
+*    (epoch ms); `paths` an array of valid relative POSIX paths with
+*    NO duplicates (a duplicate row is corruption, not a benign
+*    no-op — the encoder cannot produce one).
+*
+* @returns a fresh immutable snapshot (paths re-sorted — the stored
+*   order is normalized away, so a hand-edited order never leaks into
+*   diff output).
+*/
+function decodeSnapshot(raw) {
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (cause) {
+		throw new DiscoverySnapshotError(`snapshot is not valid JSON: ${String(cause)}`);
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new DiscoverySnapshotError("snapshot root must be a JSON object");
+	const obj = parsed;
+	if (obj["v"] !== 1) throw new DiscoverySnapshotError(`snapshot.v must be 1 (got ${JSON.stringify(obj["v"])})`);
+	const capturedAt = obj["capturedAt"];
+	if (typeof capturedAt !== "number" || !Number.isSafeInteger(capturedAt) || capturedAt < 0) throw new DiscoverySnapshotError(`snapshot.capturedAt must be a non-negative safe integer (got ${JSON.stringify(capturedAt)})`);
+	if (!Array.isArray(obj["paths"])) throw new DiscoverySnapshotError("snapshot.paths must be an array");
+	const paths = obj["paths"].map((p, i) => assertPathEntry(p, i));
+	const seen = /* @__PURE__ */ new Set();
+	for (const p of paths) {
+		if (seen.has(p)) throw new DiscoverySnapshotError(`snapshot.paths: duplicate ${JSON.stringify(p)}`);
+		seen.add(p);
+	}
+	return {
+		v: 1,
+		capturedAt,
+		paths: [...paths].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+	};
+}
+/** Encode a snapshot to its canonical JSON form (stable key order). */
+function encodeSnapshot(snapshot) {
+	return JSON.stringify({
+		v: snapshot.v,
+		capturedAt: snapshot.capturedAt,
+		paths: [...snapshot.paths]
+	});
+}
+/** Build a snapshot from a current candidate path set (sorted, de-duped). */
+function buildSnapshot(paths, capturedAt) {
+	return {
+		v: 1,
+		capturedAt,
+		paths: [...new Set(paths)].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+	};
+}
+/**
+* The incremental diff (任务书「新增/消失」) between the previous
+* snapshot and the current candidate path set. Total: any `prev`
+* (including `null`) and any (even unsorted/duplicated) current list.
+*/
+function diffSnapshots(prev, currentPaths) {
+	const current = [...new Set(currentPaths)].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+	if (prev === null) return {
+		firstScan: true,
+		added: current,
+		removed: [],
+		unchanged: []
+	};
+	const prevSet = new Set(prev.paths);
+	const curSet = new Set(current);
+	const added = [];
+	const unchanged = [];
+	for (const p of current) if (prevSet.has(p)) unchanged.push(p);
+	else added.push(p);
+	const removed = [];
+	for (const p of prev.paths) if (!curSet.has(p)) removed.push(p);
+	return {
+		firstScan: false,
+		added,
+		removed,
+		unchanged
+	};
+}
+//#endregion
+//#region src/host/audit/discovery/scan.ts
+/**
+* WP-6.2 — discovery zone scanner: read-only filesystem walk + scan
+* composition + the WP-6.1 AuditReport untracked feed (mechanical).
+*
+* 只读契约 (任务书目标 4「只读扫描」): this module ONLY reads the
+* workspace (`readdir`/`lstat` — no `stat` following symlinks, no
+* writes, no renames, no tmp files, no deletion, no git). The only
+* write the whole scanner performs is the service's snapshot persist
+* into the operational KV (service.ts) — never into the workspace.
+*
+* Walk rules (mechanical, frozen):
+*  - scope = the workspace root (`workspace.root` resolved to an
+*    absolute path by the CALLER — 相对 Git repo root, §14.1; the
+*    resolver lives in the wiring/WP-6.1, this layer is git-free);
+*  - the top-level `.research/` directory is never entered (声明式真源,
+*    §14 布局 — out of discovery scope by definition);
+*  - `.git/` directories at any depth are never entered (VCS metadata —
+*    Git owns it, §22.3);
+*  - symlinked DIRECTORIES are never followed (loop/escape protection);
+*    a symlink to a file (or a broken symlink) IS a candidate entry
+*    (`sizeBytes` from `lstat`, the link itself);
+*  - directory pruning: a subtree is entered only when it is (or may
+*    contain) a zone and is not ignored — so `cache/` under a zone is
+*    pruned at the directory level (第三层「不扫描」, GIT_INTEGRATION
+*    §8);
+*  - every surviving file is passed through `classifyPath` (precedence
+*    IGNORED > STRICT_TRACKED > ZONE) — only ZONE paths become
+*    candidates;
+*  - output is sorted by path (byte-wise) — deterministic.
+*
+* Feed (任务书目标 3 接缝, 接口对齐): `feedUntracked` turns a
+* normalized WP-6.1 `AuditReport.untracked` list into candidates —
+* PURE (no fs, no KV): it never stats (a fed path that no longer exists
+* still classifies — the feed's job is classification, existence is
+* the strict layer's W4 fact) and never writes. Every input entry
+* lands in exactly one of `candidates` / `skipped(reason)`.
+*/
+/** The declarative source tree — never discovery material (§14). */
+const RESEARCH_DIR = ".research";
+/** VCS metadata — Git's, not the scanner's (§22.3). */
+const GIT_DIR = ".git";
+/**
+* Read-only walk of `root` under `policy`.
+*
+* CONTRACT: `files` contains EXACTLY the files that are
+* (a) under a discovery zone, and (b) not ignored / not strict-tracked
+* (i.e. `classifyPath === 'ZONE'`) — the candidate SCOPE. Classification
+* (type guess / zone hint) is the separate concern of `scanWorkspace`.
+*
+* @throws (raw Error, service maps to `DISC_ROOT_MISSING`) when `root`
+*   is missing or not a directory.
+*/
+function walkWorkspaceFiles(root, policy) {
+	if (typeof root !== "string" || root.length === 0) throw new Error("walkWorkspaceFiles: workspace root must be a non-empty absolute path");
+	if (!isAbsolute(root)) throw new Error(`walkWorkspaceFiles: workspace root must be absolute (got "${root}")`);
+	let rootStat;
+	try {
+		rootStat = statSync(root);
+	} catch {
+		throw new Error(`walkWorkspaceFiles: workspace root does not exist: ${root}`);
+	}
+	if (!rootStat.isDirectory()) throw new Error(`walkWorkspaceFiles: workspace root is not a directory: ${root}`);
+	const zoneDirs = policy.zones.map((z) => z.dir);
+	const mayContainZone = (relDir) => zoneDirs.some((d) => d.length === 0 || d === relDir || relDir.startsWith(d + "/"));
+	const files = [];
+	const stack = [""];
+	while (stack.length > 0) {
+		const relDir = stack.pop();
+		if (relDir.length > 0) {
+			if (!mayContainZone(relDir)) continue;
+			if (isIgnored(policy, relDir)) continue;
+		}
+		const absDir = relDir.length === 0 ? root : join(root, relDir);
+		let entries;
+		try {
+			entries = readdirSync(absDir, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			const name = entry.name;
+			const rel = relDir.length === 0 ? name : `${relDir}/${name}`;
+			if (entry.isDirectory()) {
+				if (relDir.length === 0 && name === RESEARCH_DIR) continue;
+				if (name === GIT_DIR) continue;
+				stack.push(rel);
+			} else if (entry.isFile()) {
+				if (classifyPath(policy, rel) === "ZONE") pushFile(files, rel, absDir, name, false);
+			} else if (entry.isSymbolicLink()) {
+				let targetIsDir = false;
+				try {
+					targetIsDir = statSync(join(absDir, name)).isDirectory();
+				} catch {
+					targetIsDir = false;
+				}
+				if (!targetIsDir && classifyPath(policy, rel) === "ZONE") pushFile(files, rel, absDir, name, true);
+			}
+		}
+	}
+	files.sort((a, b) => a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0);
+	const zoneDirMissing = [];
+	for (const zone of policy.zones) {
+		if (zone.dir.length === 0) continue;
+		const absZone = join(root, zone.dir);
+		let isDir = false;
+		try {
+			isDir = statSync(absZone).isDirectory();
+		} catch {
+			isDir = false;
+		}
+		if (!isDir) zoneDirMissing.push(zone.dir);
+	}
+	zoneDirMissing.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+	return {
+		files,
+		zoneDirMissing
+	};
+}
+function pushFile(files, rel, absDir, name, isSymlink) {
+	let sizeBytes = 0;
+	try {
+		sizeBytes = lstatSync(join(absDir, name)).size;
+	} catch {
+		sizeBytes = 0;
+	}
+	files.push({
+		rel,
+		sizeBytes,
+		isSymlink
+	});
+}
+/**
+* One filesystem scan (composition only — NO KV access; the service
+* owns snapshot read/persist). `prevSnapshot = null` → first scan.
+*/
+function scanWorkspace(args) {
+	const { root, policy, now } = args;
+	const { files, zoneDirMissing } = walkWorkspaceFiles(root, policy);
+	const candidates = [];
+	for (const file of files) {
+		const zone = matchZone(policy, file.rel);
+		const signal = combineTypeSignal(file.rel.slice(file.rel.lastIndexOf("/") + 1));
+		candidates.push({
+			path: file.rel,
+			sizeBytes: file.sizeBytes,
+			zone: zone?.dir ?? null,
+			zoneArtifactTypes: zone?.artifactTypes ?? [],
+			guessedType: signal.guessedType,
+			suggestedType: signal.suggestedType
+		});
+	}
+	const capturedAt = now();
+	return {
+		workspaceRoot: root,
+		scannedAt: capturedAt,
+		policy,
+		candidates,
+		diff: diffSnapshots(args.prevSnapshot, candidates.map((c) => c.path)),
+		zoneDirMissing,
+		snapshot: buildSnapshot(candidates.map((c) => c.path), capturedAt)
+	};
+}
+/**
+* The WP-6.1 seam (pure): feed a normalized AuditReport untracked list
+* (types.ts `UntrackedFileRef`) → candidates + reasoned skips.
+*
+* Rules per entry (deterministic; output sorted by path):
+*  - `BAD_PATH`         — fails `normalizeFeedPath` (empty/absolute/
+*    `..`);
+*  - `RESEARCH_TREE`    — `.research` or under it (声明式真源, never
+*    discovery material — even when untracked);
+*  - `VCS_METADATA`     — `.git` or under it;
+*  - `DIRECTORY_MARKER` — git untracked `dir/` notation (unexpanded —
+*    「展开归 WP-6.2 fs 扫描」; the feed stays fs-free, the walk
+*    covers the contents when they are on disk);
+*  - `IGNORED`          — 第三层 (不扫描 — even if a zone also claims
+*    it);
+*  - `STRICT_TRACKED`   — 第一层 (WP-6.1 already reports it; no
+*    double-report to 6.3);
+*  - otherwise          → candidate: classified mechanically, `zone` =
+*    matching zone dir or `null` (OUT_OF_SCOPE untracked paths ARE
+*    classified — the strict layer found the change; 6.3 partitions on
+*    the `zone` field), `sizeBytes: null` (never stat'd).
+*/
+function feedUntracked(policy, untracked) {
+	const candidates = [];
+	const skipped = [];
+	for (const entry of untracked) {
+		const raw = entry?.path ?? "";
+		if (typeof raw !== "string" || raw.length === 0) {
+			skipped.push({
+				path: String(entry?.path),
+				reason: "BAD_PATH"
+			});
+			continue;
+		}
+		if ((raw.startsWith("./") ? raw.slice(2) : raw).endsWith("/")) {
+			const norm = normalizeFeedPath(raw);
+			skipped.push({
+				path: norm ?? raw,
+				reason: "DIRECTORY_MARKER"
+			});
+			continue;
+		}
+		const rel = normalizeFeedPath(raw);
+		if (rel === null) {
+			skipped.push({
+				path: raw,
+				reason: "BAD_PATH"
+			});
+			continue;
+		}
+		if (rel === RESEARCH_DIR || rel.startsWith(`${RESEARCH_DIR}/`)) {
+			skipped.push({
+				path: rel,
+				reason: "RESEARCH_TREE"
+			});
+			continue;
+		}
+		if (rel === GIT_DIR || rel.startsWith(`${GIT_DIR}/`)) {
+			skipped.push({
+				path: rel,
+				reason: "VCS_METADATA"
+			});
+			continue;
+		}
+		const layer = classifyPath(policy, rel);
+		if (layer === "IGNORED") {
+			skipped.push({
+				path: rel,
+				reason: "IGNORED"
+			});
+			continue;
+		}
+		if (layer === "STRICT_TRACKED") {
+			skipped.push({
+				path: rel,
+				reason: "STRICT_TRACKED"
+			});
+			continue;
+		}
+		const zone = matchZone(policy, rel);
+		const signal = combineTypeSignal(rel.slice(rel.lastIndexOf("/") + 1));
+		candidates.push({
+			path: rel,
+			sizeBytes: null,
+			zone: zone?.dir ?? null,
+			zoneArtifactTypes: zone?.artifactTypes ?? [],
+			guessedType: signal.guessedType,
+			suggestedType: signal.suggestedType
+		});
+	}
+	const byPath = (a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+	candidates.sort(byPath);
+	skipped.sort(byPath);
+	return {
+		candidates,
+		skipped
+	};
+}
+/**
+* Adapter for path-only producers (WP-6.1's `AuditReport.newFiles
+* .outsideResearch: string[]` — no status column): lift raw paths to
+* {@link UntrackedFileRef} entries (status stays undefined — the feed
+* never branches on it anyway).
+*/
+function untrackedRefsFromPaths(paths) {
+	return paths.map((path) => ({ path }));
+}
+//#endregion
+//#region src/host/audit/discovery/service.ts
+/** Service-layer error with a stable machine code. */
+var DiscoveryScannerError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = "DiscoveryScannerError";
+		this.code = code;
+	}
+};
+/** The scanner service (stateless — all state lives in the KV store). */
+var DiscoveryScanner = class {
+	meta;
+	now;
+	constructor(meta, now = () => Date.now()) {
+		this.meta = meta;
+		this.now = now;
+	}
+	/**
+	* The operational-KV key of the latest scan snapshot (exposed for
+	* diagnostics; `meta` is per-project — §15 — so no project prefix).
+	*/
+	static snapshotKey = SNAPSHOT_KEY;
+	/**
+	* Read the previous snapshot from the operational KV.
+	* @returns `null` when none stored yet (first scan).
+	* @throws DiscoveryScannerError(`DISC_SNAPSHOT_CORRUPT`) on a stored
+	*   value that fails structural decode (fail loud).
+	*/
+	readSnapshot() {
+		const raw = this.meta.get(SNAPSHOT_KEY);
+		if (raw === null) return null;
+		try {
+			return decodeSnapshot(raw);
+		} catch (cause) {
+			if (cause instanceof DiscoverySnapshotError) throw new DiscoveryScannerError("DISC_SNAPSHOT_CORRUPT", cause.message, { cause });
+			throw cause;
+		}
+	}
+	/**
+	* One discovery scan of the workspace (read-only) + incremental diff
+	* vs the previous snapshot + snapshot persistence (on success only).
+	*
+	* @param args.workspaceRoot absolute path (the caller resolves
+	*   `workspace.root` against the Git repo root — §14.1; git-free here)
+	* @param args.policy normalized policy (`normalizePolicy` output)
+	*/
+	scan(args) {
+		const prev = this.readSnapshot();
+		let report;
+		try {
+			report = scanWorkspace({
+				root: args.workspaceRoot,
+				policy: args.policy,
+				now: this.now,
+				prevSnapshot: prev
+			});
+		} catch (cause) {
+			if (cause instanceof Error && cause.message.startsWith("walkWorkspaceFiles:")) throw new DiscoveryScannerError("DISC_ROOT_MISSING", cause.message, { cause });
+			throw cause;
+		}
+		this.meta.set(SNAPSHOT_KEY, encodeSnapshot(report.snapshot));
+		return report;
+	}
+	/**
+	* The WP-6.1 seam: feed a normalized `AuditReport.untracked` list
+	* (types.ts `UntrackedFileRef` contract) → classified candidates +
+	* reasoned skips. Pure (no fs, no KV) — see `feedUntracked`.
+	*/
+	scanFromUntracked(args) {
+		return feedUntracked(args.policy, args.untracked);
+	}
+	/** Delete the stored snapshot (reset the incremental baseline). */
+	clearSnapshot() {
+		this.meta.delete(SNAPSHOT_KEY);
+	}
+};
+/**
+* Convenience: normalize a raw §14.1 `audit` block (wiring boundary).
+* Accepts the full loader `WorkspaceDoc` or just its `audit` face
+* (`null` = no workspace.yaml → all engineering defaults).
+*/
+function policyFromWorkspaceDoc(doc) {
+	return normalizePolicy(doc?.audit ?? null);
+}
+//#endregion
+//#region src/host/audit/reconcile/types.ts
+/** 冻结类别集（排序/计数/映射用; 与上类型逐字一致 — tests 漂移 guard）。 */
+const DISCREPANCY_CATEGORIES = [
+	"ARTIFACT_RECOVERABLE",
+	"DECLARED_MISSING",
+	"RESEARCH_UNCHECKPOINTED",
+	"TRACKED_UNDECLARED",
+	"UNREGISTERED_WORKSPACE_CHANGE"
+];
+/** 冻结来源映射（机械; tests 钉）: 类别 → Inbox source。 */
+const CATEGORY_INBOX_SOURCE = {
+	UNREGISTERED_WORKSPACE_CHANGE: "UNREGISTERED_WORKSPACE_CHANGE",
+	TRACKED_UNDECLARED: "UNCLASSIFIED_AUDIT_FINDING",
+	DECLARED_MISSING: "UNCLASSIFIED_AUDIT_FINDING",
+	RESEARCH_UNCHECKPOINTED: "UNCLASSIFIED_AUDIT_FINDING",
+	ARTIFACT_RECOVERABLE: "UNCLASSIFIED_AUDIT_FINDING"
+};
+/** 路径 ∈ `.research/` 域（恰为目录记法或其内 — WP-6.1 `inResearch` 同语义）。 */
+function isResearchTreePath(p) {
+	return p === ".research/" || p.startsWith(".research/");
+}
+//#endregion
+//#region src/host/audit/reconcile/inbox.ts
+/** `key=value` 对拼装（值原样; 空值对省略; 布尔小写）。 */
+function kv(pairs) {
+	return pairs.filter((pair) => pair[1] !== null && pair[1] !== void 0).map(([k, v]) => `${k}=${v === true ? "true" : v === false ? "false" : v}`).join(" ");
+}
+/** 各变体的 artifact 关联字段（机械提取 — 无 = undefined）。 */
+function artifactIdOf(d) {
+	if (d.category === "ARTIFACT_RECOVERABLE") return d.artifactId;
+	if (d.category === "DECLARED_MISSING") return d.artifactId;
+	if (d.category === "TRACKED_UNDECLARED") return d.matchedArtifactId;
+}
+/** 每条 Discrepancy 的机械文本摘要（Inbox `payload` 面 — §11「文本/
+*  摘要」; 全字段值拼装, 零推断）。 */
+function payloadOf(d, tier) {
+	const base = [kv([
+		["finding", `${d.category}/${d.subkind}`],
+		["path", d.path],
+		["artifact", artifactIdOf(d)],
+		["tier", tier],
+		["reason", d.tierReason]
+	])];
+	if (d.category === "TRACKED_UNDECLARED") base.push(kv([
+		["x", d.x],
+		["y", d.y],
+		["inStrictTracked", d.inStrictTracked]
+	]));
+	else if (d.category === "UNREGISTERED_WORKSPACE_CHANGE") base.push(kv([
+		["source", d.subkind],
+		["zone", d.zone],
+		["suggestedType", d.suggestedType],
+		["sizeBytes", d.sizeBytes],
+		["isNew", d.isNew]
+	]));
+	else if (d.category === "DECLARED_MISSING") base.push(kv([["signal", d.signal]]));
+	return base.join(" ");
+}
+/** `context_refs` 机械构造（封闭 {ARTIFACT, WORKSTREAM}; 字段齐备才
+*  发 — 无 artifact 关联 = 空集, 不虚构引用）。 */
+function contextRefsOf(d) {
+	const refs = [];
+	const artifactId = d.category === "ARTIFACT_RECOVERABLE" ? d.artifactId : d.category === "DECLARED_MISSING" && d.artifactId !== void 0 ? d.artifactId : d.category === "TRACKED_UNDECLARED" ? d.matchedArtifactId : void 0;
+	if (artifactId !== void 0) refs.push({
+		kind: "ARTIFACT",
+		id: artifactId
+	});
+	const wsId = d.category === "ARTIFACT_RECOVERABLE" ? d.workstreamId : d.category === "DECLARED_MISSING" ? d.workstreamId : void 0;
+	if (wsId !== void 0) refs.push({
+		kind: "WORKSTREAM",
+		id: wsId
+	});
+	return refs;
+}
+/**
+* Inbox 条目草稿构造（任务书目标 4「输出可入 Inbox 的条目构造器」）。
+* 纯函数: 零分配器、零存储 — `id` 由 WP-6.4 落库时经共享 IdAllocator
+* 分配（§1.1 IN 族）; 其余 §11 字段 1:1。
+*
+* `source` 冻结映射（`CATEGORY_INBOX_SOURCE` — GIT_INTEGRATION §8
+* 「发现未注册产物 -> Inbox（UNREGISTERED_WORKSPACE_CHANGE）」逐字;
+* 其余类别 = `UNCLASSIFIED_AUDIT_FINDING`, §1.4/§28 同名来源）;
+* `raw` = 结构化 Discrepancy（§11「原始数据（如 audit finding 细节）」
+* 的机器形态 — WP-6.4 落库时 JSON 序列化, 本层不预序列化）;
+* `createdAt` = 注入 `now`（确定性）。
+*/
+function toInboxEntry(d, tier, now) {
+	return {
+		source: CATEGORY_INBOX_SOURCE[d.category],
+		payload: payloadOf(d, tier),
+		raw: d,
+		contextRefs: contextRefsOf(d),
+		state: "CAPTURED",
+		createdAt: now
+	};
+}
+//#endregion
+//#region src/host/audit/reconcile/tiers.ts
+/**
+* 机械推荐档位（§22.3 冻结映射 — module doc 表; 单一真源）。
+* 纯函数, never throws（类别集封闭）。
+*/
+function recommendTier(s) {
+	switch (s.category) {
+		case "UNREGISTERED_WORKSPACE_CHANGE": return s.zone === null ? {
+			tier: "PROPOSE_RECONCILIATION",
+			reason: "OUT_OF_ZONE"
 		} : {
-			path: c.path,
-			kind: "added",
-			base_oid: null,
-			current_oid: c.oid
-		});
-		else if (c.oid === null) diff.push({
-			path: c.path,
-			kind: "missing",
-			base_oid: baseOid,
-			current_oid: null
-		});
-		else if (baseOid !== c.oid) diff.push({
-			path: c.path,
-			kind: "oid_changed",
-			base_oid: baseOid,
-			current_oid: c.oid
-		});
+			tier: "AUTO_RECONCILE",
+			reason: "ZONE_DECLARED"
+		};
+		case "TRACKED_UNDECLARED": return {
+			tier: "PROPOSE_RECONCILIATION",
+			reason: "TRACKED_CHANGE_CONFIRM"
+		};
+		case "DECLARED_MISSING": return {
+			tier: "ESCALATE",
+			reason: "DECLARED_LOSS"
+		};
+		case "RESEARCH_UNCHECKPOINTED": return {
+			tier: "AUTO_RECONCILE",
+			reason: "CHECKPOINT_GAP"
+		};
+		case "ARTIFACT_RECOVERABLE": return {
+			tier: "AUTO_RECONCILE",
+			reason: "URI_MATCH"
+		};
 	}
-	const removedReported = /* @__PURE__ */ new Set();
-	for (const b of base) {
-		if (removedReported.has(b.path) || currentByPath.has(b.path)) continue;
-		removedReported.add(b.path);
-		diff.push({
-			path: b.path,
-			kind: "removed",
-			base_oid: b.git_blob_oid,
-			current_oid: null
-		});
-	}
-	return diff;
+}
+//#endregion
+//#region src/host/audit/reconcile/classify.ts
+/** 归一化目录记法（zone/policy 前缀匹配用）: 去 `./`/尾 `/`/空 = root。 */
+function normalizeDir(p) {
+	let out = p;
+	if (out.startsWith("./")) out = out.slice(2);
+	if (out.endsWith("/")) out = out.slice(0, -1);
+	return out;
+}
+/** workspace-root-relative → repo-root-relative（`wsRoot` 归一化后）。 */
+function toRepoRel(p, wsRoot) {
+	return wsRoot === "" || wsRoot === "." ? p : `${wsRoot}/${p}`;
 }
 /**
-* The §5 `stale_reason` string: the FIRST diff as a mechanical triple
-* （「path + old/new oid」原文口径）:
-*
-*   `path=<p>; base_oid=<oid|absent>; current_oid=<oid|missing|absent>`
-*
-* Sentinels: `absent` = the path was not in that set; `missing` = the path
-* was in the current set but not a regular file on disk (current side only).
-* Throws on an empty diff (there is no stale reason to format — callers must
-* check `diff.length > 0` first; fail loud, no empty-reason STALE rows).
+* artifact `uri` 的**可验证子集**（机械判定, 零推断）: workspace-
+* relative 文件路径 — 非空、非 `.`、非绝对、无 scheme、无 `..` 段、
+* 无空段、无 `\`、非目录记法（尾 `/`）。scheme/绝对路径 = 外部资源
+* （§7.3「path 或 URI」— URI 形态存在性不可机械验证 → 不报缺失/找回）。
 */
-function formatStaleReason(diff) {
-	const d = diff[0];
-	if (d === void 0) throw new Error("formatStaleReason: diff is empty — no stale reason exists (PLAN_FORK_SPEC §5)");
-	const baseOid = d.base_oid === null ? "absent" : d.base_oid;
-	const currentOid = d.kind === "removed" ? "absent" : d.current_oid === null ? "missing" : d.current_oid;
-	return `path=${d.path}; base_oid=${baseOid}; current_oid=${currentOid}`;
+function isVerifiableUri(uri) {
+	if (typeof uri !== "string" || uri.length === 0 || uri === ".") return false;
+	if (uri.startsWith("/") || uri.endsWith("/") || uri.includes("\\")) return false;
+	if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(uri)) return false;
+	for (const seg of uri.split("/")) if (seg === "" || seg === "..") return false;
+	return true;
+}
+/**
+* 声明 zone 的目录前缀匹配（WP-6.2 `matchZone` 同语义: 「严格位于其下」
+* — 等 zone 名的散文件不匹配; root zone（归一化 `''`）覆盖一切;
+* 声明序先胜 — 与 WP-6.2「重叠先胜」口径一致）。
+*/
+function zoneOfWsPath(pWs, zones) {
+	for (const zn of zones) {
+		const d = normalizeDir(zn.path);
+		if (d === "" || pWs !== d && pWs.startsWith(`${d}/`)) return {
+			dir: d,
+			artifactTypes: zn.artifactTypes ?? []
+		};
+	}
+	return null;
+}
+/** trackedChanges 条目中工作树文件**确定在场**的机械判定（保守）:
+*  Y=M/T（工作树修改/类型变更）; 或 Y='.' 且 X∈{M,R}（暂存修改/
+*  暂存重命名 — 工作树与 index 一致且 index 有内容）; rename 行
+*  新路径恒在场。X=D/A（intent-to-add 不可区分）/U 冲突态等不确定态
+*  不计（不产生假「找回」/假「在场」）。 */
+function worktreeFilePresent(x, y, kind) {
+	if (kind === "renamed") return true;
+	if (y === "M" || y === "T") return true;
+	if (y === "." && (x === "M" || x === "R")) return true;
+	return false;
+}
+/**
+* discrepancy 分类（任务书目标 1）— 纯函数:
+* strict audit + discovery 差分 + `.research/` 声明态 → 结构化
+* Discrepancy 清单。全机械（module doc 逐条规则）; 确定性排序;
+* 同输入同报告; 输入零改动（readonly 契约）。
+*/
+function classifyDiscrepancies(input) {
+	const { audit, declared } = input;
+	const discovery = input.discovery ?? null;
+	const feed = input.untrackedFeed ?? null;
+	const wsRoot = normalizeDir(declared.policy.workspaceRoot);
+	const artifacts = declared.artifacts;
+	const rowsSorted = [...artifacts.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+	const uriToArtifacts = /* @__PURE__ */ new Map();
+	for (const row of rowsSorted) {
+		if (!isVerifiableUri(row.uri)) continue;
+		const p = toRepoRel(row.uri, wsRoot);
+		const list = uriToArtifacts.get(p);
+		if (list) list.push(row);
+		else uriToArtifacts.set(p, [row]);
+	}
+	const matchedArtifactIdAt = (pRepo) => {
+		const list = uriToArtifacts.get(pRepo);
+		return list === void 0 ? void 0 : list[0].id;
+	};
+	const candidateMap = /* @__PURE__ */ new Map();
+	const putCandidate = (c, fromFs, isNewFs) => {
+		const pRepo = toRepoRel(c.path, wsRoot);
+		if (candidateMap.has(pRepo) && candidateMap.get(pRepo).fromFs) return;
+		candidateMap.set(pRepo, {
+			pathRepo: pRepo,
+			zone: c.zone,
+			zoneArtifactTypes: c.zoneArtifactTypes,
+			suggestedType: c.suggestedType,
+			sizeBytes: c.sizeBytes,
+			fromFs,
+			isNew: fromFs ? isNewFs : true
+		});
+	};
+	const diffAdded = new Set(discovery === null ? [] : discovery.diff.added);
+	if (discovery !== null) for (const c of discovery.candidates) putCandidate(c, true, !discovery.diff.firstScan && diffAdded.has(c.path));
+	if (feed !== null) for (const c of feed.candidates) putCandidate(c, false, true);
+	const worktreeDeletedY = /* @__PURE__ */ new Set();
+	const worktreePresentY = /* @__PURE__ */ new Set();
+	for (const tc of audit.trackedChanges) {
+		if (tc.y === "D") worktreeDeletedY.add(tc.path);
+		if (worktreeFilePresent(tc.x, tc.y, tc.kind)) worktreePresentY.add(tc.path);
+	}
+	const strictTrackedSet = new Set(audit.strictTracked.tracked);
+	const strictDeletedSet = new Set(audit.strictTracked.deleted);
+	const researchMissingSet = new Set(audit.research.missing);
+	const indexPresent = new Set([...strictTrackedSet].filter((p) => !worktreeDeletedY.has(p)));
+	const diffRemoved = new Set(discovery === null ? [] : discovery.diff.removed);
+	const zoneDirMissing = new Set((discovery === null ? [] : discovery.zoneDirMissing).map((z) => normalizeDir(z)));
+	const isPresent = (pRepo) => candidateMap.has(pRepo) || worktreePresentY.has(pRepo) || indexPresent.has(pRepo);
+	const out = [];
+	const push = (d) => {
+		out.push(d);
+	};
+	for (const tc of audit.trackedChanges) {
+		if (isResearchTreePath(tc.path)) continue;
+		if (tc.x === "D" || tc.y === "D") {
+			if (strictDeletedSet.has(tc.path)) continue;
+			const t = recommendTier({ category: "TRACKED_UNDECLARED" });
+			push({
+				category: "TRACKED_UNDECLARED",
+				subkind: "deleted",
+				path: tc.path,
+				x: tc.x,
+				y: tc.y,
+				...tc.origPath !== void 0 ? { origPath: tc.origPath } : {},
+				inStrictTracked: false,
+				...matchedArtifactIdAt(tc.path) !== void 0 ? { matchedArtifactId: matchedArtifactIdAt(tc.path) } : {},
+				recommendedTier: t.tier,
+				tierReason: t.reason
+			});
+			continue;
+		}
+		const subkind = tc.kind === "renamed" ? "renamed" : tc.kind === "unmerged" ? "unmerged" : "modified";
+		const t = recommendTier({ category: "TRACKED_UNDECLARED" });
+		push({
+			category: "TRACKED_UNDECLARED",
+			subkind,
+			path: tc.path,
+			x: tc.x,
+			y: tc.y,
+			...tc.origPath !== void 0 ? { origPath: tc.origPath } : {},
+			inStrictTracked: strictTrackedSet.has(tc.path) || strictDeletedSet.has(tc.path),
+			...matchedArtifactIdAt(tc.path) !== void 0 ? { matchedArtifactId: matchedArtifactIdAt(tc.path) } : {},
+			recommendedTier: t.tier,
+			tierReason: t.reason
+		});
+	}
+	for (const p of audit.strictTracked.deleted) {
+		const t = recommendTier({ category: "DECLARED_MISSING" });
+		push({
+			category: "DECLARED_MISSING",
+			subkind: "strict-tracked",
+			path: p,
+			signal: "git-deleted",
+			recommendedTier: t.tier,
+			tierReason: t.reason
+		});
+	}
+	for (const p of audit.research.missing) {
+		const t = recommendTier({ category: "DECLARED_MISSING" });
+		push({
+			category: "DECLARED_MISSING",
+			subkind: "research-tree",
+			path: p,
+			signal: "research-missing",
+			recommendedTier: t.tier,
+			tierReason: t.reason
+		});
+	}
+	for (const p of audit.research.untracked) {
+		const t = recommendTier({ category: "RESEARCH_UNCHECKPOINTED" });
+		push({
+			category: "RESEARCH_UNCHECKPOINTED",
+			subkind: "untracked-new",
+			path: p,
+			recommendedTier: t.tier,
+			tierReason: t.reason
+		});
+	}
+	for (const p of audit.research.trackedModified) {
+		if (researchMissingSet.has(p)) continue;
+		const t = recommendTier({ category: "RESEARCH_UNCHECKPOINTED" });
+		push({
+			category: "RESEARCH_UNCHECKPOINTED",
+			subkind: "tracked-modified",
+			path: p,
+			recommendedTier: t.tier,
+			tierReason: t.reason
+		});
+	}
+	const candidatesSorted = [...candidateMap.values()].sort((a, b) => a.pathRepo < b.pathRepo ? -1 : a.pathRepo > b.pathRepo ? 1 : 0);
+	for (const c of candidatesSorted) {
+		if (uriToArtifacts.has(c.pathRepo)) continue;
+		const t = recommendTier({
+			category: "UNREGISTERED_WORKSPACE_CHANGE",
+			zone: c.zone
+		});
+		push({
+			category: "UNREGISTERED_WORKSPACE_CHANGE",
+			subkind: c.fromFs ? "zone" : "feed",
+			path: c.pathRepo,
+			zone: c.zone,
+			zoneArtifactTypes: c.zoneArtifactTypes,
+			suggestedType: c.suggestedType,
+			sizeBytes: c.sizeBytes,
+			isNew: c.isNew,
+			recommendedTier: t.tier,
+			tierReason: t.reason
+		});
+	}
+	const zones = declared.policy.discoveryZones;
+	for (const row of rowsSorted) {
+		if (!isVerifiableUri(row.uri)) continue;
+		const pRepo = toRepoRel(row.uri, wsRoot);
+		if (isPresent(pRepo)) {
+			if (row.status === "MISSING") {
+				const t = recommendTier({ category: "ARTIFACT_RECOVERABLE" });
+				push({
+					category: "ARTIFACT_RECOVERABLE",
+					subkind: "found",
+					path: pRepo,
+					artifactId: row.id,
+					workstreamId: row.workstream_id,
+					recommendedTier: t.tier,
+					tierReason: t.reason
+				});
+			}
+			continue;
+		}
+		if (row.status !== "REGISTERED") continue;
+		const gitDeleted = strictDeletedSet.has(pRepo) || researchMissingSet.has(pRepo);
+		if (gitDeleted || diffRemoved.has(pRepo)) {
+			const t = recommendTier({ category: "DECLARED_MISSING" });
+			push({
+				category: "DECLARED_MISSING",
+				subkind: "artifact",
+				path: pRepo,
+				artifactId: row.id,
+				workstreamId: row.workstream_id,
+				signal: gitDeleted ? "git-deleted" : "diff-removed",
+				recommendedTier: t.tier,
+				tierReason: t.reason
+			});
+			continue;
+		}
+		if (discovery !== null) {
+			const zn = zoneOfWsPath(row.uri, zones);
+			if (zn !== null && !zoneDirMissing.has(zn.dir)) {
+				const t = recommendTier({ category: "DECLARED_MISSING" });
+				push({
+					category: "DECLARED_MISSING",
+					subkind: "artifact",
+					path: pRepo,
+					artifactId: row.id,
+					workstreamId: row.workstream_id,
+					signal: "zone-scan-absent",
+					recommendedTier: t.tier,
+					tierReason: t.reason
+				});
+			}
+		}
+	}
+	const sorted = [];
+	{
+		const tmp = out.map((d) => ({
+			d,
+			key: [
+				d.category,
+				d.subkind,
+				d.path
+			].join("\0")
+		}));
+		tmp.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+		for (let i = 0; i < tmp.length; i++) sorted.push({
+			...tmp[i].d,
+			id: `RD-${i + 1}`
+		});
+	}
+	const byCategory = {};
+	for (const cat of DISCREPANCY_CATEGORIES) byCategory[cat] = 0;
+	for (const d of sorted) byCategory[d.category]++;
+	return {
+		input: {
+			workspaceRoot: wsRoot,
+			artifactCount: artifacts.size,
+			discoveryScanned: discovery !== null,
+			fedUntracked: feed !== null,
+			firstScan: discovery === null ? false : discovery.diff.firstScan
+		},
+		discrepancies: sorted,
+		byCategory
+	};
+}
+//#endregion
+//#region src/host/audit/strict/errors.ts
+/**
+* WP-6.1 — strict git audit: 错误分类.
+*
+* 分工 (与 src/host/git 错误分类的关系, 同 WP-1.5 checkpoint/errors.ts 口径):
+*  - git 层错误 (GitError 家族, 已结构化: 白名单/超时/命令失败/输入/越界)
+*    **原样透传** — 本层不重新包装, 不丢失 git 精确信息
+*    (GIT_INTEGRATION §9「repo 损坏 → 原样展示 git 错误; 插件不尝试修复」);
+*  - 本层只新增 **audit 层自身不变量** 的错误 (非 repo 目录、baseline 形状、
+*    policy 形状), 一律继承 {@link AuditError}。
+*
+* 只读边界: audit 从不执行写操作, 因此不存在 checkpoint 侧的
+* StagedPreservation/Restore 一类「写后校验」错误 — 错误面只有**前置输入
+* 校验**与**git 透传**两类 (结构上无写失败路径, 见 read-only 静态测试)。
+*/
+/** audit 层服务错误基类。code = 稳定机器码 (`AUDIT_*`), 不解析 message 文本。 */
+var AuditError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = new.target.name;
+		this.code = code;
+	}
+};
+/** 目录不是 Git repo (W1 检测失败; GIT_INTEGRATION §2 — 未注册 workspace 拒绝 audit). */
+var NotARepoAuditError = class extends AuditError {
+	root;
+	constructor(root) {
+		super("AUDIT_NOT_A_REPO", `directory is not a Git repository (GIT_INTEGRATION §2): ${root}`);
+		this.root = root;
+	}
+};
+/** 输入形状非法 (baseline 非 40-hex OID、workspaceRoot 空路径等) — spawn 之前拒绝. */
+var AuditInputError = class extends AuditError {
+	constructor(message) {
+		super("AUDIT_INPUT", message);
+	}
+};
+/** workspace policy 形状非法 (§14.1 归一化防御面 — 正常经 loader 校验的文档不应触达). */
+var AuditPolicyError = class extends AuditError {
+	constructor(message) {
+		super("AUDIT_POLICY", message);
+	}
+};
+//#endregion
+//#region src/host/audit/strict/policy.ts
+/** §14.1 工程默认 (workspace.yaml 缺省时的 audit 面). */
+const DEFAULT_AUDIT_POLICY = Object.freeze({
+	workspaceRoot: ".",
+	gitRequired: true,
+	strictTrackedPaths: Object.freeze([]),
+	discoveryZones: Object.freeze([]),
+	ignored: Object.freeze([])
+});
+function assertPathList(value, field) {
+	if (!Array.isArray(value)) throw new AuditPolicyError(`${field} must be an array (DOMAIN_SCHEMA §14.1), got: ${typeName(value)}`);
+	return Object.freeze(value.map((entry, i) => {
+		if (typeof entry !== "string" || entry.length === 0) throw new AuditPolicyError(`${field}[${i}] must be a non-empty path string (DOMAIN_SCHEMA §14.1), got: ${typeName(entry)}`);
+		return entry;
+	}));
+}
+function assertZoneList(value) {
+	if (!Array.isArray(value)) throw new AuditPolicyError(`audit.discovery_zones must be an array (DOMAIN_SCHEMA §14.1), got: ${typeName(value)}`);
+	return Object.freeze(value.map((zone, i) => {
+		if (typeof zone !== "object" || zone === null) throw new AuditPolicyError(`audit.discovery_zones[${i}] must be an object (DOMAIN_SCHEMA §14.1), got: ${typeName(zone)}`);
+		const z = zone;
+		if (typeof z.path !== "string" || z.path.length === 0) throw new AuditPolicyError(`audit.discovery_zones[${i}].path must be a non-empty path string (DOMAIN_SCHEMA §14.1), got: ${typeName(z.path)}`);
+		let artifactTypes;
+		if (z.artifact_types !== void 0) {
+			if (!Array.isArray(z.artifact_types) || z.artifact_types.some((t) => typeof t !== "string")) throw new AuditPolicyError(`audit.discovery_zones[${i}].artifact_types must be an ArtifactType string array (DOMAIN_SCHEMA §14.1), got: ${typeName(z.artifact_types)}`);
+			artifactTypes = Object.freeze([...z.artifact_types]);
+		}
+		return Object.freeze({
+			path: z.path,
+			...artifactTypes !== void 0 ? { artifactTypes } : {}
+		});
+	}));
+}
+/**
+* 归一化 workspace policy (§14.1).
+*
+* @param doc loader 侧 `.research/workspace.yaml` 文档
+*   (`ResearchTree.workspace`; 文件缺失 = `null` → 全工程默认)。
+* @returns 冻结的只读 {@link AuditPolicy} (同输入同输出, 确定性)。
+* @throws AuditPolicyError 输入形状违反 §14.1 (loader 已校验时不可达).
+*/
+function normalizeWorkspacePolicy(doc) {
+	if (doc === null || doc === void 0) return {
+		workspaceRoot: DEFAULT_AUDIT_POLICY.workspaceRoot,
+		gitRequired: DEFAULT_AUDIT_POLICY.gitRequired,
+		strictTrackedPaths: [...DEFAULT_AUDIT_POLICY.strictTrackedPaths],
+		discoveryZones: [...DEFAULT_AUDIT_POLICY.discoveryZones],
+		ignored: [...DEFAULT_AUDIT_POLICY.ignored]
+	};
+	const workspace = doc.workspace;
+	if (typeof workspace !== "object" || workspace === null) throw new AuditPolicyError(`workspace.yaml: \`workspace\` mapping is required (DOMAIN_SCHEMA §14.1 / workspace.schema.json), got: ${typeName(workspace)}`);
+	const workspaceRoot = typeof workspace.root === "string" && workspace.root.length > 0 ? workspace.root : DEFAULT_AUDIT_POLICY.workspaceRoot;
+	const gitRequired = typeof workspace.git_required === "boolean" ? workspace.git_required : DEFAULT_AUDIT_POLICY.gitRequired;
+	const audit = doc.audit;
+	if (audit !== void 0 && (typeof audit !== "object" || audit === null)) throw new AuditPolicyError(`workspace.yaml: \`audit\` must be a mapping (DOMAIN_SCHEMA §14.1), got: ${typeName(audit)}`);
+	const strictTracked = audit?.strict_tracked;
+	if (strictTracked !== void 0 && (typeof strictTracked !== "object" || strictTracked === null)) throw new AuditPolicyError(`workspace.yaml: \`audit.strict_tracked\` must be a mapping (DOMAIN_SCHEMA §14.1), got: ${typeName(strictTracked)}`);
+	const strictTrackedPaths = assertPathList(strictTracked?.paths ?? [], "audit.strict_tracked.paths");
+	const discoveryZones = assertZoneList(audit?.discovery_zones ?? []);
+	const ignored = assertPathList(audit?.ignored ?? [], "audit.ignored");
+	return Object.freeze({
+		workspaceRoot,
+		gitRequired,
+		strictTrackedPaths,
+		discoveryZones,
+		ignored
+	});
+}
+function typeName(v) {
+	if (v === null) return "null";
+	if (Array.isArray(v)) return "array";
+	return typeof v;
 }
 //#endregion
 //#region src/host/git/errors.ts
@@ -6893,7 +12738,7 @@ const LOG_FORMAT_ARG = "--format=%H%x1f%aI%x1f%s";
 * deliberately rejected: the whitelist is exact, and every commit value the
 * plugin passes (W7/W8) comes from W11 (`rev-parse HEAD`, full OID).
 */
-const OID_RE = /^[0-9a-f]{40}$/;
+const OID_RE$1 = /^[0-9a-f]{40}$/;
 const DIGITS_RE = /^[0-9]+$/;
 /**
 * Repo-root-relative path argument (W3/W6/W8/W13): non-empty, not absolute,
@@ -6954,7 +12799,7 @@ const WHITELIST_ROWS = [
 			"--name-status",
 			"[<baseline-oid>]"
 		],
-		match: (a) => is(a, 0, "diff") && is(a, 1, "--name-status") && (a.length === 2 || a.length === 3 && OID_RE.test(a[2]))
+		match: (a) => is(a, 0, "diff") && is(a, 1, "--name-status") && (a.length === 2 || a.length === 3 && OID_RE$1.test(a[2]))
 	},
 	{
 		id: "W6",
@@ -6991,7 +12836,7 @@ const WHITELIST_ROWS = [
 			if (a.length !== 2 || !is(a, 0, "show")) return false;
 			const ref = a[1];
 			const i = ref.indexOf(":");
-			return i > 0 && OID_RE.test(ref.slice(0, i)) && isPathArg(ref.slice(i + 1));
+			return i > 0 && OID_RE$1.test(ref.slice(0, i)) && isPathArg(ref.slice(i + 1));
 		}
 	},
 	{
@@ -7004,7 +12849,7 @@ const WHITELIST_ROWS = [
 			"--",
 			".research/<path>"
 		],
-		match: (a) => a.length === 4 && is(a, 0, "restore") && typeof a[1] === "string" && a[1].startsWith("--source=") && OID_RE.test(a[1].slice(9)) && is(a, 2, "--") && isPathArg(a[3]) && isUnderResearch(a[3])
+		match: (a) => a.length === 4 && is(a, 0, "restore") && typeof a[1] === "string" && a[1].startsWith("--source=") && OID_RE$1.test(a[1].slice(9)) && is(a, 2, "--") && isPathArg(a[3]) && isUnderResearch(a[3])
 	},
 	{
 		id: "W9",
@@ -7233,6 +13078,7 @@ async function runGit(root, argv, opts) {
 }
 //#endregion
 //#region src/host/git/operations.ts
+const OID_RE = /^[0-9a-f]{40}$/;
 function withC(root, argv) {
 	return [
 		"-C",
@@ -7245,8 +13091,24 @@ function assertRepoRelativePath(p, op) {
 	if (p === ".." || p.startsWith("../") || p.startsWith("/") || p.includes("\0")) throw new GitInputError(`${op}: path must be repo-root-relative (GIT_INTEGRATION §3 说明), got: ${p}`);
 	return p;
 }
+function assertOid(oid, op) {
+	if (typeof oid !== "string" || !OID_RE.test(oid)) throw new GitInputError(`${op}: expected a full 40-hex commit OID, got: ${String(oid)}`);
+	return oid;
+}
 function commandFailed(root, argv, res) {
 	throw new GitCommandError(withC(root, argv), res.exitCode, res.stdout, res.stderr);
+}
+/** W1 (§2): `git -C <candidate> rev-parse --show-toplevel`. exit≠0 → 不是 Git repo. */
+async function detectRepo(candidateRoot, opts) {
+	const res = await runGit(candidateRoot, ["rev-parse", "--show-toplevel"], opts);
+	if (res.exitCode !== 0) return {
+		ok: false,
+		reason: "not-a-repo"
+	};
+	return {
+		ok: true,
+		repoRoot: res.stdout.trim()
+	};
 }
 /**
 * W3 (§7): `git hash-object -- <path>` — 对 working copy 内容计算 Git blob
@@ -7262,12 +13124,901 @@ async function hashObject(root, filePath, opts) {
 	if (res.exitCode !== 0) commandFailed(root, argv, res);
 	return res.stdout.trim();
 }
+/** W4 (§8 audit / checkpoint 前置): `git status --porcelain=v2 [--branch]`. */
+async function status(root, opts) {
+	const argv = ["status", "--porcelain=v2"];
+	if (opts?.includeBranch ?? true) argv.push("--branch");
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	const { head, entries } = parsePorcelainV2(res.stdout);
+	return {
+		head,
+		entries,
+		raw: res.stdout,
+		truncated: res.truncated
+	};
+}
+/**
+* Parse `git status --porcelain=v2 [--branch]`.
+*
+* Line grammar (git-status(1), verified against git 2.53 output):
+*   1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+*   2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\t<origPath>
+*   u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <hI> <path>
+*   ? <path>
+* Forward-compatible: the path is always the LAST token (quoted paths
+* contain no raw spaces), rename lines carry a tab between path/origPath;
+* unknown lines (`# …` comments, `header …` extensions) are skipped — raw
+* is kept verbatim in the result.
+*/
+function parsePorcelainV2(raw) {
+	let head;
+	let branchOid;
+	const entries = [];
+	for (const line of raw.split("\n")) {
+		if (line.length === 0) continue;
+		if (line.startsWith("# branch.oid ")) {
+			const v = line.slice(13);
+			if (/^[0-9a-f]{40}$/.test(v)) {
+				branchOid = v;
+				if (head?.kind === "detached") head.oid = v;
+			}
+		} else if (line.startsWith("# branch.head ")) {
+			const v = line.slice(14);
+			head = v === "(detached)" ? {
+				kind: "detached",
+				oid: branchOid
+			} : {
+				kind: "branch",
+				name: v
+			};
+		} else if (line.startsWith("# branch.upstream ")) {
+			if (head?.kind === "branch") head.upstream = line.slice(18);
+		} else if (line.startsWith("# branch.ab ")) {
+			const m = /^\+(-?\d+) -(-?\d+)$/.exec(line.slice(12));
+			if (m && head?.kind === "branch") {
+				head.ahead = Number(m[1]);
+				head.behind = Number(m[2]);
+			}
+		} else if (line.startsWith("1 ") || line.startsWith("u ")) {
+			const parts = line.slice(2).split(" ");
+			const xy = parts[0] ?? "";
+			entries.push({
+				kind: line.startsWith("u ") ? "unmerged" : "tracked",
+				x: xy.slice(0, 1),
+				y: xy.slice(1, 2),
+				path: unquotePath(parts[parts.length - 1] ?? "")
+			});
+		} else if (line.startsWith("2 ")) {
+			const parts = line.slice(2).split(" ");
+			const xy = parts[0] ?? "";
+			const last = parts[parts.length - 1] ?? "";
+			const sep = last.indexOf("	");
+			const [path, origPath] = sep >= 0 ? [last.slice(0, sep), last.slice(sep + 1)] : [last, ""];
+			entries.push({
+				kind: "renamed",
+				x: xy.slice(0, 1),
+				y: xy.slice(1, 2),
+				path: unquotePath(path),
+				origPath: unquotePath(origPath)
+			});
+		} else if (line.startsWith("? ")) entries.push({
+			kind: "untracked",
+			x: "",
+			y: "",
+			path: unquotePath(line.slice(2))
+		});
+	}
+	return {
+		head,
+		entries
+	};
+}
+/** Unquote a C-quoted path from git output (core.quotePath). */
+function unquotePath(p) {
+	if (p.length < 2 || !p.startsWith("\"") || !p.endsWith("\"")) return p;
+	const inner = p.slice(1, -1);
+	let out = "";
+	for (let i = 0; i < inner.length; i++) {
+		const c = inner[i];
+		if (c !== "\\") {
+			out += c;
+			continue;
+		}
+		const n = inner[++i];
+		if (n === void 0) {
+			out += c;
+			break;
+		}
+		if (n === "t") out += "	";
+		else if (n === "n") out += "\n";
+		else if (n === "r") out += "\r";
+		else if (n === "\"" || n === "\\") out += n;
+		else if (n >= "0" && n <= "7") {
+			let digits = n;
+			while (digits.length < 3 && inner[i + 1] >= "0" && inner[i + 1] <= "7") digits += inner[++i];
+			out += String.fromCharCode(parseInt(digits, 8));
+		} else out += n;
+	}
+	return out;
+}
+/** W5 (§8 audit): `git diff --name-status [<baseline>]` (baseline: 40-hex OID). */
+async function diffNameStatus(root, baseline, opts) {
+	const argv = ["diff", "--name-status"];
+	if (baseline !== void 0) argv.push(assertOid(baseline, "diffNameStatus"));
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	const out = [];
+	for (const line of res.stdout.split("\n")) {
+		if (line.length === 0) continue;
+		const parts = line.split("	");
+		if (parts.length >= 3 && /^[RC]/.test(parts[0])) out.push({
+			status: parts[0],
+			oldPath: unquotePath(parts[1]),
+			path: unquotePath(parts[2])
+		});
+		else if (parts.length === 2) out.push({
+			status: parts[0],
+			path: unquotePath(parts[1])
+		});
+	}
+	return out;
+}
 /** W11 (checkpoint 第三步, **用户**): `git rev-parse HEAD` → 记录 commit OID. */
 async function revParseHead(root, opts) {
 	const argv = ["rev-parse", "HEAD"];
 	const res = await runGit(root, argv, opts);
 	if (res.exitCode !== 0) commandFailed(root, argv, res);
 	return res.stdout.trim();
+}
+/** W13 (§8 audit, Phase 6): `git ls-files -- <pathspec>` — strict tracked 路径集. */
+async function lsFiles(root, pathspec, opts) {
+	const argv = [
+		"ls-files",
+		"--",
+		assertRepoRelativePath(pathspec, "lsFiles")
+	];
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	return res.stdout.split("\n").filter((l) => l.length > 0).map(unquotePath);
+}
+//#endregion
+//#region src/host/audit/strict/audit.ts
+/**
+* WP-6.1 — strict git audit (GIT_INTEGRATION §8 第一层, 计划书 §22.1).
+*
+* 对**注册 workspace** 执行严格跟踪层审计, 编排 = W1 → W4 → W5 → W13,
+* 全部经 git wrapper 白名单 (INV-GIT-7 运行时护栏仍逐次生效):
+*
+*   W1 `detectRepo`     仓库检测 (§2; 非 repo → NotARepoAuditError, 拒绝 audit)
+*   W4 `status`         --porcelain=v2 --branch: tracked 修改分类 (X/Y 语义:
+*                       staged vs worktree vs unmerged) + untracked 新文件清单
+*                       (按 `.research/` 内外分列) + 分支头 (detached/空仓)
+*   W5 `diffNameStatus` 变更摘要: 缺省 = index ↔ worktree (未暂存);
+*                       给定 baseline (40-hex) = 基线 ↔ worktree
+*   W13 `lsFiles`       权威 tracked 集枚举: `.research/` (一致性 missing 面)
+*                       + policy `strict_tracked.paths` (逐 pathspec,
+*                       已做 workspace→repo root 前缀换算, §3 说明) —
+*                       「判定 strict tracked 路径集内的删除/缺失」(§3 表 W13 行)
+*
+* 只读边界 (目标 3, 类型面证明见 tests/audit-strict/read-only.test.ts):
+*   - 唯一 git 能力来源 = src/host/git 公开面; 只用 W1/W4/W5/W13 四个自动
+*     触发只读操作 — W6–W12 (含全部写能力) 在本模块不可达;
+*   - 零 node:fs / node:child_process import — 无任何文件 I/O;
+*   - git 层错误 (GitCommandError 等) 原样透传 (§9「原样展示 git 错误」)。
+*
+* 与 §5.1 冲突检测**正交** (目标 4): §5.1 门禁是 checkpoint 前置
+* (save 流程步骤 1, 写历史保护); audit 是纯读操作, 不受 merge/rebase/
+* cherry-pick 进行中状态阻塞 (GIT_INTEGRATION §9 读操作行) — 冲突态下的
+* unmerged 条目照常分类入报告。本 WP 不做 checkpoint, 不产生 ManagementAction。
+*
+* 边界 (§8): 报告只回答「工作区发生了哪些插件尚未登记的变化」, 不推断
+* 科研含义; discovery zones 扫描 (第二层, fs 面) 归 WP-6.2, reconciliation
+* 三档 (§22.3) 归 WP-6.3 — 两者消费本报告的 `newFiles.outsideResearch` 与
+* `strictTracked`/`trackedChanges` 输入面。
+*/
+/** 全量 40-hex commit OID (W5 baseline 形状; 短 OID/refs 拒绝 — 白名单同口径). */
+const FULL_OID_RE = /^[0-9a-f]{40}$/;
+function byPath(a, b) {
+	return a < b ? -1 : a > b ? 1 : 0;
+}
+function sortPaths(list) {
+	return [...list].sort(byPath);
+}
+function sortDiff(list) {
+	return [...list].sort((a, b) => byPath(a.path, b.path));
+}
+/** POSIX 化 (分隔符归一; 测试环境 = Linux, 跨平台安全). */
+function toPosix(p) {
+	return p.split(sep).join("/");
+}
+/** workspace.root 记法归一 (去尾随 `/`; `.`/`./`/`./a/` → `a`; 仅用于比对, 不改 pathspec 语义). */
+function normRoot(p) {
+	const t = toPosix(p).replace(/\/+$/, "");
+	return t === "" || t === "." ? "." : t;
+}
+/**
+* workspace root 相对 repo root 的路径 (POSIX; 相同 = `.`)。
+* W1 保证 workspace root 在 repo 内; 越出 = 输入矛盾, fail loud。
+*/
+function workspaceRelPath(repoRoot, workspaceRootAbs) {
+	const rel = relative(toPosix(repoRoot), toPosix(workspaceRootAbs));
+	if (rel === "") return ".";
+	if (rel === ".." || rel.startsWith("../")) throw new AuditInputError(`runStrictAudit: workspace root ${workspaceRootAbs} is outside the detected repo root ${repoRoot} (GIT_INTEGRATION §2)`);
+	return toPosix(rel);
+}
+/**
+* policy pathspec (workspace-root-relative) → repo-root-relative 前缀换算
+* (GIT_INTEGRATION §3 说明「若 workspace root ≠ repo root, 插件负责前缀
+* 换算」)。pathspec 字面保留 (glob / 尾随 `/` 语义归 git)。
+*/
+function joinPathspec(wsRel, p) {
+	const b = p.startsWith("./") ? p.slice(2) : p;
+	if (wsRel === ".") return b === "" || b === "." ? "." : b;
+	if (b === "" || b === ".") return wsRel;
+	const a = wsRel.replace(/\/+$/, "");
+	const trailing = p.endsWith("/") ? "/" : "";
+	return `${a}/${b.replace(/\/+$/, "")}${trailing}`;
+}
+/** `.research/` 域判定 (路径恰为目录记法或其内). */
+function inResearch(p) {
+	return p === ".research/" || p.startsWith(".research/");
+}
+const GLOB_CHARS_RE = /[*?\[]/;
+/**
+* 判定路径是否落在声明的 pathspec 内 (git-glob(7) 语义子集, 与 git 对同一
+* pathspec 的 ls-files 解释一致):
+*  - 字面目录 (尾随 `/`, 无 glob 字符): 该目录或其下任意路径;
+*  - 字面文件 (无 glob 字符): 全等;
+*  - glob: `*` = 不含 `/` 的任意串, `**` = 含 `/` 的任意串, `?` = 单个非 `/`
+*    字符, `[...]` 字符类透传; 尾随 `/` = 目录前缀语义。
+*/
+function pathspecMatches(path, spec) {
+	const dirForm = spec.endsWith("/");
+	const core = dirForm ? spec.slice(0, -1) : spec;
+	if (core.length === 0) return false;
+	if (!GLOB_CHARS_RE.test(core)) return dirForm ? path === core || path.startsWith(`${core}/`) : path === core;
+	let re = "";
+	for (let i = 0; i < core.length; i++) {
+		const c = core[i];
+		if (c === "*") {
+			if (core[i + 1] === "*") {
+				re += ".*";
+				i++;
+			} else re += "[^/]*";
+		} else if (c === "?") re += "[^/]";
+		else if (c === "[") {
+			const close = core.indexOf("]", i + 1);
+			if (close < 0) re += "\\[";
+			else {
+				re += core.slice(i, close + 1);
+				i = close;
+			}
+		} else re += c.replace(/[.*+^${}()|\\]/g, "\\$&");
+	}
+	const m = new RegExp(`^${re}$`).exec(path);
+	if (m === null) return false;
+	if (!dirForm) return true;
+	const dir = m[0];
+	return path === dir || path.startsWith(`${dir}/`);
+}
+/** W4 条目分类: tracked 变更清单 + untracked 新文件 (git 记法原样, 目录含 `/`). */
+function classifyStatus(entries) {
+	const changes = [];
+	const untracked = [];
+	for (const e of entries) {
+		if (e.kind === "untracked") {
+			untracked.push(e.path);
+			continue;
+		}
+		const change = {
+			path: e.path,
+			kind: e.kind,
+			x: e.x,
+			y: e.y,
+			staged: e.x !== ".",
+			worktreeModified: e.y !== ".",
+			stagedForDeletion: e.x === "D",
+			deletedInWorktree: e.y === "D"
+		};
+		if (e.kind === "renamed") change.origPath = e.origPath;
+		changes.push(change);
+	}
+	return {
+		changes: changes.sort((a, b) => byPath(a.path, b.path)),
+		untracked: sortPaths(untracked)
+	};
+}
+/**
+* strict git audit (目标 2) — 对注册 workspace 执行 W4/W5/W13 只读审计,
+* 输出结构化 {@link AuditReport}。
+*
+* @throws AuditInputError      workspaceRoot/baseline 形状非法 (spawn 之前).
+* @throws NotARepoAuditError   目录不是 Git repo (W1, §2).
+* @throws (git 层错误原样)     GitCommandError / GitTimeoutError / GitMissingError /
+*                             GitInputError (W13 pathspec 越界等, §9 原样展示)。
+*/
+async function runStrictAudit(opts) {
+	if (typeof opts.workspaceRoot !== "string" || opts.workspaceRoot.length === 0) throw new AuditInputError("runStrictAudit: workspaceRoot must be a non-empty path");
+	if (opts.baseline !== void 0 && (typeof opts.baseline !== "string" || !FULL_OID_RE.test(opts.baseline))) throw new AuditInputError(`runStrictAudit: baseline must be a full 40-hex commit OID (W5 白名单形状), got: ${String(opts.baseline).slice(0, 40)}`);
+	const policy = opts.policy;
+	const det = await detectRepo(opts.workspaceRoot, opts.gitOptions);
+	if (!det.ok) throw new NotARepoAuditError(opts.workspaceRoot);
+	const repoRoot = det.repoRoot;
+	const wsRel = workspaceRelPath(repoRoot, resolve(opts.workspaceRoot));
+	const st = await status(repoRoot, {
+		...opts.gitOptions,
+		includeBranch: true
+	});
+	const { changes, untracked } = classifyStatus(st.entries);
+	const diffSummary = sortDiff(await diffNameStatus(repoRoot, opts.baseline, opts.gitOptions));
+	const diffStatusByPath = /* @__PURE__ */ new Map();
+	for (const e of diffSummary) {
+		if (!diffStatusByPath.has(e.path)) diffStatusByPath.set(e.path, e.status);
+		if (e.oldPath !== void 0 && !diffStatusByPath.has(e.oldPath)) diffStatusByPath.set(e.oldPath, e.status);
+	}
+	const trackedChanges = changes.map((c) => ({
+		...c,
+		diffStatus: diffStatusByPath.get(c.path) ?? (c.origPath !== void 0 ? diffStatusByPath.get(c.origPath) : void 0)
+	}));
+	const researchTracked = await lsFiles(repoRoot, RESEARCH_PATHSPEC, opts.gitOptions);
+	const pathspecs = (policy?.strictTrackedPaths ?? []).map((p) => joinPathspec(wsRel, p));
+	const strictTrackedSet = /* @__PURE__ */ new Set();
+	for (const ps of pathspecs) for (const p of await lsFiles(repoRoot, ps, opts.gitOptions)) strictTrackedSet.add(p);
+	const w4Deleted = changes.filter((c) => c.stagedForDeletion || c.deletedInWorktree);
+	const w4DeletedPaths = new Set(w4Deleted.map((c) => c.path));
+	const researchTrackedSet = new Set(researchTracked);
+	const changedPaths = new Set(changes.filter((c) => c.staged || c.worktreeModified).map((c) => c.path));
+	const research = {
+		trackedModified: sortPaths(changes.filter((c) => inResearch(c.path) && (c.staged || c.worktreeModified)).map((c) => c.path)),
+		untracked: untracked.filter((p) => inResearch(p)),
+		missing: sortPaths([...researchTracked.filter((p) => w4DeletedPaths.has(p)), ...w4Deleted.filter((c) => inResearch(c.path) && !researchTrackedSet.has(c.path)).map((c) => c.path)]),
+		consistent: false
+	};
+	research.consistent = research.trackedModified.length === 0 && research.untracked.length === 0 && research.missing.length === 0;
+	const strictTrackedList = sortPaths([...strictTrackedSet]);
+	const strictTracked = {
+		pathspecs,
+		tracked: strictTrackedList,
+		modified: strictTrackedList.filter((p) => changedPaths.has(p)),
+		deleted: sortPaths([...strictTrackedList.filter((p) => w4DeletedPaths.has(p)), ...w4Deleted.filter((c) => !strictTrackedSet.has(c.path)).filter((c) => pathspecs.some((ps) => pathspecMatches(c.path, ps))).map((c) => c.path)])
+	};
+	const warnings = [];
+	if (st.head?.kind === "detached") warnings.push({
+		code: "AUDIT_DETACHED_HEAD",
+		message: `audit executed on detached HEAD${st.head.oid ? ` (${st.head.oid})` : ""} — read-only audit unaffected (GIT_INTEGRATION §9); checkpoint would warn before committing (§5)`
+	});
+	else if (st.head?.kind === "branch" && /^# branch\.oid \(initial\)\s*$/m.test(st.raw)) warnings.push({
+		code: "AUDIT_EMPTY_REPO",
+		message: "repository has no commits yet — W5 baseline mode unavailable; report reflects index/working tree state"
+	});
+	if (st.truncated) warnings.push({
+		code: "AUDIT_TRUNCATED",
+		message: "W4 status output exceeded maxOutputBytes — trackedChanges/newFiles may be incomplete (raise gitOptions.maxOutputBytes)"
+	});
+	if (policy !== void 0 && normRoot(policy.workspaceRoot) !== wsRel) warnings.push({
+		code: "AUDIT_POLICY_MISMATCH",
+		message: `workspace.yaml workspace.root=${JSON.stringify(policy.workspaceRoot)} but the registered workspace root is ${JSON.stringify(wsRel)} relative to the repo root — pathspec conversion used the actual location (GIT_INTEGRATION §2)`
+	});
+	return {
+		head: st.head ?? null,
+		...opts.baseline !== void 0 ? { baseline: opts.baseline } : {},
+		trackedChanges,
+		diffSummary,
+		newFiles: {
+			outsideResearch: untracked.filter((p) => !inResearch(p)),
+			insideResearch: untracked.filter((p) => inResearch(p))
+		},
+		research,
+		strictTracked,
+		warnings
+	};
+}
+//#endregion
+//#region src/host/service/wiring/audit-refresh.ts
+/**
+* WP-7.2（RR-018①）— audit 生产触发: 审计链刷新段（wiring 的 refresh 段）。
+*
+* RR-018① 原文缺口: 「审计链无端到端测试与生产触发（audit 服务未挂
+* [Service.init] 刷新循环）」。本模块交付该生产触发面:
+*
+* ```text
+* run()
+*  1. fresh 树加载（workspace.yaml policy 面 — 文件即真值; 树坏 =
+*     默认 policy + 大声 warn — 刷新不阻塞, 查询主路径自己 loud）
+*  2. runStrictAudit（WP-6.1: W1/W4/W5/W13 只读 git 面）
+*  3. DiscoveryScanner.scan（WP-6.2: fs 只读扫描 + 快照增量差分 —
+*     operational KV 基线; 失败不毁基线, 其既有纪律）
+*  4. feedUntracked（W4 untracked → discovery 归一化 feed 通道）
+*  5. classifyDiscrepancies（WP-6.3: strict + discovery 差分 + 声明态
+*     → 结构化 Discrepancy 清单 — 全机械规则, §22.2 边界）
+*  6. 机械路由（§22.3 三档的机械半边 — 不触达用户显式档位面
+*     `reconcileDiscrepancies`, 那是用户 actor 面, INV-PERM-4）:
+*     - AUTO_RECONCILE / PROPOSE_RECONCILIATION ⇒ Inbox 机械入口
+*       `captureMechanical`（条目 = `toInboxEntry` 草稿, WP-6.3 缝）;
+*     - ESCALATE ⇒ 单批 `escalateMechanical`（capture-first + 高影响
+*       机械判定 ⇒ Intervention 联动 — WP-6.4 面; 证据 = 机械事实
+*       聚合, 零语义判断）。
+*  7. 去重基线（operational KV `audit-refresh:reported-v1` — 指纹集合:
+*     已报告且未变的 finding 不重复落条目; 消失的 finding 从基线移除,
+*     复发重新报告 — 同 WP-6.2 快照增量差分纪律; 失败不标记, 下轮重试）。
+* ```
+*
+* 触发策略（任务书「失败 loud 不阻塞查询主路径, 报告注明策略」）:
+*  - **查询路径触发**: 生产挂点 = `getDashboard`（RR-018② 聚合段）—
+*    客户端 dashboard 刷新循环即生产触发循环（每次刷新一次 audit
+*    链; 与 WP-4.6 懒检测先例同一形态 — 查询路径上的幂等机械面）;
+*  - **无独立定时器**: 间隔调参需要 config 面（插件 Config 无 audit
+*    间隔字段, 硬编码间隔 = 不该存在的调参 — 红线纪律）; 去重基线 +
+*    discovery 快照保证稳态下每次刷新的**写入**为零（只有 git 只读
+*    开销, 与 stale 懒检测同级）;
+*  - **失败 loud 不阻塞**: 任何一步失败 = `AuditRefreshError`（稳定
+*    机器码）上抛; 调用方（getDashboard）catch + logger.error 大声
+*    记录后**继续查询投影**（audit 链失败 ≠ 数据面失败 — 查询主
+*    路径返回的是它自己的投影, 不因旁路机械面 abort）。
+*
+* 层边界（ARCHITECTURE §2.2）: wiring（组合根）— 本模块只做组合与
+* 路由; 全部事实/规则归 audit 三层（strict/discovery/reconcile）与
+* inbox 服务; 零 DSH import（INV-PERM-5）; 唯一写路径 = inbox 机械
+* 入口 + 两个 operational KV（discovery 快照 — scanner 既有 + 本模块
+* 去重基线 — meta 簿记面, 非一等 identity 行, 允许覆写/清理）。
+*/
+/** 去重基线的 operational KV 键（meta 簿记面 — 非一等 identity 行）。 */
+const AUDIT_REFRESH_REPORTED_KEY = "audit-refresh:reported-v1";
+const DEDUPE_VERSION = 1;
+/** 机械 actor（PLUGIN — 审计链的机械入口, §11 非 USER 闭集）。 */
+const AUDIT_REFRESH_ACTOR = {
+	kind: "PLUGIN",
+	label: "audit-refresh"
+};
+var AuditRefreshError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = "AuditRefreshError";
+		this.code = code;
+	}
+};
+/** 构造 audit 刷新运行器（组合根注入 — create.ts 持有, getDashboard 触发）。 */
+function createAuditRefreshRunner(options) {
+	if (typeof options.repoRoot !== "string" || options.repoRoot.length === 0) throw new AuditRefreshError("ARF_INPUT", "createAuditRefreshRunner: repoRoot is required");
+	if (options.meta === null || typeof options.meta !== "object" || typeof options.meta.get !== "function") throw new AuditRefreshError("ARF_INPUT", "createAuditRefreshRunner: the operational meta KV face is required");
+	if (options.inbox === null || typeof options.inbox !== "object" || typeof options.inbox.captureMechanical !== "function") throw new AuditRefreshError("ARF_INPUT", "createAuditRefreshRunner: the InboxService mechanical entry is required");
+	const now = options.now ?? Date.now;
+	const actor = options.actor ?? AUDIT_REFRESH_ACTOR;
+	return { run: () => runRefresh(options, now, actor) };
+}
+async function runRefresh(options, now, actor) {
+	const { repoRoot, meta, inbox, logger } = options;
+	let workspaceDoc = null;
+	try {
+		workspaceDoc = loadResearchTree(options.reader, options.researchRoot, options.declarativeDir).tree.workspace;
+	} catch (cause) {
+		logger?.warn("audit-refresh.tree", `tree load failed — defaulting to the engineering audit policy: ${messageOf(cause)}`);
+	}
+	let strictPolicy;
+	let discoveryPolicy;
+	try {
+		strictPolicy = workspaceDoc === null ? null : normalizeWorkspacePolicy(workspaceDoc);
+	} catch (cause) {
+		throw new AuditRefreshError("ARF_AUDIT", `audit-refresh: workspace.yaml policy normalization failed: ${messageOf(cause)}`, { cause });
+	}
+	try {
+		discoveryPolicy = policyFromWorkspaceDoc(workspaceDoc);
+	} catch (cause) {
+		throw new AuditRefreshError("ARF_DISCOVERY", `audit-refresh: discovery policy normalization failed: ${messageOf(cause)}`, { cause });
+	}
+	let report;
+	try {
+		report = await runStrictAudit({
+			workspaceRoot: repoRoot,
+			...strictPolicy !== null ? { policy: strictPolicy } : {}
+		});
+	} catch (cause) {
+		throw new AuditRefreshError("ARF_AUDIT", `audit-refresh: strict audit failed: ${messageOf(cause)}`, { cause });
+	}
+	const effectivePolicy = strictPolicy ?? DEFAULT_AUDIT_POLICY;
+	const wsRoot = effectivePolicy.workspaceRoot === "." ? repoRoot : resolve(repoRoot, effectivePolicy.workspaceRoot);
+	const scanner = new DiscoveryScanner(meta, now);
+	let scan;
+	try {
+		scan = scanner.scan({
+			workspaceRoot: wsRoot,
+			policy: discoveryPolicy
+		});
+	} catch (cause) {
+		throw new AuditRefreshError("ARF_DISCOVERY", `audit-refresh: discovery scan failed: ${messageOf(cause)}`, { cause });
+	}
+	const feed = feedUntracked(discoveryPolicy, untrackedRefsFromPaths(report.newFiles.outsideResearch));
+	let classified;
+	try {
+		const declared = {
+			artifacts: options.readSemanticState().artifacts,
+			policy: effectivePolicy
+		};
+		classified = classifyDiscrepancies({
+			audit: report,
+			discovery: scan,
+			untrackedFeed: feed,
+			declared
+		});
+	} catch (cause) {
+		throw new AuditRefreshError("ARF_CLASSIFY", `audit-refresh: discrepancy classification failed: ${messageOf(cause)}`, { cause });
+	}
+	const reported = readDedupeSet(meta, AUDIT_REFRESH_REPORTED_KEY);
+	const captured = [];
+	const captureFailures = [];
+	let skippedDedupe = 0;
+	let skippedBaseline = 0;
+	const escalateBatch = [];
+	const currentFps = /* @__PURE__ */ new Set();
+	const persistSet = /* @__PURE__ */ new Set();
+	for (const d of classified.discrepancies) {
+		const fp = fingerprint(d);
+		currentFps.add(fp);
+		if (d.category === "UNREGISTERED_WORKSPACE_CHANGE" && d.subkind === "zone" && !d.isNew) {
+			skippedBaseline += 1;
+			if (reported.has(fp)) persistSet.add(fp);
+			continue;
+		}
+		if (reported.has(fp)) {
+			skippedDedupe += 1;
+			persistSet.add(fp);
+			continue;
+		}
+		if (d.recommendedTier === "ESCALATE") {
+			escalateBatch.push(d);
+			continue;
+		}
+		const draft = toInboxEntry(d, d.recommendedTier, now());
+		try {
+			const res = inbox.captureMechanical({
+				source: draft.source,
+				payload: draft.payload,
+				raw: draft.raw,
+				contextRefs: draft.contextRefs
+			}, actor);
+			captured.push({
+				key: fp,
+				inboxItemId: res.item.id,
+				source: draft.source
+			});
+			persistSet.add(fp);
+		} catch (cause) {
+			const code = inboxErrorCode(cause);
+			captureFailures.push({
+				key: fp,
+				code,
+				message: messageOf(cause)
+			});
+			logger?.error("audit-refresh.capture", `[${code}] ${messageOf(cause)}`);
+		}
+	}
+	let escalated = null;
+	if (escalateBatch.length > 0) {
+		const evidence = escalationEvidence(escalateBatch);
+		try {
+			const res = inbox.escalateMechanical({
+				source: "UNCLASSIFIED_AUDIT_FINDING",
+				evidence
+			}, actor);
+			escalated = {
+				inboxItemId: res.item.id,
+				interventionId: res.intervention === null ? null : res.intervention.id,
+				highImpact: res.assessment.highImpact,
+				reasons: [...res.assessment.reasons]
+			};
+			for (const d of escalateBatch) persistSet.add(fingerprint(d));
+		} catch (cause) {
+			const code = inboxErrorCode(cause);
+			captureFailures.push({
+				key: `ESCALATE-BATCH(${escalateBatch.length})`,
+				code,
+				message: messageOf(cause)
+			});
+			logger?.error("audit-refresh.escalate", `[${code}] ${messageOf(cause)}`);
+		}
+	}
+	try {
+		meta.set(AUDIT_REFRESH_REPORTED_KEY, JSON.stringify({
+			version: DEDUPE_VERSION,
+			entries: [...persistSet].sort()
+		}));
+	} catch (cause) {
+		throw new AuditRefreshError("ARF_STATE", `audit-refresh: the dedupe baseline persist failed: ${messageOf(cause)}`, { cause });
+	}
+	return {
+		audit: {
+			trackedChangeCount: report.trackedChanges.length,
+			newFilesOutsideResearch: report.newFiles.outsideResearch.length,
+			newFilesInsideResearch: report.newFiles.insideResearch.length,
+			researchConsistent: report.research.consistent,
+			strictTrackedModified: report.strictTracked.modified.length,
+			strictTrackedDeleted: report.strictTracked.deleted.length,
+			warningCount: report.warnings.length
+		},
+		discovery: {
+			firstScan: scan.diff.firstScan,
+			addedCount: scan.diff.added.length,
+			removedCount: scan.diff.removed.length,
+			candidateCount: scan.candidates.length
+		},
+		discrepancyCount: classified.discrepancies.length,
+		byCategory: { ...classified.byCategory },
+		captured,
+		escalated,
+		skippedDedupe,
+		skippedBaseline,
+		captureFailures
+	};
+}
+/** 一条 finding 的稳定指纹（去重基线键 — 含全部机械事实字段）。 */
+function fingerprint(d) {
+	switch (d.category) {
+		case "TRACKED_UNDECLARED": return JSON.stringify([
+			"T",
+			d.subkind,
+			d.path,
+			d.x,
+			d.y,
+			d.origPath ?? null,
+			d.inStrictTracked
+		]);
+		case "UNREGISTERED_WORKSPACE_CHANGE": return JSON.stringify([
+			"U",
+			d.subkind,
+			d.path,
+			d.zone,
+			d.suggestedType
+		]);
+		case "DECLARED_MISSING": return JSON.stringify([
+			"M",
+			d.subkind,
+			d.path,
+			d.signal,
+			d.artifactId ?? null
+		]);
+		case "RESEARCH_UNCHECKPOINTED": return JSON.stringify([
+			"R",
+			d.subkind,
+			d.path
+		]);
+		case "ARTIFACT_RECOVERABLE": return JSON.stringify([
+			"A",
+			d.path,
+			d.artifactId
+		]);
+	}
+}
+/** ESCALATE 批的升级证据（机械事实聚合 — 零语义判断, §22.3 损失面）。 */
+function escalationEvidence(batch) {
+	const strictTrackedPaths = [];
+	const deletedPaths = [];
+	const workstreamIds = /* @__PURE__ */ new Set();
+	const contextRefs = [];
+	const seenRefs = /* @__PURE__ */ new Set();
+	const categories = /* @__PURE__ */ new Set();
+	const addRefs = (refs) => {
+		for (const ref of refs) {
+			const k = `${ref.kind}:${ref.id}`;
+			if (!seenRefs.has(k)) {
+				seenRefs.add(k);
+				contextRefs.push(ref);
+			}
+		}
+	};
+	for (const d of batch) {
+		categories.add(d.category);
+		if (d.category === "TRACKED_UNDECLARED") {
+			if (d.inStrictTracked) strictTrackedPaths.push(d.path);
+			if (d.subkind === "deleted") deletedPaths.push(d.path);
+		} else if (d.category === "DECLARED_MISSING") {
+			deletedPaths.push(d.path);
+			if (d.subkind === "strict-tracked") strictTrackedPaths.push(d.path);
+			if (d.workstreamId !== void 0) workstreamIds.add(d.workstreamId);
+			addRefs(toInboxEntry(d, "ESCALATE", 0).contextRefs);
+		} else if (d.category === "UNREGISTERED_WORKSPACE_CHANGE") addRefs(toInboxEntry(d, "ESCALATE", 0).contextRefs);
+		else if (d.category === "RESEARCH_UNCHECKPOINTED" || d.category === "ARTIFACT_RECOVERABLE") addRefs(toInboxEntry(d, "ESCALATE", 0).contextRefs);
+	}
+	return {
+		summary: `audit ESCALATE batch: ${batch.length} high-impact discrepancy(ies) — ` + [...categories].sort().join(", "),
+		...workstreamIds.size > 0 ? { workstreamIds: [...workstreamIds].sort() } : {},
+		...strictTrackedPaths.length > 0 ? { strictTrackedPaths: [...new Set(strictTrackedPaths)].sort() } : {},
+		...deletedPaths.length > 0 ? { deletedPaths: [...new Set(deletedPaths)].sort() } : {},
+		affectedPathCount: batch.length,
+		...contextRefs.length > 0 ? { contextRefs: contextRefs.sort((a, b) => a.kind + a.id < b.kind + b.id ? -1 : 1) } : {}
+	};
+}
+function readDedupeSet(meta, key) {
+	const raw = meta.get(key);
+	if (raw === null) return /* @__PURE__ */ new Set();
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (cause) {
+		throw new AuditRefreshError("ARF_STATE", `audit-refresh: the dedupe baseline at ${JSON.stringify(key)} is not valid JSON (corrupt — never silently reset): ${messageOf(cause)}`, { cause });
+	}
+	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new AuditRefreshError("ARF_STATE", `audit-refresh: the dedupe baseline at ${JSON.stringify(key)} is not an object (corrupt)`);
+	const doc = parsed;
+	if (doc.version !== DEDUPE_VERSION) throw new AuditRefreshError("ARF_STATE", `audit-refresh: the dedupe baseline at ${JSON.stringify(key)} has version ${JSON.stringify(doc.version)} (expected ${DEDUPE_VERSION} — corrupt/foreign)`);
+	if (!Array.isArray(doc.entries) || doc.entries.some((e) => typeof e !== "string")) throw new AuditRefreshError("ARF_STATE", `audit-refresh: the dedupe baseline at ${JSON.stringify(key)} has a malformed entries array (corrupt)`);
+	return new Set(doc.entries);
+}
+function inboxErrorCode(cause) {
+	if (cause instanceof InboxError) return cause.code;
+	if (cause instanceof AuditRefreshError) return cause.code;
+	return "ARF_INBOX";
+}
+function messageOf(cause) {
+	return cause instanceof Error ? cause.message : String(cause);
+}
+//#endregion
+//#region src/host/service/stale/types.ts
+/**
+* A stale-service violation (ARCHITECTURE §10: 错误信息指明失败项 — precise
+* message, no guess-repair). Domain-level failures (PF_NOT_FOUND /
+* PF_WRONG_STATE / PF_BASE_CAPTURE …) propagate as WP-3.1 `PlanForkError`
+* unchanged — this class only covers service-boundary conditions.
+*/
+var StaleServiceError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = "StaleServiceError";
+		this.code = code;
+	}
+};
+//#endregion
+//#region src/host/service/stale/closure.ts
+/**
+* WP-3.2 — the §5 stale-detection set comparison (PURE — zero I/O).
+*
+* Frozen contract (PLAN_FORK_SPEC §5, 原文):
+*
+*   ```text
+*   stale(PF) ⇔ currentClosure(WS) ≠ PF.base_plan_objects     # (path, oid) 集合不相等
+*   ```
+*
+*   - 集合比较：路径集合不同（增/删文件）或任一同路径文件 blob OID 不同，
+*     均判 stale；文件缺失视为不同；
+*   - 判 stale 后：`stale_reason` 记录**首个差异**（path + old/new oid）。
+*
+* This module is the mechanical heart of the algorithm: it receives the
+* frozen base set (`base_plan_objects`, creation order) and the recomputed
+* current set (working-copy OIDs, `null` = the file is not a regular file on
+* disk — 「文件缺失视为不同」) and produces the structured diff + the
+* `stale_reason` string. No git, no fs, no DB — unit-testable in isolation
+* (tests/stale/compare.test.ts 钉死全部分支).
+*
+* Determinism: the diff is ordered by (1) CURRENT closure order (plan.yaml
+* first, then canonical order — the same stable order §3.2 bases use) for
+* added/changed/missing entries, then (2) BASE closure order for removed
+* entries. `diff[0]` is therefore THE 「首个差异」 of §5: plan.yaml comes
+* first in both orders, and within each order the canonical item order is
+* preserved.
+*/
+/** The `items/<dir>` subdirectory per item kind (DOMAIN_SCHEMA §14 布局 — mirrors the WP-3.1 anchors.ts table). */
+const KIND_TO_DIR = {
+	TASK: "tasks",
+	GATE: "gates",
+	MILESTONE: "milestones"
+};
+/**
+* The §3.1 closure paths in LENIENT form — for stale rechecks where the
+* canonical plan may be INCONSISTENT (user mid-edit: a malformed
+* `ordered_items` element, a dangling definition file …):
+*
+*   1. `<wsDir>/plan.yaml`
+*   2. one definition file per WELL-FORMED T/G/M element of `ordered_items`,
+*      canonical order (`<wsDir>/items/<tasks|gates|milestones>/<id>.yaml`);
+*      malformed elements are skipped (they have no definition file — the
+*      §5 set comparison then runs on the computable part, and plan.yaml's
+*      own OID almost certainly changed too).
+*
+* The STRICT face (creation path) is WP-3.1 `closureRelativePaths` (a
+* malformed element is an upstream validation failure ⇒ PF_INPUT). This
+* lenient face never throws on element shape — it only computes paths;
+* disk presence is judged by the caller (hashing layer).
+*
+* Duplicates in `ordered_items` (inconsistent plan) are deduplicated — a
+* closure is a SET (§5 集合比较).
+*/
+function closurePathsLenient(wsDir, orderedItems) {
+	const normalized = wsDir.endsWith("/") ? wsDir.slice(0, -1) : wsDir;
+	const paths = [`${normalized}/plan.yaml`];
+	const seen = new Set(paths);
+	for (const id of orderedItems) {
+		const parsed = parseId(id);
+		if (parsed === null) continue;
+		if (parsed.kind !== "TASK" && parsed.kind !== "GATE" && parsed.kind !== "MILESTONE") continue;
+		const p = `${normalized}/items/${KIND_TO_DIR[parsed.kind]}/${id}.yaml`;
+		if (!seen.has(p)) {
+			seen.add(p);
+			paths.push(p);
+		}
+	}
+	return paths;
+}
+/**
+* The §5 set comparison: `stale(PF) ⇔ current ≠ base`.
+*
+* Returns the structured diff (EMPTY ⇔ the sets are EQUAL — not stale).
+* Kinds (see `ClosureDiffKind`):
+*  - current-only path, on disk        → `added`       (base_oid=null, current_oid=oid)
+*  - current-only path, not on disk    → `missing`     (base_oid=null, current_oid=null)
+*  - base+current path, OIDs differ    → `oid_changed` (both OIDs set)
+*  - base+current path, not on disk    → `missing`     (base_oid set,   current_oid=null)
+*  - base-only path                    → `removed`     (base_oid set,   current_oid=null)
+*
+* Order: current-set order first, then base-set order for removed entries
+* (见模块头注 — `diff[0]` = §5 「首个差异」).
+*
+* Set semantics: element ORDER is irrelevant (a canonical reorder keeps the
+* same file set — it is caught via plan.yaml's OID instead); duplicate paths
+* on either side are first-occurrence-wins (a closure is a set).
+*/
+function compareClosureBases(base, current) {
+	const baseByPath = /* @__PURE__ */ new Map();
+	for (const b of base) if (!baseByPath.has(b.path)) baseByPath.set(b.path, b.git_blob_oid);
+	const currentByPath = /* @__PURE__ */ new Map();
+	for (const c of current) if (!currentByPath.has(c.path)) currentByPath.set(c.path, c.oid);
+	const diff = [];
+	for (const c of current) {
+		const baseOid = baseByPath.get(c.path);
+		if (baseOid === void 0) diff.push(c.oid === null ? {
+			path: c.path,
+			kind: "missing",
+			base_oid: null,
+			current_oid: null
+		} : {
+			path: c.path,
+			kind: "added",
+			base_oid: null,
+			current_oid: c.oid
+		});
+		else if (c.oid === null) diff.push({
+			path: c.path,
+			kind: "missing",
+			base_oid: baseOid,
+			current_oid: null
+		});
+		else if (baseOid !== c.oid) diff.push({
+			path: c.path,
+			kind: "oid_changed",
+			base_oid: baseOid,
+			current_oid: c.oid
+		});
+	}
+	const removedReported = /* @__PURE__ */ new Set();
+	for (const b of base) {
+		if (removedReported.has(b.path) || currentByPath.has(b.path)) continue;
+		removedReported.add(b.path);
+		diff.push({
+			path: b.path,
+			kind: "removed",
+			base_oid: b.git_blob_oid,
+			current_oid: null
+		});
+	}
+	return diff;
+}
+/**
+* The §5 `stale_reason` string: the FIRST diff as a mechanical triple
+* （「path + old/new oid」原文口径）:
+*
+*   `path=<p>; base_oid=<oid|absent>; current_oid=<oid|missing|absent>`
+*
+* Sentinels: `absent` = the path was not in that set; `missing` = the path
+* was in the current set but not a regular file on disk (current side only).
+* Throws on an empty diff (there is no stale reason to format — callers must
+* check `diff.length > 0` first; fail loud, no empty-reason STALE rows).
+*/
+function formatStaleReason(diff) {
+	const d = diff[0];
+	if (d === void 0) throw new Error("formatStaleReason: diff is empty — no stale reason exists (PLAN_FORK_SPEC §5)");
+	const baseOid = d.base_oid === null ? "absent" : d.base_oid;
+	const currentOid = d.kind === "removed" ? "absent" : d.current_oid === null ? "missing" : d.current_oid;
+	return `path=${d.path}; base_oid=${baseOid}; current_oid=${currentOid}`;
 }
 //#endregion
 //#region src/host/service/stale/git-capture.ts
@@ -9654,782 +16405,6 @@ function startedAtOf(mapping, sessionId) {
 * (`<target>.dshrc-tmp`). Exported so tests can observe the protocol.
 */
 const TMP_FILE_SUFFIX = ".dshrc-tmp";
-//#endregion
-//#region src/host/domain/plan/serialize.ts
-/** Pinned `yaml` options (frozen for byte-stability; see module doc). */
-const YAML_OPTIONS = { lineWidth: 0 };
-/**
-* §1.2: epoch ms (memory carrier) → ISO 8601 UTC string (YAML carrier).
-* Whole-second values drop the `.000` group: `…09:00:00.000Z` → `…09:00:00Z`.
-*/
-function epochToIso(ms) {
-	if (!Number.isFinite(ms)) return "Invalid Date";
-	const iso = new Date(ms).toISOString();
-	return iso.endsWith(".000Z") ? `${iso.slice(0, -5)}Z` : iso;
-}
-/**
-* Serialize `plan.yaml` for `wsId` with the given ordered item ids.
-*
-* Output form (the frozen §4.4 example, byte-for-byte shape):
-* ```yaml
-* workstream: WS-1
-* ordered_items: [G-1, T-1, T-2, T-3, M-1, T-4, G-2]
-* ```
-* Empty plan: `ordered_items: []`.
-*
-* @precondition ids are validated T/G/M ids (pattern-safe); `wsId` a validated WS id.
-*/
-function serializePlan(wsId, orderedItems) {
-	return `workstream: ${wsId}\nordered_items: ${orderedItems.length === 0 ? "[]" : `[${orderedItems.join(", ")}]`}\n`;
-}
-/**
-* The DEFINITION (declarative) fields of each kind, frozen field-table order.
-* This is the single authority for `updateItem` patch-key checks: a patch key
-* outside this list is either a typo or DERIVED/runtime state (execution /
-* validation / blockage / completion, INV-PLAN-9 / INV-TASK-2) and is
-* rejected — the frozen schemas' `additionalProperties: false` agree.
-*/
-const DEFINITION_FIELDS = {
-	task: [
-		"id",
-		"workstream_id",
-		"title",
-		"goal",
-		"deliverables",
-		"acceptance_criteria",
-		"created_by",
-		"created_at",
-		"note"
-	],
-	gate: [
-		"id",
-		"workstream_id",
-		"title",
-		"criteria",
-		"references",
-		"created_by",
-		"created_at"
-	],
-	milestone: [
-		"id",
-		"workstream_id",
-		"title",
-		"statement",
-		"created_by",
-		"created_at"
-	]
-};
-/** common.schema.json actorRef property order. */
-const ACTOR_FIELDS = [
-	"kind",
-	"user_id",
-	"run_id",
-	"session_id",
-	"label"
-];
-/**
-* Re-order one doc into a plain object in frozen field-table order,
-* converting `created_at` to its YAML carrier (§1.2) and skipping absent
-* (undefined) optional fields. The result is the EXACT object that gets
-* serialized — field order is the insertion order.
-*/
-function toYamlCarrier(kind, doc) {
-	const src = doc;
-	const ordered = {};
-	for (const field of DEFINITION_FIELDS[kind]) {
-		const value = src[field];
-		if (value === void 0) continue;
-		if (field === "created_at") ordered[field] = epochToIso(value);
-		else if (field === "created_by") ordered[field] = orderActor(value);
-		else ordered[field] = value;
-	}
-	return ordered;
-}
-/** Re-order an ActorRef into frozen actorRef property order (skip absent). */
-function orderActor(actor) {
-	const out = {};
-	for (const field of ACTOR_FIELDS) {
-		const value = actor[field];
-		if (value !== void 0) out[field] = value;
-	}
-	return out;
-}
-//#endregion
-//#region src/host/domain/plan/types.ts
-/** The shared/ids IdKind each plan item kind resolves to (§1.1 registry). */
-const KIND_TO_ID_KIND = {
-	task: "TASK",
-	gate: "GATE",
-	milestone: "MILESTONE"
-};
-/** The `items/` subdirectory per kind (DOMAIN_SCHEMA §14 layout). */
-const KIND_TO_DIR = {
-	task: "tasks",
-	gate: "gates",
-	milestone: "milestones"
-};
-/**
-* One precisely-located plan-store violation (ARCHITECTURE §10: file +
-* field + 违规内容摘要, no guess-repair). Mutating operations throw the
-* FIRST violated check (fail before any write); `loadPlan` AGGREGATES
-* (WP-1.1 style) into `PlanLoadResult.errors`.
-*/
-var PlanStoreError = class extends Error {
-	code;
-	/** File (or entry) location, relative to the `.research/` root, POSIX-style. */
-	file;
-	/** JSON-pointer-style path inside the document; `undefined` for document-level errors. */
-	path;
-	constructor(init) {
-		super(init.message);
-		this.name = "PlanStoreError";
-		this.code = init.code;
-		this.file = init.file;
-		this.path = init.path;
-	}
-};
-//#endregion
-//#region src/host/domain/plan/plan-store.ts
-/**
-* WP-1.3 — `PlanStore`: canonical plan CRUD for one workstream.
-*
-* Frozen contracts (read-only):
-*  - DOMAIN_SCHEMA §4.4 — `plan.yaml`: `{ workstream, ordered_items }`;
-*    elements must satisfy 「定义文件存在 ∧ 属于本 WS ∧ 无重复」; order is
-*    user intent and MUST be persisted verbatim (INV-PLAN-1);
-*  - DOMAIN_SCHEMA §4.1/§4.2/§4.3 — G/T/M definition files: declarative
-*    content only (INV-PLAN-9); file name = id (§1.1 规则 2/3);
-*    `workstream_id` path-bound;
-*  - DOMAIN_SCHEMA §1.1 规则 1 — ids are immutable once assigned;
-*  - ARCHITECTURE §5.4 INV-PLAN-1/9 (see types.ts);
-*  - schema/declarative/{plan,task,gate,milestone}.schema.json consumed
-*    VERBATIM through the WP-1.1 `loadSchemas` (frozen, no mutation).
-*
-* ## Design (pure kernel, ARCHITECTURE §2.2 rule 1)
-*
-*  - ZERO direct I/O: reads go through the injected WP-1.1
-*    `ResearchFileReader`, writes through the injected `PlanFileWriter`
-*    (atomic tmp+rename is the writer's obligation — see types.ts).
-*  - STATELESS & reentrant: every public operation re-reads the current
-*    state (no cache); a "restart" is a fresh instance over the same files
-*    (TC-DOM-005).
-*  - VALIDATE BEFORE WRITE: mutations throw the first violated check before
-*    any write happens; `loadPlan` aggregates (WP-1.1 style). Mutating
-*    operations additionally refuse to build on an already-inconsistent
-*    plan.yaml (no guess-repair, ARCHITECTURE §10).
-*  - §1.2 time boundary: in-memory carriers carry epoch ms (the WP-1.1
-*    loader's carriers); file carriers carry ISO 8601 UTC strings — the
-*    conversion happens here, in `serialize.ts` / `carrierToMemory`, at the
-*    same serialization boundary the loader owns on the read side.
-*/
-/** Reverse of KIND_TO_ID_KIND: the plan kinds that are plan-item kinds (§4.4 T/G/M). */
-const ID_KIND_TO_PLAN_KIND = {
-	TASK: "task",
-	GATE: "gate",
-	MILESTONE: "milestone"
-};
-function errMsg(cause) {
-	return cause instanceof Error ? cause.message : String(cause);
-}
-var PlanStore = class {
-	opts;
-	schemas;
-	constructor(options) {
-		if (!idMatchesKind(options.topicId, "TOPIC")) throw new PlanStoreError({
-			code: "PATH_RULE",
-			file: `topics/${options.topicId}`,
-			message: `topicId ${JSON.stringify(options.topicId)} is not a well-formed TPC id (DOMAIN_SCHEMA §14)`
-		});
-		if (!idMatchesKind(options.wsId, "WORKSTREAM")) throw new PlanStoreError({
-			code: "PATH_RULE",
-			file: `topics/${options.topicId}/workstreams/${options.wsId}`,
-			message: `wsId ${JSON.stringify(options.wsId)} is not a well-formed WS id (DOMAIN_SCHEMA §14)`
-		});
-		const loadErrors = [];
-		const compiled = loadSchemas(options.reader, options.schemaDir, loadErrors);
-		const missing = [
-			"plan",
-			"task",
-			"gate",
-			"milestone"
-		].filter((t) => !compiled.validators.has(t));
-		if (missing.length > 0 || loadErrors.length > 0) throw new PlanStoreError({
-			code: "SCHEMA_LOAD",
-			file: loadErrors[0]?.file ?? options.schemaDir,
-			message: `frozen schema set unavailable for canonical plan CRUD` + (missing.length > 0 ? ` (missing validators: ${missing.join(", ")})` : "") + (loadErrors.length > 0 ? ` — ${loadErrors.map((e) => e.message).join(" | ")}` : "")
-		});
-		this.schemas = compiled;
-		this.opts = options;
-		const wsRel = this.wsPath();
-		let entries;
-		try {
-			entries = options.reader.readDir(this.abs(wsRel));
-		} catch (cause) {
-			throw new PlanStoreError({
-				code: "READ",
-				file: wsRel,
-				message: `read failed: ${errMsg(cause)}`
-			});
-		}
-		if (entries === null) throw new PlanStoreError({
-			code: "WORKSTREAM_MISSING",
-			file: wsRel,
-			message: `workstream directory ${JSON.stringify(wsRel)} does not exist (DOMAIN_SCHEMA §14)`
-		});
-	}
-	/** `topics/<t>/workstreams/<w>` — the managed workstream directory. */
-	wsPath() {
-		return `topics/${this.opts.topicId}/workstreams/${this.opts.wsId}`;
-	}
-	/** `topics/<t>/workstreams/<w>/plan.yaml` — the canonical plan file. */
-	planPath() {
-		return `${this.wsPath()}/plan.yaml`;
-	}
-	/** `topics/<t>/workstreams/<w>/items/<dir>/<id>.yaml` — a definition file. */
-	itemPath(kind, id) {
-		return `${this.wsPath()}/items/${KIND_TO_DIR[kind]}/${id}.yaml`;
-	}
-	abs(rel) {
-		return pjoin(this.opts.researchRoot, rel);
-	}
-	/**
-	* Load `plan.yaml` (aggregated-error result, WP-1.1 style).
-	*
-	* `items` is the file's `ordered_items` VERBATIM (no sort, no dedup —
-	* INV-PLAN-1). Missing file ⇒ `{ present: false, items: [], errors: [] }`
-	* (a workstream without a plan is legal — the loader marks plan.yaml
-	* optional). Non-empty `errors` ⇒ the plan is inconsistent; mutating
-	* operations then refuse to build on it (the FIRST error is thrown).
-	*/
-	loadPlan() {
-		const rel = this.planPath();
-		let text;
-		try {
-			text = this.opts.reader.readFile(this.abs(rel));
-		} catch (cause) {
-			return {
-				present: false,
-				items: [],
-				errors: [new PlanStoreError({
-					code: "READ",
-					file: rel,
-					message: `read failed: ${errMsg(cause)}`
-				})]
-			};
-		}
-		if (text === null) return {
-			present: false,
-			items: [],
-			errors: []
-		};
-		const errors = [];
-		const carrier = this.parseSingleYamlDoc(rel, text, errors);
-		if (carrier === null) return {
-			present: true,
-			items: [],
-			errors
-		};
-		const validator = this.schemas.validators.get("plan");
-		if (!validator(carrier)) {
-			for (const err of validator.errors ?? []) errors.push(new PlanStoreError({
-				code: "SCHEMA",
-				file: rel,
-				path: err.instancePath === "" ? void 0 : err.instancePath,
-				message: schemaErrorSummary(err)
-			}));
-			return {
-				present: true,
-				items: [],
-				errors
-			};
-		}
-		const doc = carrier;
-		if (doc.workstream !== this.opts.wsId) errors.push(new PlanStoreError({
-			code: "PATH_ID_MISMATCH",
-			file: rel,
-			path: "/workstream",
-			message: `workstream ${JSON.stringify(doc.workstream)} does not match containing workstream directory ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.4)`
-		}));
-		const items = [];
-		const firstAt = /* @__PURE__ */ new Map();
-		doc.ordered_items.forEach((id, i) => {
-			items.push(id);
-			const first = firstAt.get(id);
-			if (first !== void 0) {
-				errors.push(new PlanStoreError({
-					code: "DUPLICATE_ID",
-					file: rel,
-					path: `/ordered_items/${i}`,
-					message: `duplicate item ${JSON.stringify(id)} (first listed at position ${first}) (DOMAIN_SCHEMA §4.4)`
-				}));
-				return;
-			}
-			firstAt.set(id, i);
-			const problem = this.definitionProblem(id);
-			if (problem !== null) errors.push(new PlanStoreError({
-				code: "DANGLING_REF",
-				file: rel,
-				path: `/ordered_items/${i}`,
-				message: `ordered_items[${i}] ${JSON.stringify(id)}: ${problem} (DOMAIN_SCHEMA §4.4/§16.1)`
-			}));
-		});
-		return {
-			present: true,
-			items,
-			errors
-		};
-	}
-	/**
-	* Validate and atomically (re)write `plan.yaml` with the given ordered
-	* ids — the SINGLE canonical write path of the store (all mutating
-	* operations funnel through it).
-	*
-	* Checks, in order, BEFORE any write:
-	*   1. frozen plan schema (类型一致性: elements must be T/G/M ids, §4.4);
-	*   2. no duplicate ids (DUPLICATE_ID, pointer to the second occurrence);
-	*   3. every id has a VALID definition file in THIS workstream
-	*      (DANGLING_REF — exists ∧ belongs to this WS, §4.4/§16.1).
-	* The serialization is deterministic (serialize.ts): same data ⇒ same
-	* bytes (TC-DOM-005), order preserved position-for-position (INV-PLAN-1).
-	*/
-	savePlan(orderedItems) {
-		const rel = this.planPath();
-		const doc = {
-			workstream: this.opts.wsId,
-			ordered_items: [...orderedItems]
-		};
-		const validator = this.schemas.validators.get("plan");
-		if (!validator(doc)) for (const err of validator.errors ?? []) throw new PlanStoreError({
-			code: "SCHEMA",
-			file: rel,
-			path: err.instancePath === "" ? void 0 : err.instancePath,
-			message: schemaErrorSummary(err)
-		});
-		const firstAt = /* @__PURE__ */ new Map();
-		doc.ordered_items.forEach((id, i) => {
-			const first = firstAt.get(id);
-			if (first !== void 0) throw new PlanStoreError({
-				code: "DUPLICATE_ID",
-				file: rel,
-				path: `/ordered_items/${i}`,
-				message: `duplicate item ${JSON.stringify(id)} (first listed at position ${first}) (DOMAIN_SCHEMA §4.4)`
-			});
-			firstAt.set(id, i);
-		});
-		for (const [id, i] of firstAt) {
-			const problem = this.definitionProblem(id);
-			if (problem !== null) throw new PlanStoreError({
-				code: "DANGLING_REF",
-				file: rel,
-				path: `/ordered_items/${i}`,
-				message: `ordered_items[${i}] ${JSON.stringify(id)}: ${problem} (DOMAIN_SCHEMA §4.4/§16.1)`
-			});
-		}
-		this.writeAtomicOrThrow(rel, serializePlan(this.opts.wsId, doc.ordered_items));
-	}
-	readItem(kind, id) {
-		return this.readItemImpl(kind, id);
-	}
-	readItemImpl(kind, id) {
-		this.assertItemKind(kind, id, this.itemPath(kind, id));
-		const rel = this.itemPath(kind, id);
-		let text;
-		try {
-			text = this.opts.reader.readFile(this.abs(rel));
-		} catch (cause) {
-			throw new PlanStoreError({
-				code: "READ",
-				file: rel,
-				message: `read failed: ${errMsg(cause)}`
-			});
-		}
-		if (text === null) throw new PlanStoreError({
-			code: "NOT_FOUND",
-			file: rel,
-			message: `no ${kind} definition file for ${JSON.stringify(id)} at ${JSON.stringify(rel)} (DOMAIN_SCHEMA §4.1/§4.2/§4.3)`
-		});
-		const errors = [];
-		const carrier = this.parseSingleYamlDoc(rel, text, errors);
-		if (carrier !== null) this.validateDefinitionCarrier(kind, rel, carrier, errors);
-		if (errors.length > 0) throw errors[0];
-		if (carrier === null) throw new PlanStoreError({
-			code: "PARSE",
-			file: rel,
-			message: "internal invariant: no YAML document and no error recorded"
-		});
-		return this.carrierToMemory(rel, carrier);
-	}
-	createItem(kind, doc) {
-		const rel = this.itemPath(kind, doc.id);
-		const content = this.prepareDefinitionWrite(kind, doc, rel);
-		this.writeAtomicOrThrow(rel, content);
-	}
-	updateItem(kind, id, changes) {
-		const rel = this.itemPath(kind, id);
-		this.assertItemKind(kind, id, rel);
-		const current = this.readItemImpl(kind, id);
-		const fields = DEFINITION_FIELDS[kind];
-		for (const key of Object.keys(changes)) {
-			if (key === "id" || key === "workstream_id") throw new PlanStoreError({
-				code: "IMMUTABLE_FIELD",
-				file: rel,
-				path: `/${key}`,
-				message: `field "${key}" is immutable in updateItem — id is frozen once assigned (DOMAIN_SCHEMA §1.1 规则 1; file name = id); workstream_id is path-bound to ${JSON.stringify(`${this.wsPath()}/items/${KIND_TO_DIR[kind]}`)}`
-			});
-			if (!fields.includes(key)) throw new PlanStoreError({
-				code: "SCHEMA",
-				file: rel,
-				path: `/${key}`,
-				message: `unknown field "${key}" — not a definition field of the frozen ${kind} schema (derived/runtime state is rejected, INV-PLAN-9/INV-TASK-2; additionalProperties: false)`
-			});
-		}
-		const merged = {};
-		for (const field of fields) {
-			const raw = Object.prototype.hasOwnProperty.call(changes, field) ? changes[field] : current[field];
-			if (raw === void 0) continue;
-			merged[field] = raw;
-		}
-		const carrier = toYamlCarrier(kind, merged);
-		const errors = [];
-		this.validateDefinitionCarrier(kind, rel, carrier, errors);
-		if (errors.length > 0) throw errors[0];
-		this.writeAtomicOrThrow(rel, stringify(carrier, YAML_OPTIONS));
-	}
-	/**
-	* List an EXISTING item definition into the plan at `index`
-	* (0 = head, length = tail). Rejects: non-item ids (TYPE_MISMATCH),
-	* out-of-range `index` (BOUNDARY), already-listed ids (DUPLICATE_ID),
-	* ids without a valid definition in this WS (DANGLING_REF).
-	*/
-	insertItemAt(id, index) {
-		const items = this.currentItems();
-		const rel = this.planPath();
-		this.assertPlanItemId(id);
-		this.assertInsertIndex("insertItemAt", id, index, items.length);
-		const existingAt = items.indexOf(id);
-		if (existingAt !== -1) throw new PlanStoreError({
-			code: "DUPLICATE_ID",
-			file: rel,
-			path: `/ordered_items/${existingAt}`,
-			message: `item ${JSON.stringify(id)} is already listed at position ${existingAt} (DOMAIN_SCHEMA §4.4)`
-		});
-		const problem = this.definitionProblem(id);
-		if (problem !== null) throw new PlanStoreError({
-			code: "DANGLING_REF",
-			file: rel,
-			path: `/ordered_items/${index}`,
-			message: `ordered_items[${index}] ${JSON.stringify(id)}: ${problem} (DOMAIN_SCHEMA §4.4/§16.1)`
-		});
-		this.savePlan([
-			...items.slice(0, index),
-			id,
-			...items.slice(index)
-		]);
-	}
-	/**
-	* Move a listed item to `toIndex` (position in the RESULTING list: the
-	* item is removed first, leaving `length-1` slots, so `0..length-1`).
-	* Rejects: unlisted ids (NOT_FOUND), out-of-range targets (BOUNDARY).
-	* All other ids keep their relative order (INV-PLAN-1: only the moved
-	* item's position changes).
-	*/
-	moveItem(id, toIndex) {
-		const items = this.currentItems();
-		const rel = this.planPath();
-		const from = items.indexOf(id);
-		if (from === -1) throw new PlanStoreError({
-			code: "NOT_FOUND",
-			file: rel,
-			path: "/ordered_items",
-			message: `moveItem(${JSON.stringify(id)}): item is not listed in the plan of ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.4)`
-		});
-		if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex > items.length - 1) throw new PlanStoreError({
-			code: "BOUNDARY",
-			file: rel,
-			path: "/ordered_items",
-			message: `moveItem(${JSON.stringify(id)}, ${String(toIndex)}): target position out of range — the item is removed first, leaving ${items.length - 1} slots (0..${items.length - 1}) (INV-PLAN-1 position bounds)`
-		});
-		const rest = items.filter((_, i) => i !== from);
-		rest.splice(toIndex, 0, id);
-		this.savePlan(rest);
-	}
-	/**
-	* Remove an item from `plan.yaml` ONLY (INV-PLAN-9): the G/T/M definition
-	* file is RETAINED — it leaves the current Future zone but is not deleted
-	* (long-term retention; a later re-insert lists it again without any
-	* definition work). Rejects unlisted ids (NOT_FOUND).
-	*/
-	removeItem(id) {
-		const items = this.currentItems();
-		const rel = this.planPath();
-		const at = items.indexOf(id);
-		if (at === -1) throw new PlanStoreError({
-			code: "NOT_FOUND",
-			file: rel,
-			path: "/ordered_items",
-			message: `removeItem(${JSON.stringify(id)}): item is not listed in the plan of ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.4)`
-		});
-		this.savePlan(items.filter((_, i) => i !== at));
-	}
-	addItem(kind, doc, index) {
-		const rel = this.itemPath(kind, doc.id);
-		const items = this.currentItems();
-		const at = index === void 0 ? items.length : index;
-		this.assertInsertIndex(`addItem(${JSON.stringify(doc.id)}, …)`, doc.id, at, items.length);
-		const content = this.prepareDefinitionWrite(kind, doc, rel);
-		this.writeAtomicOrThrow(rel, content);
-		this.writeAtomicOrThrow(this.planPath(), serializePlan(this.opts.wsId, [
-			...items.slice(0, at),
-			doc.id,
-			...items.slice(at)
-		]));
-	}
-	/** The current plan's ordered ids, or throw the first inconsistency. */
-	currentItems() {
-		const result = this.loadPlan();
-		if (result.errors.length > 0) throw result.errors[0];
-		return result.items;
-	}
-	/**
-	* §4.4 element check for one plan id: a valid definition file in THIS
-	* workstream. Returns `null` when the id is OK, else the precise reason
-	* (embedded into the caller's DANGLING_REF/TYPE_MISMATCH message).
-	*/
-	definitionProblem(id) {
-		const parsed = parseId(id);
-		if (parsed === null) return `not a well-formed research id (DOMAIN_SCHEMA §1.1)`;
-		const kind = ID_KIND_TO_PLAN_KIND[parsed.kind];
-		if (kind === void 0) return `id kind ${parsed.kind} is not a plan item kind (T/G/M required, DOMAIN_SCHEMA §4.4)`;
-		const rel = this.itemPath(kind, id);
-		let text;
-		try {
-			text = this.opts.reader.readFile(this.abs(rel));
-		} catch {
-			return `definition file read failed at ${JSON.stringify(rel)} (I/O)`;
-		}
-		if (text === null) return `has no definition file at ${JSON.stringify(rel)} (DOMAIN_SCHEMA §4.4/§16.1)`;
-		const errors = [];
-		const carrier = this.parseSingleYamlDoc(rel, text, errors);
-		if (carrier !== null) this.validateDefinitionCarrier(kind, rel, carrier, errors);
-		if (errors.length > 0) return `definition file ${JSON.stringify(rel)} failed validation: ${errors[0].message}`;
-		return null;
-	}
-	/**
-	* All pre-write checks for a definition file, shared by `createItem` and
-	* `addItem` — returns the serialized (validated) file content:
-	* id kind (TYPE_MISMATCH) → 文件名=id (shared/ids 一致性助手, §1.1 规则 2/3)
-	* → workstream_id path match → no overwrite (FILE_EXISTS) → frozen schema.
-	*/
-	prepareDefinitionWrite(kind, doc, rel) {
-		this.assertItemKind(kind, doc.id, rel);
-		const nameCheck = checkFileNameId(`${doc.id}.yaml`, doc.id);
-		if (nameCheck.status !== "match") throw new PlanStoreError({
-			code: "PATH_ID_MISMATCH",
-			file: rel,
-			path: "/id",
-			message: `file name ${JSON.stringify(nameCheck.fileNameId ?? "(no id in name)")} does not match declared id ${JSON.stringify(doc.id)} (DOMAIN_SCHEMA §1.1 规则 2/3)`
-		});
-		if (doc.workstream_id !== this.opts.wsId) throw new PlanStoreError({
-			code: "PATH_ID_MISMATCH",
-			file: rel,
-			path: "/workstream_id",
-			message: `workstream_id ${JSON.stringify(doc.workstream_id)} does not match containing workstream directory ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.1/§4.2/§4.3)`
-		});
-		let existing;
-		try {
-			existing = this.opts.reader.readFile(this.abs(rel));
-		} catch (cause) {
-			throw new PlanStoreError({
-				code: "READ",
-				file: rel,
-				message: `read failed: ${errMsg(cause)}`
-			});
-		}
-		if (existing !== null) throw new PlanStoreError({
-			code: "FILE_EXISTS",
-			file: rel,
-			message: `definition file for ${JSON.stringify(doc.id)} already exists (create refused — use updateItem; no overwrite, DOMAIN_SCHEMA §1.1 规则 3)`
-		});
-		const carrier = toYamlCarrier(kind, doc);
-		const errors = [];
-		this.validateDefinitionCarrier(kind, rel, carrier, errors);
-		if (errors.length > 0) throw errors[0];
-		return stringify(carrier, YAML_OPTIONS);
-	}
-	/**
-	* Frozen-schema + path-id validation of one definition CARRIER (the
-	* on-file shape: ISO timestamps, field order irrelevant). Aggregates into
-	* `errors`; returns true when the carrier is accepted. Mirrors the WP-1.1
-	* loader's per-file pipeline (schema → §1.1 规则 3 文件名↔id → §4.x
-	* workstream field), so store and loader reject the same files.
-	*/
-	validateDefinitionCarrier(kind, rel, carrier, errors) {
-		const validator = this.schemas.validators.get(kind);
-		if (!validator(carrier)) {
-			for (const err of validator.errors ?? []) errors.push(new PlanStoreError({
-				code: "SCHEMA",
-				file: rel,
-				path: err.instancePath === "" ? void 0 : err.instancePath,
-				message: schemaErrorSummary(err)
-			}));
-			return false;
-		}
-		const fileName = rel.slice(rel.lastIndexOf("/") + 1);
-		const nameCheck = checkFileNameId(fileName, String(carrier.id));
-		if (nameCheck.status !== "match") {
-			errors.push(new PlanStoreError({
-				code: "PATH_ID_MISMATCH",
-				file: rel,
-				message: `id ${JSON.stringify(nameCheck.declaredId)} does not match file name ${JSON.stringify(fileName)} (DOMAIN_SCHEMA §1.1 规则 3/§4.1-4.3)`
-			}));
-			return false;
-		}
-		if (carrier.workstream_id !== this.opts.wsId) {
-			errors.push(new PlanStoreError({
-				code: "PATH_ID_MISMATCH",
-				file: rel,
-				path: "/workstream_id",
-				message: `workstream_id ${JSON.stringify(String(carrier.workstream_id))} does not match containing workstream directory ${JSON.stringify(this.opts.wsId)} (DOMAIN_SCHEMA §4.1/§4.2/§4.3)`
-			}));
-			return false;
-		}
-		return true;
-	}
-	/** Parse exactly one YAML document (WP-1.1 loader semantics, throwing-free). */
-	parseSingleYamlDoc(rel, text, errors) {
-		let docs;
-		try {
-			docs = parseAllDocuments(text);
-		} catch (cause) {
-			errors.push(new PlanStoreError({
-				code: "PARSE",
-				file: rel,
-				message: `YAML parse failed: ${errMsg(cause)}`
-			}));
-			return null;
-		}
-		const substantive = docs.filter((d) => d.errors.length > 0 || d.contents !== null && d.contents !== void 0);
-		if (substantive.length === 0) {
-			errors.push(new PlanStoreError({
-				code: "PARSE",
-				file: rel,
-				message: "empty or comment-only YAML file (expected a mapping)"
-			}));
-			return null;
-		}
-		if (substantive.length > 1) {
-			errors.push(new PlanStoreError({
-				code: "PARSE",
-				file: rel,
-				message: `multiple YAML documents (${substantive.length}); expected exactly one (DOMAIN_SCHEMA §14)`
-			}));
-			return null;
-		}
-		const doc = substantive[0];
-		if (doc.errors.length > 0) {
-			for (const e of doc.errors) {
-				const first = e.linePos?.[0];
-				const shortMsg = e.message.split("\n")[0];
-				const where = first ? ` (line ${first.line}, col ${first.col})` : "";
-				errors.push(new PlanStoreError({
-					code: "PARSE",
-					file: rel,
-					message: `YAML: ${shortMsg}${where}`
-				}));
-			}
-			return null;
-		}
-		let value;
-		try {
-			value = doc.toJS();
-		} catch (cause) {
-			errors.push(new PlanStoreError({
-				code: "PARSE",
-				file: rel,
-				message: `YAML parse failed: ${errMsg(cause)}`
-			}));
-			return null;
-		}
-		if (value === null || typeof value !== "object" || Array.isArray(value)) {
-			const what = value === null ? "null" : Array.isArray(value) ? "sequence" : typeof value;
-			errors.push(new PlanStoreError({
-				code: "SCHEMA",
-				file: rel,
-				message: `top-level YAML document must be a mapping (got ${what})`
-			}));
-			return null;
-		}
-		return value;
-	}
-	/** §1.2 boundary (read side): carrier `created_at` ISO string → epoch ms. */
-	carrierToMemory(rel, carrier) {
-		const raw = carrier.created_at;
-		const ms = typeof raw === "string" ? Date.parse(raw) : NaN;
-		if (!Number.isFinite(ms)) throw new PlanStoreError({
-			code: "PARSE",
-			file: rel,
-			path: "/created_at",
-			message: `timestamp ${JSON.stringify(String(raw))} cannot be converted to epoch ms (internal invariant)`
-		});
-		return {
-			...carrier,
-			created_at: ms
-		};
-	}
-	/** `id` must be a well-formed id of exactly the requested kind (类型一致性). */
-	assertItemKind(kind, id, file) {
-		const expected = KIND_TO_ID_KIND[kind];
-		const parsed = parseId(id);
-		if (parsed === null) throw new PlanStoreError({
-			code: "TYPE_MISMATCH",
-			file,
-			path: "/id",
-			message: `id ${JSON.stringify(id)} is not a well-formed research id (<PREFIX>-<positive integer>, DOMAIN_SCHEMA §1.1); expected a ${expected} id for items/${KIND_TO_DIR[kind]}/`
-		});
-		if (parsed.kind !== expected) throw new PlanStoreError({
-			code: "TYPE_MISMATCH",
-			file,
-			path: "/id",
-			message: `id ${JSON.stringify(id)} is a ${parsed.kind} id, not a ${expected} id (type mismatch for items/${KIND_TO_DIR[kind]}/, DOMAIN_SCHEMA §1.1/§4.4)`
-		});
-	}
-	/** A plan-operation id must be a well-formed T/G/M id (§4.4 类型一致性). */
-	assertPlanItemId(id) {
-		const parsed = parseId(id);
-		if (parsed === null) throw new PlanStoreError({
-			code: "TYPE_MISMATCH",
-			file: this.planPath(),
-			path: "/ordered_items",
-			message: `id ${JSON.stringify(id)} is not a well-formed research id (<PREFIX>-<positive integer>, DOMAIN_SCHEMA §1.1); plan items must be T/G/M ids (§4.4)`
-		});
-		if (ID_KIND_TO_PLAN_KIND[parsed.kind] === void 0) throw new PlanStoreError({
-			code: "TYPE_MISMATCH",
-			file: this.planPath(),
-			path: "/ordered_items",
-			message: `id ${JSON.stringify(id)} is a ${parsed.kind} id, not a plan item kind (T/G/M required, DOMAIN_SCHEMA §4.4)`
-		});
-	}
-	/** Insert position bounds: integer `0..length` (inserting into `length` items). */
-	assertInsertIndex(op, id, index, length) {
-		if (!Number.isInteger(index) || index < 0 || index > length) throw new PlanStoreError({
-			code: "BOUNDARY",
-			file: this.planPath(),
-			path: "/ordered_items",
-			message: `${op} ${JSON.stringify(id)}: position ${String(index)} out of range — inserting into a plan of ${length} items allows 0..${length} (INV-PLAN-1 position bounds)`
-		});
-	}
-	writeAtomicOrThrow(rel, content) {
-		try {
-			this.opts.writer.writeAtomic(this.abs(rel), content);
-		} catch (cause) {
-			throw new PlanStoreError({
-				code: "WRITE",
-				file: rel,
-				message: `write failed: ${errMsg(cause)}`
-			});
-		}
-	}
-};
 //#endregion
 //#region src/host/tools/types.ts
 /**
@@ -13691,6 +19666,134 @@ function createHostWiring(options) {
 			externalState: () => ({ workstreams: liveWorkstreams }),
 			now
 		});
+		const semanticKey = semanticStateKey(options.projectId);
+		const readSemanticState = () => {
+			const raw = readDerivedState(rawStore).get(semanticKey);
+			return raw === void 0 ? initialSemanticState() : jsonToSemanticState(raw, semanticKey);
+		};
+		const inboxDb = openSecondConnection("inbox");
+		const inboxSchemas = loadInboxSchemas(reader, join(schemaRoot, "operational"));
+		if (!inboxSchemas.isUsable) throw new HostWiringError("WIRING_INBOX", `the frozen inbox schemas are unusable — no Inbox item can be shape-checked: ` + inboxSchemas.loadErrors.map((e) => `${e.path || "/"}: ${e.message}`).join("; "));
+		const inboxDbFace = adaptDatabaseSync(inboxDb);
+		const inboxStore = new InboxStore({
+			db: inboxDbFace,
+			schemas: inboxSchemas
+		});
+		const reporting = new ReportingService({
+			db: inboxDbFace,
+			allocator,
+			projectId: options.projectId,
+			now
+		});
+		const actions = new ActionsService({
+			store: new ActionsStore({
+				db: inboxDbFace,
+				allocator,
+				projectId: options.projectId,
+				now
+			}),
+			reader,
+			writer: REJECTING_WRITER,
+			researchRoot,
+			schemaDir: declarativeDir,
+			allocator,
+			projectId: options.projectId,
+			db: inboxDbFace,
+			runExists: { exists: (runId) => tables.getRun(runId) !== null },
+			now
+		});
+		const interventionService = new InterventionService({
+			store,
+			registry,
+			lifecycle: new InterventionLifecycleStore({
+				db: inboxDbFace,
+				interventions
+			}),
+			allocator,
+			projectId: options.projectId,
+			externalState: () => ({ workstreams: liveWorkstreams }),
+			now
+		});
+		const inbox = new InboxService({
+			store: inboxStore,
+			allocator,
+			projectId: options.projectId,
+			now,
+			conversionTargets: { execute(_kind, fields, item) {
+				switch (fields.kind) {
+					case "INTERVENTION": return {
+						kind: "INTERVENTION",
+						id: interventionService.createUserIntervention({
+							title: fields.title,
+							...fields.detail !== void 0 && fields.detail.length > 0 ? { detail: fields.detail } : {},
+							...fields.workstreamIds !== void 0 && fields.workstreamIds.length > 0 ? { workstream_ids: fields.workstreamIds } : {},
+							source_refs: [{
+								kind: "INBOX_ITEM",
+								id: item.id
+							}]
+						}, USER_ACTOR$1).intervention.id
+					};
+					case "NEXT_ACTION": return {
+						kind: "NEXT_ACTION",
+						id: actions.createNextAction({
+							statement: fields.statement,
+							...fields.rationale !== void 0 && fields.rationale.length > 0 ? { rationale: fields.rationale } : {},
+							...fields.workstreamId !== void 0 && fields.workstreamId.length > 0 ? { workstreamId: fields.workstreamId } : {}
+						}, USER_ACTOR$1).id
+					};
+					case "REPORTING_ITEM": return {
+						kind: "REPORTING_ITEM",
+						id: reporting.createReportingItem({
+							audience: fields.audience,
+							statement: fields.statement,
+							...fields.materialRefs !== void 0 ? { materialRefs: fields.materialRefs } : {},
+							...fields.occasionRef !== void 0 ? { occasionRef: fields.occasionRef } : {}
+						}).id
+					};
+					case "INTERACTION": return {
+						kind: "INTERACTION",
+						id: reporting.registerInteraction({
+							kind: fields.interactionKind,
+							title: fields.title,
+							occurredAt: fields.occurredAt,
+							...fields.participants !== void 0 ? { participants: fields.participants } : {},
+							...fields.notes !== void 0 ? { notes: fields.notes } : {},
+							...fields.relatedWorkstreams !== void 0 ? { relatedWorkstreams: fields.relatedWorkstreams } : {}
+						}).record.id
+					};
+					case "CLAIM":
+					case "FACT":
+					case "TASK": throw new Error(`the ${fields.kind} conversion target is not wired (V1 boundary — the production executor is the closed set over the delivered WP-5 services)`);
+				}
+			} },
+			mechanicalInterventionCreator: (params) => {
+				const res = interventionService.createMechanicalIntervention({
+					title: params.title,
+					...params.detail !== void 0 ? { detail: params.detail } : {},
+					...params.workstreamIds !== void 0 ? { workstream_ids: params.workstreamIds } : {},
+					...params.sourceRefs !== void 0 ? { source_refs: params.sourceRefs } : {},
+					trigger: "AUDIT_HIGH_IMPACT_DISCREPANCY"
+				}, { kind: "PLUGIN" });
+				return {
+					id: res.intervention.id,
+					title: res.intervention.title
+				};
+			},
+			managementActionRecorder: (record) => {
+				inboxDbFace.run(SQL_INSERT_MANAGEMENT_ACTION, ...managementActionToParams(record));
+			}
+		});
+		const auditRefresh = createAuditRefreshRunner({
+			repoRoot,
+			researchRoot,
+			reader,
+			declarativeDir,
+			meta: rawStore.meta(),
+			readSemanticState,
+			inbox,
+			now,
+			logger
+		});
 		const contentHashCapturer = makeContentHashCapturer(researchRoot);
 		const loadPolicy = () => {
 			const result = loadPlanForkPolicy(reader, researchRoot, declarativeDir);
@@ -13708,11 +19811,6 @@ function createHostWiring(options) {
 				...row.task_id !== void 0 ? { task_id: row.task_id } : {}
 			};
 		} };
-		const semanticKey = semanticStateKey(options.projectId);
-		const readSemanticState = () => {
-			const raw = readDerivedState(rawStore).get(semanticKey);
-			return raw === void 0 ? initialSemanticState() : jsonToSemanticState(raw, semanticKey);
-		};
 		const triggerRefResolver = makeTriggerRefResolver({
 			readSemanticState,
 			milestoneIds,
@@ -13788,6 +19886,10 @@ function createHostWiring(options) {
 			interventions,
 			semantics,
 			tools,
+			schemaRoot,
+			sessionAdapter: options.adapter,
+			inbox,
+			auditRefresh,
 			startup,
 			externalState,
 			createPlanFork: async (params) => {

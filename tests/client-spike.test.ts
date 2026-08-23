@@ -98,8 +98,19 @@ describe('④ externals: module-table require, nothing inlined from the baseline
     // The automatic JSX runtime is the react-family value import in this
     // spike (the view's own `react` import is type-only and erased); it
     // must arrive through the loader's injected require — never inlined.
+    //
+    // WP-4.5 update: the inlined graph runtime (@xyflow/react + zustand)
+    // adds live `require("react")` / `require("react-dom")` calls. They
+    // are react-family module-table rows the host loader answers, so the
+    // asserted contract holds: NO require outside the react-family rows —
+    // nothing the module table cannot provide is inlined-and-required.
     const requires = bundle.match(/require\("[^"]*"\)/g) ?? []
-    expect(requires).toEqual(['require("react/jsx-runtime")'])
+    const externalRows = new Set(['react', 'react/jsx-runtime', 'react-dom', 'react-dom/client'])
+    expect(requires.length).toBeGreaterThan(0)
+    expect(requires).toContain('require("react/jsx-runtime")')
+    for (const r of requires) {
+      expect(externalRows.has(r.slice(9, -2)), `non-external require in client bundle: ${r}`).toBe(true)
+    }
   })
 
   it('carries no React implementation code', () => {

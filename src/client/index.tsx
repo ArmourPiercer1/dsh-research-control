@@ -19,6 +19,24 @@
 import { mountResearchRemotes, type RemoteContext } from './dsh-adapter/remote/mount.js'
 import { registerResearchUI, type ResearchClientContext } from './dsh-adapter/ui.js'
 
+// Phase 4 graph views (WP-4.5): re-exported here so the graph runtime
+// (React Flow / @xyflow/react, inlined per the client-bundle baseline — it
+// is NOT a module-table row) enters the single-file client artifact now,
+// ahead of the page wiring. The page WPs (4.2-4.4) import the SAME face
+// from `src/client/graph` for their seats; this re-export only pins the
+// bundle inlining (the host module table resolves the extra named exports
+// harmlessly — the entry keeps its inject/apply plugin shape).
+export {
+  ConfirmDialog,
+  PlanGraphContainer,
+  PlanGraphView,
+  TopologyGraphContainer,
+  TopologyGraphView,
+  classifyPlanForkChange,
+  planToGraph,
+  topologyToGraph,
+} from './graph/index.js'
+
 /** Required services: the slot system (tab registration) and the typert remote gateway (WP-0.3 mount). */
 export const inject = ['slots', 'remote']
 

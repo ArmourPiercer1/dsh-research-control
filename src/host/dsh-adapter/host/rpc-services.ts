@@ -29,7 +29,9 @@
  *  | selectPlanFork         | PlanForkSelectService.select (WP-3.4: actor re-asserted USER at runtime)     |
  *  | dismissPlanFork        | PlanForkSelectService.dismiss (WP-3.4: actor re-asserted USER at runtime)    |
  *  | updateInterventionState| §13 transition guard (pure) + the DDL-reserved state-cache row side          |
- *  | registerInteraction    | PHASE 5 seam: throws NOT-YET-IMPLEMENTED (Interaction store lands WP-5.3)    |
+ *  | registerInteraction    | reporting service `registerInteraction` (WP-5.3 production: the           |
+ *  |                        | interaction table on the user-surface second connection; related_         |
+ *  |                        | workstreams existence checked against the declarative tree, §16 rule 2)   |
  *  | saveResearchCheckpoint | checkpoint service `saveResearchCheckpoint` (§5 flow, user-triggered only)   |
  *  | getGitHistory          | checkpoint service `diffHistory` (W6 file log, `.research/**`-scoped)        |
  *  | restoreDeclarativeFile | checkpoint service `restoreResearchFile` (W6/W7/W8 + post-restore check)    |
@@ -124,6 +126,7 @@ import {
   PlanForkSelectService,
   type PlanForkSelectOptions,
 } from '../../service/select/index.js'
+import { ReportingService } from '../../service/reporting/index.js'
 import { checkInterventionTransition } from '../../service/flooding/index.js'
 import type { InterventionRecord } from '../../service/flooding/index.js'
 import {
@@ -231,6 +234,9 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
   readonly #dbConn: DatabaseSync
   readonly #db: ReturnType<typeof adaptDatabaseSync>
   readonly #select: PlanForkSelectService
+  /** The WP-5.3 reporting layer (interaction / reporting_item /
+   *  scheduled_event tables) on the same user-surface second connection. */
+  readonly #reporting: ReportingService
   #closed = false
 
   constructor(options: ProductionResearchRpcServicesOptions) {
@@ -266,6 +272,16 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       schemaDir: this.#declarativeDir,
       now: this.#now,
     } satisfies Omit<PlanForkSelectOptions, 'git' | 'concurrency' | 'researchDir'>)
+
+    // WP-5.3 (DOMAIN_SCHEMA §10): the reporting layer (interaction /
+    // reporting_item / scheduled_event) — idempotent DDL on the same
+    // second connection (the planfork/flooding dual-connection 先例).
+    this.#reporting = new ReportingService({
+      db: this.#db,
+      allocator: options.wiring.allocator,
+      projectId: options.wiring.projectId,
+      now: this.#now,
+    })
   }
 
   /** Close the user-surface connection (idempotent; `ctx.effect`-owned). */
@@ -683,16 +699,42 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     }
   }
 
-  async registerInteraction(_args: RegisterInteractionArgs): Promise<RegisterInteractionResult> {
-    // PHASE 5 seam (WP-5.3, DOMAIN_SCHEMA §10.1): the Interaction
-    // operational store does not exist yet — the wire contract and this
-    // port seam are frozen (WP-4.1a), the production registration lands
-    // with the store. Fail loud rather than fabricate a row (the
-    // placeholder discipline of the result DTOs).
-    throw new Error(
-      'registerInteraction: not yet implemented — the Interaction operational store lands in ' +
-        'PHASE 5 (WP-5.3, DOMAIN_SCHEMA §10.1); the wire contract and port seam are frozen',
-    )
+  async registerInteraction(args: RegisterInteractionArgs): Promise<RegisterInteractionResult> {
+    // WP-5.3 (DOMAIN_SCHEMA §10.1): production registration through the
+    // reporting service (interaction table on the user-surface second
+    // connection; INT id allocation; no-delete/no-content-update triggers).
+    // USER semantics — the client face IS the user face (ARCHITECTURE §6;
+    // the §6 matrix has no AGENT row for Interaction recording).
+    // §16 rule 2 (operational → declarative, write-time): related_workstreams
+    // must name workstreams that exist in the declarative tree.
+    const tree = this.#loadTree('registerInteraction')
+    const wsIds = new Set(tree.topics.flatMap((t) => t.workstreams.map((w) => w.id)))
+    for (const wsId of args.relatedWorkstreams ?? []) {
+      if (!wsIds.has(wsId)) {
+        throw new Error(
+          `registerInteraction: related workstream ${wsId} does not exist ` +
+            '(DOMAIN_SCHEMA §16 rule 2 — writing a new reference to a missing object is rejected)',
+        )
+      }
+    }
+    const { record, createdAt } = this.#reporting.registerInteraction({
+      kind: args.kind,
+      title: args.title,
+      occurredAt: args.occurredAt,
+      ...(args.participants !== undefined ? { participants: [...args.participants] } : {}),
+      ...(args.notes !== undefined ? { notes: args.notes } : {}),
+      ...(args.relatedWorkstreams !== undefined ? { relatedWorkstreams: [...args.relatedWorkstreams] } : {}),
+    })
+    return {
+      id: record.id,
+      kind: record.kind,
+      title: record.title,
+      occurredAt: record.occurred_at,
+      participants: [...(record.participants ?? [])],
+      notes: record.notes ?? null,
+      relatedWorkstreams: [...(record.related_workstreams ?? [])],
+      createdAt,
+    }
   }
 
   async saveResearchCheckpoint(args: SaveResearchCheckpointArgs): Promise<SaveResearchCheckpointResult> {

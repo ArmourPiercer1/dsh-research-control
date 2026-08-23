@@ -83,6 +83,15 @@ import {
   PLAN_FORK_TABLE,
 } from '../../src/host/domain/planfork/index.js'
 import {
+  BLOCKER_TABLE,
+  NEXT_ACTION_TABLE,
+} from '../../src/host/service/actions/index.js'
+import {
+  INTERACTION_TABLE,
+  REPORTING_ITEM_TABLE,
+  SCHEDULED_EVENT_TABLE,
+} from '../../src/host/service/reporting/index.js'
+import {
   encodePointer,
   SessionLinkService,
   type SessionPointer,
@@ -147,6 +156,11 @@ function scanSourceDdlTargets(): string[] {
     MANAGEMENT_ACTION_TABLE,
     INTERVENTION_TABLE,
     AWARENESS_TABLE,
+    NEXT_ACTION_TABLE,
+    BLOCKER_TABLE,
+    INTERACTION_TABLE,
+    REPORTING_ITEM_TABLE,
+    SCHEDULED_EVENT_TABLE,
   }
   const targets = new Set<string>()
   // The trailing `\s*\(` distinguishes REAL DDL (the column list opens on
@@ -172,21 +186,26 @@ function scanSourceDdlTargets(): string[] {
 }
 
 /**
- * All nine §15 tables this plugin creates (3 store + 2 runbinding +
- * 2 planfork + 1 flooding + 1 attention), sorted. The source scan sees
- * every CREATE TABLE in src/ regardless of which init path applies the
- * DDL.
+ * All fourteen §15 tables this plugin creates (3 store + 2 runbinding +
+ * 2 planfork + 1 flooding + 1 attention + 2 actions (WP-5.2) +
+ * 3 reporting (WP-5.3)), sorted. The source scan sees every CREATE
+ * TABLE in src/ regardless of which init path applies the DDL.
  */
 const ALL_TABLES = [
   'awareness',
+  'blocker',
   'derived_state',
   'discovered_session',
   'history_event',
+  'interaction',
   'intervention',
   'management_action',
   'meta',
+  'next_action',
   'plan_fork',
+  'reporting_item',
   'run',
+  'scheduled_event',
 ]
 
 /**
@@ -311,6 +330,67 @@ const PINNED_COLUMNS: ReadonlyMap<string, readonly string[]> = new Map([
       'updated_at',
     ],
   ],
+  [
+    'next_action',
+    [
+      'id',
+      'workstream_id',
+      'statement',
+      'rationale',
+      'status',
+      'promoted_to_task_id',
+      'created_by',
+      'created_at',
+    ],
+  ],
+  [
+    'blocker',
+    [
+      'id',
+      'statement',
+      'affects',
+      'status',
+      'source',
+      'references',
+      'created_at',
+      'cleared_at',
+    ],
+  ],
+  [
+    'interaction',
+    [
+      'id',
+      'kind',
+      'title',
+      'occurred_at',
+      'participants',
+      'notes',
+      'related_workstreams',
+    ],
+  ],
+  [
+    'reporting_item',
+    [
+      'id',
+      'audience',
+      'statement',
+      'material_refs',
+      'status',
+      'occasion_ref',
+      'created_at',
+      'reported_at',
+    ],
+  ],
+  [
+    'scheduled_event',
+    [
+      'id',
+      'title',
+      'schedule',
+      'related_refs',
+      'reminder_lead_ms',
+    ],
+  ],
 ])
 
 // NOTE: `table_xinfo` (NOT `table_info`) — it also reports the WP-2.9
@@ -327,7 +407,7 @@ function textColumns(raw: DatabaseSync, table: string): string[] {
 }
 
 describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned', () => {
-  it('src contains EXACTLY the nine known CREATE TABLE targets (no new table can land unreviewed)', () => {
+  it('src contains EXACTLY the fourteen known CREATE TABLE targets (no new table can land unreviewed)', () => {
     expect(scanSourceDdlTargets()).toEqual(ALL_TABLES)
   })
 

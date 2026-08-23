@@ -1,0 +1,362 @@
+/* Reporting section styles (WP-5.3 — 沟通与日程 §10).
+ *
+ * CSS Modules + CSS custom properties. Local `--rc-*` variables
+ * approximate the host token system (DSH_ADAPTER §6: host tokens are
+ * `--dsw-*`); values are neutral so the host shell chrome reads as one
+ * surface. Product copy in the components is Chinese; this file carries
+ * presentation only. */
+
+.root {
+  /* local token approximations (host tokens: bg surface, fg, accent, line, muted) */
+  --rc-bg: #ffffff;
+  --rc-fg: #1f2328;
+  --rc-muted: #59636e;
+  --rc-line: #d7dde3;
+  --rc-accent: #0b6bcb;
+  --rc-accent-soft: #e7f1fb;
+  --rc-danger: #b3261e;
+  --rc-danger-soft: #fdecea;
+  --rc-ok: #1a7f37;
+  --rc-ok-soft: #e6f4ea;
+  --rc-warn: #9a6700;
+  --rc-chip-bg: #eef1f4;
+  --rc-radius: 6px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px;
+  color: var(--rc-fg);
+  background: var(--rc-bg);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.rootHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.rootTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* -- sections ---------------------------------------------------------- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--rc-line);
+  border-radius: var(--rc-radius);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.scopeNote {
+  color: var(--rc-muted);
+  font-size: 12px;
+}
+
+/* -- tabs --------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.tab,
+.tabActive {
+  padding: 4px 12px;
+  border: 1px solid var(--rc-line);
+  border-radius: var(--rc-radius);
+  background: var(--rc-bg);
+  color: var(--rc-fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tabActive {
+  border-color: var(--rc-accent);
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-weight: 600;
+}
+
+/* -- lists / rows ------------------------------------------------------- */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--rc-line);
+  border-radius: var(--rc-radius);
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rowId {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--rc-muted);
+}
+
+.rowTitle {
+  font-weight: 600;
+  flex: 1;
+  min-width: 120px;
+}
+
+.rowTime {
+  color: var(--rc-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.kindBadge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--rc-chip-bg);
+  color: var(--rc-fg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.chipRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip,
+.chipWs {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--rc-chip-bg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.chipWs {
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+.notes {
+  margin: 0;
+  color: var(--rc-muted);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+/* -- state groups (RPT 清单) -------------------------------------------- */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rc-muted);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.actionButton {
+  padding: 2px 10px;
+  border: 1px solid var(--rc-accent);
+  border-radius: var(--rc-radius);
+  background: var(--rc-bg);
+  color: var(--rc-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.actionButton:hover {
+  background: var(--rc-accent-soft);
+}
+
+/* -- weekly summary ------------------------------------------------------ */
+
+.weekly {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weekSummary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.summaryChip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--rc-chip-bg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* -- timeline ------------------------------------------------------------ */
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.timelineItem {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 6px 0 14px 18px;
+  border-left: 2px solid var(--rc-line);
+}
+
+.timelineItem:last-child {
+  border-left-color: transparent;
+  padding-bottom: 6px;
+}
+
+.timelineDot {
+  position: absolute;
+  left: -6px;
+  top: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--rc-accent);
+}
+
+.timelineItem[data-event-kind='RECURRING'] .timelineDot {
+  background: var(--rc-warn);
+}
+
+.timelineBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* -- status / feedback ---------------------------------------------------- */
+
+.empty {
+  margin: 0;
+  color: var(--rc-muted);
+  font-size: 13px;
+}
+
+.error {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--rc-danger);
+  border-radius: var(--rc-radius);
+  background: var(--rc-danger-soft);
+  color: var(--rc-danger);
+  font-size: 13px;
+}
+
+.ok {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--rc-ok);
+  border-radius: var(--rc-radius);
+  background: var(--rc-ok-soft);
+  color: var(--rc-ok);
+  font-size: 13px;
+}
+
+/* -- forms ----------------------------------------------------------------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--rc-line);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.fieldLabel {
+  color: var(--rc-muted);
+  font-size: 12px;
+}
+
+.field input,
+.field select,
+.field textarea {
+  padding: 4px 8px;
+  border: 1px solid var(--rc-line);
+  border-radius: var(--rc-radius);
+  background: var(--rc-bg);
+  color: var(--rc-fg);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.submit {
+  align-self: flex-start;
+  padding: 5px 16px;
+  border: 1px solid var(--rc-accent);
+  border-radius: var(--rc-radius);
+  background: var(--rc-accent);
+  color: #ffffff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

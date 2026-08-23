@@ -35,11 +35,28 @@
  * Usage: node e2e/factory-dist/factory.cjs --repo <ws> --home <dsh-home> \
  *          --schema-root <WR/schema>
  */
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
+import {
+  HardeningFatalError,
+  assertStartup,
+  runStartupIntegrityChecks,
+} from '../../src/host/persistence/hardening/index.js'
+import type { ResearchFileReader } from '../../src/host/domain/loader/index.js'
 import { createHostWiring } from '../../src/host/service/wiring/create.js'
+import { makeCollectingLogger } from '../../src/host/service/wiring/types.js'
 import { makeValidateHook, buildObjectContext } from '../../src/host/service/runbinding/index.js'
 import type { Reservation } from '../../src/shared/ids/index.js'
 import type { DshSessionAdapter } from '../../src/shared/host-adapter-ports.js'
@@ -344,9 +361,9 @@ const TREE: Record<string, string> = {
  * Steps
  * -------------------------------------------------------------------- */
 
-function writeTree(researchRoot: string): void {
+function writeTree(researchRoot: string, patch: Record<string, string> = {}): void {
   rmSync(researchRoot, { recursive: true, force: true })
-  for (const [rel, content] of Object.entries(TREE)) {
+  for (const [rel, content] of Object.entries({ ...TREE, ...patch })) {
     const p = join(researchRoot, rel)
     mkdirSync(join(p, '..'), { recursive: true })
     writeFileSync(p, content)
@@ -355,6 +372,15 @@ function writeTree(researchRoot: string): void {
 
 function git(args: string[], cwd: string): void {
   execFileSync('git', args, { cwd, stdio: 'pipe' })
+}
+
+/** A git call whose NON-ZERO exit is an expected outcome (the merge
+ *  conflict scenario — the conflict IS the fixture). Returns the exit
+ *  code; throws only on spawn failure. */
+function gitMaybe(args: string[], cwd: string): number {
+  const res = spawnSync('git', args, { cwd, stdio: 'pipe' })
+  if (res.error !== undefined) throw res.error
+  return res.status ?? -1
 }
 
 function ensureGitRepo(repo: string): void {
@@ -410,6 +436,390 @@ function firstRegisteredSession(home: string, repo: string): string | null {
   return null
 }
 
+/* -------------------------------------------------------------------- *
+ * WP-8.5 / G8 S2 — the production integrity scenarios (the S2 e2e half).
+ *
+ * The WP-8.1 startup integrity checks are now a step of the PRODUCTION
+ * dependency graph (wiring step 0.5 — the integrity gate, before any
+ * service is instantiated). These scenarios exercise that graph over
+ * REAL artifacts (temp repos + real trees + real git + real sqlite) in
+ * every disposition class, and cross-check the production gate against
+ * the frozen async orchestrator (`runStartupIntegrityChecks`) on the
+ * SAME state — the two paths must classify identically (the orchestrator
+ * remains the tested canonical composition; the gate is its sync
+ * production adaptation). Machine evidence for: the degraded surface
+ * (loud + auto-disposition by the startup reconciliation), the
+ * corrupted-DB error presentation (fail-loud before ACTIVE), the
+ * project-scope invariant, and the git conflict boundary (checkpoint
+ * explicitly refused, INV-GIT-4). A failing assertion here fails the
+ * seed (loud — the factory is the production-graph runner of the e2e
+ * run).
+ * -------------------------------------------------------------------- */
+
+interface IntegrityScenarioResult {
+  readonly scenario: string
+  readonly ok: boolean
+  readonly facts: Record<string, unknown>
+}
+
+function scenarioAssert(cond: unknown, msg: string): asserts cond {
+  if (!cond) throw new Error(msg)
+}
+
+/** The file reader for the integrity checks (the wiring's own FsReader
+ *  is module-private — an equivalent minimal reader for the scenario
+ *  path; the PRODUCTION wiring's gate uses the real one). */
+function makeScenarioReader(): ResearchFileReader {
+  return {
+    readDir: (p) =>
+      existsSync(p) && statSync(p).isDirectory()
+        ? readdirSync(p, { withFileTypes: true }).map((e) => ({
+            name: e.name,
+            kind: e.isDirectory() ? ('directory' as const) : ('file' as const),
+          }))
+        : null,
+    readFile: (p) => (existsSync(p) && statSync(p).isFile() ? readFileSync(p, 'utf8') : null),
+  }
+}
+
+/** A fresh temp workspace (repo + data dir) for one scenario. */
+function makeScenarioWorkspace(tag: string): { root: string; researchRoot: string; dataDir: string } {
+  const root = mkdtempSync(join(tmpdir(), `wp85-sc-${tag}-`))
+  mkdirSync(root, { recursive: true })
+  return { root, researchRoot: join(root, '.research'), dataDir: join(root, 'data') }
+}
+
+/**
+ * Scenario A — degraded + auto-disposition: a REALIZED file with EMPTY
+ * History (the RR-010 crash-window residue — `file-leads`). The gate
+ * must DETECT it loud, startup must PROCEED (no throw), and the step-13
+ * lifecycle reconciliation must AUTO-CONVERGE the file back to PLANNED.
+ */
+async function scenarioDegradedAutoDispose(schemaRoot: string): Promise<IntegrityScenarioResult> {
+  const { root, researchRoot, dataDir } = makeScenarioWorkspace('deg')
+  const facts: Record<string, unknown> = {}
+  try {
+    writeTree(researchRoot, {
+      'topics/TPC-1/workstreams/WS-1/workstream.yaml': `${WS1_YAML}lifecycle: REALIZED\n`,
+    })
+    ensureGitRepo(root)
+    git(['add', '.research'], root)
+    git(['commit', '-m', 'seed: .research tree (integrity scenario: file-leads residue)'], root)
+    mkdirSync(dataDir, { recursive: true })
+    const logger = makeCollectingLogger()
+    const reader = makeScenarioReader()
+    const input = {
+      dbPath: join(dataDir, 'research.sqlite'),
+      repoRoot: root,
+      researchRoot,
+      schemaDir: join(schemaRoot, 'declarative'),
+      projectId: 'PRJ-1',
+      reader,
+      logger,
+    }
+
+    // The frozen async orchestrator over the SAME state (cross-check).
+    const report = await runStartupIntegrityChecks(input)
+    facts.orchestratorOutcome = report.outcome
+    facts.orchestratorFileLeads = report.consistency.findings
+      .filter((f) => f.kind === 'file-leads')
+      .map((f) => f.workstreamId)
+    scenarioAssert(report.outcome === 'degraded', `orchestrator: expected degraded, got ${report.outcome}`)
+    scenarioAssert(
+      facts.orchestratorFileLeads.length === 1 && facts.orchestratorFileLeads[0] === 'WS-1',
+      'orchestrator: the WS-1 residue must be classed file-leads',
+    )
+
+    // The PRODUCTION gate over the SAME state (the wiring's step 0.5).
+    const wiring = createHostWiring({
+      repoRoot: root,
+      schemaRoot,
+      projectId: 'PRJ-1',
+      dataDir,
+      adapter: makeFakeAdapter(),
+      launcherAdapter: makeFakeLauncherAdapter(),
+      workspaceRoots: [root],
+      logger,
+    })
+    try {
+      facts.gateOutcome = wiring.integrity.outcome
+      facts.gateReadSurface = wiring.integrity.readSurface
+      facts.gateFindings = wiring.integrity.consistency.findings.map((f) => `${f.kind}:${f.workstreamId ?? ''}`)
+      facts.gateLoudWarns = logger.entries.filter((e) => e.level === 'warn' && e.step === 'startup-integrity').length
+      scenarioAssert(wiring.integrity.outcome === 'degraded', `gate: expected degraded, got ${wiring.integrity.outcome}`)
+      scenarioAssert(
+        facts.gateFindings.includes('file-leads:WS-1'),
+        `gate: must class the same file-leads:WS-1 finding as the orchestrator (got ${JSON.stringify(facts.gateFindings)})`,
+      )
+      scenarioAssert(facts.gateLoudWarns > 0, 'gate: the recoverable finding must be LOUD (warn entries), never silent')
+      // AUTO-DISPOSITION: the step-13 lifecycle reconciliation converged
+      // the file back to PLANNED (History is the truth 「did it happen」).
+      facts.convergence = wiring.startup.lifecycle.findings.map((f) => `${f.workstreamId}:${f.action}`)
+      scenarioAssert(
+        wiring.startup.lifecycle.findings.some((f) => f.workstreamId === 'WS-1' && f.action === 'file-rolled-back-to-planned'),
+        'the startup reconciliation must AUTO-CONVERGE the file-leads residue back to PLANNED',
+      )
+      const ws1 = readFileSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-1/workstream.yaml'), 'utf8')
+      facts.fileLifecycleAfterInit = /lifecycle:\s*(\w+)/.exec(ws1)?.[1] ?? '(absent = PLANNED)'
+      scenarioAssert(!/lifecycle:\s*REALIZED/.test(ws1), 'the file on disk must no longer say REALIZED after auto-convergence')
+      // The async git half must settle and agree with the orchestrator.
+      facts.gitStatus = (await wiring.integrity.git).status
+      facts.orchestratorGitStatus = report.git.status
+      scenarioAssert(facts.gitStatus === facts.orchestratorGitStatus, 'gate git half and orchestrator git check must agree')
+    } finally {
+      wiring.close()
+    }
+    return { scenario: 'degraded-auto-disposition', ok: true, facts }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Scenario B — unrecoverable operational DB (TC-DB-002 form): the gate
+ * must REFUSE startup with a structured WIRING_INTEGRITY error BEFORE
+ * any service is instantiated (fail-loud; the fiber never reaches
+ * ACTIVE), and the orchestrator's report must be fatal +
+ * `assertStartup`-throwing (the TC-DSH-008 channel).
+ */
+async function scenarioFatalDb(schemaRoot: string): Promise<IntegrityScenarioResult> {
+  const { root, researchRoot, dataDir } = makeScenarioWorkspace('fatdb')
+  const facts: Record<string, unknown> = {}
+  try {
+    writeTree(researchRoot)
+    ensureGitRepo(root)
+    git(['add', '.research'], root)
+    git(['commit', '-m', 'seed: .research tree (integrity scenario: fatal db)'], root)
+    mkdirSync(dataDir, { recursive: true })
+    writeFileSync(
+      join(dataDir, 'research.sqlite'),
+      'THIS IS NOT A SQLITE DATABASE — corrupted on purpose (WP-8.5 integrity scenario: the TC-DB-002 garbage-bytes form)\n',
+    )
+    const logger = makeCollectingLogger()
+    const input = {
+      dbPath: join(dataDir, 'research.sqlite'),
+      repoRoot: root,
+      researchRoot,
+      schemaDir: join(schemaRoot, 'declarative'),
+      projectId: 'PRJ-1',
+      reader: makeScenarioReader(),
+      logger,
+    }
+
+    // The frozen orchestrator: fatal + assertStartup throws.
+    const report = await runStartupIntegrityChecks(input)
+    facts.orchestratorOutcome = report.outcome
+    facts.dbCode = report.db.code
+    let fatalThrew = false
+    try {
+      assertStartup(report)
+    } catch (e) {
+      fatalThrew = e instanceof HardeningFatalError
+    }
+    scenarioAssert(report.outcome === 'fatal', `orchestrator: expected fatal, got ${report.outcome}`)
+    scenarioAssert(report.db.code === 'STORE_CORRUPT', `orchestrator db code: expected STORE_CORRUPT, got ${String(report.db.code)}`)
+    scenarioAssert(fatalThrew, 'assertStartup must throw HardeningFatalError on a fatal report (the TC-DSH-008 channel)')
+
+    // The PRODUCTION gate: refuses before any instantiation.
+    let gateError: { code?: string; message?: string } | null = null
+    try {
+      createHostWiring({
+        repoRoot: root,
+        schemaRoot,
+        projectId: 'PRJ-1',
+        dataDir,
+        adapter: makeFakeAdapter(),
+        launcherAdapter: makeFakeLauncherAdapter(),
+        workspaceRoots: [root],
+        logger,
+      })
+    } catch (e) {
+      gateError = e as { code?: string; message?: string }
+    }
+    scenarioAssert(gateError !== null, 'gate: a corrupted operational DB must REFUSE the wiring (no service graph returned)')
+    facts.gateCode = gateError!.code
+    scenarioAssert(gateError!.code === 'WIRING_INTEGRITY', `gate: expected WIRING_INTEGRITY, got ${String(gateError!.code)}`)
+    scenarioAssert(/corrupt/i.test(gateError!.message ?? ''), 'gate: the error must NAME the corruption (明确报错, 绝不静默)')
+    facts.gateErrorHead = (gateError!.message ?? '').split('\n')[0]
+    scenarioAssert(
+      logger.entries.some((e) => e.level === 'error' && e.step === 'startup-integrity'),
+      'gate: the fatal finding must be LOUD (error entries)',
+    )
+    return { scenario: 'unrecoverable-db-fail-loud', ok: true, facts }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Scenario C — project-scope mismatch (the dual-真源 invariant): the
+ * tree declares PRJ-9 but the wiring (and its data dir) are keyed PRJ-1
+ * — UNRECOVERABLE (the plugin must not guess which side to rewrite).
+ * The gate refuses before instantiation; the orchestrator reports fatal.
+ */
+async function scenarioProjectScopeMismatch(schemaRoot: string): Promise<IntegrityScenarioResult> {
+  const { root, researchRoot, dataDir } = makeScenarioWorkspace('scope')
+  const facts: Record<string, unknown> = {}
+  try {
+    writeTree(researchRoot, { 'project.yaml': PROJECT_YAML.replace('id: PRJ-1', 'id: PRJ-9') })
+    ensureGitRepo(root)
+    git(['add', '.research'], root)
+    git(['commit', '-m', 'seed: .research tree (integrity scenario: scope mismatch)'], root)
+    mkdirSync(dataDir, { recursive: true })
+    const logger = makeCollectingLogger()
+    const input = {
+      dbPath: join(dataDir, 'research.sqlite'),
+      repoRoot: root,
+      researchRoot,
+      schemaDir: join(schemaRoot, 'declarative'),
+      projectId: 'PRJ-1',
+      reader: makeScenarioReader(),
+      logger,
+    }
+
+    const report = await runStartupIntegrityChecks(input)
+    facts.orchestratorOutcome = report.outcome
+    facts.scopeFinding = report.consistency.findings
+      .filter((f) => f.kind === 'project-id-mismatch')
+      .map((f) => f.message)
+    scenarioAssert(report.outcome === 'fatal', `orchestrator: expected fatal, got ${report.outcome}`)
+    scenarioAssert(
+      report.consistency.findings.some((f) => f.kind === 'project-id-mismatch'),
+      'orchestrator: the project-scope mismatch must be a consistency finding',
+    )
+    let fatalThrew = false
+    try {
+      assertStartup(report)
+    } catch (e) {
+      fatalThrew = e instanceof HardeningFatalError
+    }
+    scenarioAssert(fatalThrew, 'assertStartup must throw HardeningFatalError on the scope-mismatch report')
+
+    let gateError: { code?: string; message?: string } | null = null
+    try {
+      createHostWiring({
+        repoRoot: root,
+        schemaRoot,
+        projectId: 'PRJ-1',
+        dataDir,
+        adapter: makeFakeAdapter(),
+        launcherAdapter: makeFakeLauncherAdapter(),
+        workspaceRoots: [root],
+        logger,
+      })
+    } catch (e) {
+      gateError = e as { code?: string; message?: string }
+    }
+    scenarioAssert(gateError !== null, 'gate: a project-scope mismatch must REFUSE the wiring (no guessing which side to rewrite)')
+    facts.gateCode = gateError!.code
+    scenarioAssert(gateError!.code === 'WIRING_INTEGRITY', `gate: expected WIRING_INTEGRITY, got ${String(gateError!.code)}`)
+    scenarioAssert(
+      (gateError!.message ?? '').includes('PRJ-9') && (gateError!.message ?? '').includes('PRJ-1'),
+      'gate: the error must name BOTH scopes (the tree id and the registered id)',
+    )
+    facts.gateErrorHead = (gateError!.message ?? '').split('\n')[0]
+    return { scenario: 'unrecoverable-project-scope', ok: true, facts }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Scenario D — the git boundary (check 3, the async half): a REAL
+ * mid-merge conflict on a NON-research file (the .research tree stays
+ * intact — a conflicted declarative file would fail the V1 strict
+ * WIRING_TREE step, which is the designed behavior and covered by
+ * scenario A's classification). The wiring must COMPLETE (git is never
+ * fatal), the async git half must class the conflict (checkpoint
+ * EXPLICITLY refused — INV-GIT-4), and the orchestrator must agree
+ * (degraded via the git half).
+ */
+async function scenarioGitConflict(schemaRoot: string): Promise<IntegrityScenarioResult> {
+  const { root, researchRoot, dataDir } = makeScenarioWorkspace('gitcf')
+  const facts: Record<string, unknown> = {}
+  try {
+    writeTree(researchRoot)
+    // The diverging file lives OUTSIDE .research (a conflicted declarative
+    // file would fail the V1 strict WIRING_TREE step — designed, covered
+    // by scenario A's classification): only the git boundary is broken.
+    const notesDir = join(root, 'notes')
+    mkdirSync(notesDir, { recursive: true })
+    writeFileSync(join(notesDir, 'diverge.txt'), 'baseline line\n')
+    ensureGitRepo(root)
+    git(['add', '.research', 'notes'], root)
+    git(['commit', '-m', 'seed: baseline (integrity scenario: git conflict)'], root)
+    mkdirSync(dataDir, { recursive: true })
+    // A real mid-merge conflict: two branches, same file, same spot.
+    git(['checkout', '-b', 'diverge-a'], root)
+    writeFileSync(join(notesDir, 'diverge.txt'), 'baseline line\nappend-a\n')
+    git(['add', 'notes'], root)
+    git(['commit', '-m', 'diverge a'], root)
+    git(['checkout', 'main'], root)
+    writeFileSync(join(notesDir, 'diverge.txt'), 'baseline line\nappend-main\n')
+    git(['add', 'notes'], root)
+    git(['commit', '-m', 'diverge main'], root)
+    const mergeExit = gitMaybe(['merge', 'diverge-a'], root)
+    facts.mergeExitCode = mergeExit
+    scenarioAssert(mergeExit !== 0 && existsSync(join(root, '.git', 'MERGE_HEAD')), 'the fixture repo must be mid-merge (MERGE_HEAD present)')
+
+    const logger = makeCollectingLogger()
+    const wiring = createHostWiring({
+      repoRoot: root,
+      schemaRoot,
+      projectId: 'PRJ-1',
+      dataDir,
+      adapter: makeFakeAdapter(),
+      launcherAdapter: makeFakeLauncherAdapter(),
+      workspaceRoots: [root],
+      logger,
+    })
+    try {
+      // The async git half must settle loud and class the conflict.
+      const gitResult = await wiring.integrity.git
+      facts.gitStatus = gitResult.status
+      facts.gitReason = gitResult.reason
+      facts.checkpointAllowed = gitResult.checkpointAllowed
+      facts.gitLoudWarns = logger.entries.filter((e) => e.level === 'warn' && e.step === 'startup-integrity' && e.message.includes('git boundary')).length
+      scenarioAssert(gitResult.status === 'recoverable' && gitResult.reason === 'conflict-in-progress', `gate git: expected recoverable/conflict-in-progress, got ${gitResult.status}/${String(gitResult.reason)}`)
+      scenarioAssert(gitResult.checkpointAllowed === false, 'gate git: the checkpoint must be EXPLICITLY refused mid-conflict (INV-GIT-4)')
+      scenarioAssert(facts.gitLoudWarns > 0, 'gate git: the conflict classification must be LOUD (warn)')
+      // The orchestrator (which awaits the git half) must agree: degraded.
+      const report = await runStartupIntegrityChecks({
+        dbPath: join(dataDir, 'research.sqlite'),
+        repoRoot: root,
+        researchRoot,
+        schemaDir: join(schemaRoot, 'declarative'),
+        projectId: 'PRJ-1',
+        reader: makeScenarioReader(),
+        logger,
+      })
+      facts.orchestratorOutcome = report.outcome
+      facts.orchestratorGitReason = report.git.reason
+      scenarioAssert(report.outcome === 'degraded', `orchestrator: expected degraded (the git half), got ${report.outcome}`)
+      scenarioAssert(facts.orchestratorGitReason === 'conflict-in-progress', 'orchestrator git half must class the same conflict')
+    } finally {
+      wiring.close()
+    }
+    return { scenario: 'git-conflict-checkpoint-refused', ok: true, facts }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+async function runIntegrityScenarios(schemaRoot: string): Promise<IntegrityScenarioResult[]> {
+  const scenarios: Array<(schemaRoot: string) => Promise<IntegrityScenarioResult>> = [
+    scenarioDegradedAutoDispose,
+    scenarioFatalDb,
+    scenarioProjectScopeMismatch,
+    scenarioGitConflict,
+  ]
+  const out: IntegrityScenarioResult[] = []
+  for (const run of scenarios) {
+    out.push(await run(schemaRoot))
+  }
+  return out
+}
+
 interface SeedSummary {
   readonly researchRoot: string
   readonly dataDir: string
@@ -421,6 +831,10 @@ interface SeedSummary {
   readonly drifted: boolean
   /** WS-4's canonical plan (the TC-PERF-006 large-plan fixture). */
   readonly bigPlan: { readonly workstreamId: string; readonly itemCount: number; readonly order: string[] }
+  /** WP-8.5 / G8 S2: the production integrity scenarios (the gate + the
+   *  frozen orchestrator classifying identical states — machine evidence
+   *  of the degraded surface + fail-loud refusals, in the run log). */
+  readonly integrity: IntegrityScenarioResult[]
 }
 
 async function main(): Promise<void> {
@@ -645,6 +1059,10 @@ async function main(): Promise<void> {
   } finally {
     wiring.close()
   }
+
+  // 8) WP-8.5 / G8 S2: the production integrity scenarios (real artifacts;
+  //    independent temp workspaces — the main seed above is untouched).
+  summary.integrity = await runIntegrityScenarios(schemaRoot)
 
   console.log(JSON.stringify(summary, null, 2))
 }

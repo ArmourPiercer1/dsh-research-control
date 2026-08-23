@@ -1,11 +1,2124 @@
-import { execFileSync, spawn } from "node:child_process";
-import { accessSync, chmodSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { accessSync, chmodSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { YAMLMap, parseAllDocuments, parseDocument, stringify } from "yaml";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { createHash } from "node:crypto";
+//#region src/host/persistence/store/schema.ts
+const HISTORY_EVENT_DDL = `
+CREATE TABLE history_event (
+  event_id            TEXT    NOT NULL PRIMARY KEY,
+  owner_workstream_id TEXT    NOT NULL,
+  event_seq           INTEGER NOT NULL,
+  event_type          TEXT    NOT NULL,
+  schema_version      INTEGER NOT NULL,
+  occurred_at         INTEGER NOT NULL,  -- epoch ms (§1.2)
+  recorded_at         INTEGER NOT NULL,  -- epoch ms (§1.2)
+  actor               TEXT    NOT NULL,  -- ActorRef JSON (§1.3)
+  source              TEXT,              -- SourceRef JSON (§1.3), nullable
+  payload             TEXT    NOT NULL,  -- event payload JSON
+  -- WP-2.9 query-aid columns (TC-PERF-003): VIRTUAL generated, computed by
+  -- SQLite from the payload column at insert time - never writable, never
+  -- stored separately, cannot drift from the payload (json_extract yields
+  -- NULL when the key is absent, e.g. FACT_RECORDED has no run_id).
+  payload_run_id      TEXT    GENERATED ALWAYS AS (json_extract(payload, '$.run_id')) VIRTUAL,
+  payload_task_id     TEXT    GENERATED ALWAYS AS (json_extract(payload, '$.task_id')) VIRTUAL,
+  UNIQUE (owner_workstream_id, event_seq)
+);
+CREATE INDEX idx_history_event_ws_occurred_seq
+  ON history_event (owner_workstream_id, occurred_at, event_seq);
+CREATE INDEX idx_history_event_type_occurred
+  ON history_event (event_type, occurred_at);
+CREATE INDEX idx_history_event_recorded
+  ON history_event (recorded_at);
+-- WP-2.9: run/task filter indexes (composite = equality filter + time
+-- ordered listing per run/task; isomorphic to idx_history_event_type_occurred).
+CREATE INDEX idx_history_event_payload_run_occurred
+  ON history_event (payload_run_id, occurred_at);
+CREATE INDEX idx_history_event_payload_task_occurred
+  ON history_event (payload_task_id, occurred_at);
+-- INV-HIST-1 storage-level enforcement (append-only; TC-HIST-003).
+CREATE TRIGGER history_event_no_update
+  BEFORE UPDATE ON history_event
+  BEGIN
+    SELECT RAISE(ABORT, 'history_event is append-only (INV-HIST-1)');
+  END;
+CREATE TRIGGER history_event_no_delete
+  BEFORE DELETE ON history_event
+  BEGIN
+    SELECT RAISE(ABORT, 'history_event is append-only (INV-HIST-1)');
+  END;
+`;
+const DERIVED_STATE_DDL = `
+CREATE TABLE derived_state (
+  object_kind TEXT NOT NULL,
+  object_id   TEXT NOT NULL,
+  state       TEXT NOT NULL,  -- JSON document, replaced wholesale (§15 L627)
+  PRIMARY KEY (object_kind, object_id)
+);
+`;
+const META_DDL = `
+CREATE TABLE meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`;
+/** Full V1 DDL, executed once inside a single transaction on a fresh DB
+*  (all-or-nothing; a crash mid-init rolls back to an empty file that the
+*  next open re-initializes). */
+function schemaDdl() {
+	return [
+		HISTORY_EVENT_DDL,
+		DERIVED_STATE_DDL,
+		META_DDL
+	].join("\n");
+}
+/** Tables that MUST exist under `user_version = 1`; a missing one means
+*  the file is corrupted (a valid version number with a broken schema). */
+const EXPECTED_TABLES = [
+	"history_event",
+	"derived_state",
+	"meta"
+];
+/** The EXACT `history_event` column set of this build's V1 DDL (order as
+*  declared). A user_version=1 file whose column set differs — a column
+*  missing (older pre-release build) or extra (newer/unknown build) — is
+*  STALE: rejected on open with STORE_SCHEMA_STALE, no migration (the
+*  numeric version gate's「不匹配即拒绝」policy applied to structure; see
+*  the WP-2.9 header block). */
+const HISTORY_EVENT_COLUMNS = [
+	"event_id",
+	"owner_workstream_id",
+	"event_seq",
+	"event_type",
+	"schema_version",
+	"occurred_at",
+	"recorded_at",
+	"actor",
+	"source",
+	"payload",
+	"payload_run_id",
+	"payload_task_id"
+];
+/** The VIRTUAL generated columns — `PRAGMA table_xinfo` reports them with
+*  `hidden = 2` (SQLite ≥ 3.36: 0 = regular, 1 = stored generated,
+*  2 = virtual generated); every other column must be regular (0). */
+const HISTORY_EVENT_GENERATED = /* @__PURE__ */ new Set(["payload_run_id", "payload_task_id"]);
+/** The NAMED indexes V1 declares on `history_event`. (The UNIQUE/PK
+*  autoindexes `sqlite_autoindex_history_event_*` are expected as well
+*  but are implementation artifacts, not part of this set.) */
+const HISTORY_EVENT_INDEXES = [
+	"idx_history_event_ws_occurred_seq",
+	"idx_history_event_type_occurred",
+	"idx_history_event_recorded",
+	"idx_history_event_payload_run_occurred",
+	"idx_history_event_payload_task_occurred"
+];
+//#endregion
+//#region src/host/persistence/store/errors.ts
+var StoreError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = new.target.name;
+		this.code = code;
+	}
+};
+/** The DB file or its directory could not be created/opened (bad path,
+*  permission failure, path is a directory). The DB file was left in
+*  whatever state it had; no partial schema is ever written. */
+var StoreOpenError = class extends StoreError {
+	constructor(message, options) {
+		super("STORE_OPEN", message, options);
+	}
+};
+/**
+* The file exists but is not a usable SQLite database (garbage bytes,
+* truncated header, failed `quick_check`, missing schema tables under a
+* valid `user_version`, or a JSON column that can no longer be parsed).
+* TC-DB-002 semantics: this IS the 「明确报错」 — the store refuses to
+* proceed and never tries to repair; `.research/` and Git are untouched by
+* the store by construction (it only ever writes its own file).
+*/
+var StoreCorruptError = class extends StoreError {
+	constructor(message, options) {
+		super("STORE_CORRUPT", message, options);
+	}
+};
+/**
+* `PRAGMA user_version` is neither 0 (fresh) nor the supported V1 version.
+* Pre-release policy (DSH_ADAPTER §9): the version is monotonic and a
+* mismatch is REJECTED — there is no migration path, and silently opening a
+* DB written by a newer/unknown schema would risk misreading columns.
+*/
+var StoreVersionError = class extends StoreError {
+	/** The `user_version` actually found in the file. */
+	found;
+	/** The version this store supports (1). */
+	expected;
+	constructor(found, expected) {
+		super("STORE_VERSION", `unsupported schema version: found user_version=${String(found)}, expected ${String(expected)} — pre-release store does not migrate (DSH_ADAPTER §9)`);
+		this.found = found;
+		this.expected = expected;
+	}
+};
+/**
+* `PRAGMA user_version` says 1 (the supported V1) but the on-disk
+* `history_event` structure does not match this build's V1 DDL — the file
+* was written by an OLDER pre-release build (e.g. a pre-WP-2.9 dev DB
+* missing the generated filter columns / indexes) or by a NEWER/unknown
+* one (extra columns or named indexes). Same policy as the numeric
+* version gate (DSH_ADAPTER §9): REJECTED, no migration. The file's data
+* is a pre-release dev artifact — the remedy is to delete the file and
+* reinitialize (a fresh open re-runs the V1 init transaction).
+*/
+var StoreSchemaStaleError = class extends StoreError {
+	constructor(message, options) {
+		super("STORE_SCHEMA_STALE", message, options);
+	}
+};
+/** An operation was attempted on a store after `close()`. */
+var StoreClosedError = class extends StoreError {
+	constructor(operation) {
+		super("STORE_CLOSED", `${operation}: store is closed`);
+	}
+};
+/** Malformed caller input (bad shapes, store-owned fields supplied, …).
+*  Thrown BEFORE any write; nothing is side-effected. */
+var StoreInputError = class extends StoreError {
+	constructor(message, options) {
+		super("STORE_INPUT", message, options);
+	}
+};
+/** Uniqueness violation: `event_id` PK or `UNIQUE(owner_workstream_id,
+*  event_seq)`. The whole batch rolled back. */
+var StoreConflictError = class extends StoreError {
+	constructor(message, options) {
+		super("STORE_CONFLICT", message, options);
+	}
+};
+/** Unexpected SQLite failure inside an open operation (driver-level
+*  problems that are not input/conflict/corruption/version). */
+var StoreSqlError = class extends StoreError {
+	constructor(message, options) {
+		super("STORE_SQL", message, options);
+	}
+};
+/**
+* A statement reaching the store's OWN connection used a write class the
+* append-only surface forbids — RR-013 (G2 r2 inv-attacker): `REPLACE INTO`
+* / `INSERT … OR REPLACE` / `INSERT … ON CONFLICT … REPLACE` against
+* `history_event` bypass the BEFORE DELETE trigger (SQLite's internal
+* conflict-row delete does not fire triggers), silently rewriting or
+* deleting event rows. `openDatabase` installs the store-connection guard
+* (store.ts `installStoreConnectionGuard`) which rejects these at
+* prepare/exec time on the canonical connection; this is the structured
+* error it throws.
+*/
+var StoreForbiddenSqlError = class extends StoreError {
+	constructor(message, options) {
+		super("STORE_SQL_FORBIDDEN", message, options);
+	}
+};
+//#endregion
+//#region src/host/persistence/store/sqlite-meta.ts
+/** The single atomic bump (WP-1.6 reserved seam): INSERT for the unset
+*  counter (0 + delta), upsert-accumulate when set, RETURNING the new
+*  value — one round-trip, no read-modify-write window. */
+const BUMP_SQL = "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + CAST(excluded.value AS INTEGER) RETURNING value";
+var SqliteMetaStore = class {
+	port;
+	backend = "sqlite";
+	constructor(port) {
+		this.port = port;
+	}
+	stmt(sql) {
+		this.port.assertOpen();
+		return this.port.prepare(sql);
+	}
+	get(key) {
+		assertNonEmptyKey(key);
+		const row = this.stmt("SELECT value FROM meta WHERE key = ?").get(key);
+		return row === void 0 ? null : String(row.value);
+	}
+	set(key, value) {
+		assertNonEmptyKey(key);
+		if (typeof value !== "string") throw new StoreInputError(`meta.set: value must be a string (got ${typeof value})`);
+		this.stmt("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+	}
+	/** No-op when absent. Meta rows are bookkeeping, not first-class
+	*  identity (the §15 通则 deletion ban does not apply — same as the
+	*  WP-1.6 memory backend). */
+	delete(key) {
+		assertNonEmptyKey(key);
+		this.stmt("DELETE FROM meta WHERE key = ?").run(key);
+	}
+	keys() {
+		return this.stmt("SELECT key FROM meta ORDER BY key").all().map((r) => String(r.key));
+	}
+	/** Read the integer counter at `key`; 0 when unset. @throws
+	*  {@link StoreCorruptError} when the stored value is not a
+	*  non-negative safe integer. */
+	getCounter(key) {
+		assertNonEmptyKey(key);
+		const raw = this.get(key);
+		if (raw === null) return 0;
+		const value = Number(raw);
+		if (!Number.isSafeInteger(value) || value < 0) throw new StoreCorruptError(`meta corruption: counter "${key}" holds ${JSON.stringify(raw)}, expected a non-negative integer`);
+		return value;
+	}
+	/** Atomically bump the counter by `delta` (default 1) and return the
+	*  NEW value — one SQL statement (see BUMP_SQL); a cross-connection
+	*  atomicity upgrade over the in-memory backend. @throws RangeError on
+	*  an invalid delta (mirrors the WP-1.6 surface), {@link
+	*  StoreCorruptError} on stored-value corruption. */
+	bumpCounter(key, delta = 1) {
+		assertNonEmptyKey(key);
+		if (!Number.isSafeInteger(delta) || delta < 1) throw new RangeError(`invalid counter delta ${String(delta)} — must be a positive safe integer`);
+		this.getCounter(key);
+		const row = this.stmt(BUMP_SQL).get(key, String(delta));
+		const next = Number(row?.value);
+		if (!Number.isSafeInteger(next) || next < 0) throw new StoreCorruptError(`meta corruption: counter "${key}" bumped to ${String(row?.value)}, expected a non-negative integer`);
+		return next;
+	}
+};
+function assertNonEmptyKey(key) {
+	if (typeof key !== "string" || key.length === 0) throw new StoreInputError("meta: key must be a non-empty string");
+}
+//#endregion
+//#region src/host/persistence/store/connection-guard.ts
+/** The action-code table of the SQLite authorizer callback (sqlite3.h,
+*  the modern numbering shipped by Node 22/24's bundled SQLite ≥3.46). */
+const SQLITE_DELETE = 9;
+const SQLITE_UPDATE = 23;
+/** Authorizer verdicts (sqlite3.h). */
+const SQLITE_OK = 0;
+const SQLITE_DENY = 1;
+/**
+* Mask the parts of a SQL statement that carry DATA, keeping the
+* STRUCTURAL text: single-quoted string literals (with the `''` escape)
+* become `''` placeholders; `--` line and block-style comments become
+* whitespace; double-quoted and backtick-quoted identifiers keep their
+* content (an identifier named after a keyword is structure, and
+* `history_event` has no column whose name could contain `REPLACE` — a
+* false positive would require a statement that SQLite itself rejects).
+*/
+function stripDataLiterals(sql) {
+	let out = "";
+	let i = 0;
+	const n = sql.length;
+	while (i < n) {
+		const c = sql[i];
+		if (c === "'") {
+			i += 1;
+			while (i < n) {
+				if (sql[i] === "'") {
+					if (sql[i + 1] === "'") {
+						i += 2;
+						continue;
+					}
+					i += 1;
+					break;
+				}
+				i += 1;
+			}
+			out += "''";
+		} else if (c === "\"" || c === "`") {
+			const quote = c;
+			out += c;
+			i += 1;
+			while (i < n) {
+				if (sql[i] === quote) {
+					if (sql[i + 1] === quote) {
+						out += quote + quote;
+						i += 2;
+						continue;
+					}
+					out += quote;
+					i += 1;
+					break;
+				}
+				out += sql[i];
+				i += 1;
+			}
+		} else if (c === "-" && sql[i + 1] === "-") {
+			while (i < n && sql[i] !== "\n") i += 1;
+			out += " ";
+		} else if (c === "/" && sql[i + 1] === "*") {
+			i += 2;
+			while (i < n && !(sql[i] === "*" && sql[i + 1] === "/")) i += 1;
+			i += 2;
+			out += " ";
+		} else {
+			out += c;
+			i += 1;
+		}
+	}
+	return out;
+}
+/** `[schema.]history_event` with optional identifier quoting — the
+*  schema prefix and the table name may each be unquoted, double-quoted
+*  or backtick-quoted (G3 r1 R2: the unquoted-schema-only pattern let
+*  `REPLACE INTO "main".history_event` / backtick variants slip through).
+*  Whitespace around the `.` is structural in SQLite (token grammar). */
+const EVENT_TABLE = `(?:(?:"[^"]+"|\`[^\`]+\`|[A-Z_][A-Z0-9_]*)\\s*\\.\\s*)?(?:"HISTORY_EVENT"|\`HISTORY_EVENT\`|HISTORY_EVENT\\b)`;
+/** `REPLACE INTO [schema.]history_event` (shorthand form). */
+const RE_REPLACE_INTO = new RegExp(`\\bREPLACE\\s+INTO\\s+${EVENT_TABLE}`);
+/** `INSERT [OR REPLACE] INTO [schema.]history_event`; group 1 = the
+*  `OR REPLACE` conflict prefix when present. */
+const RE_INSERT_INTO_EVENT = new RegExp(`\\bINSERT\\s+(OR\\s+REPLACE\\s+)?INTO\\s+${EVENT_TABLE}`);
+/**
+* Detect a REPLACE-class write of the event log.
+*
+* @param sql - the full statement text.
+* @returns a precise human-readable reason when the statement carries a
+*  REPLACE-class conflict resolution targeting `history_event` (shorthand
+*  `REPLACE INTO`, `INSERT … OR REPLACE`, or `ON CONFLICT … REPLACE`),
+*  otherwise `null` (statement is not of the forbidden class).
+*  Pure and total — never throws.
+*/
+function classifyForbiddenWrite(sql) {
+	if (typeof sql !== "string" || sql.length === 0) return null;
+	const norm = stripDataLiterals(sql).toUpperCase().replace(/\s+/g, " ");
+	if (RE_REPLACE_INTO.test(norm)) return "REPLACE INTO history_event is a REPLACE-class write — it bypasses the BEFORE DELETE trigger (RR-013) and is forbidden on the store connection";
+	const m = RE_INSERT_INTO_EVENT.exec(norm);
+	if (m !== null) {
+		if (m[1] !== void 0) return "INSERT OR REPLACE INTO history_event is a REPLACE-class write — it bypasses the BEFORE DELETE trigger (RR-013) and is forbidden on the store connection";
+		if (/\bREPLACE\b/.test(norm)) return "INSERT … ON CONFLICT … REPLACE on history_event is a REPLACE-class write — it bypasses the BEFORE DELETE trigger (RR-013) and is forbidden on the store connection";
+	}
+	return null;
+}
+/**
+* Install the store-connection guard on `db` (the connection
+* `openDatabase` owns):
+*   1. shadows `prepare` / `exec` with the REPLACE-class statement gate;
+*   2. when the runtime provides `setAuthorizer` (Node ≥24.10), installs
+*      the action-level backstop (DENY UPDATE/DELETE on `history_event`).
+*
+* Idempotency is NOT claimed: call exactly once, on a freshly opened
+* connection, before any other user of the connection (the store is the
+* first). The wrapped methods keep the original signatures and forward
+* everything they do not reject.
+*/
+function installStoreConnectionGuard(db) {
+	if (db === null || typeof db !== "object") throw new TypeError("installStoreConnectionGuard: db must be a DatabaseSync");
+	const anyDb = db;
+	const origPrepare = db.prepare.bind(db);
+	const origExec = db.exec.bind(db);
+	const gate = (sql, entry) => {
+		const reason = classifyForbiddenWrite(sql);
+		if (reason !== null) throw new StoreForbiddenSqlError(`store connection ${entry}: ${reason}`, { cause: /* @__PURE__ */ new Error(`statement: ${sql}`) });
+	};
+	anyDb.prepare = (sql) => {
+		gate(sql, "prepare");
+		return origPrepare(sql);
+	};
+	anyDb.exec = (sql) => {
+		gate(sql, "exec");
+		origExec(sql);
+	};
+	const cap = db.setAuthorizer;
+	if (typeof cap === "function") cap.call(db, (actionCode, arg1) => {
+		if ((actionCode === SQLITE_DELETE || actionCode === SQLITE_UPDATE) && arg1 === "history_event") return SQLITE_DENY;
+		return SQLITE_OK;
+	});
+}
+//#endregion
+//#region src/host/persistence/store/store.ts
+/**
+* WP-2.1 — operational SQLite store: `openDatabase` (DatabaseSync wrapper)
+* + the append-only `ResearchStore` handle.
+*
+* Follows the DSH `node:sqlite` pattern (DSH_ADAPTER §9):
+*   - owner-only permissions: DB directory 0o700, file 0o600 (enforced on
+*     every open, umask-proof);
+*   - `PRAGMA journal_mode=WAL`;
+*   - `PRAGMA user_version` is the monotonic schema version: 0 = fresh
+*     (init V1 DDL + set to 1, one transaction), 1 = open, anything else =
+*     REJECTED (pre-release: no migration, DSH_ADAPTER §9「不匹配即拒绝」);
+*     under version 1 the history_event STRUCTURE is verified as well
+*     (WP-2.9): a stale pre-release V1 file (older/newer column set or
+*     named indexes — e.g. a pre-WP-2.9 dev DB missing the generated
+*     filter columns) is rejected with STORE_SCHEMA_STALE, same
+*     no-migration policy, remedy = delete the file and reinitialize;
+*   - `PRAGMA quick_check` on open: a damaged file fails open with a
+*     structured `STORE_CORRUPT` — never a raw driver exception, never a
+*     repair attempt (TC-DB-002 「明确报错」);
+*   - connection lifecycle: the caller opens (`openDatabase`, in
+*     `[Service.init]`) and closes (`close()`, in the effect disposer) —
+*     this WP provides the injectable factory; the DSH wiring is a later
+*     WP. `close()` is idempotent.
+*
+* INV-DB-3 boundary: the store writes ONLY its own file (and its
+* -wal/-shm siblings). It has no view of `.research/` or Git, so a crash
+* anywhere inside a store operation can never corrupt the declarative 真源
+* or the Git workspace; and inside the store, every multi-write operation
+* is ONE SQLite transaction (or, for init, one init transaction) — WAL
+* recovery makes a mid-transaction crash leave the DB either pre- or
+* post-transaction, never partial (TC-DB-003 DB half, kill -9 tested).
+*
+* RR-013 hardening (WP-3.6): every connection this opener creates carries
+* the store-connection guard (connection-guard.ts `installStoreConnectionGuard`)
+* — REPLACE-class writes of `history_event` (`REPLACE INTO` /
+* `INSERT … OR REPLACE` / `ON CONFLICT … REPLACE`) are rejected at
+* prepare/exec time on the canonical connection (the BEFORE DELETE trigger
+* is bypassed by the internal conflict-row delete of the REPLACE class —
+* G2 r2 inv-attacker), plus an action-level authorizer backstop on
+* runtimes that provide `setAuthorizer` (Node ≥24.10). The storage
+* triggers remain the primary DELETE/UPDATE denial on any connection.
+*
+* No DSH imports (INV-PERM-5): `node:sqlite` is the Node builtin.
+*/
+const DEFAULT_BUSY_TIMEOUT_MS$1 = 5e3;
+/**
+* Open (or initialize) the operational SQLite store at `path`.
+*
+* Fresh path → parent dir created owner-only (0o700), file created
+* owner-only (0o600), WAL enabled, V1 schema + `user_version=1` written in
+* one transaction. Existing path → permissions re-enforced, WAL on,
+* `user_version` checked (mismatch → {@link StoreVersionError}),
+* `quick_check` corruption probe, then opened read-write.
+*
+* All failures are structured `StoreError`s (never raw driver exceptions).
+*/
+function openDatabase(path, options = {}) {
+	if (typeof path !== "string" || path.length === 0) throw new StoreInputError("openDatabase: path must be a non-empty string");
+	const abs = resolve(path);
+	ensureOwnerOnlyDir(dirname(abs));
+	let isDir = false;
+	try {
+		isDir = existsSync(abs) && lstatSync(abs).isDirectory();
+	} catch (e) {
+		throw new StoreOpenError(`openDatabase: cannot stat ${abs}: ${errMsg$4(e)}`, { cause: e });
+	}
+	if (isDir) throw new StoreOpenError(`openDatabase: ${abs} is a directory, not a SQLite file`);
+	let db;
+	try {
+		db = new DatabaseSync(abs);
+	} catch (e) {
+		throw classifyOpenFailure(abs, e);
+	}
+	try {
+		try {
+			chmodSync(abs, 384);
+		} catch (e) {
+			closeQuietly(db);
+			throw new StoreOpenError(`openDatabase: cannot chmod ${abs} to 0o600: ${errMsg$4(e)}`, { cause: e });
+		}
+		const journalMode = String(db.prepare("PRAGMA journal_mode = WAL").get()?.journal_mode ?? "");
+		if (journalMode.toLowerCase() !== "wal") {
+			closeQuietly(db);
+			throw new StoreCorruptError(`openDatabase: WAL journal mode could not be enabled at ${abs} (got "${journalMode}")`);
+		}
+		const busyTimeoutMs = options.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS$1;
+		assertPositiveInt$1(busyTimeoutMs, "busyTimeoutMs");
+		db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+		checkIntegrity(db, abs);
+		const version = readUserVersion(db, abs);
+		if (version === 0) initializeSchema(db, abs);
+		else if (version !== 1) {
+			closeQuietly(db);
+			throw new StoreVersionError(version, 1);
+		} else verifyExpectedSchema(db, abs);
+		installStoreConnectionGuard(db);
+	} catch (e) {
+		throw toStoreError(e, `openDatabase: ${abs}`);
+	}
+	const now = options.now ?? Date.now;
+	return createStore(db, abs, 1, now);
+}
+/** Build the handle. Kept out of `openDatabase` so the open path stays
+*  readable; the returned object is a plain sealed record — its OWN
+*  property names are exactly the public `ResearchStore` surface (tests
+*  lock this down: no hidden mutation methods). */
+function createStore(db, abs, userVersion, now) {
+	let closed = false;
+	let metaInstance = null;
+	const assertOpen = (operation) => {
+		if (closed) throw new StoreClosedError(operation);
+		return db;
+	};
+	const prepare = (operation, sql) => assertOpen(operation).prepare(sql);
+	/** MetaDbPort seam for the SqliteMetaStore (its methods stay closed-safe). */
+	const metaPort = {
+		assertOpen: () => {
+			assertOpen("meta");
+		},
+		prepare: (sql) => prepare("meta", sql)
+	};
+	const meta = () => {
+		if (metaInstance === null) metaInstance = new SqliteMetaStore(metaPort);
+		return metaInstance;
+	};
+	const close = () => {
+		if (closed) return;
+		closed = true;
+		try {
+			db.close();
+		} catch {}
+	};
+	/** Internal transaction scope factory (hooks only). */
+	const makeTxScope = (operation) => {
+		const getStmt = prepare(operation, "SELECT state FROM derived_state WHERE object_kind = ? AND object_id = ?");
+		const upsertStmt = prepare(operation, "INSERT INTO derived_state (object_kind, object_id, state) VALUES (?, ?, ?) ON CONFLICT(object_kind, object_id) DO UPDATE SET state = excluded.state");
+		return {
+			getDerivedState(objectKind, objectId) {
+				const kind = assertNonEmptyString$2(objectKind, "objectKind");
+				const id = assertNonEmptyString$2(objectId, "objectId");
+				const row = getStmt.get(kind, id);
+				if (row === void 0) return null;
+				return safeParse(String(row.state), `derived_state[${kind}:${id}].state`);
+			},
+			setDerivedState(objectKind, objectId, state) {
+				const kind = assertNonEmptyString$2(objectKind, "objectKind");
+				const id = assertNonEmptyString$2(objectId, "objectId");
+				upsertStmt.run(kind, id, safeStringify(state, `derived_state[${kind}:${id}].state`));
+			}
+		};
+	};
+	return {
+		path: abs,
+		userVersion,
+		close,
+		appendEvents: (events, options) => appendEventsImpl(events, options),
+		getEvent: (ownerWorkstreamId, seq) => getEventImpl(ownerWorkstreamId, seq),
+		listRange: (ownerWorkstreamId, fromSeq, toSeq) => listRangeImpl(ownerWorkstreamId, fromSeq, toSeq),
+		meta
+	};
+	function appendEventsImpl(events, options = {}) {
+		const operation = "appendEvents";
+		const dbConn = assertOpen(operation);
+		if (!Array.isArray(events) || events.length === 0) throw new StoreInputError("appendEvents: events must be a non-empty array");
+		const rows = events.map((ev, i) => parseEventInput(ev, i));
+		const seenIds = /* @__PURE__ */ new Set();
+		for (const row of rows) {
+			if (seenIds.has(row.eventId)) throw new StoreInputError(`appendEvents: duplicate eventId within one batch: ${row.eventId} — one event per id (INV-HIST-6)`);
+			seenIds.add(row.eventId);
+		}
+		const validateHook = options.validate;
+		if (validateHook !== void 0 && typeof validateHook !== "function") throw new StoreInputError("appendEvents: options.validate must be a function");
+		const realize = normalizeRealizeOptions(options.realize);
+		const derivedPatches = normalizeDerivedState(options.derivedState);
+		const recordedAt = now();
+		let inHook = false;
+		dbConn.exec("BEGIN IMMEDIATE");
+		try {
+			const maxStmt = dbConn.prepare("SELECT MAX(event_seq) AS m FROM history_event WHERE owner_workstream_id = ?");
+			const baseByWs = /* @__PURE__ */ new Map();
+			for (const row of rows) {
+				const ws = row.ownerWorkstreamId;
+				if (!baseByWs.has(ws)) {
+					const m = maxStmt.get(ws)?.m ?? null;
+					const base = m === null || m === void 0 ? 0 : Number(m);
+					if (!Number.isSafeInteger(base) || base < 0) throw new StoreCorruptError(`appendEvents: history_event holds a non-integer MAX(event_seq)=${String(m)} for ${ws} — database corruption`);
+					baseByWs.set(ws, base);
+				}
+			}
+			const nextByWs = new Map([...baseByWs.entries()].map(([ws, base]) => [ws, base + 1]));
+			for (const row of rows) {
+				row.eventSeq = nextByWs.get(row.ownerWorkstreamId);
+				row.recordedAt = recordedAt;
+				nextByWs.set(row.ownerWorkstreamId, row.eventSeq + 1);
+			}
+			const tx = makeTxScope(operation);
+			if (validateHook !== void 0) {
+				inHook = true;
+				validateHook(rows.map(toRecord), tx);
+				inHook = false;
+			}
+			const insertStmt = dbConn.prepare("INSERT INTO history_event (event_id, owner_workstream_id, event_seq, event_type, schema_version, occurred_at, recorded_at, actor, source, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+			for (const row of rows) insertStmt.run(row.eventId, row.ownerWorkstreamId, row.eventSeq, row.eventType, row.schemaVersion, row.occurredAt, row.recordedAt, row.actorJson, row.sourceJson, row.payloadJson);
+			for (const patch of derivedPatches) tx.setDerivedState(patch.objectKind, patch.objectId, patch.state);
+			if (realize !== null) {
+				const wanted = new Set(realize.workstreamIds);
+				const fired = /* @__PURE__ */ new Set();
+				for (const row of rows) {
+					const ws = row.ownerWorkstreamId;
+					if (!wanted.has(ws) || fired.has(ws)) continue;
+					if ((baseByWs.get(ws) ?? 0) !== 0) continue;
+					fired.add(ws);
+					inHook = true;
+					realize.apply({
+						workstreamId: ws,
+						event: toRecord(row),
+						tx
+					});
+					inHook = false;
+				}
+			}
+			dbConn.exec("COMMIT");
+		} catch (e) {
+			rollbackQuietly$1(dbConn);
+			if (inHook) throw e;
+			throw toStoreError(e, operation);
+		}
+		const lastSeqByWorkstream = {};
+		for (const row of rows) lastSeqByWorkstream[row.ownerWorkstreamId] = row.eventSeq;
+		return {
+			events: rows.map(toRecord),
+			lastSeqByWorkstream
+		};
+	}
+	function getEventImpl(ownerWorkstreamId, seq) {
+		const dbConn = assertOpen("getEvent");
+		const ws = assertNonEmptyString$2(ownerWorkstreamId, "ownerWorkstreamId");
+		assertSeq(seq, "seq");
+		const row = dbConn.prepare("SELECT * FROM history_event WHERE owner_workstream_id = ? AND event_seq = ?").get(ws, seq);
+		return row === void 0 ? null : dbRowToRecord(row);
+	}
+	function listRangeImpl(ownerWorkstreamId, fromSeq, toSeq) {
+		const dbConn = assertOpen("listRange");
+		const ws = assertNonEmptyString$2(ownerWorkstreamId, "ownerWorkstreamId");
+		assertSeq(fromSeq, "fromSeq");
+		let rows;
+		if (toSeq === void 0) rows = dbConn.prepare("SELECT * FROM history_event WHERE owner_workstream_id = ? AND event_seq >= ? ORDER BY event_seq").all(ws, fromSeq);
+		else {
+			assertSeq(toSeq, "toSeq");
+			if (toSeq < fromSeq) throw new StoreInputError(`listRange: toSeq (${toSeq}) must be >= fromSeq (${fromSeq})`);
+			rows = dbConn.prepare("SELECT * FROM history_event WHERE owner_workstream_id = ? AND event_seq >= ? AND event_seq <= ? ORDER BY event_seq").all(ws, fromSeq, toSeq);
+		}
+		return rows.map((r) => dbRowToRecord(r));
+	}
+}
+function parseEventInput(ev, index) {
+	const what = `events[${index}]`;
+	if (typeof ev !== "object" || ev === null) throw new StoreInputError(`appendEvents: ${what} is not an object`);
+	const e = ev;
+	if ("eventSeq" in e) throw new StoreInputError(`appendEvents: ${what}.eventSeq is store-assigned (per owner WS, MAX+1 inside the transaction — TC-HIST-003); remove it from the input (HISTORY_EVENT_CATALOG §1)`);
+	if ("recordedAt" in e) throw new StoreInputError(`appendEvents: ${what}.recordedAt is generated by the plugin at write time (HISTORY_EVENT_CATALOG §1 L33); remove it from the input`);
+	const eventId = assertNonEmptyString$2(e.eventId, `${what}.eventId`);
+	const ownerWorkstreamId = assertNonEmptyString$2(e.ownerWorkstreamId, `${what}.ownerWorkstreamId`);
+	const eventType = assertNonEmptyString$2(e.eventType, `${what}.eventType`);
+	const schemaVersion = e.schemaVersion;
+	if (typeof schemaVersion !== "number" || !Number.isSafeInteger(schemaVersion) || schemaVersion < 1) throw new StoreInputError(`appendEvents: ${what}.schemaVersion must be a positive safe integer`);
+	const occurredAt = e.occurredAt;
+	if (typeof occurredAt !== "number" || !Number.isSafeInteger(occurredAt) || occurredAt < 0) throw new StoreInputError(`appendEvents: ${what}.occurredAt must be a non-negative safe integer (epoch ms)`);
+	const actor = e.actor;
+	if (typeof actor !== "object" || actor === null) throw new StoreInputError(`appendEvents: ${what}.actor must be an ActorRef object`);
+	if (typeof actor.kind !== "string" || actor.kind.length === 0) throw new StoreInputError(`appendEvents: ${what}.actor.kind must be a non-empty string`);
+	const payload = e.payload;
+	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) throw new StoreInputError(`appendEvents: ${what}.payload must be a JSON object`);
+	const actorJson = safeStringify(actor, `${what}.actor`);
+	const source = e.source === void 0 ? null : e.source;
+	let sourceJson = null;
+	if (source !== null) {
+		if (typeof source !== "object" || Array.isArray(source)) throw new StoreInputError(`appendEvents: ${what}.source must be a SourceRef object or null`);
+		sourceJson = safeStringify(source, `${what}.source`);
+	}
+	const payloadJson = safeStringify(payload, `${what}.payload`);
+	return {
+		eventId,
+		ownerWorkstreamId,
+		eventType,
+		schemaVersion,
+		occurredAt,
+		recordedAt: 0,
+		actor,
+		source: source ?? null,
+		payload,
+		actorJson,
+		sourceJson,
+		payloadJson,
+		eventSeq: 0
+	};
+}
+function normalizeRealizeOptions(realize) {
+	if (realize === void 0) return null;
+	if (typeof realize !== "object" || realize === null) throw new StoreInputError("appendEvents: options.realize must be an object");
+	if (!Array.isArray(realize.workstreamIds)) throw new StoreInputError("appendEvents: options.realize.workstreamIds must be an array");
+	for (const ws of realize.workstreamIds) assertNonEmptyString$2(ws, "options.realize.workstreamIds entry");
+	if (typeof realize.apply !== "function") throw new StoreInputError("appendEvents: options.realize.apply must be a function");
+	return realize;
+}
+function normalizeDerivedState(patches) {
+	if (patches === void 0) return [];
+	if (!Array.isArray(patches)) throw new StoreInputError("appendEvents: options.derivedState must be an array");
+	for (const [i, p] of patches.entries()) {
+		if (typeof p !== "object" || p === null) throw new StoreInputError(`appendEvents: options.derivedState[${i}] is not an object`);
+		assertNonEmptyString$2(p.objectKind, `options.derivedState[${i}].objectKind`);
+		assertNonEmptyString$2(p.objectId, `options.derivedState[${i}].objectId`);
+		if (p.state === void 0) throw new StoreInputError(`appendEvents: options.derivedState[${i}].state must not be undefined`);
+	}
+	return patches;
+}
+function toRecord(row) {
+	const base = {
+		eventId: row.eventId,
+		ownerWorkstreamId: row.ownerWorkstreamId,
+		eventSeq: row.eventSeq,
+		eventType: row.eventType,
+		schemaVersion: row.schemaVersion,
+		occurredAt: row.occurredAt,
+		recordedAt: row.recordedAt,
+		actor: row.actor,
+		payload: row.payload
+	};
+	return row.source === null ? base : {
+		...base,
+		source: row.source
+	};
+}
+function dbRowToRecord(row) {
+	const id = String(row.event_id ?? "");
+	const base = {
+		eventId: id,
+		ownerWorkstreamId: String(row.owner_workstream_id ?? ""),
+		eventSeq: Number(row.event_seq ?? 0),
+		eventType: String(row.event_type ?? ""),
+		schemaVersion: Number(row.schema_version ?? 0),
+		occurredAt: Number(row.occurred_at ?? 0),
+		recordedAt: Number(row.recorded_at ?? 0),
+		actor: safeParse(String(row.actor ?? ""), `history_event[${id}].actor`),
+		payload: safeParse(String(row.payload ?? ""), `history_event[${id}].payload`)
+	};
+	if (row.source !== null && row.source !== void 0) return {
+		...base,
+		source: safeParse(String(row.source), `history_event[${id}].source`)
+	};
+	return base;
+}
+/**
+* Create `dir` (and any missing ancestors) and enforce owner-only 0o700 on
+* every directory THIS call created; a pre-existing parent is left at its
+* current mode (it may hold sibling projects — the DB file itself is
+* 0o600, which is the owner-only boundary that matters for the DB).
+*/
+function ensureOwnerOnlyDir(dir) {
+	const missing = [];
+	let cur = resolve(dir);
+	while (!existsSync(cur)) {
+		missing.push(cur);
+		const parent = dirname(cur);
+		if (parent === cur) break;
+		cur = parent;
+	}
+	try {
+		mkdirSync(dir, { recursive: true });
+	} catch (e) {
+		throw new StoreOpenError(`openDatabase: cannot create directory ${dir}: ${errMsg$4(e)}`, { cause: e });
+	}
+	for (const m of missing) try {
+		chmodSync(m, 448);
+	} catch (e) {
+		throw new StoreOpenError(`openDatabase: cannot set owner-only mode 0o700 on ${m}: ${errMsg$4(e)}`, { cause: e });
+	}
+}
+/** Driver error from `new DatabaseSync(path)` → structured. */
+function classifyOpenFailure(abs, e) {
+	const msg = errMsg$4(e);
+	if (/not a database|malformed|file is not a database/i.test(msg)) return new StoreCorruptError(`openDatabase: ${abs} is not a usable SQLite database (corrupt or non-DB file): ${msg}`, { cause: e });
+	return new StoreOpenError(`openDatabase: cannot open ${abs}: ${msg}`, { cause: e });
+}
+/** `PRAGMA quick_check` — a damaged file fails here (TC-DB-002). */
+function checkIntegrity(db, abs) {
+	let rows;
+	try {
+		rows = db.prepare("PRAGMA quick_check").all();
+	} catch (e) {
+		throw new StoreCorruptError(`openDatabase: ${abs} is corrupted or unreadable: ${errMsg$4(e)}`, { cause: e });
+	}
+	const problems = rows.map((r) => String(r.quick_check ?? "")).filter((s) => s.toLowerCase() !== "ok");
+	if (problems.length > 0) throw new StoreCorruptError(`openDatabase: ${abs} failed quick_check: ${problems.join("; ")}`);
+}
+function readUserVersion(db, abs) {
+	let row;
+	try {
+		row = db.prepare("PRAGMA user_version").get();
+	} catch (e) {
+		throw new StoreCorruptError(`openDatabase: ${abs} is corrupted (cannot read user_version): ${errMsg$4(e)}`, { cause: e });
+	}
+	const v = Number(row?.user_version ?? 0);
+	if (!Number.isSafeInteger(v) || v < 0) throw new StoreCorruptError(`openDatabase: ${abs} has a non-integer user_version`);
+	return v;
+}
+/** Fresh DB (user_version 0): V1 DDL + version bump, ONE transaction.
+*  user_version 0 with schema tables already present is an INCONSISTENT
+*  file (a torn init that somehow escaped the init transaction) →
+*  corruption, not a re-init. */
+function initializeSchema(db, abs) {
+	const tables = readExistingTables(db, abs);
+	for (const t of tables) if (EXPECTED_TABLES.includes(t)) throw new StoreCorruptError(`openDatabase: ${abs} has user_version=0 but table "${t}" already exists — inconsistent database (corruption)`);
+	db.exec("BEGIN");
+	try {
+		db.exec(schemaDdl());
+		db.exec(`PRAGMA user_version = 1`);
+		db.exec("COMMIT");
+	} catch (e) {
+		rollbackQuietly$1(db);
+		throw toStoreError(e, `openDatabase (schema init at ${abs})`);
+	}
+}
+function readExistingTables(db, abs) {
+	let rows;
+	try {
+		rows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+	} catch (e) {
+		throw new StoreCorruptError(`openDatabase: ${abs} is corrupted (cannot read sqlite_master): ${errMsg$4(e)}`, { cause: e });
+	}
+	return rows.map((r) => String(r.name ?? ""));
+}
+/** user_version=1 but a §15 table missing → the file is broken. */
+function verifyExpectedSchema(db, abs) {
+	verifyExpectedTables(db, abs);
+	verifyHistoryEventStructure(db, abs);
+}
+function verifyExpectedTables(db, abs) {
+	const tables = new Set(readExistingTables(db, abs));
+	for (const t of EXPECTED_TABLES) if (!tables.has(t)) throw new StoreCorruptError(`openDatabase: ${abs} has user_version=1 but is missing table "${t}" — database corruption`);
+}
+/**
+* user_version=1 + tables present, but the `history_event` structure does
+* not match this build's V1 DDL → STALE pre-release schema (an older dev
+* build: missing the WP-2.9 generated columns / filter indexes; or a
+* newer/unknown build: extra columns or named indexes). Rejected with a
+* structured STORE_SCHEMA_STALE — no migration path (DSH_ADAPTER §9);
+* the remedy is to delete the file and reinitialize. Column facts come
+* from `PRAGMA table_xinfo` (unlike `table_info`, it also reports the
+* generated columns, flagged `hidden = 2` for virtual generated —
+* SQLite ≥ 3.36, available on every node:sqlite build the store supports).
+*/
+function verifyHistoryEventStructure(db, abs) {
+	let colRows;
+	let idxRows;
+	try {
+		colRows = db.prepare("PRAGMA table_xinfo(history_event)").all();
+		idxRows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'history_event'").all();
+	} catch (e) {
+		throw new StoreCorruptError(`openDatabase: ${abs} is corrupted (cannot read the history_event structure): ${errMsg$4(e)}`);
+	}
+	const hiddenByColumn = /* @__PURE__ */ new Map();
+	for (const r of colRows) hiddenByColumn.set(String(r.name ?? ""), Number(r.hidden ?? 0));
+	const expectedColumns = new Set(HISTORY_EVENT_COLUMNS);
+	const colMissing = [];
+	const colUnexpected = [];
+	const colWrongKind = [];
+	for (const c of HISTORY_EVENT_COLUMNS) if (!hiddenByColumn.has(c)) colMissing.push(c);
+	for (const [c, hidden] of hiddenByColumn) if (!expectedColumns.has(c)) colUnexpected.push(c);
+	else if (hidden !== (HISTORY_EVENT_GENERATED.has(c) ? 2 : 0)) colWrongKind.push(c);
+	const namedIndexes = new Set(idxRows.map((r) => String(r.name ?? "")).filter((n) => !n.startsWith("sqlite_autoindex_")));
+	const idxMissing = [];
+	const idxUnexpected = [];
+	for (const i of HISTORY_EVENT_INDEXES) if (!namedIndexes.has(i)) idxMissing.push(i);
+	const expectedIndexes = new Set(HISTORY_EVENT_INDEXES);
+	for (const n of namedIndexes) if (!expectedIndexes.has(n)) idxUnexpected.push(n);
+	if (colMissing.length > 0 || colUnexpected.length > 0 || colWrongKind.length > 0 || idxMissing.length > 0 || idxUnexpected.length > 0) {
+		const parts = [];
+		if (colMissing.length > 0) parts.push(`missing columns: ${colMissing.join(", ")}`);
+		if (colUnexpected.length > 0) parts.push(`unexpected columns: ${colUnexpected.join(", ")}`);
+		if (colWrongKind.length > 0) parts.push(`columns with wrong kind (generated vs regular): ${colWrongKind.join(", ")}`);
+		if (idxMissing.length > 0) parts.push(`missing indexes: ${idxMissing.join(", ")}`);
+		if (idxUnexpected.length > 0) parts.push(`unexpected indexes: ${idxUnexpected.join(", ")}`);
+		throw new StoreSchemaStaleError(`openDatabase: ${abs} has user_version=1 but its history_event structure differs from this build's V1 DDL (${parts.join("; ")}) — stale pre-release schema; the pre-release store does not migrate (DSH_ADAPTER §9): delete the file and reinitialize`);
+	}
+}
+function errMsg$4(e) {
+	return e instanceof Error ? e.message : String(e);
+}
+function assertNonEmptyString$2(value, what) {
+	if (typeof value !== "string" || value.length === 0) throw new StoreInputError(`${what} must be a non-empty string`);
+	return value;
+}
+function assertSeq(value, what) {
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new StoreInputError(`${what} must be a positive safe integer (event_seq >= 1)`);
+}
+function assertPositiveInt$1(value, what) {
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) throw new StoreInputError(`${what} must be a positive safe integer`);
+}
+function safeStringify(value, what) {
+	assertJsonValue(value, what, 0);
+	try {
+		const out = JSON.stringify(value);
+		if (typeof out !== "string") throw new Error(`JSON.stringify returned ${typeof out}`);
+		return out;
+	} catch (e) {
+		throw new StoreInputError(`${what} is not JSON-serializable: ${errMsg$4(e)}`, { cause: e });
+	}
+}
+/**
+* Strict-JSON gate: `JSON.stringify` silently DROPS function/symbol/
+* undefined property values and silently coerces NaN/Infinity to null —
+* for persisted envelope data that is silent corruption, not
+* serialization. Only strict JSON values pass: null, string, boolean,
+* finite number, arrays, and PLAIN objects (no Date/RegExp/Map/custom
+* class, no symbol keys, no undefined values). Depth-capped (64).
+*/
+function assertJsonValue(value, what, depth) {
+	if (depth > 64) throw new StoreInputError(`${what}: nesting deeper than 64 levels — refusing to persist`);
+	if (value === null) return;
+	const t = typeof value;
+	if (t === "string" || t === "boolean") return;
+	if (t === "number") {
+		if (!Number.isFinite(value)) throw new StoreInputError(`${what}: non-finite number (NaN/±Infinity are not JSON)`);
+		return;
+	}
+	if (t === "function" || t === "symbol" || t === "bigint" || t === "undefined") throw new StoreInputError(`${what}: not a strict JSON value (got ${t})`);
+	if (Array.isArray(value)) {
+		for (const item of value) assertJsonValue(item, what, depth + 1);
+		return;
+	}
+	const obj = value;
+	const proto = Object.getPrototypeOf(obj);
+	if (proto !== Object.prototype && proto !== null) throw new StoreInputError(`${what}: contains a non-plain object (${obj.constructor?.name ?? "unknown"}) — strict JSON only (no Date/RegExp/Map/...)`);
+	if (Object.getOwnPropertySymbols(obj).length > 0) throw new StoreInputError(`${what}: contains symbol-keyed properties — not JSON`);
+	for (const v of Object.values(obj)) assertJsonValue(v, what, depth + 1);
+}
+function safeParse(raw, what) {
+	try {
+		return JSON.parse(raw);
+	} catch (e) {
+		throw new StoreCorruptError(`${what} is not valid JSON — database corruption`, { cause: e });
+	}
+}
+function rollbackQuietly$1(db) {
+	try {
+		db.exec("ROLLBACK");
+	} catch {}
+}
+function closeQuietly(db) {
+	try {
+		db.close();
+	} catch {}
+}
+/**
+* Store-owned failure → structured StoreError. Caller-owned hook errors
+* (thrown by the caller's validate/realize callbacks) propagate UNCHANGED —
+* they are the caller's error type; the transaction is already rolled back.
+*/
+function toStoreError(e, context) {
+	if (e instanceof StoreError) return e;
+	const msg = errMsg$4(e);
+	if (/UNIQUE constraint failed/i.test(msg)) return new StoreConflictError(`${context}: uniqueness violation: ${msg}`, { cause: e });
+	if (/not a database|database disk image is malformed/i.test(msg)) return new StoreCorruptError(`${context}: corrupt or unreadable SQLite file: ${msg}`, { cause: e });
+	return new StoreSqlError(`${context}: ${msg}`, { cause: e });
+}
+//#endregion
+//#region src/host/persistence/hardening/db-check.ts
+/**
+* WP-8.1 — hardening: check 1, the operational DB integrity probe.
+*
+* The probe RIDES on the store's own `openDatabase` (WP-2.1): that open
+* path IS the integrity check — owner-only permissions, WAL, the
+* `PRAGMA quick_check` corruption probe, the monotonic `user_version`
+* gate, the V1 structure verification (WP-2.9). This module adds the
+* FAILURE CLASSIFICATION the §10 失效表 requires on top of the
+* structured `StoreError`s (「明确报错 + 指向数据库文件 + 用户指引，绝不
+* 静默」):
+*
+*   STORE_CORRUPT        → unrecoverable — TC-DB-002: the operational
+*                          data (History/Run/Intervention/…) is NOT
+*                          recoverable (known risk, V1: no event
+*                          export/backup); the declarative 真源
+*                          (`.research/` + Git) is a separate file the
+*                          store never touches (INV-DB-3) — the
+*                          ORCHESTRATOR asserts that intactness from the
+*                          tree/git check results and adds it to the
+*                          guidance;
+*   STORE_VERSION        → unrecoverable — pre-release does not migrate
+*                          (DSH_ADAPTER §9「不匹配即拒绝」);
+*   STORE_SCHEMA_STALE   → unrecoverable — same no-migration policy for
+*                          a stale pre-release V1 structure;
+*   STORE_OPEN           → unrecoverable — the file/dir cannot be created
+*                          or opened (environment: path/permissions);
+*   anything else        → unrecoverable with code `UNEXPECTED` (fail
+*                          loud — a non-`StoreError` here is a store bug,
+*                          never swallowed).
+*
+* A FRESH path (no file yet) opens as pass: first startup initializes
+* the V1 schema — exactly what the wiring's first open would do, so the
+* check neither over- nor under-creates state.
+*
+* The open handle is returned to the caller (the orchestrator's
+* consistency spot check probes through it and closes it, ALWAYS — even
+* on later check failures).
+*/
+function errMsg$3(e) {
+	return e instanceof Error ? e.message : String(e);
+}
+/**
+* Run the DB integrity probe at `dbPath`.
+*
+* Never throws: every failure (including a non-`StoreError` escape) is
+* classified into the returned result — the startup pass must see ALL
+* four checks' results, so one broken 真源 must not mask the others
+* (aggregation, not short-circuit — TC-DB-002「明确报错」applies to the
+* report as a whole).
+*/
+function checkDatabase(dbPath) {
+	try {
+		const handle = openDatabase(dbPath);
+		return {
+			result: {
+				status: "pass",
+				userVersion: handle.userVersion,
+				message: `database opened (user_version=${String(handle.userVersion)}; quick_check + structure verified)`,
+				guidance: []
+			},
+			handle
+		};
+	} catch (e) {
+		if (e instanceof StoreError) return {
+			result: classifyStoreError(dbPath, e.code, errMsg$3(e)),
+			handle: null
+		};
+		return {
+			result: {
+				status: "unrecoverable",
+				code: "UNEXPECTED",
+				message: `database check failed with an unexpected error (store bug — fail loud): ${errMsg$3(e)}`,
+				guidance: [`the operational database at ${dbPath} could not be opened and the failure is outside the store's own error taxonomy — this is a plugin defect, report it with the message above`]
+			},
+			handle: null
+		};
+	}
+}
+function classifyStoreError(dbPath, code, message) {
+	switch (code) {
+		case "STORE_CORRUPT": return {
+			status: "unrecoverable",
+			code,
+			message,
+			guidance: [
+				`${dbPath} is corrupted (SQLite quick_check / structure failure) — the operational data it holds (History / Run / Claim / Fact / Intervention / Inbox / Audit / PlanFork runtime records) is NOT recoverable: V1 has no event export or backup (ARCHITECTURE §10, known risk; derived-column rebuild only applies while the event table is intact, TC-HIST-006) — it must be re-accumulated`,
+				`the declarative 真源 (.research/ + Git) is a separate file this database never touches (INV-DB-3) — it is NOT affected by this corruption (the report's tree/git checks assert its state explicitly)`,
+				`remedy (user action, never automatic): keep ${dbPath} for forensics if needed, then delete it together with its -wal/-shm siblings and restart — the next start re-initializes a fresh V1 database`
+			]
+		};
+		case "STORE_VERSION": return {
+			status: "unrecoverable",
+			code,
+			message,
+			guidance: [`${dbPath} carries a schema version this build does not support (${message}) — the pre-release store does not migrate (DSH_ADAPTER §9「user_version 单调、不匹配即拒绝」)`, `remedy (user action, never automatic): the file's data is a pre-release dev artifact — delete ${dbPath} with its -wal/-shm siblings and restart to re-initialize (operational data in it is lost)`]
+		};
+		case "STORE_SCHEMA_STALE": return {
+			status: "unrecoverable",
+			code,
+			message,
+			guidance: [`${dbPath} was written by a different pre-release build (same user_version, different V1 structure) — rejected: no migration path (DSH_ADAPTER §9)`, `remedy (user action, never automatic): delete ${dbPath} with its -wal/-shm siblings and restart to re-initialize (operational data in it is lost)`]
+		};
+		case "STORE_OPEN": return {
+			status: "unrecoverable",
+			code,
+			message,
+			guidance: [`the operational database cannot be created or opened at ${dbPath} (${message}) — check that the path is usable and writable by the plugin's user`, "the plugin cannot serve a research project without its operational store — this is not retryable until the environment is fixed"]
+		};
+		default: return {
+			status: "unrecoverable",
+			code,
+			message,
+			guidance: [`the operational database at ${dbPath} failed its integrity check with code ${code}: ${message}`, `the plugin does not proceed over a failed database check and does not attempt automatic repair (remedy: investigate ${dbPath}; deleting it re-initializes at the cost of the operational data)`]
+		};
+	}
+}
+//#endregion
+//#region src/host/persistence/hardening/consistency.ts
+/**
+* Run the dual-真源 consistency spot check. READ-ONLY: the store handle
+* is used for `getEvent` probes only; the caller keeps ownership.
+*/
+function checkDualTruthConsistency(input) {
+	const maxSample = input.maxSample ?? 16;
+	if (!Number.isSafeInteger(maxSample) || maxSample < 1) throw new TypeError("checkDualTruthConsistency: maxSample must be a positive safe integer");
+	const findings = [];
+	let projectIdChecked = false;
+	const projectDoc = input.tree.project;
+	if (projectDoc !== null) {
+		projectIdChecked = true;
+		if (projectDoc.id !== input.projectId) findings.push({
+			kind: "project-id-mismatch",
+			message: `the declarative 真源 declares project ${JSON.stringify(projectDoc.id)} (.research/project.yaml) but the operational store lives under the registered scope ${JSON.stringify(input.projectId)} (DSH_ADAPTER §9 data dir) — the two 真源 disagree about WHICH project this is`
+		});
+	}
+	const candidates = [];
+	for (const topic of input.tree.topics) for (const ws of topic.workstreams) {
+		const doc = ws.doc;
+		if (doc === null) continue;
+		candidates.push({
+			workstreamId: ws.id,
+			lifecycle: doc.lifecycle
+		});
+	}
+	candidates.sort((a, b) => a.workstreamId < b.workstreamId ? -1 : a.workstreamId > b.workstreamId ? 1 : 0);
+	const sample = candidates.slice(0, maxSample);
+	const checked = [];
+	let divergent = false;
+	for (const ws of sample) {
+		checked.push(ws.workstreamId);
+		if (ws.lifecycle === "DROPPED") continue;
+		let hasEvents;
+		try {
+			hasEvents = input.store.getEvent(ws.workstreamId, 1) !== null;
+		} catch (e) {
+			if (e instanceof StoreError) return {
+				status: "unrecoverable",
+				checked,
+				findings,
+				projectIdChecked,
+				message: `consistency probe of ${ws.workstreamId} failed with a store error (${e.code}): ${e.message}`,
+				guidance: [`the operational database FAILED A ROW READ during the consistency probe (${e.code}: ${e.message}) — it passed the open-time quick_check but is corrupt for our purposes; treat it as the TC-DB-002 corruption case (structured error, no repair attempt, operational data not recoverable)`]
+			};
+			throw e;
+		}
+		if (ws.lifecycle === "REALIZED" && !hasEvents) {
+			findings.push({
+				kind: "file-leads",
+				workstreamId: ws.workstreamId,
+				message: `${ws.workstreamId}: the file says lifecycle=REALIZED but History has NO events (RR-010 crash-window residue) — recoverable: the startup lifecycle reconciliation rolls the file back to PLANNED (loud; History is the truth 「did it happen」)`
+			});
+			divergent = true;
+		} else if (ws.lifecycle === "PLANNED" && hasEvents) {
+			findings.push({
+				kind: "file-trails",
+				workstreamId: ws.workstreamId,
+				message: `${ws.workstreamId}: History HAS events but the file says lifecycle=PLANNED (the flip half was lost) — recoverable: the startup lifecycle reconciliation converges the file forward to REALIZED (loud)`
+			});
+			divergent = true;
+		}
+	}
+	const mismatch = findings.some((f) => f.kind === "project-id-mismatch");
+	const status = mismatch ? "unrecoverable" : divergent ? "recoverable" : "pass";
+	const guidance = [];
+	if (mismatch) {
+		for (const f of findings) if (f.kind === "project-id-mismatch") guidance.push(f.message);
+		guidance.push(`remedy (user action, never automatic — the plugin must not guess which side to rewrite): restore the correct side (e.g. .research/project.yaml via \`git restore --source=<commit> -- .research/project.yaml\`, or the matching data dir under $DSH_HOME/research-control/<project-id>/), then restart`);
+	} else if (divergent) {
+		for (const f of findings) guidance.push(f.message);
+		guidance.push("no automatic convergence happens at this check (it is read-only): the wiring's startup reconciliation (lifecycle convergence → run-vs-history → semantics rebuild) applies the fixes LOUD after this report");
+	}
+	return {
+		status,
+		checked,
+		findings,
+		projectIdChecked,
+		message: findings.length === 0 ? `consistent: ${String(checked.length)} workstream(s) spot-checked (file lifecycle vs History)` + (projectIdChecked ? "; project scope matches" : "; project doc absent — scope check not applicable") : `${String(findings.length)} consistency finding(s): ${findings.map((f) => f.kind).join(", ")}`,
+		guidance
+	};
+}
+//#endregion
+//#region src/host/git/errors.ts
+var GitError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = new.target.name;
+		this.code = code;
+	}
+};
+/** Git executable missing / spawn ENOENT (§2, §9「Git 可执行缺失」). */
+var GitMissingError = class extends GitError {
+	constructor(message, options) {
+		super("GIT_MISSING", message, options);
+	}
+};
+/** 命令超时 (默认 10s) — kill 后按错误处理, 不重试自动写操作 (§1.9, §9). */
+var GitTimeoutError = class extends GitError {
+	command;
+	timeoutMs;
+	constructor(command, timeoutMs) {
+		super("GIT_TIMEOUT", `Git 操作超时 (${timeoutMs}ms): git ${command.join(" ")}`);
+		this.command = command;
+		this.timeoutMs = timeoutMs;
+	}
+};
+/** Non-zero exit outside a specific known class — git 自身报错, 原样展示 (§9「repo 损坏」). */
+var GitCommandError = class extends GitError {
+	command;
+	exitCode;
+	stdout;
+	stderr;
+	constructor(command, exitCode, stdout, stderr) {
+		super("GIT_COMMAND", `git ${command.join(" ")} exited ${exitCode}${stderr.trim() ? `: ${stderr.trim()}` : ""}`);
+		this.command = command;
+		this.exitCode = exitCode;
+		this.stdout = stdout;
+		this.stderr = stderr;
+	}
+};
+/** 白名单外命令 (INV-GIT-7 运行时面) — 不可达. */
+var GitWhitelistViolationError = class extends GitError {
+	attempted;
+	constructor(attempted) {
+		super("GIT_WHITELIST", `git command not in W1–W13 whitelist (INV-GIT-7): git ${attempted.join(" ")}`);
+		this.attempted = attempted;
+	}
+};
+/** Invalid caller input (bad OID shape, pathspec not under .research/…). */
+var GitInputError = class extends GitError {
+	constructor(message) {
+		super("GIT_INPUT", message);
+	}
+};
+//#endregion
+//#region src/host/git/whitelist.ts
+/**
+* WP-1.2 — the frozen W1–W13 operation whitelist (GIT_INTEGRATION §3),
+* encoded as the single source of truth for argv validation.
+*
+* 「白名单外命令不可达」 is enforced at two layers:
+*  1. 类型面: index.ts exports only the named operations below — there is no
+*     generic run/exec/spawn export (statically asserted by
+*     tests/git/inv-git-static.test.ts);
+*  2. 运行时: runner.ts calls {@link assertWhitelisted} before every spawn and
+*     throws GitWhitelistViolationError for any argv that does not match one
+*     of these exact shapes (INV-GIT-7).
+*
+* argv shapes are relative to the repo root; the transport layer prepends
+* `-C <root>` (工作目录强制 -C root, never `cwd:`).
+*/
+/** W9/W10 pathspec and W8 restore scope (INV-GIT-3 / §6). */
+const RESEARCH_PATHSPEC = ".research/";
+/** W6 log 格式串 — 冻结建议 (§3 说明): OID、作者时间、标题, 单元分隔符 \x1f. */
+const LOG_FORMAT_ARG = "--format=%H%x1f%aI%x1f%s";
+/**
+* Full 40-hex commit OID. Short OIDs and refs (HEAD, main, HEAD~1) are
+* deliberately rejected: the whitelist is exact, and every commit value the
+* plugin passes (W7/W8) comes from W11 (`rev-parse HEAD`, full OID).
+*/
+const OID_RE$1 = /^[0-9a-f]{40}$/;
+const DIGITS_RE = /^[0-9]+$/;
+/**
+* Repo-root-relative path argument (W3/W6/W8/W13): non-empty, not absolute,
+* not a `..` escape, no NUL, not option-like. The `--` separator in each
+* argv shape is the second line of defense against option smuggling.
+*/
+function isPathArg(p) {
+	return p.length > 0 && p !== ".." && !p.startsWith("../") && !p.startsWith("/") && !p.startsWith("-") && !p.includes("\0");
+}
+/** W8 scope: restore 仅 .research/** (§6「.research/ 目录外的路径不允许通过本插件 restore」). */
+function isUnderResearch(p) {
+	return p === ".research/" || p.startsWith(".research/");
+}
+const is = (a, i, v) => a[i] === v;
+const WHITELIST_ROWS = [
+	{
+		id: "W1",
+		operation: "仓库检测",
+		trigger: "auto",
+		argv: ["rev-parse", "--show-toplevel"],
+		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "--show-toplevel")
+	},
+	{
+		id: "W2",
+		operation: "git dir 定位",
+		trigger: "auto",
+		argv: ["rev-parse", "--git-dir"],
+		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "--git-dir")
+	},
+	{
+		id: "W3",
+		operation: "blob OID 计算",
+		trigger: "auto",
+		argv: [
+			"hash-object",
+			"--",
+			"<path>"
+		],
+		match: (a) => a.length === 3 && is(a, 0, "hash-object") && is(a, 1, "--") && isPathArg(a[2])
+	},
+	{
+		id: "W4",
+		operation: "工作区状态",
+		trigger: "auto",
+		argv: [
+			"status",
+			"--porcelain=v2",
+			"[--branch]"
+		],
+		match: (a) => is(a, 0, "status") && is(a, 1, "--porcelain=v2") && (a.length === 2 || a.length === 3 && is(a, 2, "--branch"))
+	},
+	{
+		id: "W5",
+		operation: "变更清单",
+		trigger: "auto",
+		argv: [
+			"diff",
+			"--name-status",
+			"[<baseline-oid>]"
+		],
+		match: (a) => is(a, 0, "diff") && is(a, 1, "--name-status") && (a.length === 2 || a.length === 3 && OID_RE$1.test(a[2]))
+	},
+	{
+		id: "W6",
+		operation: "文件历史",
+		trigger: "user",
+		argv: [
+			"log",
+			LOG_FORMAT_ARG,
+			"[-n <count>]",
+			"[--skip <n>]",
+			"--",
+			"<path>"
+		],
+		match: (a) => {
+			if (!is(a, 0, "log") || !is(a, 1, "--format=%H%x1f%aI%x1f%s")) return false;
+			let i = 2;
+			if (is(a, i, "-n")) {
+				if (!DIGITS_RE.test(a[i + 1] ?? "")) return false;
+				i += 2;
+			}
+			if (is(a, i, "--skip")) {
+				if (!DIGITS_RE.test(a[i + 1] ?? "")) return false;
+				i += 2;
+			}
+			return is(a, i, "--") && i + 2 === a.length && isPathArg(a[i + 1]);
+		}
+	},
+	{
+		id: "W7",
+		operation: "历史版本内容",
+		trigger: "user",
+		argv: ["show", "<commit-oid>:<path>"],
+		match: (a) => {
+			if (a.length !== 2 || !is(a, 0, "show")) return false;
+			const ref = a[1];
+			const i = ref.indexOf(":");
+			return i > 0 && OID_RE$1.test(ref.slice(0, i)) && isPathArg(ref.slice(i + 1));
+		}
+	},
+	{
+		id: "W8",
+		operation: "恢复文件",
+		trigger: "user",
+		argv: [
+			"restore",
+			"--source=<commit-oid>",
+			"--",
+			".research/<path>"
+		],
+		match: (a) => a.length === 4 && is(a, 0, "restore") && typeof a[1] === "string" && a[1].startsWith("--source=") && OID_RE$1.test(a[1].slice(9)) && is(a, 2, "--") && isPathArg(a[3]) && isUnderResearch(a[3])
+	},
+	{
+		id: "W9",
+		operation: "暂存",
+		trigger: "user",
+		argv: [
+			"add",
+			"--",
+			RESEARCH_PATHSPEC
+		],
+		match: (a) => a.length === 3 && is(a, 0, "add") && is(a, 1, "--") && is(a, 2, ".research/")
+	},
+	{
+		id: "W10",
+		operation: "检查点提交",
+		trigger: "user",
+		argv: [
+			"commit",
+			"-m",
+			"<research: summary>",
+			"--",
+			RESEARCH_PATHSPEC
+		],
+		match: (a) => a.length === 5 && is(a, 0, "commit") && is(a, 1, "-m") && typeof a[2] === "string" && a[2].length > 0 && !a[2].includes("\0") && is(a, 3, "--") && is(a, 4, ".research/")
+	},
+	{
+		id: "W11",
+		operation: "取提交 OID",
+		trigger: "user",
+		argv: ["rev-parse", "HEAD"],
+		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "HEAD")
+	},
+	{
+		id: "W12",
+		operation: "显式初始化",
+		trigger: "user",
+		argv: ["init"],
+		match: (a) => a.length === 1 && is(a, 0, "init")
+	},
+	{
+		id: "W13",
+		operation: "枚举 tracked 文件",
+		trigger: "auto",
+		argv: [
+			"ls-files",
+			"--",
+			"<pathspec>"
+		],
+		match: (a) => a.length === 3 && is(a, 0, "ls-files") && is(a, 1, "--") && isPathArg(a[2])
+	}
+];
+/**
+* 运行时护栏 (INV-GIT-7): argv must match exactly one whitelist row;
+* anything else throws GitWhitelistViolationError before a process is
+* spawned. Returns the matched row for observability.
+*/
+function assertWhitelisted(argv) {
+	for (const row of WHITELIST_ROWS) if (row.match(argv)) return row;
+	throw new GitWhitelistViolationError([...argv]);
+}
+//#endregion
+//#region src/host/git/runner.ts
+/**
+* WP-1.2 — Git wrapper: argv-array transport layer (INV-GIT-6).
+*
+* This is the ONLY place in the plugin that spawns `git` (ARCHITECTURE §2.2
+* rule 3). Guarantees:
+*  - argv 数组直传 spawn, `shell: false` — 禁 shell 拼接 (INV-GIT-6; 静态核验
+*    tests/git/inv-git-static.test.ts);
+*  - 工作目录强制 `-C <root>` (not `cwd:`);
+*  - 每调用超时 (默认 10s, 可配) → process-group kill + GitTimeoutError,
+*    不重试自动写操作 (§1.9 / §9);
+*  - stdout/stderr 字节上限 → 截断+标记 (§1.9 / §9「输出超大」);
+*  - git 可执行解析失败响亮报错 (GitMissingError, §2: 拒绝 managed mode,
+*    提示安装 Git).
+*
+* NOTE: `spawnGitProcess` / `runGit` are internal — index.ts deliberately
+* does NOT export them. Only the named whitelist operations (operations.ts)
+* reach the transport from production code. Test infrastructure
+* (tests/git/temp-repo.ts) deep-imports `spawnGitProcess` for fixture setup
+* of states the plugin must never produce on a user's repo (see that file's
+* header for the rationale).
+*/
+/**
+* Resolve the path of the git executable. 响亮报错 (GitMissingError) when it
+* cannot be resolved — per §2「git 可执行缺失 -> 同样拒绝，提示安装 Git」.
+* Deliberately NOT cached: resolution happens per call so PATH changes
+* (e.g. TC-GIT-011) are observed.
+*/
+function resolveGitExecutable(override) {
+	if (override !== void 0) {
+		if (override.length === 0) throw new GitMissingError("git executable override is empty — refusing to run git (GIT_INTEGRATION §2)");
+		try {
+			if (!statSync(override).isFile()) throw new Error(`not a file: ${override}`);
+			accessSync(override, constants.X_OK);
+		} catch (e) {
+			throw new GitMissingError(`git executable at "${override}" is not usable (GIT_INTEGRATION §2: 提示安装 Git)`, { cause: e });
+		}
+		return override;
+	}
+	const separator = process.platform === "win32" ? ";" : ":";
+	const pathEnv = process.env.PATH ?? process.env.Path ?? "";
+	const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";") : [""];
+	for (const dir of pathEnv.split(separator)) {
+		if (dir.length === 0) continue;
+		for (const ext of exts) {
+			const candidate = join(dir, `git${ext.toLowerCase()}`);
+			try {
+				if (!statSync(candidate).isFile()) continue;
+				accessSync(candidate, constants.X_OK);
+				return candidate;
+			} catch {}
+		}
+	}
+	throw new GitMissingError("git executable not found in PATH — 拒绝进入 managed research mode; 请安装 Git (GIT_INTEGRATION §2)");
+}
+/**
+* Spawn `git -C <root> <argv…>` as a plain argv array (INV-GIT-6).
+* No whitelist check here — callers: {@link runGit} (checked) and test
+* infrastructure (fixture setup for states the plugin itself must never
+* perform; see file header).
+*
+* The child runs in its own process group (Linux) so the timeout kill also
+* reaches helper processes (e.g. a `sleep` under a test fake-git) — an
+* orphan holding the stdio pipes would otherwise hang the promise.
+*/
+function spawnGitProcess(executable, root, argv, spec) {
+	const command = [
+		"-C",
+		root,
+		...argv
+	];
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const child = spawn(executable, command, {
+			shell: false,
+			env: process.env,
+			stdio: [
+				"ignore",
+				"pipe",
+				"pipe"
+			],
+			detached: process.platform !== "win32"
+		});
+		const stdoutChunks = [];
+		let stdoutBytes = 0;
+		const stderrChunks = [];
+		let stderrBytes = 0;
+		let truncated = false;
+		const pushCapped = (chunks, bytes, chunk) => {
+			const remaining = spec.maxOutputBytes - bytes;
+			if (remaining <= 0) return {
+				bytes,
+				capped: true
+			};
+			if (chunk.length > remaining) {
+				chunks.push(chunk.subarray(0, remaining));
+				return {
+					bytes: spec.maxOutputBytes,
+					capped: true
+				};
+			}
+			chunks.push(chunk);
+			return {
+				bytes: bytes + chunk.length,
+				capped: false
+			};
+		};
+		child.stdout?.on("data", (chunk) => {
+			const r = pushCapped(stdoutChunks, stdoutBytes, chunk);
+			stdoutBytes = r.bytes;
+			if (r.capped) truncated = true;
+		});
+		child.stderr?.on("data", (chunk) => {
+			const r = pushCapped(stderrChunks, stderrBytes, chunk);
+			stderrBytes = r.bytes;
+			if (r.capped) truncated = true;
+		});
+		const timer = setTimeout(() => {
+			if (settled) return;
+			settled = true;
+			killProcessGroup(child);
+			reject(new GitTimeoutError(command, spec.timeoutMs));
+		}, spec.timeoutMs);
+		child.on("error", (e) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			if (e.code === "ENOENT") reject(new GitMissingError(`failed to spawn git at "${executable}" (ENOENT) — 请安装 Git (GIT_INTEGRATION §2)`, { cause: e }));
+			else reject(new GitMissingError(`failed to spawn git at "${executable}": ${e.message}`, { cause: e }));
+		});
+		child.on("close", (code, signal) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			if (code === null) {
+				reject(new GitCommandError(command, -1, Buffer.concat(stdoutChunks).toString("utf8"), `killed by signal ${signal ?? "unknown"}`));
+				return;
+			}
+			resolve({
+				exitCode: code,
+				stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+				stderr: Buffer.concat(stderrChunks).toString("utf8"),
+				truncated
+			});
+		});
+	});
+}
+function killProcessGroup(child) {
+	try {
+		if (child.pid != null && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
+		else child.kill("SIGKILL");
+	} catch {}
+}
+/**
+* The checked path: validate argv against the W1–W13 whitelist (INV-GIT-7
+* 运行时面), resolve the executable (fail loud), then spawn with the
+* §1.9 guards. Every operation in operations.ts goes through here.
+*/
+async function runGit(root, argv, opts) {
+	assertWhitelisted(argv);
+	return await spawnGitProcess(resolveGitExecutable(opts?.gitExecutable), root, argv, {
+		timeoutMs: opts?.timeoutMs ?? 1e4,
+		maxOutputBytes: opts?.maxOutputBytes ?? 1048576
+	});
+}
+//#endregion
+//#region src/host/git/operations.ts
+const OID_RE = /^[0-9a-f]{40}$/;
+function withC(root, argv) {
+	return [
+		"-C",
+		root,
+		...argv
+	];
+}
+function assertRepoRelativePath(p, op) {
+	if (typeof p !== "string" || p.length === 0) throw new GitInputError(`${op}: path must be a non-empty string`);
+	if (p === ".." || p.startsWith("../") || p.startsWith("/") || p.includes("\0")) throw new GitInputError(`${op}: path must be repo-root-relative (GIT_INTEGRATION §3 说明), got: ${p}`);
+	return p;
+}
+function assertOid(oid, op) {
+	if (typeof oid !== "string" || !OID_RE.test(oid)) throw new GitInputError(`${op}: expected a full 40-hex commit OID, got: ${String(oid)}`);
+	return oid;
+}
+function commandFailed(root, argv, res) {
+	throw new GitCommandError(withC(root, argv), res.exitCode, res.stdout, res.stderr);
+}
+/** W1 (§2): `git -C <candidate> rev-parse --show-toplevel`. exit≠0 → 不是 Git repo. */
+async function detectRepo(candidateRoot, opts) {
+	const res = await runGit(candidateRoot, ["rev-parse", "--show-toplevel"], opts);
+	if (res.exitCode !== 0) return {
+		ok: false,
+		reason: "not-a-repo"
+	};
+	return {
+		ok: true,
+		repoRoot: res.stdout.trim()
+	};
+}
+/** W2 (§5.1 前置): `git rev-parse --git-dir`, returned absolute (resolved against root). */
+async function resolveGitDir(root, opts) {
+	const argv = ["rev-parse", "--git-dir"];
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	const raw = res.stdout.trim();
+	return isAbsolute(raw) ? raw : join(root, raw);
+}
+/**
+* W3 (§7): `git hash-object -- <path>` — 对 working copy 内容计算 Git blob
+* OID，无需 commit → stale 检测不依赖用户 commit 频率 (PLAN_FORK_SPEC §3/§5).
+*/
+async function hashObject(root, filePath, opts) {
+	const argv = [
+		"hash-object",
+		"--",
+		assertRepoRelativePath(filePath, "hashObject")
+	];
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	return res.stdout.trim();
+}
+/** W4 (§8 audit / checkpoint 前置): `git status --porcelain=v2 [--branch]`. */
+async function status(root, opts) {
+	const argv = ["status", "--porcelain=v2"];
+	if (opts?.includeBranch ?? true) argv.push("--branch");
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	const { head, entries } = parsePorcelainV2(res.stdout);
+	return {
+		head,
+		entries,
+		raw: res.stdout,
+		truncated: res.truncated
+	};
+}
+/**
+* Parse `git status --porcelain=v2 [--branch]`.
+*
+* Line grammar (git-status(1), verified against git 2.53 output):
+*   1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+*   2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\t<origPath>
+*   u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <hI> <path>
+*   ? <path>
+* Forward-compatible: the path is always the LAST token (quoted paths
+* contain no raw spaces), rename lines carry a tab between path/origPath;
+* unknown lines (`# …` comments, `header …` extensions) are skipped — raw
+* is kept verbatim in the result.
+*/
+function parsePorcelainV2(raw) {
+	let head;
+	let branchOid;
+	const entries = [];
+	for (const line of raw.split("\n")) {
+		if (line.length === 0) continue;
+		if (line.startsWith("# branch.oid ")) {
+			const v = line.slice(13);
+			if (/^[0-9a-f]{40}$/.test(v)) {
+				branchOid = v;
+				if (head?.kind === "detached") head.oid = v;
+			}
+		} else if (line.startsWith("# branch.head ")) {
+			const v = line.slice(14);
+			head = v === "(detached)" ? {
+				kind: "detached",
+				oid: branchOid
+			} : {
+				kind: "branch",
+				name: v
+			};
+		} else if (line.startsWith("# branch.upstream ")) {
+			if (head?.kind === "branch") head.upstream = line.slice(18);
+		} else if (line.startsWith("# branch.ab ")) {
+			const m = /^\+(-?\d+) -(-?\d+)$/.exec(line.slice(12));
+			if (m && head?.kind === "branch") {
+				head.ahead = Number(m[1]);
+				head.behind = Number(m[2]);
+			}
+		} else if (line.startsWith("1 ") || line.startsWith("u ")) {
+			const parts = line.slice(2).split(" ");
+			const xy = parts[0] ?? "";
+			entries.push({
+				kind: line.startsWith("u ") ? "unmerged" : "tracked",
+				x: xy.slice(0, 1),
+				y: xy.slice(1, 2),
+				path: unquotePath(parts[parts.length - 1] ?? "")
+			});
+		} else if (line.startsWith("2 ")) {
+			const parts = line.slice(2).split(" ");
+			const xy = parts[0] ?? "";
+			const last = parts[parts.length - 1] ?? "";
+			const sep = last.indexOf("	");
+			const [path, origPath] = sep >= 0 ? [last.slice(0, sep), last.slice(sep + 1)] : [last, ""];
+			entries.push({
+				kind: "renamed",
+				x: xy.slice(0, 1),
+				y: xy.slice(1, 2),
+				path: unquotePath(path),
+				origPath: unquotePath(origPath)
+			});
+		} else if (line.startsWith("? ")) entries.push({
+			kind: "untracked",
+			x: "",
+			y: "",
+			path: unquotePath(line.slice(2))
+		});
+	}
+	return {
+		head,
+		entries
+	};
+}
+/** Unquote a C-quoted path from git output (core.quotePath). */
+function unquotePath(p) {
+	if (p.length < 2 || !p.startsWith("\"") || !p.endsWith("\"")) return p;
+	const inner = p.slice(1, -1);
+	let out = "";
+	for (let i = 0; i < inner.length; i++) {
+		const c = inner[i];
+		if (c !== "\\") {
+			out += c;
+			continue;
+		}
+		const n = inner[++i];
+		if (n === void 0) {
+			out += c;
+			break;
+		}
+		if (n === "t") out += "	";
+		else if (n === "n") out += "\n";
+		else if (n === "r") out += "\r";
+		else if (n === "\"" || n === "\\") out += n;
+		else if (n >= "0" && n <= "7") {
+			let digits = n;
+			while (digits.length < 3 && inner[i + 1] >= "0" && inner[i + 1] <= "7") digits += inner[++i];
+			out += String.fromCharCode(parseInt(digits, 8));
+		} else out += n;
+	}
+	return out;
+}
+/** W5 (§8 audit): `git diff --name-status [<baseline>]` (baseline: 40-hex OID). */
+async function diffNameStatus(root, baseline, opts) {
+	const argv = ["diff", "--name-status"];
+	if (baseline !== void 0) argv.push(assertOid(baseline, "diffNameStatus"));
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	const out = [];
+	for (const line of res.stdout.split("\n")) {
+		if (line.length === 0) continue;
+		const parts = line.split("	");
+		if (parts.length >= 3 && /^[RC]/.test(parts[0])) out.push({
+			status: parts[0],
+			oldPath: unquotePath(parts[1]),
+			path: unquotePath(parts[2])
+		});
+		else if (parts.length === 2) out.push({
+			status: parts[0],
+			path: unquotePath(parts[1])
+		});
+	}
+	return out;
+}
+/** W11 (checkpoint 第三步, **用户**): `git rev-parse HEAD` → 记录 commit OID. */
+async function revParseHead(root, opts) {
+	const argv = ["rev-parse", "HEAD"];
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	return res.stdout.trim();
+}
+/** W13 (§8 audit, Phase 6): `git ls-files -- <pathspec>` — strict tracked 路径集. */
+async function lsFiles(root, pathspec, opts) {
+	const argv = [
+		"ls-files",
+		"--",
+		assertRepoRelativePath(pathspec, "lsFiles")
+	];
+	const res = await runGit(root, argv, opts);
+	if (res.exitCode !== 0) commandFailed(root, argv, res);
+	return res.stdout.split("\n").filter((l) => l.length > 0).map(unquotePath);
+}
+//#endregion
+//#region src/host/git/conflict.ts
+/**
+* WP-1.2 — Git wrapper: §5.1 冲突状态检测.
+*
+* 每次 checkpoint 前必须执行 (§5 步骤 1): 先 W2 定位 git dir, 再检查五个
+* 「仓库处于进行中操作」标志文件/目录:
+*
+*   <gitdir>/MERGE_HEAD          merge 进行中
+*   <gitdir>/CHERRY_PICK_HEAD    cherry-pick 进行中
+*   <gitdir>/REVERT_HEAD         revert 进行中
+*   <gitdir>/rebase-apply/       rebase (apply) 进行中
+*   <gitdir>/rebase-merge/       rebase (merge) 进行中
+*
+* 存在任一项 → 拒绝 checkpoint (INV-GIT-4 fail loud)。
+*
+* 双保险 (照录 §5.1): 即便检测遗漏, git 本身也会拒绝 (实测: merge 进行中
+* 执行 pathspec commit 返回 `fatal: cannot do a partial commit during a
+* merge.`, exit 128) — 本层从不单独依赖检测。
+*/
+function flagPresent(dir, name, wantDir) {
+	try {
+		const st = statSync(join(dir, name));
+		return wantDir ? st.isDirectory() : st.isFile();
+	} catch {
+		return false;
+	}
+}
+/** §5.1: `git rev-parse --git-dir` + 五个标志文件/目录存在性. */
+async function detectConflictState(root, opts) {
+	const gitDir = await resolveGitDir(root, opts);
+	const flags = {
+		mergeHead: flagPresent(gitDir, "MERGE_HEAD", false),
+		cherryPickHead: flagPresent(gitDir, "CHERRY_PICK_HEAD", false),
+		revertHead: flagPresent(gitDir, "REVERT_HEAD", false),
+		rebaseApply: flagPresent(gitDir, "rebase-apply", true),
+		rebaseMerge: flagPresent(gitDir, "rebase-merge", true)
+	};
+	return {
+		gitDir,
+		flags,
+		inProgress: flags.mergeHead || flags.cherryPickHead || flags.revertHead || flags.rebaseApply || flags.rebaseMerge
+	};
+}
+//#endregion
+//#region src/host/persistence/hardening/git-check.ts
+/**
+* WP-8.1 — hardening: check 3, the Git workspace boundary at startup.
+*
+* Orchestrates the already-delivered `src/host/git` layer (the sole spawn
+* point, INV-GIT-6) into the startup classification — GIT_INTEGRATION
+* §5.1 冲突状态检测 + §9 错误分类 + the TC-GIT-001 dirty-tree semantics:
+*
+*   1. W1 `detectRepo` — git executable missing (spawn ENOENT →
+*      `GitMissingError`) or not a repo: the ARCHITECTURE §10 row
+*      「拒绝 managed research mode，给出「Initialize Git Repository」显式
+*      操作入口；绝不静默 init」→ `recoverable`, `managedMode: 'refused'`,
+*      checkpoint refused; the READ surface over `.research/` files is
+*      unaffected (reading a file does not need git).
+*   2. §5.1 `detectConflictState` — any of the five in-progress flags
+*      (MERGE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD / rebase-apply /
+*      rebase-merge): the checkpoint is EXPLICITLY refused (INV-GIT-4 —
+*      resolve first); the read surface is unaffected (the working copy
+*      IS the canonical current state, §9「读 working copy」) →
+*      `recoverable`, `checkpointAllowed: false`.
+*   3. W4 `status` — a dirty working tree is a NORMAL state (TC-GIT-001):
+*      reads are unaffected and the checkpoint REMAINS allowed — it
+*      commits only `.research/**` and leaves unrelated dirty state
+*      untouched (never unstages, never cleans) → `pass` with the dirty
+*      facts recorded (total entries + the entries under `.research/`).
+*   4. git itself erroring (repo corruption — §9「原样展示 git 错误；插件
+*      不尝试修复」): managed mode refused (checkpoint safety cannot be
+*      verified), the git error shown VERBATIM in the report →
+*      `recoverable`, `reason: 'repo-error'`.
+*
+* The git operations ride on the injectable {@link GitOps} port (default:
+* the real layer) so the ENOENT / repo-error forms are testable without
+* uninstalling git or corrupting a real repo.
+*
+* This check NEVER writes to the repository (no init, no stage, no
+* commit — the read-only startup probe; 绝不静默 init, §10).
+*/
+/** The production default: the real `src/host/git` layer. */
+const realGitOps = {
+	detectRepo: (root) => detectRepo(root),
+	detectConflictState: (root) => detectConflictState(root),
+	status: (root) => status(root)
+};
+function describeFlags(flags) {
+	const active = [];
+	if (flags.mergeHead) active.push("MERGE_HEAD (merge 进行中)");
+	if (flags.cherryPickHead) active.push("CHERRY_PICK_HEAD (cherry-pick 进行中)");
+	if (flags.revertHead) active.push("REVERT_HEAD (revert 进行中)");
+	if (flags.rebaseApply) active.push("rebase-apply/ (rebase 进行中)");
+	if (flags.rebaseMerge) active.push("rebase-merge/ (rebase 进行中)");
+	return active.join(", ");
+}
+function errMsg$2(e) {
+	return e instanceof Error ? e.message : String(e);
+}
+/**
+* Run the Git workspace boundary check at `root`.
+*
+* Never throws: git-layer failures are classified (see module header).
+* `researchDir` filters the dirty entries reported under the `.research`
+* scope (repo-root-relative paths).
+*/
+async function checkGitWorkspace(root, options = {}) {
+	const ops = options.ops ?? realGitOps;
+	const researchDir = options.researchDir ?? ".research";
+	let detected;
+	let repoRoot = null;
+	try {
+		const det = await ops.detectRepo(root);
+		detected = det.ok;
+		if (det.ok) repoRoot = det.repoRoot;
+	} catch (e) {
+		if (e instanceof GitMissingError) return {
+			status: "recoverable",
+			repoDetected: false,
+			repoRoot: null,
+			conflictInProgress: false,
+			dirty: false,
+			dirtyResearchPaths: [],
+			managedMode: "refused",
+			checkpointAllowed: false,
+			reason: "git-missing",
+			message: "the git executable is missing (spawn ENOENT) — managed research mode refused",
+			guidance: ["Git is not installed (or not on PATH) — managed research mode (checkpoint / git history / restore) is REFUSED (ARCHITECTURE §10): the read surface over .research/ files is unaffected", "remedy (user action, never automatic): install Git, then restart — the plugin never initializes a repository or installs anything on its own"]
+		};
+		return repoErrorResult(root, e, "detectRepo");
+	}
+	if (!detected) return {
+		status: "recoverable",
+		repoDetected: false,
+		repoRoot: null,
+		conflictInProgress: false,
+		dirty: false,
+		dirtyResearchPaths: [],
+		managedMode: "refused",
+		checkpointAllowed: false,
+		reason: "not-a-repo",
+		message: "the workspace is not a Git repository — managed research mode refused",
+		guidance: ["this workspace is not a Git repository — managed research mode (checkpoint / git history / restore) is REFUSED (ARCHITECTURE §10); the read surface over .research/ files is unaffected", "remedy (user action, never automatic — 绝不静默 init): use the explicit 「Initialize Git Repository」 operation entry to start a repository for this workspace, then restart"]
+	};
+	let inProgress = false;
+	let flags;
+	try {
+		const conflict = await ops.detectConflictState(root);
+		inProgress = conflict.inProgress;
+		flags = conflict.flags;
+	} catch (e) {
+		return repoErrorResult(root, e, "detectConflictState");
+	}
+	let dirty = false;
+	let dirtyTotal = 0;
+	const dirtyResearchPaths = [];
+	try {
+		const st = await ops.status(root);
+		dirty = st.entries.length > 0;
+		dirtyTotal = st.entries.length;
+		const prefix = `${researchDir}/`;
+		for (const entry of st.entries) if (entry.path.startsWith(prefix)) dirtyResearchPaths.push(entry.path);
+	} catch (e) {
+		return repoErrorResult(root, e, "status");
+	}
+	if (inProgress) {
+		const detail = describeFlags(flags);
+		return {
+			status: "recoverable",
+			repoDetected: true,
+			repoRoot,
+			conflictInProgress: true,
+			conflictFlags: flags,
+			conflictDetail: detail,
+			dirty,
+			dirtyResearchPaths,
+			managedMode: "ok",
+			checkpointAllowed: false,
+			reason: "conflict-in-progress",
+			message: `repository is mid-operation: ${detail} — checkpoint explicitly refused`,
+			guidance: [`the repository has an in-progress operation (${detail}) — the checkpoint is EXPLICITLY REFUSED (INV-GIT-4, GIT_INTEGRATION §5.1): resolve it first (finish/abort the merge/rebase/cherry-pick/revert)`, "the read surface is unaffected — the working copy IS the canonical current state (GIT_INTEGRATION §9); nothing is auto-resolved or auto-committed by the plugin"]
+		};
+	}
+	const researchCount = dirtyResearchPaths.length;
+	return {
+		status: "pass",
+		repoDetected: true,
+		repoRoot,
+		conflictInProgress: false,
+		conflictFlags: flags,
+		dirty,
+		dirtyResearchPaths,
+		managedMode: "ok",
+		checkpointAllowed: true,
+		message: dirty ? `dirty working tree (${String(dirtyTotal)} dirty path(s), ${String(researchCount)} under ${researchDir}/) — reads unaffected; the checkpoint commits only ${researchDir}/** (TC-GIT-001)` : "clean working tree (no dirty paths)",
+		guidance: []
+	};
+}
+function repoErrorResult(root, e, step) {
+	const shown = e instanceof GitError ? errMsg$2(e) : `unexpected error during the git check (${step}): ${errMsg$2(e)}`;
+	return {
+		status: "recoverable",
+		repoDetected: true,
+		repoRoot: null,
+		conflictInProgress: false,
+		dirty: false,
+		dirtyResearchPaths: [],
+		managedMode: "refused",
+		checkpointAllowed: false,
+		reason: "repo-error",
+		message: `git failed during the startup check (${step}) at ${root} — shown as-is, the plugin does not attempt repair (GIT_INTEGRATION §9「repo 损坏」): ${shown}`,
+		guidance: [
+			`git itself reported an error during the startup check (repo corruption or a git failure) — displayed as-is, the plugin does NOT attempt to repair it (GIT_INTEGRATION §9): ${shown}`,
+			"managed research mode (checkpoint / git history / restore) is REFUSED until the repository is healthy again (checkpoint safety cannot be verified); the read surface over .research/ files is unaffected",
+			"remedy (user action): inspect the repository (e.g. `git fsck`) and repair it outside the plugin, then restart"
+		]
+	};
+}
+//#endregion
+//#region src/host/persistence/hardening/tree-check.ts
+/** The per-file errors that make the WHOLE tree unusable (see header). */
+function isFatalLoadError(e) {
+	if (e.file === "") return true;
+	if (e.code === "SCHEMA_LOAD") return true;
+	if (e.code === "SCHEMA_VERSION") return true;
+	if (e.code === "SCHEMA_UNAVAILABLE") return true;
+	if (e.code === "MISSING_REQUIRED" && (e.file === "project.yaml" || e.file === "schema-version")) return true;
+	return false;
+}
+/** Locate one error for messages: `file` + optional `path` (the field). */
+function located(e) {
+	const file = e.file === "" ? "<research root>" : e.file;
+	return e.path ? `${file}${e.path}` : file;
+}
+/**
+* Classify a loader result into the startup semantics (see module header).
+* Pure: no I/O, no store — the orchestrator passes the `LoadResult`.
+*/
+function classifyTreeLoad(load) {
+	if (load.errors.length === 0) return {
+		status: "pass",
+		usable: true,
+		load,
+		fatalErrors: [],
+		degradedErrors: [],
+		guidance: []
+	};
+	const fatalErrors = [];
+	const degradedErrors = [];
+	for (const e of load.errors) if (isFatalLoadError(e)) fatalErrors.push(e);
+	else degradedErrors.push(e);
+	if (fatalErrors.length > 0) return {
+		status: "unrecoverable",
+		usable: false,
+		load,
+		fatalErrors,
+		degradedErrors,
+		guidance: [
+			"the .research declarative 真源 cannot be loaded at all — refusing to start against it (fail loud, no guess-repair):",
+			...fatalErrors.map((e) => `  [${e.code}] ${located(e)}: ${e.message}`),
+			...fatalRemedy(fatalErrors)
+		]
+	};
+	return {
+		status: "recoverable",
+		usable: true,
+		load,
+		fatalErrors: [],
+		degradedErrors,
+		guidance: [
+			`the .research tree loaded with ${degradedErrors.length} broken file(s) — the broken file(s) are REJECTED with precise location and the rest loaded normally (ARCHITECTURE §10; no guess-repair):`,
+			...degradedErrors.map((e) => `  [${e.code}] ${located(e)}: ${e.message}`),
+			"the plugin serves the READONLY usable surface until the broken file(s) are fixed by the USER (fix the file in place, or `git restore --source=<commit> -- <path>` for a committed-good version) — the write surface (checkpoint / plan mutations / event appends over the broken 真源) is refused"
+		]
+	};
+}
+/** The user-facing remedy per fatal-error shape (never a generic shrug). */
+function fatalRemedy(errors) {
+	const remedy = [];
+	const has = (pred) => errors.some(pred);
+	if (has((e) => e.file === "" && e.code === "MISSING_REQUIRED")) remedy.push("remedy: the workspace carries no .research tree — open a workspace that does, or create one (the plugin never creates research content silently)");
+	else if (has((e) => e.file === "" && e.code === "READ")) remedy.push("remedy: the .research root is unreadable (I/O failure) — check permissions/path, then restart");
+	if (has((e) => e.code === "MISSING_REQUIRED" && e.file === "project.yaml")) remedy.push("remedy: .research/project.yaml is missing (the root object) — restore it from Git history (`git restore --source=<commit> -- .research/project.yaml`) or recreate it");
+	if (has((e) => e.code === "MISSING_REQUIRED" && e.file === "schema-version")) remedy.push("remedy: .research/schema-version is missing — restore it (V1 = a single line \"1\")");
+	if (has((e) => e.code === "SCHEMA_VERSION")) remedy.push("remedy: the .research/schema-version value is unsupported by this build — restore the V1 value (a single line \"1\") or update the plugin to a build that supports the contract");
+	if (has((e) => e.code === "SCHEMA_LOAD" || e.code === "SCHEMA_UNAVAILABLE")) remedy.push("remedy: the FROZEN schema set this build ships is incomplete or unreadable — that is a broken plugin installation, not user data: reinstall the plugin and restart");
+	if (remedy.length === 0) remedy.push("remedy: restore the affected file(s) from Git history or recreate them, then restart");
+	return remedy;
+}
+//#endregion
 //#region src/shared/ids/registry.ts
 /**
 * The 25 rows, in §1.1 table order (L20-44).
@@ -1588,6 +3701,250 @@ function itemNodes(topicSlots, accepted, rejected, wsId, kind) {
 		id: s.pathId,
 		doc: accepted.has(s.relPath) && !rejected.has(s.relPath) ? accepted.get(s.relPath) : null
 	}));
+}
+//#endregion
+//#region src/host/persistence/hardening/errors.ts
+var HardeningError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = new.target.name;
+		this.code = code;
+	}
+};
+/**
+* `assertStartup` over a report whose outcome is `fatal` (an unrecoverable
+* finding: SQLite corruption, an unsupported/stale schema version, a broken
+* frozen-schema set, a missing research root or project.yaml, a
+* project-id scope mismatch). The error carries the FULL report so the
+* `[Service.init]` caller can surface every finding + the user guidance
+* (never a bare string).
+*/
+var HardeningFatalError = class extends HardeningError {
+	report;
+	constructor(message, report, options) {
+		super("HARDENING_FATAL", message, options);
+		this.report = report;
+	}
+};
+//#endregion
+//#region src/host/persistence/hardening/startup.ts
+/**
+* WP-8.1 — hardening: the startup integrity orchestrator (crash
+* recovery 面).
+*
+* `runStartupIntegrityChecks` runs the four checks at `[Service.init]`
+* time and returns the aggregated {@link StartupIntegrityReport}:
+*
+*   1. the operational DB — `checkDatabase` (quick_check + user_version
+*      + structure, riding on the store's own open path, TC-DB-002);
+*   2. the `.research/` tree — the WP-1.1 loader (error-aggregated,
+*      TC-DOM-027) classified by `classifyTreeLoad` (ARCHITECTURE §10:
+*      broken file rejected with file+field location, the rest load);
+*   3. the Git workspace — `checkGitWorkspace` (§5.1 conflict detection
+*      + TC-GIT-001 dirty semantics + §10 git-missing/not-a-repo row);
+*   4. the dual-真源 consistency SPOT check — `checkDualTruthConsistency`
+*      (only when the DB is open and the tree is not fatal; otherwise
+*      SKIPPED with the reason stated — never silent).
+*
+* AGGREGATION, NOT SHORT-CIRCUIT: every check that CAN run is run — one
+* broken 真源 must not mask the state of the others (the §10 SQLite
+* corruption row demands the report ASSERT the declarative 真源's state
+* explicitly, which needs the tree/git results even when the DB is dead).
+*
+* Outcome aggregation (see {@link StartupOutcome}):
+*   - any `unrecoverable` finding (or a fatal tree) → `fatal`;
+*   - else any `recoverable` finding (or a degraded tree) → `degraded`;
+*   - else `ok`.
+*
+* Surface narrowing on `degraded`:
+*   - `readSurface: 'readonly'` — ONLY when the `.research` tree is
+*     partially broken (the write surface must not commit or mutate a
+*     partially broken 真源); git conflict/missing states do NOT make
+*     the surface read-only (the declarative files are intact — they
+*     narrow `checkpointAllowed` / `managedMode` individually);
+*   - `checkpointAllowed` — refused by: refused managed mode (git
+*     missing / not a repo / git erroring), conflict-in-progress
+*     (INV-GIT-4, explicit refusal), a broken tree; a DIRTY working tree
+*     does NOT refuse it (TC-GIT-001: the checkpoint commits only
+*     `.research/**` and leaves unrelated dirty state untouched);
+*   - `managedMode: 'refused'` — per the §10 row, with the explicit
+*     「Initialize Git Repository」 entry / install-Git guidance.
+*
+* LOUDNESS (绝不静默): every non-pass finding produces (a) guidance
+* items in the report (the user-facing remedy), (b) a structured log
+* entry (warn for recoverable, error for unrecoverable/skipped), (c)
+* for `fatal`, `assertStartup` throws `HardeningFatalError` carrying
+* the FULL report (the dsh-adapter's fiber-FAILED path, TC-DSH-008).
+*
+* The DB handle opened by check 1 is closed in a `finally` — even when
+* a later check throws — so a failed startup leaks no connection.
+*
+* No DSH imports (INV-PERM-5). This is the composition the dsh-adapter's
+* `[Service.init]` runs BEFORE `createHostWiring` (a `fatal` report
+* fails the init; a `degraded` report is logged + the surface flags
+* honored; the wiring's own startup reconciliations then run loud and
+* converge the `recoverable` findings this pass only DETECTS).
+*/
+/**
+* Run the four startup integrity checks and aggregate the report.
+*
+* Resolves with a report for EVERY input state (ok / degraded / fatal);
+* it only throws `HardeningError` (HARDENING_INPUT) for malformed input.
+* Call {@link assertStartup} on the result to turn `fatal` into a throw.
+*/
+async function runStartupIntegrityChecks(input) {
+	const dbPath = requireAbs(input.dbPath, "dbPath");
+	const repoRoot = requireAbs(input.repoRoot, "repoRoot");
+	const researchRoot = requireAbs(input.researchRoot, "researchRoot");
+	const schemaDir = requireAbs(input.schemaDir, "schemaDir");
+	if (typeof input.projectId !== "string" || !/^PRJ-\d+$/.test(input.projectId)) throw new HardeningError("HARDENING_INPUT", `projectId must be a well-formed PRJ-<n> id (got ${JSON.stringify(input.projectId ?? null)})`);
+	if (input.reader === null || typeof input.reader !== "object" || typeof input.reader.readDir !== "function" || typeof input.reader.readFile !== "function") throw new HardeningError("HARDENING_INPUT", "reader must be a ResearchFileReader (readDir + readFile)");
+	const researchDir = input.researchDir ?? ".research";
+	if (typeof researchDir !== "string" || researchDir.length === 0 || researchDir.includes("/")) throw new HardeningError("HARDENING_INPUT", `researchDir must be a bare directory name (got ${JSON.stringify(researchDir ?? null)})`);
+	const logger = input.logger;
+	const dbOutcome = checkDatabase(dbPath);
+	const db = dbOutcome.result;
+	logCheck(logger, "db", db.status, db.message);
+	let tree;
+	try {
+		tree = classifyTreeLoad(loadResearchTree(input.reader, researchRoot, schemaDir));
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		tree = {
+			status: "unrecoverable",
+			usable: false,
+			load: {
+				tree: emptyTree$1(),
+				errors: []
+			},
+			fatalErrors: [{
+				code: "READ",
+				file: "",
+				message: `loader threw unexpectedly (bug — fail loud): ${msg}`
+			}],
+			degradedErrors: [],
+			guidance: [`the .research loader threw unexpectedly instead of aggregating errors (loader bug): ${msg}`]
+		};
+	}
+	logCheck(logger, "tree", tree.status, treeMessage(tree));
+	const git = await checkGitWorkspace(repoRoot, {
+		ops: input.git,
+		researchDir
+	});
+	logCheck(logger, "git", git.status, git.message);
+	const consistency = runConsistencyCheck$1({
+		handle: dbOutcome.handle,
+		tree,
+		input
+	});
+	logCheck(logger, "consistency", consistency.status, consistency.message);
+	const extraGuidance = [];
+	if (db.status === "unrecoverable" && db.code === "STORE_CORRUPT") {
+		const treeState = tree.status === "pass" ? "the .research tree loaded clean" : `the .research tree check itself found problems (${tree.status})`;
+		const gitState = git.status === "pass" ? "the Git workspace check passed" : `the Git workspace check itself found problems (${git.status})`;
+		extraGuidance.push(tree.status === "pass" && git.status === "pass" ? `intactness assertion (ARCHITECTURE §10): the declarative 真源 is INTACT — ${treeState}; ${gitState} (the corrupted database is a separate file, INV-DB-3)` : `intactness note (ARCHITECTURE §10): the corrupted database is a separate file (INV-DB-3), but the declarative 真源 is NOT clean either — ${treeState}; ${gitState} (both sides need attention; the operational data loss stands)`);
+	}
+	const guidance = [];
+	if (db.status !== "pass") for (const g of db.guidance) guidance.push(`[db] ${g}`);
+	if (tree.status !== "pass") for (const g of tree.guidance) guidance.push(`[tree] ${g}`);
+	if (git.status !== "pass") for (const g of git.guidance) guidance.push(`[git] ${g}`);
+	if (consistency.status !== "pass") for (const g of consistency.guidance) guidance.push(`[consistency] ${g}`);
+	for (const g of extraGuidance) guidance.push(`[db] ${g}`);
+	const outcome = db.status === "unrecoverable" || tree.status === "unrecoverable" || git.status === "unrecoverable" || consistency.status === "unrecoverable" ? "fatal" : tree.status === "recoverable" || git.status === "recoverable" || consistency.status === "recoverable" ? "degraded" : "ok";
+	const readSurface = tree.status === "recoverable" ? "readonly" : "ok";
+	const managedMode = git.managedMode;
+	const checkpointAllowed = managedMode === "ok" && !git.conflictInProgress && tree.status !== "recoverable" && tree.status !== "unrecoverable";
+	const summary = makeSummary(outcome, {
+		db,
+		tree,
+		git,
+		consistency
+	});
+	logger?.info("startup-integrity", summary);
+	return {
+		outcome,
+		db,
+		tree,
+		git,
+		consistency,
+		readSurface,
+		managedMode,
+		checkpointAllowed,
+		guidance,
+		summary,
+		projectId: input.projectId,
+		dbPath,
+		researchRoot
+	};
+}
+/** `assertStartup`: the fail-loud gate (TC-DSH-008 fiber-FAILED). */
+function assertStartup(report) {
+	if (report.outcome !== "fatal") return;
+	throw new HardeningFatalError(`startup integrity check FAILED (unrecoverable): ${report.summary}`, report);
+}
+function runConsistencyCheck$1(args) {
+	const { handle, tree, input } = args;
+	if (handle === null) return skipped$1("the operational database is unavailable (the db check failed — see its findings; the consistency probe needs an open store)");
+	if (tree.status === "unrecoverable") return skipped$1("the .research tree is unusable (the tree check found a fatal breakage — there is no declarative side to cross-check)");
+	try {
+		return checkDualTruthConsistency({
+			store: handle,
+			tree: tree.load.tree,
+			projectId: input.projectId,
+			maxSample: input.maxConsistencySample
+		});
+	} finally {
+		try {
+			handle.close();
+		} catch {}
+	}
+}
+function skipped$1(reason) {
+	return {
+		status: "skipped",
+		checked: [],
+		findings: [],
+		projectIdChecked: false,
+		skipReason: reason,
+		message: `skipped: ${reason}`,
+		guidance: []
+	};
+}
+function treeMessage(tree) {
+	if (tree.status === "pass") return "the .research tree loaded clean (no load errors)";
+	if (tree.status === "unrecoverable") return `the .research tree is unusable (${String(tree.fatalErrors.length)} fatal error(s))`;
+	return `the .research tree loaded with ${String(tree.degradedErrors.length)} broken file(s) — readonly usable surface (ARCHITECTURE §10)`;
+}
+function makeSummary(outcome, checks) {
+	const parts = [];
+	parts.push(checks.db.status === "pass" ? `db V${checks.db.userVersion === void 0 ? "?" : String(checks.db.userVersion)} ok` : `db ${checks.db.status}${checks.db.code ? ` (${checks.db.code})` : ""}`);
+	parts.push(checks.tree.status === "pass" ? "tree clean" : checks.tree.status === "unrecoverable" ? `tree unusable (${String(checks.tree.fatalErrors.length)} fatal error(s))` : `tree degraded (${String(checks.tree.degradedErrors.length)} broken file(s))`);
+	parts.push(checks.git.status === "pass" ? `git ${checks.git.dirty ? "dirty (reads + checkpoint ok, TC-GIT-001)" : "clean"}` : `git ${checks.git.status}${checks.git.reason ? ` (${checks.git.reason})` : ""}`);
+	parts.push(checks.consistency.status === "pass" ? `consistency ok (${String(checks.consistency.checked.length)} ws probed)` : checks.consistency.status === "skipped" ? "consistency skipped" : `consistency ${checks.consistency.status} (${String(checks.consistency.findings.length)} finding(s))`);
+	return `startup integrity: ${outcome} — ${parts.join("; ")}`;
+}
+function logCheck(logger, check, status, message) {
+	if (logger === void 0) return;
+	const line = `${check}: ${status} — ${message}`;
+	if (status === "pass") logger.info(check, line);
+	else if (status === "unrecoverable") logger.error(check, line);
+	else logger.warn(check, line);
+}
+function emptyTree$1() {
+	return {
+		schemaVersion: null,
+		project: null,
+		objectives: [],
+		workspace: null,
+		policy: null,
+		topics: [],
+		mergeContracts: []
+	};
+}
+function requireAbs(value, name) {
+	if (typeof value !== "string" || value.length === 0 || !value.startsWith("/")) throw new HardeningError("HARDENING_INPUT", `${name} must be an absolute path (got ${JSON.stringify(value ?? null)})`);
+	return value;
 }
 //#endregion
 //#region src/host/domain/planfork/types.ts
@@ -3488,7 +5845,7 @@ function loadHistoryEventRegistry(reader, schemaDir) {
 			loadErrors.push({
 				code: "SCHEMA_LOAD",
 				file,
-				message: `schema file read failed: ${errMsg$2(cause)}`
+				message: `schema file read failed: ${errMsg$1(cause)}`
 			});
 			return null;
 		}
@@ -3515,7 +5872,7 @@ function loadHistoryEventRegistry(reader, schemaDir) {
 			loadErrors.push({
 				code: "SCHEMA_LOAD",
 				file,
-				message: `schema file is not valid JSON: ${errMsg$2(cause)}`
+				message: `schema file is not valid JSON: ${errMsg$1(cause)}`
 			});
 			return null;
 		}
@@ -3606,7 +5963,7 @@ function loadHistoryEventRegistry(reader, schemaDir) {
 		loadErrors.push({
 			code: "SCHEMA_COMPILE",
 			file: commonFile,
-			message: `common.schema.json rejected by validator engine: ${errMsg$2(cause)}`
+			message: `common.schema.json rejected by validator engine: ${errMsg$1(cause)}`
 		});
 		return unusable([], /* @__PURE__ */ new Map());
 	}
@@ -3621,7 +5978,7 @@ function loadHistoryEventRegistry(reader, schemaDir) {
 		loadErrors.push({
 			code: "SCHEMA_COMPILE",
 			file: eventsFile,
-			message: `derived events schema rejected by validator engine: ${errMsg$2(cause)}`
+			message: `derived events schema rejected by validator engine: ${errMsg$1(cause)}`
 		});
 		return unusable([], /* @__PURE__ */ new Map());
 	}
@@ -3639,7 +5996,7 @@ function loadHistoryEventRegistry(reader, schemaDir) {
 			loadErrors.push({
 				code: "SCHEMA_COMPILE",
 				file: eventsFile,
-				message: `per-event validator compile failed for ${branch.name}: ${errMsg$2(cause)}`
+				message: `per-event validator compile failed for ${branch.name}: ${errMsg$1(cause)}`
 			});
 		}
 	}
@@ -3752,7 +6109,7 @@ function summarize(err, params) {
 		default: return `${err.message ?? `failed ${err.keyword}`}${got}`;
 	}
 }
-function errMsg$2(cause) {
+function errMsg$1(cause) {
 	return cause instanceof Error ? cause.message : String(cause);
 }
 function compact(value) {
@@ -4609,994 +6966,6 @@ function safeParseState(raw, key) {
 	} catch (e) {
 		throw new ReplayApplyError(`derived_state[${key}].state is not valid JSON — corruption`, { cause: e });
 	}
-}
-//#endregion
-//#region src/host/persistence/store/schema.ts
-const HISTORY_EVENT_DDL = `
-CREATE TABLE history_event (
-  event_id            TEXT    NOT NULL PRIMARY KEY,
-  owner_workstream_id TEXT    NOT NULL,
-  event_seq           INTEGER NOT NULL,
-  event_type          TEXT    NOT NULL,
-  schema_version      INTEGER NOT NULL,
-  occurred_at         INTEGER NOT NULL,  -- epoch ms (§1.2)
-  recorded_at         INTEGER NOT NULL,  -- epoch ms (§1.2)
-  actor               TEXT    NOT NULL,  -- ActorRef JSON (§1.3)
-  source              TEXT,              -- SourceRef JSON (§1.3), nullable
-  payload             TEXT    NOT NULL,  -- event payload JSON
-  -- WP-2.9 query-aid columns (TC-PERF-003): VIRTUAL generated, computed by
-  -- SQLite from the payload column at insert time - never writable, never
-  -- stored separately, cannot drift from the payload (json_extract yields
-  -- NULL when the key is absent, e.g. FACT_RECORDED has no run_id).
-  payload_run_id      TEXT    GENERATED ALWAYS AS (json_extract(payload, '$.run_id')) VIRTUAL,
-  payload_task_id     TEXT    GENERATED ALWAYS AS (json_extract(payload, '$.task_id')) VIRTUAL,
-  UNIQUE (owner_workstream_id, event_seq)
-);
-CREATE INDEX idx_history_event_ws_occurred_seq
-  ON history_event (owner_workstream_id, occurred_at, event_seq);
-CREATE INDEX idx_history_event_type_occurred
-  ON history_event (event_type, occurred_at);
-CREATE INDEX idx_history_event_recorded
-  ON history_event (recorded_at);
--- WP-2.9: run/task filter indexes (composite = equality filter + time
--- ordered listing per run/task; isomorphic to idx_history_event_type_occurred).
-CREATE INDEX idx_history_event_payload_run_occurred
-  ON history_event (payload_run_id, occurred_at);
-CREATE INDEX idx_history_event_payload_task_occurred
-  ON history_event (payload_task_id, occurred_at);
--- INV-HIST-1 storage-level enforcement (append-only; TC-HIST-003).
-CREATE TRIGGER history_event_no_update
-  BEFORE UPDATE ON history_event
-  BEGIN
-    SELECT RAISE(ABORT, 'history_event is append-only (INV-HIST-1)');
-  END;
-CREATE TRIGGER history_event_no_delete
-  BEFORE DELETE ON history_event
-  BEGIN
-    SELECT RAISE(ABORT, 'history_event is append-only (INV-HIST-1)');
-  END;
-`;
-const DERIVED_STATE_DDL = `
-CREATE TABLE derived_state (
-  object_kind TEXT NOT NULL,
-  object_id   TEXT NOT NULL,
-  state       TEXT NOT NULL,  -- JSON document, replaced wholesale (§15 L627)
-  PRIMARY KEY (object_kind, object_id)
-);
-`;
-const META_DDL = `
-CREATE TABLE meta (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-`;
-/** Full V1 DDL, executed once inside a single transaction on a fresh DB
-*  (all-or-nothing; a crash mid-init rolls back to an empty file that the
-*  next open re-initializes). */
-function schemaDdl() {
-	return [
-		HISTORY_EVENT_DDL,
-		DERIVED_STATE_DDL,
-		META_DDL
-	].join("\n");
-}
-/** Tables that MUST exist under `user_version = 1`; a missing one means
-*  the file is corrupted (a valid version number with a broken schema). */
-const EXPECTED_TABLES = [
-	"history_event",
-	"derived_state",
-	"meta"
-];
-/** The EXACT `history_event` column set of this build's V1 DDL (order as
-*  declared). A user_version=1 file whose column set differs — a column
-*  missing (older pre-release build) or extra (newer/unknown build) — is
-*  STALE: rejected on open with STORE_SCHEMA_STALE, no migration (the
-*  numeric version gate's「不匹配即拒绝」policy applied to structure; see
-*  the WP-2.9 header block). */
-const HISTORY_EVENT_COLUMNS = [
-	"event_id",
-	"owner_workstream_id",
-	"event_seq",
-	"event_type",
-	"schema_version",
-	"occurred_at",
-	"recorded_at",
-	"actor",
-	"source",
-	"payload",
-	"payload_run_id",
-	"payload_task_id"
-];
-/** The VIRTUAL generated columns — `PRAGMA table_xinfo` reports them with
-*  `hidden = 2` (SQLite ≥ 3.36: 0 = regular, 1 = stored generated,
-*  2 = virtual generated); every other column must be regular (0). */
-const HISTORY_EVENT_GENERATED = /* @__PURE__ */ new Set(["payload_run_id", "payload_task_id"]);
-/** The NAMED indexes V1 declares on `history_event`. (The UNIQUE/PK
-*  autoindexes `sqlite_autoindex_history_event_*` are expected as well
-*  but are implementation artifacts, not part of this set.) */
-const HISTORY_EVENT_INDEXES = [
-	"idx_history_event_ws_occurred_seq",
-	"idx_history_event_type_occurred",
-	"idx_history_event_recorded",
-	"idx_history_event_payload_run_occurred",
-	"idx_history_event_payload_task_occurred"
-];
-//#endregion
-//#region src/host/persistence/store/errors.ts
-var StoreError = class extends Error {
-	code;
-	constructor(code, message, options) {
-		super(message, options);
-		this.name = new.target.name;
-		this.code = code;
-	}
-};
-/** The DB file or its directory could not be created/opened (bad path,
-*  permission failure, path is a directory). The DB file was left in
-*  whatever state it had; no partial schema is ever written. */
-var StoreOpenError = class extends StoreError {
-	constructor(message, options) {
-		super("STORE_OPEN", message, options);
-	}
-};
-/**
-* The file exists but is not a usable SQLite database (garbage bytes,
-* truncated header, failed `quick_check`, missing schema tables under a
-* valid `user_version`, or a JSON column that can no longer be parsed).
-* TC-DB-002 semantics: this IS the 「明确报错」 — the store refuses to
-* proceed and never tries to repair; `.research/` and Git are untouched by
-* the store by construction (it only ever writes its own file).
-*/
-var StoreCorruptError = class extends StoreError {
-	constructor(message, options) {
-		super("STORE_CORRUPT", message, options);
-	}
-};
-/**
-* `PRAGMA user_version` is neither 0 (fresh) nor the supported V1 version.
-* Pre-release policy (DSH_ADAPTER §9): the version is monotonic and a
-* mismatch is REJECTED — there is no migration path, and silently opening a
-* DB written by a newer/unknown schema would risk misreading columns.
-*/
-var StoreVersionError = class extends StoreError {
-	/** The `user_version` actually found in the file. */
-	found;
-	/** The version this store supports (1). */
-	expected;
-	constructor(found, expected) {
-		super("STORE_VERSION", `unsupported schema version: found user_version=${String(found)}, expected ${String(expected)} — pre-release store does not migrate (DSH_ADAPTER §9)`);
-		this.found = found;
-		this.expected = expected;
-	}
-};
-/**
-* `PRAGMA user_version` says 1 (the supported V1) but the on-disk
-* `history_event` structure does not match this build's V1 DDL — the file
-* was written by an OLDER pre-release build (e.g. a pre-WP-2.9 dev DB
-* missing the generated filter columns / indexes) or by a NEWER/unknown
-* one (extra columns or named indexes). Same policy as the numeric
-* version gate (DSH_ADAPTER §9): REJECTED, no migration. The file's data
-* is a pre-release dev artifact — the remedy is to delete the file and
-* reinitialize (a fresh open re-runs the V1 init transaction).
-*/
-var StoreSchemaStaleError = class extends StoreError {
-	constructor(message, options) {
-		super("STORE_SCHEMA_STALE", message, options);
-	}
-};
-/** An operation was attempted on a store after `close()`. */
-var StoreClosedError = class extends StoreError {
-	constructor(operation) {
-		super("STORE_CLOSED", `${operation}: store is closed`);
-	}
-};
-/** Malformed caller input (bad shapes, store-owned fields supplied, …).
-*  Thrown BEFORE any write; nothing is side-effected. */
-var StoreInputError = class extends StoreError {
-	constructor(message, options) {
-		super("STORE_INPUT", message, options);
-	}
-};
-/** Uniqueness violation: `event_id` PK or `UNIQUE(owner_workstream_id,
-*  event_seq)`. The whole batch rolled back. */
-var StoreConflictError = class extends StoreError {
-	constructor(message, options) {
-		super("STORE_CONFLICT", message, options);
-	}
-};
-/** Unexpected SQLite failure inside an open operation (driver-level
-*  problems that are not input/conflict/corruption/version). */
-var StoreSqlError = class extends StoreError {
-	constructor(message, options) {
-		super("STORE_SQL", message, options);
-	}
-};
-/**
-* A statement reaching the store's OWN connection used a write class the
-* append-only surface forbids — RR-013 (G2 r2 inv-attacker): `REPLACE INTO`
-* / `INSERT … OR REPLACE` / `INSERT … ON CONFLICT … REPLACE` against
-* `history_event` bypass the BEFORE DELETE trigger (SQLite's internal
-* conflict-row delete does not fire triggers), silently rewriting or
-* deleting event rows. `openDatabase` installs the store-connection guard
-* (store.ts `installStoreConnectionGuard`) which rejects these at
-* prepare/exec time on the canonical connection; this is the structured
-* error it throws.
-*/
-var StoreForbiddenSqlError = class extends StoreError {
-	constructor(message, options) {
-		super("STORE_SQL_FORBIDDEN", message, options);
-	}
-};
-//#endregion
-//#region src/host/persistence/store/sqlite-meta.ts
-/** The single atomic bump (WP-1.6 reserved seam): INSERT for the unset
-*  counter (0 + delta), upsert-accumulate when set, RETURNING the new
-*  value — one round-trip, no read-modify-write window. */
-const BUMP_SQL = "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + CAST(excluded.value AS INTEGER) RETURNING value";
-var SqliteMetaStore = class {
-	port;
-	backend = "sqlite";
-	constructor(port) {
-		this.port = port;
-	}
-	stmt(sql) {
-		this.port.assertOpen();
-		return this.port.prepare(sql);
-	}
-	get(key) {
-		assertNonEmptyKey(key);
-		const row = this.stmt("SELECT value FROM meta WHERE key = ?").get(key);
-		return row === void 0 ? null : String(row.value);
-	}
-	set(key, value) {
-		assertNonEmptyKey(key);
-		if (typeof value !== "string") throw new StoreInputError(`meta.set: value must be a string (got ${typeof value})`);
-		this.stmt("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
-	}
-	/** No-op when absent. Meta rows are bookkeeping, not first-class
-	*  identity (the §15 通则 deletion ban does not apply — same as the
-	*  WP-1.6 memory backend). */
-	delete(key) {
-		assertNonEmptyKey(key);
-		this.stmt("DELETE FROM meta WHERE key = ?").run(key);
-	}
-	keys() {
-		return this.stmt("SELECT key FROM meta ORDER BY key").all().map((r) => String(r.key));
-	}
-	/** Read the integer counter at `key`; 0 when unset. @throws
-	*  {@link StoreCorruptError} when the stored value is not a
-	*  non-negative safe integer. */
-	getCounter(key) {
-		assertNonEmptyKey(key);
-		const raw = this.get(key);
-		if (raw === null) return 0;
-		const value = Number(raw);
-		if (!Number.isSafeInteger(value) || value < 0) throw new StoreCorruptError(`meta corruption: counter "${key}" holds ${JSON.stringify(raw)}, expected a non-negative integer`);
-		return value;
-	}
-	/** Atomically bump the counter by `delta` (default 1) and return the
-	*  NEW value — one SQL statement (see BUMP_SQL); a cross-connection
-	*  atomicity upgrade over the in-memory backend. @throws RangeError on
-	*  an invalid delta (mirrors the WP-1.6 surface), {@link
-	*  StoreCorruptError} on stored-value corruption. */
-	bumpCounter(key, delta = 1) {
-		assertNonEmptyKey(key);
-		if (!Number.isSafeInteger(delta) || delta < 1) throw new RangeError(`invalid counter delta ${String(delta)} — must be a positive safe integer`);
-		this.getCounter(key);
-		const row = this.stmt(BUMP_SQL).get(key, String(delta));
-		const next = Number(row?.value);
-		if (!Number.isSafeInteger(next) || next < 0) throw new StoreCorruptError(`meta corruption: counter "${key}" bumped to ${String(row?.value)}, expected a non-negative integer`);
-		return next;
-	}
-};
-function assertNonEmptyKey(key) {
-	if (typeof key !== "string" || key.length === 0) throw new StoreInputError("meta: key must be a non-empty string");
-}
-//#endregion
-//#region src/host/persistence/store/connection-guard.ts
-/** The action-code table of the SQLite authorizer callback (sqlite3.h,
-*  the modern numbering shipped by Node 22/24's bundled SQLite ≥3.46). */
-const SQLITE_DELETE = 9;
-const SQLITE_UPDATE = 23;
-/** Authorizer verdicts (sqlite3.h). */
-const SQLITE_OK = 0;
-const SQLITE_DENY = 1;
-/**
-* Mask the parts of a SQL statement that carry DATA, keeping the
-* STRUCTURAL text: single-quoted string literals (with the `''` escape)
-* become `''` placeholders; `--` line and block-style comments become
-* whitespace; double-quoted and backtick-quoted identifiers keep their
-* content (an identifier named after a keyword is structure, and
-* `history_event` has no column whose name could contain `REPLACE` — a
-* false positive would require a statement that SQLite itself rejects).
-*/
-function stripDataLiterals(sql) {
-	let out = "";
-	let i = 0;
-	const n = sql.length;
-	while (i < n) {
-		const c = sql[i];
-		if (c === "'") {
-			i += 1;
-			while (i < n) {
-				if (sql[i] === "'") {
-					if (sql[i + 1] === "'") {
-						i += 2;
-						continue;
-					}
-					i += 1;
-					break;
-				}
-				i += 1;
-			}
-			out += "''";
-		} else if (c === "\"" || c === "`") {
-			const quote = c;
-			out += c;
-			i += 1;
-			while (i < n) {
-				if (sql[i] === quote) {
-					if (sql[i + 1] === quote) {
-						out += quote + quote;
-						i += 2;
-						continue;
-					}
-					out += quote;
-					i += 1;
-					break;
-				}
-				out += sql[i];
-				i += 1;
-			}
-		} else if (c === "-" && sql[i + 1] === "-") {
-			while (i < n && sql[i] !== "\n") i += 1;
-			out += " ";
-		} else if (c === "/" && sql[i + 1] === "*") {
-			i += 2;
-			while (i < n && !(sql[i] === "*" && sql[i + 1] === "/")) i += 1;
-			i += 2;
-			out += " ";
-		} else {
-			out += c;
-			i += 1;
-		}
-	}
-	return out;
-}
-/** `[schema.]history_event` with optional identifier quoting — the
-*  schema prefix and the table name may each be unquoted, double-quoted
-*  or backtick-quoted (G3 r1 R2: the unquoted-schema-only pattern let
-*  `REPLACE INTO "main".history_event` / backtick variants slip through).
-*  Whitespace around the `.` is structural in SQLite (token grammar). */
-const EVENT_TABLE = `(?:(?:"[^"]+"|\`[^\`]+\`|[A-Z_][A-Z0-9_]*)\\s*\\.\\s*)?(?:"HISTORY_EVENT"|\`HISTORY_EVENT\`|HISTORY_EVENT\\b)`;
-/** `REPLACE INTO [schema.]history_event` (shorthand form). */
-const RE_REPLACE_INTO = new RegExp(`\\bREPLACE\\s+INTO\\s+${EVENT_TABLE}`);
-/** `INSERT [OR REPLACE] INTO [schema.]history_event`; group 1 = the
-*  `OR REPLACE` conflict prefix when present. */
-const RE_INSERT_INTO_EVENT = new RegExp(`\\bINSERT\\s+(OR\\s+REPLACE\\s+)?INTO\\s+${EVENT_TABLE}`);
-/**
-* Detect a REPLACE-class write of the event log.
-*
-* @param sql - the full statement text.
-* @returns a precise human-readable reason when the statement carries a
-*  REPLACE-class conflict resolution targeting `history_event` (shorthand
-*  `REPLACE INTO`, `INSERT … OR REPLACE`, or `ON CONFLICT … REPLACE`),
-*  otherwise `null` (statement is not of the forbidden class).
-*  Pure and total — never throws.
-*/
-function classifyForbiddenWrite(sql) {
-	if (typeof sql !== "string" || sql.length === 0) return null;
-	const norm = stripDataLiterals(sql).toUpperCase().replace(/\s+/g, " ");
-	if (RE_REPLACE_INTO.test(norm)) return "REPLACE INTO history_event is a REPLACE-class write — it bypasses the BEFORE DELETE trigger (RR-013) and is forbidden on the store connection";
-	const m = RE_INSERT_INTO_EVENT.exec(norm);
-	if (m !== null) {
-		if (m[1] !== void 0) return "INSERT OR REPLACE INTO history_event is a REPLACE-class write — it bypasses the BEFORE DELETE trigger (RR-013) and is forbidden on the store connection";
-		if (/\bREPLACE\b/.test(norm)) return "INSERT … ON CONFLICT … REPLACE on history_event is a REPLACE-class write — it bypasses the BEFORE DELETE trigger (RR-013) and is forbidden on the store connection";
-	}
-	return null;
-}
-/**
-* Install the store-connection guard on `db` (the connection
-* `openDatabase` owns):
-*   1. shadows `prepare` / `exec` with the REPLACE-class statement gate;
-*   2. when the runtime provides `setAuthorizer` (Node ≥24.10), installs
-*      the action-level backstop (DENY UPDATE/DELETE on `history_event`).
-*
-* Idempotency is NOT claimed: call exactly once, on a freshly opened
-* connection, before any other user of the connection (the store is the
-* first). The wrapped methods keep the original signatures and forward
-* everything they do not reject.
-*/
-function installStoreConnectionGuard(db) {
-	if (db === null || typeof db !== "object") throw new TypeError("installStoreConnectionGuard: db must be a DatabaseSync");
-	const anyDb = db;
-	const origPrepare = db.prepare.bind(db);
-	const origExec = db.exec.bind(db);
-	const gate = (sql, entry) => {
-		const reason = classifyForbiddenWrite(sql);
-		if (reason !== null) throw new StoreForbiddenSqlError(`store connection ${entry}: ${reason}`, { cause: /* @__PURE__ */ new Error(`statement: ${sql}`) });
-	};
-	anyDb.prepare = (sql) => {
-		gate(sql, "prepare");
-		return origPrepare(sql);
-	};
-	anyDb.exec = (sql) => {
-		gate(sql, "exec");
-		origExec(sql);
-	};
-	const cap = db.setAuthorizer;
-	if (typeof cap === "function") cap.call(db, (actionCode, arg1) => {
-		if ((actionCode === SQLITE_DELETE || actionCode === SQLITE_UPDATE) && arg1 === "history_event") return SQLITE_DENY;
-		return SQLITE_OK;
-	});
-}
-//#endregion
-//#region src/host/persistence/store/store.ts
-/**
-* WP-2.1 — operational SQLite store: `openDatabase` (DatabaseSync wrapper)
-* + the append-only `ResearchStore` handle.
-*
-* Follows the DSH `node:sqlite` pattern (DSH_ADAPTER §9):
-*   - owner-only permissions: DB directory 0o700, file 0o600 (enforced on
-*     every open, umask-proof);
-*   - `PRAGMA journal_mode=WAL`;
-*   - `PRAGMA user_version` is the monotonic schema version: 0 = fresh
-*     (init V1 DDL + set to 1, one transaction), 1 = open, anything else =
-*     REJECTED (pre-release: no migration, DSH_ADAPTER §9「不匹配即拒绝」);
-*     under version 1 the history_event STRUCTURE is verified as well
-*     (WP-2.9): a stale pre-release V1 file (older/newer column set or
-*     named indexes — e.g. a pre-WP-2.9 dev DB missing the generated
-*     filter columns) is rejected with STORE_SCHEMA_STALE, same
-*     no-migration policy, remedy = delete the file and reinitialize;
-*   - `PRAGMA quick_check` on open: a damaged file fails open with a
-*     structured `STORE_CORRUPT` — never a raw driver exception, never a
-*     repair attempt (TC-DB-002 「明确报错」);
-*   - connection lifecycle: the caller opens (`openDatabase`, in
-*     `[Service.init]`) and closes (`close()`, in the effect disposer) —
-*     this WP provides the injectable factory; the DSH wiring is a later
-*     WP. `close()` is idempotent.
-*
-* INV-DB-3 boundary: the store writes ONLY its own file (and its
-* -wal/-shm siblings). It has no view of `.research/` or Git, so a crash
-* anywhere inside a store operation can never corrupt the declarative 真源
-* or the Git workspace; and inside the store, every multi-write operation
-* is ONE SQLite transaction (or, for init, one init transaction) — WAL
-* recovery makes a mid-transaction crash leave the DB either pre- or
-* post-transaction, never partial (TC-DB-003 DB half, kill -9 tested).
-*
-* RR-013 hardening (WP-3.6): every connection this opener creates carries
-* the store-connection guard (connection-guard.ts `installStoreConnectionGuard`)
-* — REPLACE-class writes of `history_event` (`REPLACE INTO` /
-* `INSERT … OR REPLACE` / `ON CONFLICT … REPLACE`) are rejected at
-* prepare/exec time on the canonical connection (the BEFORE DELETE trigger
-* is bypassed by the internal conflict-row delete of the REPLACE class —
-* G2 r2 inv-attacker), plus an action-level authorizer backstop on
-* runtimes that provide `setAuthorizer` (Node ≥24.10). The storage
-* triggers remain the primary DELETE/UPDATE denial on any connection.
-*
-* No DSH imports (INV-PERM-5): `node:sqlite` is the Node builtin.
-*/
-const DEFAULT_BUSY_TIMEOUT_MS$1 = 5e3;
-/**
-* Open (or initialize) the operational SQLite store at `path`.
-*
-* Fresh path → parent dir created owner-only (0o700), file created
-* owner-only (0o600), WAL enabled, V1 schema + `user_version=1` written in
-* one transaction. Existing path → permissions re-enforced, WAL on,
-* `user_version` checked (mismatch → {@link StoreVersionError}),
-* `quick_check` corruption probe, then opened read-write.
-*
-* All failures are structured `StoreError`s (never raw driver exceptions).
-*/
-function openDatabase(path, options = {}) {
-	if (typeof path !== "string" || path.length === 0) throw new StoreInputError("openDatabase: path must be a non-empty string");
-	const abs = resolve(path);
-	ensureOwnerOnlyDir(dirname(abs));
-	let isDir = false;
-	try {
-		isDir = existsSync(abs) && lstatSync(abs).isDirectory();
-	} catch (e) {
-		throw new StoreOpenError(`openDatabase: cannot stat ${abs}: ${errMsg$1(e)}`, { cause: e });
-	}
-	if (isDir) throw new StoreOpenError(`openDatabase: ${abs} is a directory, not a SQLite file`);
-	let db;
-	try {
-		db = new DatabaseSync(abs);
-	} catch (e) {
-		throw classifyOpenFailure(abs, e);
-	}
-	try {
-		try {
-			chmodSync(abs, 384);
-		} catch (e) {
-			closeQuietly(db);
-			throw new StoreOpenError(`openDatabase: cannot chmod ${abs} to 0o600: ${errMsg$1(e)}`, { cause: e });
-		}
-		const journalMode = String(db.prepare("PRAGMA journal_mode = WAL").get()?.journal_mode ?? "");
-		if (journalMode.toLowerCase() !== "wal") {
-			closeQuietly(db);
-			throw new StoreCorruptError(`openDatabase: WAL journal mode could not be enabled at ${abs} (got "${journalMode}")`);
-		}
-		const busyTimeoutMs = options.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS$1;
-		assertPositiveInt$1(busyTimeoutMs, "busyTimeoutMs");
-		db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
-		checkIntegrity(db, abs);
-		const version = readUserVersion(db, abs);
-		if (version === 0) initializeSchema(db, abs);
-		else if (version !== 1) {
-			closeQuietly(db);
-			throw new StoreVersionError(version, 1);
-		} else verifyExpectedSchema(db, abs);
-		installStoreConnectionGuard(db);
-	} catch (e) {
-		throw toStoreError(e, `openDatabase: ${abs}`);
-	}
-	const now = options.now ?? Date.now;
-	return createStore(db, abs, 1, now);
-}
-/** Build the handle. Kept out of `openDatabase` so the open path stays
-*  readable; the returned object is a plain sealed record — its OWN
-*  property names are exactly the public `ResearchStore` surface (tests
-*  lock this down: no hidden mutation methods). */
-function createStore(db, abs, userVersion, now) {
-	let closed = false;
-	let metaInstance = null;
-	const assertOpen = (operation) => {
-		if (closed) throw new StoreClosedError(operation);
-		return db;
-	};
-	const prepare = (operation, sql) => assertOpen(operation).prepare(sql);
-	/** MetaDbPort seam for the SqliteMetaStore (its methods stay closed-safe). */
-	const metaPort = {
-		assertOpen: () => {
-			assertOpen("meta");
-		},
-		prepare: (sql) => prepare("meta", sql)
-	};
-	const meta = () => {
-		if (metaInstance === null) metaInstance = new SqliteMetaStore(metaPort);
-		return metaInstance;
-	};
-	const close = () => {
-		if (closed) return;
-		closed = true;
-		try {
-			db.close();
-		} catch {}
-	};
-	/** Internal transaction scope factory (hooks only). */
-	const makeTxScope = (operation) => {
-		const getStmt = prepare(operation, "SELECT state FROM derived_state WHERE object_kind = ? AND object_id = ?");
-		const upsertStmt = prepare(operation, "INSERT INTO derived_state (object_kind, object_id, state) VALUES (?, ?, ?) ON CONFLICT(object_kind, object_id) DO UPDATE SET state = excluded.state");
-		return {
-			getDerivedState(objectKind, objectId) {
-				const kind = assertNonEmptyString$2(objectKind, "objectKind");
-				const id = assertNonEmptyString$2(objectId, "objectId");
-				const row = getStmt.get(kind, id);
-				if (row === void 0) return null;
-				return safeParse(String(row.state), `derived_state[${kind}:${id}].state`);
-			},
-			setDerivedState(objectKind, objectId, state) {
-				const kind = assertNonEmptyString$2(objectKind, "objectKind");
-				const id = assertNonEmptyString$2(objectId, "objectId");
-				upsertStmt.run(kind, id, safeStringify(state, `derived_state[${kind}:${id}].state`));
-			}
-		};
-	};
-	return {
-		path: abs,
-		userVersion,
-		close,
-		appendEvents: (events, options) => appendEventsImpl(events, options),
-		getEvent: (ownerWorkstreamId, seq) => getEventImpl(ownerWorkstreamId, seq),
-		listRange: (ownerWorkstreamId, fromSeq, toSeq) => listRangeImpl(ownerWorkstreamId, fromSeq, toSeq),
-		meta
-	};
-	function appendEventsImpl(events, options = {}) {
-		const operation = "appendEvents";
-		const dbConn = assertOpen(operation);
-		if (!Array.isArray(events) || events.length === 0) throw new StoreInputError("appendEvents: events must be a non-empty array");
-		const rows = events.map((ev, i) => parseEventInput(ev, i));
-		const seenIds = /* @__PURE__ */ new Set();
-		for (const row of rows) {
-			if (seenIds.has(row.eventId)) throw new StoreInputError(`appendEvents: duplicate eventId within one batch: ${row.eventId} — one event per id (INV-HIST-6)`);
-			seenIds.add(row.eventId);
-		}
-		const validateHook = options.validate;
-		if (validateHook !== void 0 && typeof validateHook !== "function") throw new StoreInputError("appendEvents: options.validate must be a function");
-		const realize = normalizeRealizeOptions(options.realize);
-		const derivedPatches = normalizeDerivedState(options.derivedState);
-		const recordedAt = now();
-		let inHook = false;
-		dbConn.exec("BEGIN IMMEDIATE");
-		try {
-			const maxStmt = dbConn.prepare("SELECT MAX(event_seq) AS m FROM history_event WHERE owner_workstream_id = ?");
-			const baseByWs = /* @__PURE__ */ new Map();
-			for (const row of rows) {
-				const ws = row.ownerWorkstreamId;
-				if (!baseByWs.has(ws)) {
-					const m = maxStmt.get(ws)?.m ?? null;
-					const base = m === null || m === void 0 ? 0 : Number(m);
-					if (!Number.isSafeInteger(base) || base < 0) throw new StoreCorruptError(`appendEvents: history_event holds a non-integer MAX(event_seq)=${String(m)} for ${ws} — database corruption`);
-					baseByWs.set(ws, base);
-				}
-			}
-			const nextByWs = new Map([...baseByWs.entries()].map(([ws, base]) => [ws, base + 1]));
-			for (const row of rows) {
-				row.eventSeq = nextByWs.get(row.ownerWorkstreamId);
-				row.recordedAt = recordedAt;
-				nextByWs.set(row.ownerWorkstreamId, row.eventSeq + 1);
-			}
-			const tx = makeTxScope(operation);
-			if (validateHook !== void 0) {
-				inHook = true;
-				validateHook(rows.map(toRecord), tx);
-				inHook = false;
-			}
-			const insertStmt = dbConn.prepare("INSERT INTO history_event (event_id, owner_workstream_id, event_seq, event_type, schema_version, occurred_at, recorded_at, actor, source, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-			for (const row of rows) insertStmt.run(row.eventId, row.ownerWorkstreamId, row.eventSeq, row.eventType, row.schemaVersion, row.occurredAt, row.recordedAt, row.actorJson, row.sourceJson, row.payloadJson);
-			for (const patch of derivedPatches) tx.setDerivedState(patch.objectKind, patch.objectId, patch.state);
-			if (realize !== null) {
-				const wanted = new Set(realize.workstreamIds);
-				const fired = /* @__PURE__ */ new Set();
-				for (const row of rows) {
-					const ws = row.ownerWorkstreamId;
-					if (!wanted.has(ws) || fired.has(ws)) continue;
-					if ((baseByWs.get(ws) ?? 0) !== 0) continue;
-					fired.add(ws);
-					inHook = true;
-					realize.apply({
-						workstreamId: ws,
-						event: toRecord(row),
-						tx
-					});
-					inHook = false;
-				}
-			}
-			dbConn.exec("COMMIT");
-		} catch (e) {
-			rollbackQuietly$1(dbConn);
-			if (inHook) throw e;
-			throw toStoreError(e, operation);
-		}
-		const lastSeqByWorkstream = {};
-		for (const row of rows) lastSeqByWorkstream[row.ownerWorkstreamId] = row.eventSeq;
-		return {
-			events: rows.map(toRecord),
-			lastSeqByWorkstream
-		};
-	}
-	function getEventImpl(ownerWorkstreamId, seq) {
-		const dbConn = assertOpen("getEvent");
-		const ws = assertNonEmptyString$2(ownerWorkstreamId, "ownerWorkstreamId");
-		assertSeq(seq, "seq");
-		const row = dbConn.prepare("SELECT * FROM history_event WHERE owner_workstream_id = ? AND event_seq = ?").get(ws, seq);
-		return row === void 0 ? null : dbRowToRecord(row);
-	}
-	function listRangeImpl(ownerWorkstreamId, fromSeq, toSeq) {
-		const dbConn = assertOpen("listRange");
-		const ws = assertNonEmptyString$2(ownerWorkstreamId, "ownerWorkstreamId");
-		assertSeq(fromSeq, "fromSeq");
-		let rows;
-		if (toSeq === void 0) rows = dbConn.prepare("SELECT * FROM history_event WHERE owner_workstream_id = ? AND event_seq >= ? ORDER BY event_seq").all(ws, fromSeq);
-		else {
-			assertSeq(toSeq, "toSeq");
-			if (toSeq < fromSeq) throw new StoreInputError(`listRange: toSeq (${toSeq}) must be >= fromSeq (${fromSeq})`);
-			rows = dbConn.prepare("SELECT * FROM history_event WHERE owner_workstream_id = ? AND event_seq >= ? AND event_seq <= ? ORDER BY event_seq").all(ws, fromSeq, toSeq);
-		}
-		return rows.map((r) => dbRowToRecord(r));
-	}
-}
-function parseEventInput(ev, index) {
-	const what = `events[${index}]`;
-	if (typeof ev !== "object" || ev === null) throw new StoreInputError(`appendEvents: ${what} is not an object`);
-	const e = ev;
-	if ("eventSeq" in e) throw new StoreInputError(`appendEvents: ${what}.eventSeq is store-assigned (per owner WS, MAX+1 inside the transaction — TC-HIST-003); remove it from the input (HISTORY_EVENT_CATALOG §1)`);
-	if ("recordedAt" in e) throw new StoreInputError(`appendEvents: ${what}.recordedAt is generated by the plugin at write time (HISTORY_EVENT_CATALOG §1 L33); remove it from the input`);
-	const eventId = assertNonEmptyString$2(e.eventId, `${what}.eventId`);
-	const ownerWorkstreamId = assertNonEmptyString$2(e.ownerWorkstreamId, `${what}.ownerWorkstreamId`);
-	const eventType = assertNonEmptyString$2(e.eventType, `${what}.eventType`);
-	const schemaVersion = e.schemaVersion;
-	if (typeof schemaVersion !== "number" || !Number.isSafeInteger(schemaVersion) || schemaVersion < 1) throw new StoreInputError(`appendEvents: ${what}.schemaVersion must be a positive safe integer`);
-	const occurredAt = e.occurredAt;
-	if (typeof occurredAt !== "number" || !Number.isSafeInteger(occurredAt) || occurredAt < 0) throw new StoreInputError(`appendEvents: ${what}.occurredAt must be a non-negative safe integer (epoch ms)`);
-	const actor = e.actor;
-	if (typeof actor !== "object" || actor === null) throw new StoreInputError(`appendEvents: ${what}.actor must be an ActorRef object`);
-	if (typeof actor.kind !== "string" || actor.kind.length === 0) throw new StoreInputError(`appendEvents: ${what}.actor.kind must be a non-empty string`);
-	const payload = e.payload;
-	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) throw new StoreInputError(`appendEvents: ${what}.payload must be a JSON object`);
-	const actorJson = safeStringify(actor, `${what}.actor`);
-	const source = e.source === void 0 ? null : e.source;
-	let sourceJson = null;
-	if (source !== null) {
-		if (typeof source !== "object" || Array.isArray(source)) throw new StoreInputError(`appendEvents: ${what}.source must be a SourceRef object or null`);
-		sourceJson = safeStringify(source, `${what}.source`);
-	}
-	const payloadJson = safeStringify(payload, `${what}.payload`);
-	return {
-		eventId,
-		ownerWorkstreamId,
-		eventType,
-		schemaVersion,
-		occurredAt,
-		recordedAt: 0,
-		actor,
-		source: source ?? null,
-		payload,
-		actorJson,
-		sourceJson,
-		payloadJson,
-		eventSeq: 0
-	};
-}
-function normalizeRealizeOptions(realize) {
-	if (realize === void 0) return null;
-	if (typeof realize !== "object" || realize === null) throw new StoreInputError("appendEvents: options.realize must be an object");
-	if (!Array.isArray(realize.workstreamIds)) throw new StoreInputError("appendEvents: options.realize.workstreamIds must be an array");
-	for (const ws of realize.workstreamIds) assertNonEmptyString$2(ws, "options.realize.workstreamIds entry");
-	if (typeof realize.apply !== "function") throw new StoreInputError("appendEvents: options.realize.apply must be a function");
-	return realize;
-}
-function normalizeDerivedState(patches) {
-	if (patches === void 0) return [];
-	if (!Array.isArray(patches)) throw new StoreInputError("appendEvents: options.derivedState must be an array");
-	for (const [i, p] of patches.entries()) {
-		if (typeof p !== "object" || p === null) throw new StoreInputError(`appendEvents: options.derivedState[${i}] is not an object`);
-		assertNonEmptyString$2(p.objectKind, `options.derivedState[${i}].objectKind`);
-		assertNonEmptyString$2(p.objectId, `options.derivedState[${i}].objectId`);
-		if (p.state === void 0) throw new StoreInputError(`appendEvents: options.derivedState[${i}].state must not be undefined`);
-	}
-	return patches;
-}
-function toRecord(row) {
-	const base = {
-		eventId: row.eventId,
-		ownerWorkstreamId: row.ownerWorkstreamId,
-		eventSeq: row.eventSeq,
-		eventType: row.eventType,
-		schemaVersion: row.schemaVersion,
-		occurredAt: row.occurredAt,
-		recordedAt: row.recordedAt,
-		actor: row.actor,
-		payload: row.payload
-	};
-	return row.source === null ? base : {
-		...base,
-		source: row.source
-	};
-}
-function dbRowToRecord(row) {
-	const id = String(row.event_id ?? "");
-	const base = {
-		eventId: id,
-		ownerWorkstreamId: String(row.owner_workstream_id ?? ""),
-		eventSeq: Number(row.event_seq ?? 0),
-		eventType: String(row.event_type ?? ""),
-		schemaVersion: Number(row.schema_version ?? 0),
-		occurredAt: Number(row.occurred_at ?? 0),
-		recordedAt: Number(row.recorded_at ?? 0),
-		actor: safeParse(String(row.actor ?? ""), `history_event[${id}].actor`),
-		payload: safeParse(String(row.payload ?? ""), `history_event[${id}].payload`)
-	};
-	if (row.source !== null && row.source !== void 0) return {
-		...base,
-		source: safeParse(String(row.source), `history_event[${id}].source`)
-	};
-	return base;
-}
-/**
-* Create `dir` (and any missing ancestors) and enforce owner-only 0o700 on
-* every directory THIS call created; a pre-existing parent is left at its
-* current mode (it may hold sibling projects — the DB file itself is
-* 0o600, which is the owner-only boundary that matters for the DB).
-*/
-function ensureOwnerOnlyDir(dir) {
-	const missing = [];
-	let cur = resolve(dir);
-	while (!existsSync(cur)) {
-		missing.push(cur);
-		const parent = dirname(cur);
-		if (parent === cur) break;
-		cur = parent;
-	}
-	try {
-		mkdirSync(dir, { recursive: true });
-	} catch (e) {
-		throw new StoreOpenError(`openDatabase: cannot create directory ${dir}: ${errMsg$1(e)}`, { cause: e });
-	}
-	for (const m of missing) try {
-		chmodSync(m, 448);
-	} catch (e) {
-		throw new StoreOpenError(`openDatabase: cannot set owner-only mode 0o700 on ${m}: ${errMsg$1(e)}`, { cause: e });
-	}
-}
-/** Driver error from `new DatabaseSync(path)` → structured. */
-function classifyOpenFailure(abs, e) {
-	const msg = errMsg$1(e);
-	if (/not a database|malformed|file is not a database/i.test(msg)) return new StoreCorruptError(`openDatabase: ${abs} is not a usable SQLite database (corrupt or non-DB file): ${msg}`, { cause: e });
-	return new StoreOpenError(`openDatabase: cannot open ${abs}: ${msg}`, { cause: e });
-}
-/** `PRAGMA quick_check` — a damaged file fails here (TC-DB-002). */
-function checkIntegrity(db, abs) {
-	let rows;
-	try {
-		rows = db.prepare("PRAGMA quick_check").all();
-	} catch (e) {
-		throw new StoreCorruptError(`openDatabase: ${abs} is corrupted or unreadable: ${errMsg$1(e)}`, { cause: e });
-	}
-	const problems = rows.map((r) => String(r.quick_check ?? "")).filter((s) => s.toLowerCase() !== "ok");
-	if (problems.length > 0) throw new StoreCorruptError(`openDatabase: ${abs} failed quick_check: ${problems.join("; ")}`);
-}
-function readUserVersion(db, abs) {
-	let row;
-	try {
-		row = db.prepare("PRAGMA user_version").get();
-	} catch (e) {
-		throw new StoreCorruptError(`openDatabase: ${abs} is corrupted (cannot read user_version): ${errMsg$1(e)}`, { cause: e });
-	}
-	const v = Number(row?.user_version ?? 0);
-	if (!Number.isSafeInteger(v) || v < 0) throw new StoreCorruptError(`openDatabase: ${abs} has a non-integer user_version`);
-	return v;
-}
-/** Fresh DB (user_version 0): V1 DDL + version bump, ONE transaction.
-*  user_version 0 with schema tables already present is an INCONSISTENT
-*  file (a torn init that somehow escaped the init transaction) →
-*  corruption, not a re-init. */
-function initializeSchema(db, abs) {
-	const tables = readExistingTables(db, abs);
-	for (const t of tables) if (EXPECTED_TABLES.includes(t)) throw new StoreCorruptError(`openDatabase: ${abs} has user_version=0 but table "${t}" already exists — inconsistent database (corruption)`);
-	db.exec("BEGIN");
-	try {
-		db.exec(schemaDdl());
-		db.exec(`PRAGMA user_version = 1`);
-		db.exec("COMMIT");
-	} catch (e) {
-		rollbackQuietly$1(db);
-		throw toStoreError(e, `openDatabase (schema init at ${abs})`);
-	}
-}
-function readExistingTables(db, abs) {
-	let rows;
-	try {
-		rows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
-	} catch (e) {
-		throw new StoreCorruptError(`openDatabase: ${abs} is corrupted (cannot read sqlite_master): ${errMsg$1(e)}`, { cause: e });
-	}
-	return rows.map((r) => String(r.name ?? ""));
-}
-/** user_version=1 but a §15 table missing → the file is broken. */
-function verifyExpectedSchema(db, abs) {
-	verifyExpectedTables(db, abs);
-	verifyHistoryEventStructure(db, abs);
-}
-function verifyExpectedTables(db, abs) {
-	const tables = new Set(readExistingTables(db, abs));
-	for (const t of EXPECTED_TABLES) if (!tables.has(t)) throw new StoreCorruptError(`openDatabase: ${abs} has user_version=1 but is missing table "${t}" — database corruption`);
-}
-/**
-* user_version=1 + tables present, but the `history_event` structure does
-* not match this build's V1 DDL → STALE pre-release schema (an older dev
-* build: missing the WP-2.9 generated columns / filter indexes; or a
-* newer/unknown build: extra columns or named indexes). Rejected with a
-* structured STORE_SCHEMA_STALE — no migration path (DSH_ADAPTER §9);
-* the remedy is to delete the file and reinitialize. Column facts come
-* from `PRAGMA table_xinfo` (unlike `table_info`, it also reports the
-* generated columns, flagged `hidden = 2` for virtual generated —
-* SQLite ≥ 3.36, available on every node:sqlite build the store supports).
-*/
-function verifyHistoryEventStructure(db, abs) {
-	let colRows;
-	let idxRows;
-	try {
-		colRows = db.prepare("PRAGMA table_xinfo(history_event)").all();
-		idxRows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'history_event'").all();
-	} catch (e) {
-		throw new StoreCorruptError(`openDatabase: ${abs} is corrupted (cannot read the history_event structure): ${errMsg$1(e)}`);
-	}
-	const hiddenByColumn = /* @__PURE__ */ new Map();
-	for (const r of colRows) hiddenByColumn.set(String(r.name ?? ""), Number(r.hidden ?? 0));
-	const expectedColumns = new Set(HISTORY_EVENT_COLUMNS);
-	const colMissing = [];
-	const colUnexpected = [];
-	const colWrongKind = [];
-	for (const c of HISTORY_EVENT_COLUMNS) if (!hiddenByColumn.has(c)) colMissing.push(c);
-	for (const [c, hidden] of hiddenByColumn) if (!expectedColumns.has(c)) colUnexpected.push(c);
-	else if (hidden !== (HISTORY_EVENT_GENERATED.has(c) ? 2 : 0)) colWrongKind.push(c);
-	const namedIndexes = new Set(idxRows.map((r) => String(r.name ?? "")).filter((n) => !n.startsWith("sqlite_autoindex_")));
-	const idxMissing = [];
-	const idxUnexpected = [];
-	for (const i of HISTORY_EVENT_INDEXES) if (!namedIndexes.has(i)) idxMissing.push(i);
-	const expectedIndexes = new Set(HISTORY_EVENT_INDEXES);
-	for (const n of namedIndexes) if (!expectedIndexes.has(n)) idxUnexpected.push(n);
-	if (colMissing.length > 0 || colUnexpected.length > 0 || colWrongKind.length > 0 || idxMissing.length > 0 || idxUnexpected.length > 0) {
-		const parts = [];
-		if (colMissing.length > 0) parts.push(`missing columns: ${colMissing.join(", ")}`);
-		if (colUnexpected.length > 0) parts.push(`unexpected columns: ${colUnexpected.join(", ")}`);
-		if (colWrongKind.length > 0) parts.push(`columns with wrong kind (generated vs regular): ${colWrongKind.join(", ")}`);
-		if (idxMissing.length > 0) parts.push(`missing indexes: ${idxMissing.join(", ")}`);
-		if (idxUnexpected.length > 0) parts.push(`unexpected indexes: ${idxUnexpected.join(", ")}`);
-		throw new StoreSchemaStaleError(`openDatabase: ${abs} has user_version=1 but its history_event structure differs from this build's V1 DDL (${parts.join("; ")}) — stale pre-release schema; the pre-release store does not migrate (DSH_ADAPTER §9): delete the file and reinitialize`);
-	}
-}
-function errMsg$1(e) {
-	return e instanceof Error ? e.message : String(e);
-}
-function assertNonEmptyString$2(value, what) {
-	if (typeof value !== "string" || value.length === 0) throw new StoreInputError(`${what} must be a non-empty string`);
-	return value;
-}
-function assertSeq(value, what) {
-	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new StoreInputError(`${what} must be a positive safe integer (event_seq >= 1)`);
-}
-function assertPositiveInt$1(value, what) {
-	if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) throw new StoreInputError(`${what} must be a positive safe integer`);
-}
-function safeStringify(value, what) {
-	assertJsonValue(value, what, 0);
-	try {
-		const out = JSON.stringify(value);
-		if (typeof out !== "string") throw new Error(`JSON.stringify returned ${typeof out}`);
-		return out;
-	} catch (e) {
-		throw new StoreInputError(`${what} is not JSON-serializable: ${errMsg$1(e)}`, { cause: e });
-	}
-}
-/**
-* Strict-JSON gate: `JSON.stringify` silently DROPS function/symbol/
-* undefined property values and silently coerces NaN/Infinity to null —
-* for persisted envelope data that is silent corruption, not
-* serialization. Only strict JSON values pass: null, string, boolean,
-* finite number, arrays, and PLAIN objects (no Date/RegExp/Map/custom
-* class, no symbol keys, no undefined values). Depth-capped (64).
-*/
-function assertJsonValue(value, what, depth) {
-	if (depth > 64) throw new StoreInputError(`${what}: nesting deeper than 64 levels — refusing to persist`);
-	if (value === null) return;
-	const t = typeof value;
-	if (t === "string" || t === "boolean") return;
-	if (t === "number") {
-		if (!Number.isFinite(value)) throw new StoreInputError(`${what}: non-finite number (NaN/±Infinity are not JSON)`);
-		return;
-	}
-	if (t === "function" || t === "symbol" || t === "bigint" || t === "undefined") throw new StoreInputError(`${what}: not a strict JSON value (got ${t})`);
-	if (Array.isArray(value)) {
-		for (const item of value) assertJsonValue(item, what, depth + 1);
-		return;
-	}
-	const obj = value;
-	const proto = Object.getPrototypeOf(obj);
-	if (proto !== Object.prototype && proto !== null) throw new StoreInputError(`${what}: contains a non-plain object (${obj.constructor?.name ?? "unknown"}) — strict JSON only (no Date/RegExp/Map/...)`);
-	if (Object.getOwnPropertySymbols(obj).length > 0) throw new StoreInputError(`${what}: contains symbol-keyed properties — not JSON`);
-	for (const v of Object.values(obj)) assertJsonValue(v, what, depth + 1);
-}
-function safeParse(raw, what) {
-	try {
-		return JSON.parse(raw);
-	} catch (e) {
-		throw new StoreCorruptError(`${what} is not valid JSON — database corruption`, { cause: e });
-	}
-}
-function rollbackQuietly$1(db) {
-	try {
-		db.exec("ROLLBACK");
-	} catch {}
-}
-function closeQuietly(db) {
-	try {
-		db.close();
-	} catch {}
-}
-/**
-* Store-owned failure → structured StoreError. Caller-owned hook errors
-* (thrown by the caller's validate/realize callbacks) propagate UNCHANGED —
-* they are the caller's error type; the transaction is already rolled back.
-*/
-function toStoreError(e, context) {
-	if (e instanceof StoreError) return e;
-	const msg = errMsg$1(e);
-	if (/UNIQUE constraint failed/i.test(msg)) return new StoreConflictError(`${context}: uniqueness violation: ${msg}`, { cause: e });
-	if (/not a database|database disk image is malformed/i.test(msg)) return new StoreCorruptError(`${context}: corrupt or unreadable SQLite file: ${msg}`, { cause: e });
-	return new StoreSqlError(`${context}: ${msg}`, { cause: e });
 }
 //#endregion
 //#region src/host/service/flooding/types.ts
@@ -12659,630 +14028,6 @@ function typeName(v) {
 	return typeof v;
 }
 //#endregion
-//#region src/host/git/errors.ts
-var GitError = class extends Error {
-	code;
-	constructor(code, message, options) {
-		super(message, options);
-		this.name = new.target.name;
-		this.code = code;
-	}
-};
-/** Git executable missing / spawn ENOENT (§2, §9「Git 可执行缺失」). */
-var GitMissingError = class extends GitError {
-	constructor(message, options) {
-		super("GIT_MISSING", message, options);
-	}
-};
-/** 命令超时 (默认 10s) — kill 后按错误处理, 不重试自动写操作 (§1.9, §9). */
-var GitTimeoutError = class extends GitError {
-	command;
-	timeoutMs;
-	constructor(command, timeoutMs) {
-		super("GIT_TIMEOUT", `Git 操作超时 (${timeoutMs}ms): git ${command.join(" ")}`);
-		this.command = command;
-		this.timeoutMs = timeoutMs;
-	}
-};
-/** Non-zero exit outside a specific known class — git 自身报错, 原样展示 (§9「repo 损坏」). */
-var GitCommandError = class extends GitError {
-	command;
-	exitCode;
-	stdout;
-	stderr;
-	constructor(command, exitCode, stdout, stderr) {
-		super("GIT_COMMAND", `git ${command.join(" ")} exited ${exitCode}${stderr.trim() ? `: ${stderr.trim()}` : ""}`);
-		this.command = command;
-		this.exitCode = exitCode;
-		this.stdout = stdout;
-		this.stderr = stderr;
-	}
-};
-/** 白名单外命令 (INV-GIT-7 运行时面) — 不可达. */
-var GitWhitelistViolationError = class extends GitError {
-	attempted;
-	constructor(attempted) {
-		super("GIT_WHITELIST", `git command not in W1–W13 whitelist (INV-GIT-7): git ${attempted.join(" ")}`);
-		this.attempted = attempted;
-	}
-};
-/** Invalid caller input (bad OID shape, pathspec not under .research/…). */
-var GitInputError = class extends GitError {
-	constructor(message) {
-		super("GIT_INPUT", message);
-	}
-};
-//#endregion
-//#region src/host/git/whitelist.ts
-/**
-* WP-1.2 — the frozen W1–W13 operation whitelist (GIT_INTEGRATION §3),
-* encoded as the single source of truth for argv validation.
-*
-* 「白名单外命令不可达」 is enforced at two layers:
-*  1. 类型面: index.ts exports only the named operations below — there is no
-*     generic run/exec/spawn export (statically asserted by
-*     tests/git/inv-git-static.test.ts);
-*  2. 运行时: runner.ts calls {@link assertWhitelisted} before every spawn and
-*     throws GitWhitelistViolationError for any argv that does not match one
-*     of these exact shapes (INV-GIT-7).
-*
-* argv shapes are relative to the repo root; the transport layer prepends
-* `-C <root>` (工作目录强制 -C root, never `cwd:`).
-*/
-/** W9/W10 pathspec and W8 restore scope (INV-GIT-3 / §6). */
-const RESEARCH_PATHSPEC = ".research/";
-/** W6 log 格式串 — 冻结建议 (§3 说明): OID、作者时间、标题, 单元分隔符 \x1f. */
-const LOG_FORMAT_ARG = "--format=%H%x1f%aI%x1f%s";
-/**
-* Full 40-hex commit OID. Short OIDs and refs (HEAD, main, HEAD~1) are
-* deliberately rejected: the whitelist is exact, and every commit value the
-* plugin passes (W7/W8) comes from W11 (`rev-parse HEAD`, full OID).
-*/
-const OID_RE$1 = /^[0-9a-f]{40}$/;
-const DIGITS_RE = /^[0-9]+$/;
-/**
-* Repo-root-relative path argument (W3/W6/W8/W13): non-empty, not absolute,
-* not a `..` escape, no NUL, not option-like. The `--` separator in each
-* argv shape is the second line of defense against option smuggling.
-*/
-function isPathArg(p) {
-	return p.length > 0 && p !== ".." && !p.startsWith("../") && !p.startsWith("/") && !p.startsWith("-") && !p.includes("\0");
-}
-/** W8 scope: restore 仅 .research/** (§6「.research/ 目录外的路径不允许通过本插件 restore」). */
-function isUnderResearch(p) {
-	return p === ".research/" || p.startsWith(".research/");
-}
-const is = (a, i, v) => a[i] === v;
-const WHITELIST_ROWS = [
-	{
-		id: "W1",
-		operation: "仓库检测",
-		trigger: "auto",
-		argv: ["rev-parse", "--show-toplevel"],
-		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "--show-toplevel")
-	},
-	{
-		id: "W2",
-		operation: "git dir 定位",
-		trigger: "auto",
-		argv: ["rev-parse", "--git-dir"],
-		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "--git-dir")
-	},
-	{
-		id: "W3",
-		operation: "blob OID 计算",
-		trigger: "auto",
-		argv: [
-			"hash-object",
-			"--",
-			"<path>"
-		],
-		match: (a) => a.length === 3 && is(a, 0, "hash-object") && is(a, 1, "--") && isPathArg(a[2])
-	},
-	{
-		id: "W4",
-		operation: "工作区状态",
-		trigger: "auto",
-		argv: [
-			"status",
-			"--porcelain=v2",
-			"[--branch]"
-		],
-		match: (a) => is(a, 0, "status") && is(a, 1, "--porcelain=v2") && (a.length === 2 || a.length === 3 && is(a, 2, "--branch"))
-	},
-	{
-		id: "W5",
-		operation: "变更清单",
-		trigger: "auto",
-		argv: [
-			"diff",
-			"--name-status",
-			"[<baseline-oid>]"
-		],
-		match: (a) => is(a, 0, "diff") && is(a, 1, "--name-status") && (a.length === 2 || a.length === 3 && OID_RE$1.test(a[2]))
-	},
-	{
-		id: "W6",
-		operation: "文件历史",
-		trigger: "user",
-		argv: [
-			"log",
-			LOG_FORMAT_ARG,
-			"[-n <count>]",
-			"[--skip <n>]",
-			"--",
-			"<path>"
-		],
-		match: (a) => {
-			if (!is(a, 0, "log") || !is(a, 1, "--format=%H%x1f%aI%x1f%s")) return false;
-			let i = 2;
-			if (is(a, i, "-n")) {
-				if (!DIGITS_RE.test(a[i + 1] ?? "")) return false;
-				i += 2;
-			}
-			if (is(a, i, "--skip")) {
-				if (!DIGITS_RE.test(a[i + 1] ?? "")) return false;
-				i += 2;
-			}
-			return is(a, i, "--") && i + 2 === a.length && isPathArg(a[i + 1]);
-		}
-	},
-	{
-		id: "W7",
-		operation: "历史版本内容",
-		trigger: "user",
-		argv: ["show", "<commit-oid>:<path>"],
-		match: (a) => {
-			if (a.length !== 2 || !is(a, 0, "show")) return false;
-			const ref = a[1];
-			const i = ref.indexOf(":");
-			return i > 0 && OID_RE$1.test(ref.slice(0, i)) && isPathArg(ref.slice(i + 1));
-		}
-	},
-	{
-		id: "W8",
-		operation: "恢复文件",
-		trigger: "user",
-		argv: [
-			"restore",
-			"--source=<commit-oid>",
-			"--",
-			".research/<path>"
-		],
-		match: (a) => a.length === 4 && is(a, 0, "restore") && typeof a[1] === "string" && a[1].startsWith("--source=") && OID_RE$1.test(a[1].slice(9)) && is(a, 2, "--") && isPathArg(a[3]) && isUnderResearch(a[3])
-	},
-	{
-		id: "W9",
-		operation: "暂存",
-		trigger: "user",
-		argv: [
-			"add",
-			"--",
-			RESEARCH_PATHSPEC
-		],
-		match: (a) => a.length === 3 && is(a, 0, "add") && is(a, 1, "--") && is(a, 2, ".research/")
-	},
-	{
-		id: "W10",
-		operation: "检查点提交",
-		trigger: "user",
-		argv: [
-			"commit",
-			"-m",
-			"<research: summary>",
-			"--",
-			RESEARCH_PATHSPEC
-		],
-		match: (a) => a.length === 5 && is(a, 0, "commit") && is(a, 1, "-m") && typeof a[2] === "string" && a[2].length > 0 && !a[2].includes("\0") && is(a, 3, "--") && is(a, 4, ".research/")
-	},
-	{
-		id: "W11",
-		operation: "取提交 OID",
-		trigger: "user",
-		argv: ["rev-parse", "HEAD"],
-		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "HEAD")
-	},
-	{
-		id: "W12",
-		operation: "显式初始化",
-		trigger: "user",
-		argv: ["init"],
-		match: (a) => a.length === 1 && is(a, 0, "init")
-	},
-	{
-		id: "W13",
-		operation: "枚举 tracked 文件",
-		trigger: "auto",
-		argv: [
-			"ls-files",
-			"--",
-			"<pathspec>"
-		],
-		match: (a) => a.length === 3 && is(a, 0, "ls-files") && is(a, 1, "--") && isPathArg(a[2])
-	}
-];
-/**
-* 运行时护栏 (INV-GIT-7): argv must match exactly one whitelist row;
-* anything else throws GitWhitelistViolationError before a process is
-* spawned. Returns the matched row for observability.
-*/
-function assertWhitelisted(argv) {
-	for (const row of WHITELIST_ROWS) if (row.match(argv)) return row;
-	throw new GitWhitelistViolationError([...argv]);
-}
-//#endregion
-//#region src/host/git/runner.ts
-/**
-* WP-1.2 — Git wrapper: argv-array transport layer (INV-GIT-6).
-*
-* This is the ONLY place in the plugin that spawns `git` (ARCHITECTURE §2.2
-* rule 3). Guarantees:
-*  - argv 数组直传 spawn, `shell: false` — 禁 shell 拼接 (INV-GIT-6; 静态核验
-*    tests/git/inv-git-static.test.ts);
-*  - 工作目录强制 `-C <root>` (not `cwd:`);
-*  - 每调用超时 (默认 10s, 可配) → process-group kill + GitTimeoutError,
-*    不重试自动写操作 (§1.9 / §9);
-*  - stdout/stderr 字节上限 → 截断+标记 (§1.9 / §9「输出超大」);
-*  - git 可执行解析失败响亮报错 (GitMissingError, §2: 拒绝 managed mode,
-*    提示安装 Git).
-*
-* NOTE: `spawnGitProcess` / `runGit` are internal — index.ts deliberately
-* does NOT export them. Only the named whitelist operations (operations.ts)
-* reach the transport from production code. Test infrastructure
-* (tests/git/temp-repo.ts) deep-imports `spawnGitProcess` for fixture setup
-* of states the plugin must never produce on a user's repo (see that file's
-* header for the rationale).
-*/
-/**
-* Resolve the path of the git executable. 响亮报错 (GitMissingError) when it
-* cannot be resolved — per §2「git 可执行缺失 -> 同样拒绝，提示安装 Git」.
-* Deliberately NOT cached: resolution happens per call so PATH changes
-* (e.g. TC-GIT-011) are observed.
-*/
-function resolveGitExecutable(override) {
-	if (override !== void 0) {
-		if (override.length === 0) throw new GitMissingError("git executable override is empty — refusing to run git (GIT_INTEGRATION §2)");
-		try {
-			if (!statSync(override).isFile()) throw new Error(`not a file: ${override}`);
-			accessSync(override, constants.X_OK);
-		} catch (e) {
-			throw new GitMissingError(`git executable at "${override}" is not usable (GIT_INTEGRATION §2: 提示安装 Git)`, { cause: e });
-		}
-		return override;
-	}
-	const separator = process.platform === "win32" ? ";" : ":";
-	const pathEnv = process.env.PATH ?? process.env.Path ?? "";
-	const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";") : [""];
-	for (const dir of pathEnv.split(separator)) {
-		if (dir.length === 0) continue;
-		for (const ext of exts) {
-			const candidate = join(dir, `git${ext.toLowerCase()}`);
-			try {
-				if (!statSync(candidate).isFile()) continue;
-				accessSync(candidate, constants.X_OK);
-				return candidate;
-			} catch {}
-		}
-	}
-	throw new GitMissingError("git executable not found in PATH — 拒绝进入 managed research mode; 请安装 Git (GIT_INTEGRATION §2)");
-}
-/**
-* Spawn `git -C <root> <argv…>` as a plain argv array (INV-GIT-6).
-* No whitelist check here — callers: {@link runGit} (checked) and test
-* infrastructure (fixture setup for states the plugin itself must never
-* perform; see file header).
-*
-* The child runs in its own process group (Linux) so the timeout kill also
-* reaches helper processes (e.g. a `sleep` under a test fake-git) — an
-* orphan holding the stdio pipes would otherwise hang the promise.
-*/
-function spawnGitProcess(executable, root, argv, spec) {
-	const command = [
-		"-C",
-		root,
-		...argv
-	];
-	return new Promise((resolve, reject) => {
-		let settled = false;
-		const child = spawn(executable, command, {
-			shell: false,
-			env: process.env,
-			stdio: [
-				"ignore",
-				"pipe",
-				"pipe"
-			],
-			detached: process.platform !== "win32"
-		});
-		const stdoutChunks = [];
-		let stdoutBytes = 0;
-		const stderrChunks = [];
-		let stderrBytes = 0;
-		let truncated = false;
-		const pushCapped = (chunks, bytes, chunk) => {
-			const remaining = spec.maxOutputBytes - bytes;
-			if (remaining <= 0) return {
-				bytes,
-				capped: true
-			};
-			if (chunk.length > remaining) {
-				chunks.push(chunk.subarray(0, remaining));
-				return {
-					bytes: spec.maxOutputBytes,
-					capped: true
-				};
-			}
-			chunks.push(chunk);
-			return {
-				bytes: bytes + chunk.length,
-				capped: false
-			};
-		};
-		child.stdout?.on("data", (chunk) => {
-			const r = pushCapped(stdoutChunks, stdoutBytes, chunk);
-			stdoutBytes = r.bytes;
-			if (r.capped) truncated = true;
-		});
-		child.stderr?.on("data", (chunk) => {
-			const r = pushCapped(stderrChunks, stderrBytes, chunk);
-			stderrBytes = r.bytes;
-			if (r.capped) truncated = true;
-		});
-		const timer = setTimeout(() => {
-			if (settled) return;
-			settled = true;
-			killProcessGroup(child);
-			reject(new GitTimeoutError(command, spec.timeoutMs));
-		}, spec.timeoutMs);
-		child.on("error", (e) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			if (e.code === "ENOENT") reject(new GitMissingError(`failed to spawn git at "${executable}" (ENOENT) — 请安装 Git (GIT_INTEGRATION §2)`, { cause: e }));
-			else reject(new GitMissingError(`failed to spawn git at "${executable}": ${e.message}`, { cause: e }));
-		});
-		child.on("close", (code, signal) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			if (code === null) {
-				reject(new GitCommandError(command, -1, Buffer.concat(stdoutChunks).toString("utf8"), `killed by signal ${signal ?? "unknown"}`));
-				return;
-			}
-			resolve({
-				exitCode: code,
-				stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-				stderr: Buffer.concat(stderrChunks).toString("utf8"),
-				truncated
-			});
-		});
-	});
-}
-function killProcessGroup(child) {
-	try {
-		if (child.pid != null && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
-		else child.kill("SIGKILL");
-	} catch {}
-}
-/**
-* The checked path: validate argv against the W1–W13 whitelist (INV-GIT-7
-* 运行时面), resolve the executable (fail loud), then spawn with the
-* §1.9 guards. Every operation in operations.ts goes through here.
-*/
-async function runGit(root, argv, opts) {
-	assertWhitelisted(argv);
-	return await spawnGitProcess(resolveGitExecutable(opts?.gitExecutable), root, argv, {
-		timeoutMs: opts?.timeoutMs ?? 1e4,
-		maxOutputBytes: opts?.maxOutputBytes ?? 1048576
-	});
-}
-//#endregion
-//#region src/host/git/operations.ts
-const OID_RE = /^[0-9a-f]{40}$/;
-function withC(root, argv) {
-	return [
-		"-C",
-		root,
-		...argv
-	];
-}
-function assertRepoRelativePath(p, op) {
-	if (typeof p !== "string" || p.length === 0) throw new GitInputError(`${op}: path must be a non-empty string`);
-	if (p === ".." || p.startsWith("../") || p.startsWith("/") || p.includes("\0")) throw new GitInputError(`${op}: path must be repo-root-relative (GIT_INTEGRATION §3 说明), got: ${p}`);
-	return p;
-}
-function assertOid(oid, op) {
-	if (typeof oid !== "string" || !OID_RE.test(oid)) throw new GitInputError(`${op}: expected a full 40-hex commit OID, got: ${String(oid)}`);
-	return oid;
-}
-function commandFailed(root, argv, res) {
-	throw new GitCommandError(withC(root, argv), res.exitCode, res.stdout, res.stderr);
-}
-/** W1 (§2): `git -C <candidate> rev-parse --show-toplevel`. exit≠0 → 不是 Git repo. */
-async function detectRepo(candidateRoot, opts) {
-	const res = await runGit(candidateRoot, ["rev-parse", "--show-toplevel"], opts);
-	if (res.exitCode !== 0) return {
-		ok: false,
-		reason: "not-a-repo"
-	};
-	return {
-		ok: true,
-		repoRoot: res.stdout.trim()
-	};
-}
-/**
-* W3 (§7): `git hash-object -- <path>` — 对 working copy 内容计算 Git blob
-* OID，无需 commit → stale 检测不依赖用户 commit 频率 (PLAN_FORK_SPEC §3/§5).
-*/
-async function hashObject(root, filePath, opts) {
-	const argv = [
-		"hash-object",
-		"--",
-		assertRepoRelativePath(filePath, "hashObject")
-	];
-	const res = await runGit(root, argv, opts);
-	if (res.exitCode !== 0) commandFailed(root, argv, res);
-	return res.stdout.trim();
-}
-/** W4 (§8 audit / checkpoint 前置): `git status --porcelain=v2 [--branch]`. */
-async function status(root, opts) {
-	const argv = ["status", "--porcelain=v2"];
-	if (opts?.includeBranch ?? true) argv.push("--branch");
-	const res = await runGit(root, argv, opts);
-	if (res.exitCode !== 0) commandFailed(root, argv, res);
-	const { head, entries } = parsePorcelainV2(res.stdout);
-	return {
-		head,
-		entries,
-		raw: res.stdout,
-		truncated: res.truncated
-	};
-}
-/**
-* Parse `git status --porcelain=v2 [--branch]`.
-*
-* Line grammar (git-status(1), verified against git 2.53 output):
-*   1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
-*   2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\t<origPath>
-*   u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <hI> <path>
-*   ? <path>
-* Forward-compatible: the path is always the LAST token (quoted paths
-* contain no raw spaces), rename lines carry a tab between path/origPath;
-* unknown lines (`# …` comments, `header …` extensions) are skipped — raw
-* is kept verbatim in the result.
-*/
-function parsePorcelainV2(raw) {
-	let head;
-	let branchOid;
-	const entries = [];
-	for (const line of raw.split("\n")) {
-		if (line.length === 0) continue;
-		if (line.startsWith("# branch.oid ")) {
-			const v = line.slice(13);
-			if (/^[0-9a-f]{40}$/.test(v)) {
-				branchOid = v;
-				if (head?.kind === "detached") head.oid = v;
-			}
-		} else if (line.startsWith("# branch.head ")) {
-			const v = line.slice(14);
-			head = v === "(detached)" ? {
-				kind: "detached",
-				oid: branchOid
-			} : {
-				kind: "branch",
-				name: v
-			};
-		} else if (line.startsWith("# branch.upstream ")) {
-			if (head?.kind === "branch") head.upstream = line.slice(18);
-		} else if (line.startsWith("# branch.ab ")) {
-			const m = /^\+(-?\d+) -(-?\d+)$/.exec(line.slice(12));
-			if (m && head?.kind === "branch") {
-				head.ahead = Number(m[1]);
-				head.behind = Number(m[2]);
-			}
-		} else if (line.startsWith("1 ") || line.startsWith("u ")) {
-			const parts = line.slice(2).split(" ");
-			const xy = parts[0] ?? "";
-			entries.push({
-				kind: line.startsWith("u ") ? "unmerged" : "tracked",
-				x: xy.slice(0, 1),
-				y: xy.slice(1, 2),
-				path: unquotePath(parts[parts.length - 1] ?? "")
-			});
-		} else if (line.startsWith("2 ")) {
-			const parts = line.slice(2).split(" ");
-			const xy = parts[0] ?? "";
-			const last = parts[parts.length - 1] ?? "";
-			const sep = last.indexOf("	");
-			const [path, origPath] = sep >= 0 ? [last.slice(0, sep), last.slice(sep + 1)] : [last, ""];
-			entries.push({
-				kind: "renamed",
-				x: xy.slice(0, 1),
-				y: xy.slice(1, 2),
-				path: unquotePath(path),
-				origPath: unquotePath(origPath)
-			});
-		} else if (line.startsWith("? ")) entries.push({
-			kind: "untracked",
-			x: "",
-			y: "",
-			path: unquotePath(line.slice(2))
-		});
-	}
-	return {
-		head,
-		entries
-	};
-}
-/** Unquote a C-quoted path from git output (core.quotePath). */
-function unquotePath(p) {
-	if (p.length < 2 || !p.startsWith("\"") || !p.endsWith("\"")) return p;
-	const inner = p.slice(1, -1);
-	let out = "";
-	for (let i = 0; i < inner.length; i++) {
-		const c = inner[i];
-		if (c !== "\\") {
-			out += c;
-			continue;
-		}
-		const n = inner[++i];
-		if (n === void 0) {
-			out += c;
-			break;
-		}
-		if (n === "t") out += "	";
-		else if (n === "n") out += "\n";
-		else if (n === "r") out += "\r";
-		else if (n === "\"" || n === "\\") out += n;
-		else if (n >= "0" && n <= "7") {
-			let digits = n;
-			while (digits.length < 3 && inner[i + 1] >= "0" && inner[i + 1] <= "7") digits += inner[++i];
-			out += String.fromCharCode(parseInt(digits, 8));
-		} else out += n;
-	}
-	return out;
-}
-/** W5 (§8 audit): `git diff --name-status [<baseline>]` (baseline: 40-hex OID). */
-async function diffNameStatus(root, baseline, opts) {
-	const argv = ["diff", "--name-status"];
-	if (baseline !== void 0) argv.push(assertOid(baseline, "diffNameStatus"));
-	const res = await runGit(root, argv, opts);
-	if (res.exitCode !== 0) commandFailed(root, argv, res);
-	const out = [];
-	for (const line of res.stdout.split("\n")) {
-		if (line.length === 0) continue;
-		const parts = line.split("	");
-		if (parts.length >= 3 && /^[RC]/.test(parts[0])) out.push({
-			status: parts[0],
-			oldPath: unquotePath(parts[1]),
-			path: unquotePath(parts[2])
-		});
-		else if (parts.length === 2) out.push({
-			status: parts[0],
-			path: unquotePath(parts[1])
-		});
-	}
-	return out;
-}
-/** W11 (checkpoint 第三步, **用户**): `git rev-parse HEAD` → 记录 commit OID. */
-async function revParseHead(root, opts) {
-	const argv = ["rev-parse", "HEAD"];
-	const res = await runGit(root, argv, opts);
-	if (res.exitCode !== 0) commandFailed(root, argv, res);
-	return res.stdout.trim();
-}
-/** W13 (§8 audit, Phase 6): `git ls-files -- <pathspec>` — strict tracked 路径集. */
-async function lsFiles(root, pathspec, opts) {
-	const argv = [
-		"ls-files",
-		"--",
-		assertRepoRelativePath(pathspec, "lsFiles")
-	];
-	const res = await runGit(root, argv, opts);
-	if (res.exitCode !== 0) commandFailed(root, argv, res);
-	return res.stdout.split("\n").filter((l) => l.length > 0).map(unquotePath);
-}
-//#endregion
 //#region src/host/audit/strict/audit.ts
 /**
 * WP-6.1 — strict git audit (GIT_INTEGRATION §8 第一层, 计划书 §22.1).
@@ -18841,6 +19586,22 @@ var HostWiringError = class extends Error {
 		this.code = code;
 	}
 };
+function makeCollectingLogger() {
+	const entries = [];
+	const push = (level) => (step, message) => {
+		entries.push({
+			level,
+			step,
+			message
+		});
+	};
+	return {
+		entries,
+		info: push("info"),
+		warn: push("warn"),
+		error: push("error")
+	};
+}
 //#endregion
 //#region src/host/service/wiring/db-adapter.ts
 /**
@@ -19021,6 +19782,212 @@ function makeContentHashCapturer(researchRoot) {
 		}
 		return { objects };
 	} };
+}
+//#endregion
+//#region src/host/service/wiring/startup-integrity.ts
+/**
+* WP-8.5 (G8 S2) — the PRODUCTION wiring of the WP-8.1 startup integrity
+* checks: the [Service.init] dependency-graph step 0.5 (the integrity
+* gate), run BEFORE any service is instantiated.
+*
+* The WP-8.1 hardening module (src/host/persistence/hardening) delivered
+* the four-check startup pass as a frozen, fully-tested composition —
+* `runStartupIntegrityChecks` (the async orchestrator) + the four check
+* primitives. G8 round-1 (spec-hunter R1 / host-integrator R2) found the
+* pass had ZERO production callers: the `[Service.init]` graph
+* (createHostWiring) never ran it. This module is the adoption:
+*
+*   - it composes the SAME frozen check primitives the orchestrator
+*     composes (check 1 `checkDatabase` — the store's own open path;
+*     check 2 `loadResearchTree` + `classifyTreeLoad`; check 3
+*     `checkGitWorkspace` — the real git layer; check 4
+*     `checkDualTruthConsistency`) with the orchestrator's identical
+*     aggregation rule (any unrecoverable ⇒ fatal; else any recoverable
+*     ⇒ degraded; else ok; readSurface readonly ⇔ the tree is partially
+*     broken);
+*   - the three SYNCHRONOUS checks (db / tree / consistency) run in the
+*     gate's own step, BEFORE the dependency graph's instantiation steps
+*     (store → registry → … → tools) and BEFORE the step-13 startup
+*     reconciliations: an unrecoverable finding throws a structured
+*     `HostWiringError` (code `WIRING_INTEGRITY`) here — the fiber never
+*     reaches ACTIVE (TC-DSH-008) and NO resource was opened yet (the
+*     gate's own check-1 handle is closed in a finally, always), so the
+*     failed-init-leaks-nothing property holds for free;
+*   - a `recoverable` finding is LOUD (one warn per guidance item, plus
+*     a summary warn) and then AUTO-DISPOSED by the already-delivered
+*     step-13 startup reconciliations (lifecycle convergence →
+*     run-vs-history → semantics rebuild — the frozen convergence
+*     mechanisms this gate only DETECTS, per the WP-8.1 module doc);
+*   - check 3 (the git boundary) is the ONLY async check (the git layer
+*     spawns). The gate FIRES it (no blocking — the dependency graph
+*     step is synchronous, pinned by the frozen test suite) and the
+*     result settles within milliseconds: loud-logged on settle
+*     (pass → info, recoverable → warn + guidance) and exposed on
+*     `wiring.integrity.git`. Git is NEVER fatal — `checkGitWorkspace`
+*     classifies every outcome as pass/recoverable (git-missing /
+*     not-a-repo / conflict-in-progress / repo-error all refuse the
+*     MANAGED mode or the CHECKPOINT, never the read surface; the
+*     runtime refusals are enforced by the git/checkpoint layers
+*     themselves) — so no ACTIVE-blocking decision waits on the async
+*     half. The async orchestrator `runStartupIntegrityChecks` itself
+*     remains the tested canonical composition (tests/hardening) and is
+*     driven end-to-end by the e2e factory as the cross-check that the
+*     production gate and the orchestrator classify the SAME tree
+*     identically (e2e/factory/factory.ts integrity scenarios).
+*
+* V1 boundary (documented, see the WP-8.5 report): a PARTIALLY broken
+* `.research` tree is classified `recoverable` here (the §10 readonly
+* surface — `readSurface: 'readonly'`), but the V1 wiring's WIRING_TREE
+* step (step 3) keeps its STRICT policy — any load error fails startup
+* (frozen by tests/wiring). The `readSurface` flag is still honored at
+* the one tree-write path the wiring owns (the workstream.yaml flip
+* refuses under readonly — a defensive contract for when a follow-up WP
+* adopts the §10 degraded surface).
+*
+* No DSH imports (INV-PERM-5); git access rides the frozen git layer
+* behind the check's own injectable port (INV-GIT-6).
+*/
+/**
+* Run the startup integrity gate (module header).
+*
+* @throws {HostWiringError} code `WIRING_INTEGRITY` when any synchronous
+*  check is unrecoverable — BEFORE any resource of the dependency graph
+*  is opened (the caller's fiber fails before ACTIVE, TC-DSH-008).
+*/
+function runStartupIntegrityGate(input) {
+	const logger = input.logger;
+	const dbOutcome = checkDatabase(input.dbPath);
+	const db = dbOutcome.result;
+	let treeLoad;
+	let tree;
+	try {
+		treeLoad = loadResearchTree(input.reader, input.researchRoot, input.schemaDir);
+		tree = classifyTreeLoad(treeLoad);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		treeLoad = {
+			tree: emptyTree(),
+			errors: []
+		};
+		tree = {
+			status: "unrecoverable",
+			usable: false,
+			load: treeLoad,
+			fatalErrors: [{
+				code: "READ",
+				file: "",
+				message: `loader threw unexpectedly (bug — fail loud): ${msg}`
+			}],
+			degradedErrors: [],
+			guidance: [`the .research loader threw unexpectedly instead of aggregating errors (loader bug): ${msg}`]
+		};
+	}
+	const consistency = runConsistencyCheck({
+		handle: dbOutcome.handle,
+		tree,
+		input
+	});
+	const guidance = [];
+	if (db.status !== "pass") for (const g of db.guidance) guidance.push(`[db] ${g}`);
+	if (tree.status !== "pass") for (const g of tree.guidance) guidance.push(`[tree] ${g}`);
+	if (consistency.status !== "pass") for (const g of consistency.guidance) guidance.push(`[consistency] ${g}`);
+	const outcome = db.status === "unrecoverable" || tree.status === "unrecoverable" || consistency.status === "unrecoverable" ? "fatal" : tree.status === "recoverable" || consistency.status === "recoverable" ? "degraded" : "ok";
+	const readSurface = tree.status === "recoverable" ? "readonly" : "ok";
+	const git = fireGitCheck(input.repoRoot, input.researchDir, logger);
+	if (outcome === "fatal") {
+		for (const g of guidance) logger?.error("startup-integrity", g);
+		throw new HostWiringError("WIRING_INTEGRITY", `the startup integrity gate FAILED (unrecoverable — ARCHITECTURE §10 / TC-DSH-008): db=${db.status}${db.code ? ` (${db.code})` : ""}; tree=${tree.status}; consistency=${consistency.status} — refusing to instantiate the service graph. Guidance:\n${guidance.join("\n")}`);
+	}
+	if (outcome === "degraded") {
+		for (const g of guidance) logger?.warn("startup-integrity", g);
+		logger?.warn("startup-integrity", `startup integrity GATE: outcome=degraded (db=${db.status}; tree=${tree.status}; consistency=${consistency.status}) — startup PROCEEDS: the recoverable findings are auto-disposed by the step-13 startup reconciliations (lifecycle convergence → run-vs-history → semantics rebuild, loud); readSurface=${readSurface}; the git boundary check settles and logs separately (git is never fatal)`);
+	} else logger?.info("startup-integrity", `startup integrity GATE: outcome=ok (db=${db.status}; tree=${tree.status}; consistency=${consistency.status}) — the git boundary check settles and logs separately`);
+	return {
+		outcome,
+		db,
+		tree,
+		consistency,
+		readSurface,
+		guidance,
+		treeLoad,
+		git
+	};
+}
+function runConsistencyCheck(args) {
+	const { handle, tree, input } = args;
+	if (handle === null) return skipped("the operational database is unavailable (the db check failed — see its findings; the consistency probe needs an open store)");
+	if (tree.status === "unrecoverable") return skipped("the .research tree is unusable (the tree check found a fatal breakage — there is no declarative side to cross-check)");
+	try {
+		return checkDualTruthConsistency({
+			store: handle,
+			tree: tree.load.tree,
+			projectId: input.projectId,
+			maxSample: input.maxConsistencySample
+		});
+	} finally {
+		try {
+			handle.close();
+		} catch {}
+	}
+}
+function skipped(reason) {
+	return {
+		status: "skipped",
+		checked: [],
+		findings: [],
+		projectIdChecked: false,
+		skipReason: reason,
+		message: `skipped: ${reason}`,
+		guidance: []
+	};
+}
+/**
+* Fire the git boundary check (the only async one — the git layer spawns).
+* NEVER rejects: `checkGitWorkspace` classifies every git failure
+* (contract); a throw of its own is a bug — classed repo-error-shaped
+* and loud, so the fire-and-forget promise cannot become an unhandled
+* rejection (which would crash the host process — worse than any
+* classification).
+*/
+function fireGitCheck(repoRoot, researchDir, logger) {
+	return checkGitWorkspace(repoRoot, { researchDir }).then((git) => {
+		if (git.status === "pass") logger?.info("startup-integrity", `git boundary: pass — ${git.message}`);
+		else {
+			logger?.warn("startup-integrity", `git boundary: ${git.status} — ${git.message}`);
+			for (const g of git.guidance) logger?.warn("startup-integrity", `[git] ${g}`);
+		}
+		return git;
+	}).catch((e) => {
+		const msg = e instanceof Error ? e.message : String(e);
+		const result = {
+			status: "recoverable",
+			repoDetected: false,
+			repoRoot: null,
+			conflictInProgress: false,
+			dirty: false,
+			dirtyResearchPaths: [],
+			managedMode: "refused",
+			checkpointAllowed: false,
+			reason: "repo-error",
+			message: `the git boundary check threw unexpectedly (check bug — fail loud): ${msg}`,
+			guidance: [`the startup git check itself failed unexpectedly: ${msg} — managed research mode is refused (fail-safe); report this message`]
+		};
+		logger?.error("startup-integrity", `git boundary: the check threw unexpectedly (bug — fail loud): ${msg}`);
+		return result;
+	});
+}
+/** The empty-tree shape of a loader that threw before producing a result
+*  (mirror of the orchestrator's own fallback). */
+function emptyTree() {
+	return {
+		schemaVersion: null,
+		project: null,
+		objectives: [],
+		workspace: null,
+		policy: null,
+		topics: [],
+		mergeContracts: []
+	};
 }
 //#endregion
 //#region src/host/service/wiring/workstream-flip.ts
@@ -20498,7 +21465,13 @@ function withRealizeCompensation(store, realizer, options = {}) {
 * graph.
 *
 * ```text
-* store (openDatabase — ONE research.sqlite, DSH_ADAPTER §9; the RR-013
+* gate   (WP-8.5 / G8 S2: the WP-8.1 startup integrity checks — DB /
+*   tree / git / consistency, ARCHITECTURE §10 — run BEFORE any service
+*   is instantiated: unrecoverable ⇒ throw WIRING_INTEGRITY (the fiber
+*   never reaches ACTIVE, TC-DSH-008); recoverable ⇒ loud + auto-disposed
+*   by the step-13 reconciliations; the git boundary check is fired here
+*   (async, never fatal) and settles loud on `wiring.integrity.git`)
+*   → store (openDatabase — ONE research.sqlite, DSH_ADAPTER §9; the RR-013
 *   connection guard rides on this connection)
 *   → registry (frozen WP-2.2 schema load — unusable ⇒ startup fails)
 *   → tree   (the .research/ 真源 load — any load error ⇒ startup fails)
@@ -20598,6 +21571,16 @@ function createHostWiring(options) {
 		return db;
 	};
 	try {
+		const gate = runStartupIntegrityGate({
+			dbPath: join(dataDir, DB_FILE),
+			repoRoot,
+			researchRoot,
+			schemaDir: join(schemaRoot, "declarative"),
+			projectId: options.projectId,
+			researchDir,
+			reader,
+			logger
+		});
 		const rawStore = openDatabase(join(dataDir, DB_FILE));
 		disposers.push(() => {
 			try {
@@ -20606,7 +21589,7 @@ function createHostWiring(options) {
 		});
 		const registry = loadHistoryEventRegistry(reader, join(schemaRoot, "history"));
 		if (!registry.isUsable) throw new HostWiringError("WIRING_REGISTRY", `the frozen event registry is unusable — every append would be unvalidated (INV-HIST-4): ` + registry.loadErrors.map((e) => `[${e.code}] ${e.message}`).join("; "));
-		const load = loadResearchTree(reader, researchRoot, join(schemaRoot, "declarative"));
+		const load = gate.treeLoad;
 		if (load.errors.length > 0) throw new HostWiringError("WIRING_TREE", `the .research tree failed to load — refusing to serve a broken declarative 真源: ` + load.errors.map((e) => `[${e.code}] ${e.file || "<root>"}: ${e.message}`).join("; "));
 		for (const topic of load.tree.topics) for (const ws of topic.workstreams) {
 			const doc = ws.doc;
@@ -20649,6 +21632,7 @@ function createHostWiring(options) {
 			logger
 		});
 		const flipSpy = (wsId) => {
+			if (gate.readSurface === "readonly") throw new HostWiringError("WIRING_REALIZE", `the startup integrity gate set the surface READONLY (the .research tree is partially broken) — the workstream.yaml flip of ${wsId} is refused (ARCHITECTURE §10: a partially broken 真源 must not be committed or mutated)`);
 			realizer.onWorkstreamRealized(wsId);
 			const snapshot = liveWorkstreams.get(wsId);
 			if (snapshot !== void 0 && snapshot.lifecycle === "PLANNED") liveWorkstreams.set(wsId, {
@@ -21011,6 +21995,7 @@ function createHostWiring(options) {
 			analysisService,
 			analysisTransient,
 			startup,
+			integrity: gate,
 			externalState,
 			createPlanFork: async (params) => {
 				const view = planProvider.load(params.workstreamId);
@@ -21351,12 +22336,15 @@ const TREE = {
 	"policies/agent-plan-fork.yaml": POLICY_YAML,
 	...buildWs4Tree()
 };
-function writeTree(researchRoot) {
+function writeTree(researchRoot, patch = {}) {
 	rmSync(researchRoot, {
 		recursive: true,
 		force: true
 	});
-	for (const [rel, content] of Object.entries(TREE)) {
+	for (const [rel, content] of Object.entries({
+		...TREE,
+		...patch
+	})) {
 		const p = join(researchRoot, rel);
 		mkdirSync(join(p, ".."), { recursive: true });
 		writeFileSync(p, content);
@@ -21367,6 +22355,17 @@ function git(args, cwd) {
 		cwd,
 		stdio: "pipe"
 	});
+}
+/** A git call whose NON-ZERO exit is an expected outcome (the merge
+*  conflict scenario — the conflict IS the fixture). Returns the exit
+*  code; throws only on spawn failure. */
+function gitMaybe(args, cwd) {
+	const res = spawnSync("git", args, {
+		cwd,
+		stdio: "pipe"
+	});
+	if (res.error !== void 0) throw res.error;
+	return res.status ?? -1;
 }
 function ensureGitRepo(repo) {
 	if (!existsSync(join(repo, ".git"))) git([
@@ -21422,6 +22421,365 @@ function firstRegisteredSession(home, repo) {
 		if (ids.length > 0) return ids[0] ?? null;
 	}
 	return null;
+}
+function scenarioAssert(cond, msg) {
+	if (!cond) throw new Error(msg);
+}
+/** The file reader for the integrity checks (the wiring's own FsReader
+*  is module-private — an equivalent minimal reader for the scenario
+*  path; the PRODUCTION wiring's gate uses the real one). */
+function makeScenarioReader() {
+	return {
+		readDir: (p) => existsSync(p) && statSync(p).isDirectory() ? readdirSync(p, { withFileTypes: true }).map((e) => ({
+			name: e.name,
+			kind: e.isDirectory() ? "directory" : "file"
+		})) : null,
+		readFile: (p) => existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : null
+	};
+}
+/** A fresh temp workspace (repo + data dir) for one scenario. */
+function makeScenarioWorkspace(tag) {
+	const root = mkdtempSync(join(tmpdir(), `wp85-sc-${tag}-`));
+	mkdirSync(root, { recursive: true });
+	return {
+		root,
+		researchRoot: join(root, ".research"),
+		dataDir: join(root, "data")
+	};
+}
+/**
+* Scenario A — degraded + auto-disposition: a REALIZED file with EMPTY
+* History (the RR-010 crash-window residue — `file-leads`). The gate
+* must DETECT it loud, startup must PROCEED (no throw), and the step-13
+* lifecycle reconciliation must AUTO-CONVERGE the file back to PLANNED.
+*/
+async function scenarioDegradedAutoDispose(schemaRoot) {
+	const { root, researchRoot, dataDir } = makeScenarioWorkspace("deg");
+	const facts = {};
+	try {
+		writeTree(researchRoot, { "topics/TPC-1/workstreams/WS-1/workstream.yaml": `${WS1_YAML}lifecycle: REALIZED\n` });
+		ensureGitRepo(root);
+		git(["add", ".research"], root);
+		git([
+			"commit",
+			"-m",
+			"seed: .research tree (integrity scenario: file-leads residue)"
+		], root);
+		mkdirSync(dataDir, { recursive: true });
+		const logger = makeCollectingLogger();
+		const reader = makeScenarioReader();
+		const report = await runStartupIntegrityChecks({
+			dbPath: join(dataDir, "research.sqlite"),
+			repoRoot: root,
+			researchRoot,
+			schemaDir: join(schemaRoot, "declarative"),
+			projectId: "PRJ-1",
+			reader,
+			logger
+		});
+		facts.orchestratorOutcome = report.outcome;
+		facts.orchestratorFileLeads = report.consistency.findings.filter((f) => f.kind === "file-leads").map((f) => f.workstreamId);
+		scenarioAssert(report.outcome === "degraded", `orchestrator: expected degraded, got ${report.outcome}`);
+		scenarioAssert(facts.orchestratorFileLeads.length === 1 && facts.orchestratorFileLeads[0] === "WS-1", "orchestrator: the WS-1 residue must be classed file-leads");
+		const wiring = createHostWiring({
+			repoRoot: root,
+			schemaRoot,
+			projectId: "PRJ-1",
+			dataDir,
+			adapter: makeFakeAdapter(),
+			launcherAdapter: makeFakeLauncherAdapter(),
+			workspaceRoots: [root],
+			logger
+		});
+		try {
+			facts.gateOutcome = wiring.integrity.outcome;
+			facts.gateReadSurface = wiring.integrity.readSurface;
+			facts.gateFindings = wiring.integrity.consistency.findings.map((f) => `${f.kind}:${f.workstreamId ?? ""}`);
+			facts.gateLoudWarns = logger.entries.filter((e) => e.level === "warn" && e.step === "startup-integrity").length;
+			scenarioAssert(wiring.integrity.outcome === "degraded", `gate: expected degraded, got ${wiring.integrity.outcome}`);
+			scenarioAssert(facts.gateFindings.includes("file-leads:WS-1"), `gate: must class the same file-leads:WS-1 finding as the orchestrator (got ${JSON.stringify(facts.gateFindings)})`);
+			scenarioAssert(facts.gateLoudWarns > 0, "gate: the recoverable finding must be LOUD (warn entries), never silent");
+			facts.convergence = wiring.startup.lifecycle.findings.map((f) => `${f.workstreamId}:${f.action}`);
+			scenarioAssert(wiring.startup.lifecycle.findings.some((f) => f.workstreamId === "WS-1" && f.action === "file-rolled-back-to-planned"), "the startup reconciliation must AUTO-CONVERGE the file-leads residue back to PLANNED");
+			const ws1 = readFileSync(join(researchRoot, "topics/TPC-1/workstreams/WS-1/workstream.yaml"), "utf8");
+			facts.fileLifecycleAfterInit = /lifecycle:\s*(\w+)/.exec(ws1)?.[1] ?? "(absent = PLANNED)";
+			scenarioAssert(!/lifecycle:\s*REALIZED/.test(ws1), "the file on disk must no longer say REALIZED after auto-convergence");
+			facts.gitStatus = (await wiring.integrity.git).status;
+			facts.orchestratorGitStatus = report.git.status;
+			scenarioAssert(facts.gitStatus === facts.orchestratorGitStatus, "gate git half and orchestrator git check must agree");
+		} finally {
+			wiring.close();
+		}
+		return {
+			scenario: "degraded-auto-disposition",
+			ok: true,
+			facts
+		};
+	} finally {
+		rmSync(root, {
+			recursive: true,
+			force: true
+		});
+	}
+}
+/**
+* Scenario B — unrecoverable operational DB (TC-DB-002 form): the gate
+* must REFUSE startup with a structured WIRING_INTEGRITY error BEFORE
+* any service is instantiated (fail-loud; the fiber never reaches
+* ACTIVE), and the orchestrator's report must be fatal +
+* `assertStartup`-throwing (the TC-DSH-008 channel).
+*/
+async function scenarioFatalDb(schemaRoot) {
+	const { root, researchRoot, dataDir } = makeScenarioWorkspace("fatdb");
+	const facts = {};
+	try {
+		writeTree(researchRoot);
+		ensureGitRepo(root);
+		git(["add", ".research"], root);
+		git([
+			"commit",
+			"-m",
+			"seed: .research tree (integrity scenario: fatal db)"
+		], root);
+		mkdirSync(dataDir, { recursive: true });
+		writeFileSync(join(dataDir, "research.sqlite"), "THIS IS NOT A SQLITE DATABASE — corrupted on purpose (WP-8.5 integrity scenario: the TC-DB-002 garbage-bytes form)\n");
+		const logger = makeCollectingLogger();
+		const report = await runStartupIntegrityChecks({
+			dbPath: join(dataDir, "research.sqlite"),
+			repoRoot: root,
+			researchRoot,
+			schemaDir: join(schemaRoot, "declarative"),
+			projectId: "PRJ-1",
+			reader: makeScenarioReader(),
+			logger
+		});
+		facts.orchestratorOutcome = report.outcome;
+		facts.dbCode = report.db.code;
+		let fatalThrew = false;
+		try {
+			assertStartup(report);
+		} catch (e) {
+			fatalThrew = e instanceof HardeningFatalError;
+		}
+		scenarioAssert(report.outcome === "fatal", `orchestrator: expected fatal, got ${report.outcome}`);
+		scenarioAssert(report.db.code === "STORE_CORRUPT", `orchestrator db code: expected STORE_CORRUPT, got ${String(report.db.code)}`);
+		scenarioAssert(fatalThrew, "assertStartup must throw HardeningFatalError on a fatal report (the TC-DSH-008 channel)");
+		let gateError = null;
+		try {
+			createHostWiring({
+				repoRoot: root,
+				schemaRoot,
+				projectId: "PRJ-1",
+				dataDir,
+				adapter: makeFakeAdapter(),
+				launcherAdapter: makeFakeLauncherAdapter(),
+				workspaceRoots: [root],
+				logger
+			});
+		} catch (e) {
+			gateError = e;
+		}
+		scenarioAssert(gateError !== null, "gate: a corrupted operational DB must REFUSE the wiring (no service graph returned)");
+		facts.gateCode = gateError.code;
+		scenarioAssert(gateError.code === "WIRING_INTEGRITY", `gate: expected WIRING_INTEGRITY, got ${String(gateError.code)}`);
+		scenarioAssert(/corrupt/i.test(gateError.message ?? ""), "gate: the error must NAME the corruption (明确报错, 绝不静默)");
+		facts.gateErrorHead = (gateError.message ?? "").split("\n")[0];
+		scenarioAssert(logger.entries.some((e) => e.level === "error" && e.step === "startup-integrity"), "gate: the fatal finding must be LOUD (error entries)");
+		return {
+			scenario: "unrecoverable-db-fail-loud",
+			ok: true,
+			facts
+		};
+	} finally {
+		rmSync(root, {
+			recursive: true,
+			force: true
+		});
+	}
+}
+/**
+* Scenario C — project-scope mismatch (the dual-真源 invariant): the
+* tree declares PRJ-9 but the wiring (and its data dir) are keyed PRJ-1
+* — UNRECOVERABLE (the plugin must not guess which side to rewrite).
+* The gate refuses before instantiation; the orchestrator reports fatal.
+*/
+async function scenarioProjectScopeMismatch(schemaRoot) {
+	const { root, researchRoot, dataDir } = makeScenarioWorkspace("scope");
+	const facts = {};
+	try {
+		writeTree(researchRoot, { "project.yaml": PROJECT_YAML.replace("id: PRJ-1", "id: PRJ-9") });
+		ensureGitRepo(root);
+		git(["add", ".research"], root);
+		git([
+			"commit",
+			"-m",
+			"seed: .research tree (integrity scenario: scope mismatch)"
+		], root);
+		mkdirSync(dataDir, { recursive: true });
+		const logger = makeCollectingLogger();
+		const report = await runStartupIntegrityChecks({
+			dbPath: join(dataDir, "research.sqlite"),
+			repoRoot: root,
+			researchRoot,
+			schemaDir: join(schemaRoot, "declarative"),
+			projectId: "PRJ-1",
+			reader: makeScenarioReader(),
+			logger
+		});
+		facts.orchestratorOutcome = report.outcome;
+		facts.scopeFinding = report.consistency.findings.filter((f) => f.kind === "project-id-mismatch").map((f) => f.message);
+		scenarioAssert(report.outcome === "fatal", `orchestrator: expected fatal, got ${report.outcome}`);
+		scenarioAssert(report.consistency.findings.some((f) => f.kind === "project-id-mismatch"), "orchestrator: the project-scope mismatch must be a consistency finding");
+		let fatalThrew = false;
+		try {
+			assertStartup(report);
+		} catch (e) {
+			fatalThrew = e instanceof HardeningFatalError;
+		}
+		scenarioAssert(fatalThrew, "assertStartup must throw HardeningFatalError on the scope-mismatch report");
+		let gateError = null;
+		try {
+			createHostWiring({
+				repoRoot: root,
+				schemaRoot,
+				projectId: "PRJ-1",
+				dataDir,
+				adapter: makeFakeAdapter(),
+				launcherAdapter: makeFakeLauncherAdapter(),
+				workspaceRoots: [root],
+				logger
+			});
+		} catch (e) {
+			gateError = e;
+		}
+		scenarioAssert(gateError !== null, "gate: a project-scope mismatch must REFUSE the wiring (no guessing which side to rewrite)");
+		facts.gateCode = gateError.code;
+		scenarioAssert(gateError.code === "WIRING_INTEGRITY", `gate: expected WIRING_INTEGRITY, got ${String(gateError.code)}`);
+		scenarioAssert((gateError.message ?? "").includes("PRJ-9") && (gateError.message ?? "").includes("PRJ-1"), "gate: the error must name BOTH scopes (the tree id and the registered id)");
+		facts.gateErrorHead = (gateError.message ?? "").split("\n")[0];
+		return {
+			scenario: "unrecoverable-project-scope",
+			ok: true,
+			facts
+		};
+	} finally {
+		rmSync(root, {
+			recursive: true,
+			force: true
+		});
+	}
+}
+/**
+* Scenario D — the git boundary (check 3, the async half): a REAL
+* mid-merge conflict on a NON-research file (the .research tree stays
+* intact — a conflicted declarative file would fail the V1 strict
+* WIRING_TREE step, which is the designed behavior and covered by
+* scenario A's classification). The wiring must COMPLETE (git is never
+* fatal), the async git half must class the conflict (checkpoint
+* EXPLICITLY refused — INV-GIT-4), and the orchestrator must agree
+* (degraded via the git half).
+*/
+async function scenarioGitConflict(schemaRoot) {
+	const { root, researchRoot, dataDir } = makeScenarioWorkspace("gitcf");
+	const facts = {};
+	try {
+		writeTree(researchRoot);
+		const notesDir = join(root, "notes");
+		mkdirSync(notesDir, { recursive: true });
+		writeFileSync(join(notesDir, "diverge.txt"), "baseline line\n");
+		ensureGitRepo(root);
+		git([
+			"add",
+			".research",
+			"notes"
+		], root);
+		git([
+			"commit",
+			"-m",
+			"seed: baseline (integrity scenario: git conflict)"
+		], root);
+		mkdirSync(dataDir, { recursive: true });
+		git([
+			"checkout",
+			"-b",
+			"diverge-a"
+		], root);
+		writeFileSync(join(notesDir, "diverge.txt"), "baseline line\nappend-a\n");
+		git(["add", "notes"], root);
+		git([
+			"commit",
+			"-m",
+			"diverge a"
+		], root);
+		git(["checkout", "main"], root);
+		writeFileSync(join(notesDir, "diverge.txt"), "baseline line\nappend-main\n");
+		git(["add", "notes"], root);
+		git([
+			"commit",
+			"-m",
+			"diverge main"
+		], root);
+		const mergeExit = gitMaybe(["merge", "diverge-a"], root);
+		facts.mergeExitCode = mergeExit;
+		scenarioAssert(mergeExit !== 0 && existsSync(join(root, ".git", "MERGE_HEAD")), "the fixture repo must be mid-merge (MERGE_HEAD present)");
+		const logger = makeCollectingLogger();
+		const wiring = createHostWiring({
+			repoRoot: root,
+			schemaRoot,
+			projectId: "PRJ-1",
+			dataDir,
+			adapter: makeFakeAdapter(),
+			launcherAdapter: makeFakeLauncherAdapter(),
+			workspaceRoots: [root],
+			logger
+		});
+		try {
+			const gitResult = await wiring.integrity.git;
+			facts.gitStatus = gitResult.status;
+			facts.gitReason = gitResult.reason;
+			facts.checkpointAllowed = gitResult.checkpointAllowed;
+			facts.gitLoudWarns = logger.entries.filter((e) => e.level === "warn" && e.step === "startup-integrity" && e.message.includes("git boundary")).length;
+			scenarioAssert(gitResult.status === "recoverable" && gitResult.reason === "conflict-in-progress", `gate git: expected recoverable/conflict-in-progress, got ${gitResult.status}/${String(gitResult.reason)}`);
+			scenarioAssert(gitResult.checkpointAllowed === false, "gate git: the checkpoint must be EXPLICITLY refused mid-conflict (INV-GIT-4)");
+			scenarioAssert(facts.gitLoudWarns > 0, "gate git: the conflict classification must be LOUD (warn)");
+			const report = await runStartupIntegrityChecks({
+				dbPath: join(dataDir, "research.sqlite"),
+				repoRoot: root,
+				researchRoot,
+				schemaDir: join(schemaRoot, "declarative"),
+				projectId: "PRJ-1",
+				reader: makeScenarioReader(),
+				logger
+			});
+			facts.orchestratorOutcome = report.outcome;
+			facts.orchestratorGitReason = report.git.reason;
+			scenarioAssert(report.outcome === "degraded", `orchestrator: expected degraded (the git half), got ${report.outcome}`);
+			scenarioAssert(facts.orchestratorGitReason === "conflict-in-progress", "orchestrator git half must class the same conflict");
+		} finally {
+			wiring.close();
+		}
+		return {
+			scenario: "git-conflict-checkpoint-refused",
+			ok: true,
+			facts
+		};
+	} finally {
+		rmSync(root, {
+			recursive: true,
+			force: true
+		});
+	}
+}
+async function runIntegrityScenarios(schemaRoot) {
+	const scenarios = [
+		scenarioDegradedAutoDispose,
+		scenarioFatalDb,
+		scenarioProjectScopeMismatch,
+		scenarioGitConflict
+	];
+	const out = [];
+	for (const run of scenarios) out.push(await run(schemaRoot));
+	return out;
 }
 async function main() {
 	const { repo, home, schemaRoot } = parseArgs(process.argv.slice(2));
@@ -21662,6 +23020,7 @@ async function main() {
 	} finally {
 		wiring.close();
 	}
+	summary.integrity = await runIntegrityScenarios(schemaRoot);
 	console.log(JSON.stringify(summary, null, 2));
 }
 main().catch((err) => {

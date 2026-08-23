@@ -61,4 +61,11 @@ test('TC-DSH-005: no residual slot/endpoint/client entry after unload', async ({
   expect(sse.reachable).toBe(true)
   expect(sse.hasPlugin).toBe(false)
   console.log('[TC-DSH-005] SSE up, graph clean of dsh-research-control')
+
+  // RR-007① (G8 inv-attacker ⑥ — 销号): the host-injected boot graph
+  // (window.__DSH_BOOT__, the composed client entry list) no longer
+  // carries the plugin's client entry after unload — the one
+  // page.content() assertion the G0 verdict asked to be fixed in.
+  expect((await page.content()).match(/window\.__DSH_BOOT__\s*=\s*\{[^<]*\}/)?.[0] ?? '').not.toContain('dsh-research-control')
+  console.log('[TC-DSH-005] boot graph (window.__DSH_BOOT__) clean of dsh-research-control')
 })

@@ -6,7 +6,7 @@ Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic /
 
 运行时面：
 
-- **Host service `ctx.researchControl`** — 13 个一元 RPC（`researchControl.*`，纯 JSON DTO）+ 启动完整性检查（DB/树/Git/一致性四检查，损坏即 fail-loud 或降级只读）；
+- **Host service `ctx.researchControl`** — 13 个一元 RPC（`researchControl.*`，纯 JSON DTO）+ 启动完整性检查（DB/树/Git/一致性四检查，在 `[Service.init]` 实例化服务之前的 integrity gate 运行：不可恢复损坏 fail-loud 阻断启动、fiber 到不了 ACTIVE；可恢复损坏 loud 告警 + 自动处置（启动对账自动收敛），部分损坏的 `.research` 树降级为只读表面、Git 冲突/缺失拒绝 managed mode 与 checkpoint）；
 - **11 个 `research_*` agent 工具**（ARCHITECTURE §7.2：7 可写 + 4 只读；权限矩阵内置）；
 - **Web UI** — `conversation.view` 整 tab（Cockpit 三区 + Plan/Topology 图 + History 时间线 + Drill-down）+ `shell.overlay`；
 - **只读 Investigator** — 从 Intervention 一键启动独立只读会话（专用 preset + `/permission read-only`，INV-PERM-3 三层保障）；
@@ -148,3 +148,4 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 - **宿主无兼容承诺** — DSH 为 pre-release（「rename or repackage freely」）；本包以 peer 精确 pin `0.1.0-rc.8` + 自持 `minDshVersion` fail-loud 门 + TC-DSH-008 compatibility smoke 承接升级风险，不提供跨宿主版本兼容。
 - **e2e 证据面** — 全绿证据基于隔离 smoke home（独立 DSH_HOME + 独立端口 + `--reset` 种子重置），非真实用户 profile 的长期运行；宿主侧长时行为（WAL checkpoint、profile 多 bundle 组合漂移）未覆盖。
 - **快照无自动新鲜度门** — `SNAPSHOT.md` 记录构建时 sha256，但没有机制在「工作区根冻结面变更」后自动重打包；发布流程须重跑 `pnpm run build && pnpm run pack:verify`（重跑即重算快照并逐文件断言内容一致）。
+- **启动完整性检查的 V1 边界** — 四检查已接入生产（`[Service.init]` integrity gate，先于服务实例化；不可恢复损坏 fail-loud 阻断 ACTIVE，可恢复损坏 loud 告警 + 启动对账自动收敛，Git 冲突/缺失拒绝 managed mode 与 checkpoint）；但 **部分损坏的 `.research` 树在 V1 仍 fail-loud 拒绝启动**（wiring 的 WIRING_TREE 步保持「任何 load 错误即启动失败」的从严策略，被测试冻结）——ARCHITECTURE §10 行的「部分坏 → 只读可用面」降级语义已由 WP-8.1 分类器定义 + 测试 + e2e 实机证据（integrity gate 已暴露 `readSurface` 旗并在唯一树写路径 honor 它），V1 采纳该降级表面需放宽 WIRING_TREE 步，属后续 WP（G8 裁决书 host-integrator S2 的可选半边）。

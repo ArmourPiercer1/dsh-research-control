@@ -10,14 +10,19 @@
  *     `README.md`, `src/`) and must NOT leak dev-private paths
  *     (`node_modules/`, `tests/`, `e2e/`, `scripts/`, `test-results/`,
  *     `.pnpm-store/`, tarballs, editor/VCS residue);
- *  3. **unpack smoke** — extract to a temp dir, symlink the repo
- *     `node_modules` (the unpacked tree has no install of its own), then
- *     `node`-import the BUILT main entry from the extracted bytes:
- *     `.` (default-export service class) + `./typert` (TYPERT manifest,
- *     14 invocations) + `./remote` (client contribution). `./client` is
- *     a browser CJS bundle (the `window.__ModuleLoader__` banner runs at
- *     require time) — asserted BY NAME in the list check only, never
- *     imported under node.
+ *  3. **unpack smoke** — extract to a temp dir, build a DEDICATED
+ *     `node_modules` inside the temp tree (one symlink per top-level
+ *     entry of the repo `node_modules` + the package self-link — the
+ *     unpacked tree has no install of its own), then `node`-import the
+ *     BUILT main entry from the extracted bytes: `.` (default-export
+ *     service class) + `./typert` (TYPERT manifest, 14 invocations) +
+ *     `./remote` (client contribution). `./client` is a browser CJS
+ *     bundle (the `window.__ModuleLoader__` banner runs at require
+ *     time) — asserted BY NAME in the list check only, never imported
+ *     under node. The dedicated temp dir is what makes the gate
+ *     REPEATABLE: the old single-symlink approach wrote the self-link
+ *     THROUGH the `node_modules` symlink into the repo tree, leaving a
+ *     dangling residue that made every re-run fail with EEXIST (G8 R3).
  *
  * Exits non-zero on the first violated expectation; prints the full
  * verdict table. No dependencies (node:child_process / fs / os / path /
@@ -26,7 +31,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, rmSync, symlinkSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, symlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -153,7 +158,7 @@ for (const entry of entries) {
 log(`surface: ${entries.length} entries (${required.length + schemaEntryCount + rpcJs.length + rpcDts.length + 0} required-side checks passed so far)`)
 
 /* ------------------------------------------------------------------ *
- * 3. Unpack smoke (extracted bytes + repo node_modules symlink)
+ * 3. Unpack smoke (extracted bytes + dedicated temp node_modules)
  * ------------------------------------------------------------------ */
 
 const workDir = mkdtempSync(join(tmpdir(), 'dsh-rc-pack-verify-'))
@@ -162,12 +167,26 @@ try {
   execFileSync('tar', ['xzf', tgzPath, '-C', workDir], { stdio: 'pipe' })
   const pkgDir = join(workDir, 'package')
   if (!existsSync(join(pkgDir, 'package.json'))) fail('extracted tree has no package/')
-  // Dependency resolution: the unpacked tree has no install of its own —
-  // symlink the repo node_modules AND the package itself (a self-link) so
-  // the smoke imports resolve through the BARE specifier + the exports
-  // map (the `exports` 终检 rides on this).
-  symlinkSync(join(PLUGIN_ROOT, 'node_modules'), join(workDir, 'node_modules'))
-  symlinkSync(pkgDir, join(workDir, 'node_modules', PKG_NAME))
+  // Dependency resolution: the unpacked tree has no install of its own.
+  // Build a DEDICATED node_modules inside the temp tree instead of
+  // symlinking the repo node_modules wholesale: one symlink per
+  // top-level entry (absolute targets — every loaded module's OWN
+  // transitive resolution runs against its REAL path, which lives in
+  // the repo, so the mirror only needs the top level) + the package
+  // self-link. Nothing is ever written into the repo node_modules: the
+  // old single-symlink approach wrote the self-link THROUGH the link
+  // into the repo tree, the temp-tree cleanup never reclaimed it, and
+  // every re-run failed with EEXIST (G8 R3 — the gate had zero
+  // repeatability). The dedicated dir is reclaimed with workDir below,
+  // so the gate is repeatable by construction.
+  const nmDir = join(workDir, 'node_modules')
+  mkdirSync(nmDir, { recursive: true })
+  for (const entry of readdirSync(join(PLUGIN_ROOT, 'node_modules'))) {
+    if (entry === PKG_NAME) continue // a stale self-link (legacy residue) is replaced, never followed
+    symlinkSync(join(PLUGIN_ROOT, 'node_modules', entry), join(nmDir, entry))
+  }
+  rmSync(join(nmDir, PKG_NAME), { force: true }) // belt & braces: the self-link never EEXISTs
+  symlinkSync(pkgDir, join(nmDir, PKG_NAME))
   unpacked = true
 
   const smoke = spawnSync(

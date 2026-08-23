@@ -3,7 +3,13 @@
  * graph.
  *
  * ```text
- * store (openDatabase — ONE research.sqlite, DSH_ADAPTER §9; the RR-013
+ * gate   (WP-8.5 / G8 S2: the WP-8.1 startup integrity checks — DB /
+ *   tree / git / consistency, ARCHITECTURE §10 — run BEFORE any service
+ *   is instantiated: unrecoverable ⇒ throw WIRING_INTEGRITY (the fiber
+ *   never reaches ACTIVE, TC-DSH-008); recoverable ⇒ loud + auto-disposed
+ *   by the step-13 reconciliations; the git boundary check is fired here
+ *   (async, never fatal) and settles loud on `wiring.integrity.git`)
+ *   → store (openDatabase — ONE research.sqlite, DSH_ADAPTER §9; the RR-013
  *   connection guard rides on this connection)
  *   → registry (frozen WP-2.2 schema load — unusable ⇒ startup fails)
  *   → tree   (the .research/ 真源 load — any load error ⇒ startup fails)
@@ -40,7 +46,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { loadResearchTree, type ResearchFileReader } from '../../domain/loader/index.js'
+import { type ResearchFileReader } from '../../domain/loader/index.js'
 import {
   PlanForkStore,
   loadPlanForkPolicy,
@@ -134,6 +140,10 @@ import {
 
 import { adaptDatabaseSync } from './db-adapter.js'
 import { makeContentHashCapturer } from './content-hash-capture.js'
+import {
+  runStartupIntegrityGate,
+  type StartupIntegrityGate,
+} from './startup-integrity.js'
 import {
   reconcileWorkstreamLifecycles,
   type LifecycleReconcileReport,
@@ -240,6 +250,15 @@ export interface HostWiring {
   readonly analysisTransient: AnalysisTransientReader
   /** The startup reconciliation + rebuild reports. */
   readonly startup: HostWiringStartup
+  /**
+   * WP-8.5 / G8 S2: the startup integrity gate's report surface (step 0.5
+   * — the WP-8.1 four-check pass run BEFORE any service was
+   * instantiated): the synchronous check results + the aggregated
+   * outcome + the §10 surface flags; the git boundary check (the only
+   * async one) settles within milliseconds and loud-logs on settle
+   * (`integrity.git` — never rejects). See startup-integrity.ts.
+   */
+  readonly integrity: StartupIntegrityGate
   /** The live declarative snapshot (mutated by the realize flip — the
    *  runbinding `externalState` seam reads it per operation). */
   externalState(): RunBindingExternalState
@@ -344,6 +363,42 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
 
   try {
     // ---------------------------------------------------------------- *
+    // 0.5 The startup integrity gate (WIRING_INTEGRITY — WP-8.5 / G8 S2):
+    //     the WP-8.1 four-check startup pass (DB / tree / git /
+    //     consistency, ARCHITECTURE §10 失效与降级) — the integrity
+    //     check precedes EVERY service instantiation below (steps 1–12),
+    //     and the step-13 reconciliations then AUTO-DISPOSE the
+    //     recoverable findings this gate DETECTS (loud, in the frozen
+    //     order):
+    //       - unrecoverable (db corrupt / version / open-fail, a fatal
+    //         tree, a project-scope mismatch, a consistency probe
+    //         failure) → throw HERE (WIRING_INTEGRITY): the fiber fails
+    //         BEFORE ACTIVE (TC-DSH-008); no resource of the graph is
+    //         opened yet (the gate closes its own check-1 handle,
+    //         always), so a failed init leaks nothing — for free;
+    //       - recoverable (a dual-source lifecycle divergence, …) →
+    //         loud warning per finding; startup proceeds (the §10 row);
+    //       - check 3 (the git boundary, the only async check — the git
+    //         layer spawns) is FIRED, not blocked on (the graph step is
+    //         synchronous): it settles within milliseconds, loud-logs
+    //         its classification, and is exposed on `wiring.integrity.
+    //         git` — git is never fatal (every outcome is pass /
+    //         recoverable; the runtime refusals are enforced by the
+    //         git/checkpoint layers themselves), so no ACTIVE-blocking
+    //         decision waits on the async half.
+    // ---------------------------------------------------------------- *
+    const gate = runStartupIntegrityGate({
+      dbPath: join(dataDir, DB_FILE),
+      repoRoot,
+      researchRoot,
+      schemaDir: join(schemaRoot, 'declarative'),
+      projectId: options.projectId,
+      researchDir,
+      reader,
+      logger,
+    })
+
+    // ---------------------------------------------------------------- *
     // 1. The store (WIRING_STORE) — the ONE research.sqlite.
     // ---------------------------------------------------------------- *
     const rawStore = openDatabase(join(dataDir, DB_FILE))
@@ -368,10 +423,18 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     }
 
     // ---------------------------------------------------------------- *
-    // 3. The declarative 真源 (WIRING_TREE) — any load error fails startup
-    //    (the services must not run against a broken tree).
+    // 3. The declarative 真源 (WIRING_TREE) — the gate (step 0.5) already
+    //    loaded AND classified the tree (`gate.treeLoad` — no double
+    //    load): a FATAL breakage threw at the gate (WIRING_INTEGRITY,
+    //    before any resource was opened). This step keeps the V1 STRICT
+    //    policy — ANY load error (including the §10 degraded/partial
+    //    form the gate classifies recoverable) fails startup (the
+    //    services must not run against a broken tree; adopting the §10
+    //    readonly surface for partial breakage is follow-up scope — the
+    //    gate's `readSurface` flag is already honored at the wiring-
+    //    owned tree-write path, see WP-8.5 report).
     // ---------------------------------------------------------------- *
-    const load = loadResearchTree(reader, researchRoot, join(schemaRoot, 'declarative'))
+    const load = gate.treeLoad
     if (load.errors.length > 0) {
       throw new HostWiringError(
         'WIRING_TREE',
@@ -438,6 +501,19 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     // after the realizer succeeds: a failed flip (file/DB divergence, the
     // batch is rejected) must leave the snapshot untouched.
     const flipSpy = (wsId: string): void => {
+      // WP-8.5 / G8 S2: the §10 readonly surface — the ONE tree-write path
+      // the wiring owns (the workstream.yaml flip) refuses while the
+      // integrity gate classified the tree partially broken (V1 the strict
+      // WIRING_TREE step above makes that state unreachable in production;
+      // the gate keeps the contract honest for the §10 degraded-surface
+      // adoption).
+      if (gate.readSurface === 'readonly') {
+        throw new HostWiringError(
+          'WIRING_REALIZE',
+          `the startup integrity gate set the surface READONLY (the .research tree is partially broken) — ` +
+            `the workstream.yaml flip of ${wsId} is refused (ARCHITECTURE §10: a partially broken 真源 must not be committed or mutated)`,
+        )
+      }
       realizer.onWorkstreamRealized(wsId)
       const snapshot = liveWorkstreams.get(wsId)
       if (snapshot !== undefined && snapshot.lifecycle === 'PLANNED') {
@@ -952,6 +1028,7 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       analysisService,
       analysisTransient,
       startup,
+      integrity: gate,
       externalState,
       createPlanFork: async (params): Promise<PlanForkRecord> => {
         const view = planProvider.load(params.workstreamId)

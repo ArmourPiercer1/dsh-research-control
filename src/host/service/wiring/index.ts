@@ -82,6 +82,11 @@ export { adaptDatabaseSync } from './db-adapter.js'
 export { gitBlobOid, makeContentHashCapturer } from './content-hash-capture.js'
 export { readProjectId } from './project-id.js'
 export {
+  runStartupIntegrityGate,
+  type StartupIntegrityGate,
+  type StartupIntegrityGateInput,
+} from './startup-integrity.js'
+export {
   createHostWiring,
   type HostWiring,
   type HostWiringStartup,

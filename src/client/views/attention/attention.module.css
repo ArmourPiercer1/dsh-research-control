@@ -1,0 +1,241 @@
+/**
+ * Attention 视图样式（WP-5.4）。
+ *
+ * CSS Modules + CSS custom properties（同 WP-4.2 home.module.css 纪律）:
+ * 本地 `--rc-*` 变量近似宿主 token 系统（DSH_ADAPTER §6: 宿主 tokens 是
+ * `--dsw-*`）—— 宿主主题提供时解析到对应 `--dsw-alias-*`, 否则落到中性
+ * 回退值, 视图在宿主壳内与独立渲染下都成立。
+ */
+
+.attention {
+  /* --rc-* local tokens → host --dsw-* aliases when present (fallbacks below). */
+  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
+  --rc-label-tertiary: var(--dsw-alias-label-tertiary, #8a919c);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
+  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
+  --rc-border-l2: var(--dsw-alias-border-l2, #cfd3da);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
+  --rc-error-secondary: var(--dsw-alias-state-error-secondary, #fdeeed);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(17, 17, 17, 0.05));
+  --rc-badge-intervention: var(--dsw-alias-state-warning-primary, #b25e09);
+  --rc-badge-intervention-bg: var(--dsw-alias-state-warning-secondary, #fff3e6);
+  --rc-badge-blocker: var(--dsw-alias-state-error-primary, #d54941);
+  --rc-badge-blocker-bg: var(--dsw-alias-state-error-secondary, #fdeeed);
+  --rc-badge-event: var(--dsw-alias-interactive-primary, #1456f0);
+  --rc-badge-event-bg: var(--dsw-alias-interactive-secondary, #e8f0ff);
+  --rc-badge-action: var(--dsw-alias-label-tertiary, #8a919c);
+  --rc-badge-action-bg: var(--dsw-alias-bg-layer-2, #f5f6f8);
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+/* -- header / page actions ------------------------------------------------ */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  color: var(--rc-label-primary);
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+.refresh {
+  padding: 4px 12px;
+  font-size: var(--rc-font-xxs);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  cursor: pointer;
+}
+
+.refresh:hover {
+  background: var(--rc-interactive-hover);
+}
+
+/* -- status faces --------------------------------------------------------- */
+
+.loading {
+  margin: 24px 0;
+  text-align: center;
+  color: var(--rc-label-secondary);
+}
+
+.failed {
+  margin: 24px 0;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--rc-error-secondary);
+  color: var(--rc-error-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.errorBanner {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--rc-error-secondary);
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* -- ranked list ---------------------------------------------------------- */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+}
+
+.rank {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+  font-weight: 600;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.line1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: var(--rc-font-xxs);
+  font-weight: 500;
+}
+
+.badgeIntervention {
+  color: var(--rc-badge-intervention);
+  background: var(--rc-badge-intervention-bg);
+}
+
+.badgeBlocker {
+  color: var(--rc-badge-blocker);
+  background: var(--rc-badge-blocker-bg);
+}
+
+.badgeEvent {
+  color: var(--rc-badge-event);
+  background: var(--rc-badge-event-bg);
+}
+
+.badgeAction {
+  color: var(--rc-badge-action);
+  background: var(--rc-badge-action-bg);
+}
+
+.rowTitle {
+  font-weight: 600;
+  color: var(--rc-label-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wsChip {
+  flex: none;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 10px;
+  padding: 0 6px;
+}
+
+.tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tag {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 0 6px;
+}
+
+/* 预计耗时标签（INV-ATTN-2: 只作标签展示 — 不影响排序的视觉表达） */
+.durationTag {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+  border: 1px dashed var(--rc-border-l2);
+  border-radius: 4px;
+  padding: 0 6px;
+}
+
+.reasons {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+/* -- empty ---------------------------------------------------------------- */
+
+.empty {
+  margin: 24px 0;
+  padding: 24px;
+  text-align: center;
+  color: var(--rc-label-tertiary);
+  border: 1px dashed var(--rc-border-l2);
+  border-radius: 8px;
+}

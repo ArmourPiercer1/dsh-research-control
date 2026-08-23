@@ -68,6 +68,7 @@ import {
   type SourceRefJson,
 } from '../../src/host/persistence/store/index.js'
 import { INTERVENTION_TABLE } from '../../src/host/service/flooding/index.js'
+import { AWARENESS_TABLE } from '../../src/host/service/attention/index.js'
 import {
   openRunBindingDatabase,
   DISCOVERED_SESSION_TABLE,
@@ -145,6 +146,7 @@ function scanSourceDdlTargets(): string[] {
     PLAN_FORK_TABLE,
     MANAGEMENT_ACTION_TABLE,
     INTERVENTION_TABLE,
+    AWARENESS_TABLE,
   }
   const targets = new Set<string>()
   // The trailing `\s*\(` distinguishes REAL DDL (the column list opens on
@@ -170,11 +172,13 @@ function scanSourceDdlTargets(): string[] {
 }
 
 /**
- * All seven §15 tables this plugin creates (3 store + 2 runbinding +
- * 2 planfork), sorted. The source scan sees every CREATE TABLE in src/
- * regardless of which init path applies the DDL.
+ * All nine §15 tables this plugin creates (3 store + 2 runbinding +
+ * 2 planfork + 1 flooding + 1 attention), sorted. The source scan sees
+ * every CREATE TABLE in src/ regardless of which init path applies the
+ * DDL.
  */
 const ALL_TABLES = [
+  'awareness',
   'derived_state',
   'discovered_session',
   'history_event',
@@ -298,6 +302,15 @@ const PINNED_COLUMNS: ReadonlyMap<string, readonly string[]> = new Map([
       'resolution_note',
     ],
   ],
+  [
+    'awareness',
+    [
+      'object_kind',
+      'object_id',
+      'state',
+      'updated_at',
+    ],
+  ],
 ])
 
 // NOTE: `table_xinfo` (NOT `table_info`) — it also reports the WP-2.9
@@ -314,7 +327,7 @@ function textColumns(raw: DatabaseSync, table: string): string[] {
 }
 
 describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned', () => {
-  it('src contains EXACTLY the eight known CREATE TABLE targets (no new table can land unreviewed)', () => {
+  it('src contains EXACTLY the nine known CREATE TABLE targets (no new table can land unreviewed)', () => {
     expect(scanSourceDdlTargets()).toEqual(ALL_TABLES)
   })
 

@@ -235,13 +235,18 @@ function runConsistencyCheck(args: {
   readonly input: StartupIntegrityGateInput
 }): ConsistencyCheckResult {
   const { handle, tree, input } = args
-  if (handle === null) {
-    return skipped('the operational database is unavailable (the db check failed — see its findings; the consistency probe needs an open store)')
-  }
-  if (tree.status === 'unrecoverable') {
-    return skipped('the .research tree is unusable (the tree check found a fatal breakage — there is no declarative side to cross-check)')
-  }
+  // The check-1 handle is closed on EVERY exit path — the skip branches
+  // included (G8 round-2 defect 1: the tree-fatal skip used to return
+  // before the close, leaking the sqlite/-wal/-shm fds across the
+  // WIRING_INTEGRITY throw; the module header's "ALWAYS closed" claim is
+  // pinned by tests/hardening/gate-handle-lifecycle.test.ts).
   try {
+    if (handle === null) {
+      return skipped('the operational database is unavailable (the db check failed — see its findings; the consistency probe needs an open store)')
+    }
+    if (tree.status === 'unrecoverable') {
+      return skipped('the .research tree is unusable (the tree check found a fatal breakage — there is no declarative side to cross-check)')
+    }
     return checkDualTruthConsistency({
       store: handle,
       tree: tree.load.tree,
@@ -249,10 +254,12 @@ function runConsistencyCheck(args: {
       maxSample: input.maxConsistencySample,
     })
   } finally {
-    try {
-      handle.close()
-    } catch {
-      // idempotent close — a failed close must not mask the report
+    if (handle !== null) {
+      try {
+        handle.close()
+      } catch {
+        // idempotent close — a failed close must not mask the report
+      }
     }
   }
 }

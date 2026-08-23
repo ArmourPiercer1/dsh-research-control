@@ -3885,9 +3885,9 @@ function assertStartup(report) {
 }
 function runConsistencyCheck$1(args) {
 	const { handle, tree, input } = args;
-	if (handle === null) return skipped$1("the operational database is unavailable (the db check failed — see its findings; the consistency probe needs an open store)");
-	if (tree.status === "unrecoverable") return skipped$1("the .research tree is unusable (the tree check found a fatal breakage — there is no declarative side to cross-check)");
 	try {
+		if (handle === null) return skipped$1("the operational database is unavailable (the db check failed — see its findings; the consistency probe needs an open store)");
+		if (tree.status === "unrecoverable") return skipped$1("the .research tree is unusable (the tree check found a fatal breakage — there is no declarative side to cross-check)");
 		return checkDualTruthConsistency({
 			store: handle,
 			tree: tree.load.tree,
@@ -3895,7 +3895,7 @@ function runConsistencyCheck$1(args) {
 			maxSample: input.maxConsistencySample
 		});
 	} finally {
-		try {
+		if (handle !== null) try {
 			handle.close();
 		} catch {}
 	}
@@ -19915,9 +19915,9 @@ function runStartupIntegrityGate(input) {
 }
 function runConsistencyCheck(args) {
 	const { handle, tree, input } = args;
-	if (handle === null) return skipped("the operational database is unavailable (the db check failed — see its findings; the consistency probe needs an open store)");
-	if (tree.status === "unrecoverable") return skipped("the .research tree is unusable (the tree check found a fatal breakage — there is no declarative side to cross-check)");
 	try {
+		if (handle === null) return skipped("the operational database is unavailable (the db check failed — see its findings; the consistency probe needs an open store)");
+		if (tree.status === "unrecoverable") return skipped("the .research tree is unusable (the tree check found a fatal breakage — there is no declarative side to cross-check)");
 		return checkDualTruthConsistency({
 			store: handle,
 			tree: tree.load.tree,
@@ -19925,7 +19925,7 @@ function runConsistencyCheck(args) {
 			maxSample: input.maxConsistencySample
 		});
 	} finally {
-		try {
+		if (handle !== null) try {
 			handle.close();
 		} catch {}
 	}
@@ -20260,7 +20260,7 @@ function atomicWriteText(absPath, content) {
 }
 /** Read + parse one workstream.yaml; fail loud on any unreadable/illegal
 *  file (the reconciliation must not guess about a broken 真源). Returns
-*  the root mapping (narrowed — the doc must be a mapping to be legal). */
+*  the whole Document (narrowed — the doc must be a mapping to be legal). */
 function readLifecycleDoc(researchRoot, ws) {
 	const absPath = join(researchRoot, workstreamYamlRelPath(ws.topicId, ws.workstreamId));
 	let text;
@@ -20276,7 +20276,7 @@ function readLifecycleDoc(researchRoot, ws) {
 	if (lifecycle !== "PLANNED" && lifecycle !== "REALIZED" && lifecycle !== "DROPPED") throw new HostWiringError("WIRING_RECONCILE", `lifecycle reconciliation: ${absPath} carries lifecycle ${JSON.stringify(lifecycle)} — not a legal WsLifecycle; refusing to converge ${ws.workstreamId} (loader error surface)`);
 	return {
 		absPath,
-		map: doc.contents
+		doc
 	};
 }
 /**
@@ -20289,8 +20289,8 @@ function reconcileWorkstreamLifecycles(input) {
 	const findings = [];
 	let changed = 0;
 	for (const ws of input.workstreams) {
-		const { absPath, map } = readLifecycleDoc(input.researchRoot, ws);
-		const raw = map.get("lifecycle");
+		const { absPath, doc } = readLifecycleDoc(input.researchRoot, ws);
+		const raw = doc.get("lifecycle");
 		const fileLifecycle = raw === void 0 || raw === null ? "PLANNED" : String(raw);
 		const hasEvents = input.store.listRange(ws.workstreamId, 1, 1).length > 0;
 		if (fileLifecycle === "DROPPED") {
@@ -20303,8 +20303,8 @@ function reconcileWorkstreamLifecycles(input) {
 			continue;
 		}
 		if (fileLifecycle === "REALIZED" && !hasEvents) {
-			map.set("lifecycle", "PLANNED");
-			const newContent = map.toString();
+			doc.set("lifecycle", "PLANNED");
+			const newContent = doc.toString();
 			try {
 				atomicWriteText(absPath, newContent);
 			} catch (cause) {
@@ -20321,8 +20321,8 @@ function reconcileWorkstreamLifecycles(input) {
 			continue;
 		}
 		if (fileLifecycle === "PLANNED" && hasEvents) {
-			map.set("lifecycle", "REALIZED");
-			const newContent = map.toString();
+			doc.set("lifecycle", "REALIZED");
+			const newContent = doc.toString();
 			try {
 				mkdirSync(dirname(absPath), { recursive: true });
 				atomicWriteText(absPath, newContent);

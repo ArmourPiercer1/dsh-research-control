@@ -39,6 +39,26 @@
 #             what makes a re-run over a used smoke root green instead of
 #             red (G4 round-1: 「对已用 root 重跑必红」 eliminated).
 #
+# Exclusive-workspace lock (WP-8.6 / G8 round-2 R4): EVERY instance of this
+# script — full cycle or E2E_STATE single-phase — takes a NON-BLOCKING
+# exclusive flock on $SMOKE_ROOT/.e2e-run.lock (fd 9) at entry and holds it
+# for the process lifetime. Rationale: the smoke workspace, the research DB,
+# the profile and the fixed port are shared state, and two concurrent runs
+# destroy each other's evidence in ways that masquerade as product failures
+# (G8 round-2 reproduced this twice: an external run's --reset wiped a live
+# run's DB; a second run's SELECT materialization leaked into the first run's
+# assertions). A second instance finds the lock held and exits LOUD at once
+# (exit 3 — no waiting, no interference); the run log records the lock state.
+# The kernel releases the lock when the process dies, so a crashed run can
+# never wedge the workspace (no stale-lock cleanup step). Lock criteria:
+# one lock per $SMOKE_ROOT — the default <repo>/../.smoke serializes every
+# run of this workspace; a different DSH_SMOKE_ROOT is an independent
+# workspace with its own lock (parallel runs are legal, concurrent runs
+# over one smoke root are not).
+#
+# Exit codes: 0 ok · 1 run failure (die) · 2 inherited DSH_HOME outside the
+#             smoke root · 3 exclusive lock already held (concurrent run).
+#
 # The playwright specs assume the server is already serving (they never
 # start/stop it); this script owns start -> wait -> test -> kill -> verify.
 set -Eeuo pipefail
@@ -109,6 +129,26 @@ for arg in "$@"; do
   esac
 done
 [ "$RESET" = "1" ] && log "reset requested (--reset): the smoke workspace + research DB will be wiped before seeding"
+
+# ---------------------------------------------------------------------------
+# WP-8.6 (G8 r2 R4/R1): the exclusive-workspace lock (see header).
+# Acquired BEFORE any state is touched (preconditions, plugin rebuild/
+# reinstall, seeding, server start): the destructive half of the run is the
+# shared-profile reinstall + the shared smoke workspace, and a concurrent
+# run's reinstall is exactly what killed the round-2 first attempt.
+# fd 9 stays open until process exit (kernel release on crash — no stale
+# lock). Contention = loud immediate exit 3 (never wait, never interfere).
+# ---------------------------------------------------------------------------
+LOCK_FILE="$SMOKE_ROOT/.e2e-run.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  log "FATAL: another e2e-run.sh instance holds the exclusive lock ($LOCK_FILE) — the smoke workspace $SMOKE_ROOT is busy; concurrent runs over one smoke root destroy each other's evidence (G8 r2). Refusing to run (exit 3): wait for the holder to finish, or point DSH_SMOKE_ROOT at an independent workspace."
+  exit 3
+fi
+{
+  echo "holder pid=$$ started=$(date '+%Y-%m-%dT%H:%M:%S%z') mode=${E2E_STATE:-full} reset=$RESET port=$E2E_PORT"
+} >"$LOCK_FILE"
+log "exclusive workspace lock acquired ($LOCK_FILE, fd 9 — held until process exit; a contender exits loud with code 3)"
 
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -345,4 +385,4 @@ for round in $(seq 1 "$CYCLES"); do
 done
 
 set_plugin_state enabled
-log "WP-0.6 smoke complete: N=$CYCLES cycles, final state ENABLED, run log: $RUN_LOG"
+log "WP-0.6 smoke complete: N=$CYCLES cycles, final state ENABLED, run log: $RUN_LOG (exclusive workspace lock released on exit)"

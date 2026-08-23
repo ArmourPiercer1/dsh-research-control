@@ -44,6 +44,16 @@ import { TMP_FILE_SUFFIX } from '../../domain/topology/types.js'
 import { HostWiringError, type HostWiringLogger } from './types.js'
 import { workstreamYamlRelPath } from './workstream-flip.js'
 
+/** The parsed workstream document (root IS a mapping — narrowed in
+ *  `readLifecycleDoc`), kept WHOLE: the convergence rewrites must be
+ *  minimal edits on the Document (`doc.set` + `doc.toString()` — the
+ *  same standard as the flip path in workstream-flip.ts) so the YAML
+ *  block form, the key order and every user comment survive (G8 round-2
+ *  defect 2: `YAMLMap.toString()` serializes to a single-line JSON dump
+ *  and drops the comments — the declarative 真源 is human-maintained,
+ *  git diff must stay readable). */
+type LifecycleDoc = ReturnType<typeof parseDocument>
+
 export interface LifecycleReconcileWorkstream {
   readonly workstreamId: string
   readonly topicId: string
@@ -95,11 +105,11 @@ function atomicWriteText(absPath: string, content: string): void {
 
 /** Read + parse one workstream.yaml; fail loud on any unreadable/illegal
  *  file (the reconciliation must not guess about a broken 真源). Returns
- *  the root mapping (narrowed — the doc must be a mapping to be legal). */
+ *  the whole Document (narrowed — the doc must be a mapping to be legal). */
 function readLifecycleDoc(
   researchRoot: string,
   ws: LifecycleReconcileWorkstream,
-): { absPath: string; map: YAMLMap } {
+): { absPath: string; doc: LifecycleDoc } {
   const absPath = join(researchRoot, workstreamYamlRelPath(ws.topicId, ws.workstreamId))
   let text: string
   try {
@@ -125,7 +135,7 @@ function readLifecycleDoc(
       `lifecycle reconciliation: ${absPath} carries lifecycle ${JSON.stringify(lifecycle)} — not a legal WsLifecycle; refusing to converge ${ws.workstreamId} (loader error surface)`,
     )
   }
-  return { absPath, map: doc.contents }
+  return { absPath, doc }
 }
 
 /**
@@ -144,8 +154,8 @@ export function reconcileWorkstreamLifecycles(input: {
   let changed = 0
 
   for (const ws of input.workstreams) {
-    const { absPath, map } = readLifecycleDoc(input.researchRoot, ws)
-    const raw = map.get('lifecycle')
+    const { absPath, doc } = readLifecycleDoc(input.researchRoot, ws)
+    const raw = doc.get('lifecycle')
     const fileLifecycle = (raw === undefined || raw === null ? 'PLANNED' : String(raw)) as
       | 'PLANNED'
       | 'REALIZED'
@@ -160,9 +170,11 @@ export function reconcileWorkstreamLifecycles(input: {
     if (fileLifecycle === 'REALIZED' && !hasEvents) {
       // RR-010 crash residue: the flip outlived a rolled-back/never-
       // committed append. History says "it did not happen" — roll the
-      // file back.
-      map.set('lifecycle', 'PLANNED')
-      const newContent = map.toString()
+      // file back. Minimal edit: only the lifecycle field changes; the
+      // whole document re-serializes (doc.toString() — block form +
+      // comments preserved, the flip path's standard).
+      doc.set('lifecycle', 'PLANNED')
+      const newContent = doc.toString()
       try {
         atomicWriteText(absPath, newContent)
       } catch (cause) {
@@ -183,9 +195,11 @@ export function reconcileWorkstreamLifecycles(input: {
 
     if (fileLifecycle === 'PLANNED' && hasEvents) {
       // Forward convergence: the workstream is realized (it has events)
-      // but the file never carried the flip.
-      map.set('lifecycle', 'REALIZED')
-      const newContent = map.toString()
+      // but the file never carried the flip. Minimal edit: only the
+      // lifecycle field changes (doc.toString() — block form + comments
+      // preserved, the flip path's standard).
+      doc.set('lifecycle', 'REALIZED')
+      const newContent = doc.toString()
       try {
         mkdirSync(dirname(absPath), { recursive: true })
         atomicWriteText(absPath, newContent)

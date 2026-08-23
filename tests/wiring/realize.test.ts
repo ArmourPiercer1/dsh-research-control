@@ -378,6 +378,70 @@ describe('(a) crash consistency: startup detects and converges file/DB divergenc
     void dataDir
   })
 
+  it('convergence rewrites keep the YAML block form and every comment (minimal edit: only lifecycle changes — G8 r2 defect 2 regression)', () => {
+    // The crash-window convergence must not re-shape the human-maintained
+    // declarative 真源: a comment-rich workstream.yaml comes out of BOTH
+    // convergence directions still a YAML block document (NOT a single-
+    // line JSON dump — the `YAMLMap.toString()` form the WP-3.6 bug
+    // produced), with every comment and every untouched field intact
+    // (git diff stays readable; the flip path's doc.toString() standard).
+    const commentRich = (lifecycleLine: string) =>
+      `# WS-1 — 主标定管线 (human note: keep this comment)\nid: WS-1\ntopic_id: TPC-1\ntitle: 主标定管线\n# lifecycle: the ONLY field the startup reconcile may rewrite\n${lifecycleLine}created_at: 2026-08-21T09:10:00Z\n`
+
+    // ---- direction 1: file REALIZED, no events → rolled back to PLANNED ----
+    const bundleA = makeWiring()
+    const wsA = join(bundleA.researchRoot, workstreamYamlRelPath('TPC-1', 'WS-1'))
+    bundleA.wiring.close()
+    writeFileSync(wsA, commentRich('lifecycle: REALIZED\n'), 'utf8')
+    const freshA = createWiringOver(bundleA)
+    try {
+      expect(freshA.startup.lifecycle.findings.find((f) => f.workstreamId === 'WS-1')!.action).toBe('file-rolled-back-to-planned')
+      const outA = readFileSync(wsA, 'utf8')
+      // block form — not a single-line JSON dump (defect 2's exact form)
+      expect(outA.split('\n').length).toBeGreaterThan(3)
+      expect(outA).not.toMatch(/^\{/)
+      // every comment survives the rewrite
+      expect(outA).toContain('# WS-1 — 主标定管线 (human note: keep this comment)')
+      expect(outA).toContain('# lifecycle: the ONLY field the startup reconcile may rewrite')
+      // the lifecycle field IS converged; the untouched fields are intact
+      expect(lifecycleOf(wsA)).toBe('PLANNED')
+      expect(outA).toContain('id: WS-1')
+      expect(outA).toContain('topic_id: TPC-1')
+      expect(outA).toContain('title: 主标定管线')
+      expect(outA).toContain('created_at: 2026-08-21T09:10:00Z')
+      // and the rewritten document re-parses to the same fields
+      const parsedA = parseDocument(outA)
+      expect(parsedA.errors).toEqual([])
+      expect(parsedA.contents).toBeInstanceOf(YAMLMap)
+      expect(String((parsedA.contents as YAMLMap).get('id'))).toBe('WS-1')
+    } finally {
+      freshA.close()
+    }
+
+    // ---- direction 2: file PLANNED, events present → flipped to REALIZED ----
+    const bundleB = makeWiring()
+    const wsB = join(bundleB.researchRoot, workstreamYamlRelPath('TPC-1', 'WS-1'))
+    bundleB.wiring.runBinding.registerRun({ workstreamId: 'WS-1' }, USER) // events in History
+    bundleB.wiring.close()
+    writeFileSync(wsB, commentRich('lifecycle: PLANNED\n'), 'utf8')
+    const freshB = createWiringOver(bundleB)
+    try {
+      expect(freshB.startup.lifecycle.findings.find((f) => f.workstreamId === 'WS-1')!.action).toBe('file-flipped-to-realized')
+      const outB = readFileSync(wsB, 'utf8')
+      expect(outB.split('\n').length).toBeGreaterThan(3)
+      expect(outB).not.toMatch(/^\{/)
+      expect(outB).toContain('# WS-1 — 主标定管线 (human note: keep this comment)')
+      expect(outB).toContain('# lifecycle: the ONLY field the startup reconcile may rewrite')
+      expect(lifecycleOf(wsB)).toBe('REALIZED')
+      expect(outB).toContain('id: WS-1')
+      expect(outB).toContain('topic_id: TPC-1')
+      expect(outB).toContain('title: 主标定管线')
+      expect(outB).toContain('created_at: 2026-08-21T09:10:00Z')
+    } finally {
+      freshB.close()
+    }
+  })
+
   it('an unreadable/illegal workstream.yaml fails startup loud (never guessed)', () => {
     const bundle = makeWiring()
     const { researchRoot } = bundle

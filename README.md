@@ -6,7 +6,7 @@ Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic /
 
 运行时面：
 
-- **Host service `ctx.researchControl`** — 13 个一元 RPC（`researchControl.*`，纯 JSON DTO）+ 启动完整性检查（DB/树/Git/一致性四检查，在 `[Service.init]` 实例化服务之前的 integrity gate 运行：不可恢复损坏 fail-loud 阻断启动、fiber 到不了 ACTIVE；可恢复损坏 loud 告警 + 自动处置（启动对账自动收敛），部分损坏的 `.research` 树降级为只读表面、Git 冲突/缺失拒绝 managed mode 与 checkpoint）；
+- **Host service `ctx.researchControl`** — 13 个一元 RPC（`researchControl.*`，纯 JSON DTO）+ 启动完整性检查（DB/树/Git/一致性四检查，在 `[Service.init]` 实例化服务之前的 integrity gate 运行：不可恢复损坏 fail-loud 阻断启动、fiber 到不了 ACTIVE；可恢复损坏 loud 告警 + 自动处置（启动对账自动收敛）；部分损坏的 `.research` 树由 gate 分类为 §10 只读表面（暴露 `readSurface: 'readonly'` 旗、唯一树写路径 honor 它）——但 V1 的 WIRING_TREE 步保持「任何 load 错误即启动失败」从严策略，**部分坏树在 V1 仍 fail-loud 拒绝启动**（无一键「只读降级模式」，见「已知局限」）；Git 冲突/缺失拒绝 managed mode 与 checkpoint）；
 - **11 个 `research_*` agent 工具**（ARCHITECTURE §7.2：7 可写 + 4 只读；权限矩阵内置）；
 - **Web UI** — `conversation.view` 整 tab（Cockpit 三区 + Plan/Topology 图 + History 时间线 + Drill-down）+ `shell.overlay`；
 - **只读 Investigator** — 从 Intervention 一键启动独立只读会话（专用 preset + `/permission read-only`，INV-PERM-3 三层保障）；

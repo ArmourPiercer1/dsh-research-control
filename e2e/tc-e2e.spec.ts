@@ -697,6 +697,32 @@ test.describe('TC-E2E phase a (pre-restart)', () => {
     writeFileSync(ORDER_FILE, JSON.stringify({ order: after }))
     await page.screenshot({ path: `e2e/__screenshots__/tc-e2e-003r-reorder-${runTag}.png` })
   })
+
+  test('TC-E2E-014: RR-017① — all six Phase 5/6 pages reachable via cockpit nav', async ({ page }) => {
+    gate('a')
+    await openResearch(page)
+    // The in-tab nav (RR-017① — cockpit.tsx registration): six Phase 5/6
+    // pages user-reachable from any cockpit page; each page body renders
+    // (data channels follow each WP's delivery state — the not-wired
+    // faces fail loud IN the page, never fake data).
+    const nav = page.locator('[data-cockpit-nav]')
+    await expect(nav).toBeVisible()
+    for (const [kind, label] of [
+      ['intervention', '干预'],
+      ['actions', '行动'],
+      ['reporting', '汇报'],
+      ['attention', '注意力'],
+      ['brief', '简报'],
+      ['inbox', '收件箱'],
+    ] as const) {
+      await nav.locator(`[data-cockpit-nav-item="${kind}"]`).getByText(label, { exact: true }).click()
+      await expect(page.locator(`[data-cockpit-page="${kind}"]`)).toBeVisible({ timeout: 30_000 })
+      // Back to home — the nav persists across pages (minimal wiring).
+      await nav.locator('[data-cockpit-nav-item="home"]').getByText('首页', { exact: true }).click()
+      await expect(page.locator('[data-cockpit-page="home"]')).toBeVisible()
+    }
+    await page.screenshot({ path: `e2e/__screenshots__/tc-e2e-014-nav-${runTag}.png` })
+  })
 })
 
 /* -------------------------------------------------------------------- *

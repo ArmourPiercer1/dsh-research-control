@@ -1,0 +1,484 @@
+/**
+ * Research Inbox 视图样式（WP-6.4）。
+ *
+ * CSS Modules + CSS custom properties（同 actions.module.css 惯例）:
+ * 本地 `--rc-*` 变量在宿主主题存在时解析到对应 `--dsw-alias-*`, 否则
+ * 回退中性值（DSH_ADAPTER §6 — 宿主 token 为 --dsw-*）; tsdown 构建期
+ * 内联为 `rcm_inbox_*` 命名空间（tsdown.config.ts 目录名规则, 无 hash —
+ * e2e/DOM 断言稳定）。
+ */
+
+.page {
+  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
+  --rc-label-tertiary: var(--dsw-alias-label-tertiary, #8a919c);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
+  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
+  --rc-border-l2: var(--dsw-alias-border-l2, #cfd3da);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
+  --rc-error-secondary: var(--dsw-alias-state-error-secondary, #fdeeed);
+  --rc-warning-primary: var(--dsw-alias-state-warning-primary, #b7791f);
+  --rc-warning-secondary: var(--dsw-alias-state-warning-secondary, #fdf3e3);
+  --rc-success-primary: var(--dsw-alias-state-success-primary, #2f9e63);
+  --rc-success-secondary: var(--dsw-alias-state-success-secondary, #e9f7f0);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(17, 17, 17, 0.05));
+  --rc-primary: var(--dsw-alias-interactive-bg-primary, #3370ff);
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+/* -- section scaffolding ---------------------------------------------- */
+
+.sectionTitle {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--rc-label-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.listCount {
+  font-size: var(--rc-font-xxs);
+  font-weight: 400;
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-2);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+
+.emptyNote {
+  margin: 0;
+  color: var(--rc-label-tertiary);
+  font-size: var(--rc-font-xxs);
+}
+
+.sliceLoading {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+.sliceError {
+  margin: 0 0 8px;
+  color: var(--rc-error-primary);
+  background: var(--rc-error-secondary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: var(--rc-font-xxs);
+}
+
+.chip {
+  display: inline-block;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 10px;
+  padding: 0 8px;
+  line-height: 18px;
+}
+
+.badge {
+  display: inline-block;
+  font-size: var(--rc-font-xxs);
+  border-radius: 4px;
+  padding: 1px 6px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.badgeLive {
+  color: var(--rc-primary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l1);
+}
+
+.badgeMuted {
+  color: var(--rc-label-tertiary);
+  background: var(--rc-bg-layer-2);
+}
+
+.badgeDanger {
+  color: var(--rc-error-primary);
+  background: var(--rc-error-secondary);
+}
+
+/* 来源类别 badge: 用户面 / 机械面（§11 捕获面二分）。 */
+.badgeHuman {
+  color: var(--rc-success-primary);
+  background: var(--rc-success-secondary);
+}
+
+.badgeMech {
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l1);
+}
+
+.badgeSource {
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l2);
+}
+
+.actionBtn {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  cursor: pointer;
+}
+
+.actionBtn:hover:not(:disabled) {
+  background: var(--rc-interactive-hover);
+}
+
+.actionBtn:disabled {
+  color: var(--rc-label-tertiary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.confirmBtn {
+  border-color: var(--rc-primary);
+  color: var(--rc-primary);
+}
+
+.dismissBtn {
+  margin-top: 8px;
+}
+
+.backBtn {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-secondary);
+  cursor: pointer;
+}
+
+.backBtn:hover:not(:disabled) {
+  background: var(--rc-interactive-hover);
+}
+
+.backBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* -- 清单 -------------------------------------------------------------- */
+
+.listSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.itemList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.itemCard {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.itemCardSelected {
+  border-color: var(--rc-primary);
+}
+
+/* 高影响升级条目: 红色左边框 + 浅红底（显著性纪律 — 同 Blocker 卡）。 */
+.itemCard[data-escalation='high-impact'] {
+  border-left: 4px solid var(--rc-error-primary);
+  background: var(--rc-error-secondary);
+}
+
+.itemHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.itemTitle {
+  font: inherit;
+  font-size: var(--rc-font-xs);
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--rc-label-primary);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.itemTitle:hover .itemPreview {
+  text-decoration: underline;
+}
+
+.itemId {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+.itemPreview {
+  color: var(--rc-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 52ch;
+}
+
+.itemMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.itemTime {
+  margin-left: auto;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+/* -- 详情 -------------------------------------------------------------- */
+
+.detailSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.detailHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.detailMeta {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.payloadBox {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-2);
+  padding: 10px 12px;
+}
+
+.payloadLabel {
+  margin: 0 0 6px;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+.payloadText {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+}
+
+.refRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.convertedRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--rc-success-primary);
+}
+
+.refLabel {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+.rawBox {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+
+.rawBox summary {
+  cursor: pointer;
+}
+
+.rawText {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.detailActions {
+  border-top: 1px solid var(--rc-border-l1);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.actionsLabel {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.kindRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kindBtn {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 3px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  cursor: pointer;
+}
+
+.kindBtn:hover {
+  background: var(--rc-interactive-hover);
+  border-color: var(--rc-primary);
+}
+
+/* -- 转换确认对话框 ---------------------------------------------------- */
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 17, 21, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.dialog {
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 10px;
+  padding: 16px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialogHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 14px;
+}
+
+.dialogNote {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.fieldForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fieldRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.requiredMark {
+  color: var(--rc-error-primary);
+}
+
+.fieldInput {
+  font: inherit;
+  font-size: var(--rc-font-xs);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+}
+
+.fieldInput:focus {
+  outline: 2px solid var(--rc-primary);
+  outline-offset: -1px;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

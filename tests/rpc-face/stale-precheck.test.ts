@@ -68,10 +68,16 @@ function makeProduction(
         return await stale(workstreamId)
       },
     },
-    store: { listRange: () => [] as never[] },
+    store: { listRange: () => [] as never[], appendEvents: (() => undefined) as never },
     tables: { listRuns: () => [] as never[] },
     planForks: { countOpen: () => 0, listPlanForks: () => [] as never[] },
-    interventions: { listInterventions: () => [] as never[], getIntervention: () => null },
+    interventions: { listInterventions: () => [] as never[], getIntervention: () => null, insertIntervention: (() => undefined) as never },
+    // RR-017② (WP-6.4): the production constructor now composes the
+    // WP-5.1 InterventionService over the wiring faces — the structurally
+    // honest fake gains the faces that face requires (never called by
+    // these query-path tests).
+    registry: {},
+    externalState: () => ({ workstreams: new Map<string, never>() }),
     allocator: { reserve: () => ({ id: 'MA-1', kind: 'MA' }), commit: () => {}, release: () => {} },
   } as unknown as HostWiring
 
@@ -160,7 +166,7 @@ describe('WP-4.6 host RPC face — query-path stale pre-check (RR-015①)', () =
           return { outcomes: [], failures: [] }
         },
       },
-      store: { listRange: () => [] as never[] },
+      store: { listRange: () => [] as never[], appendEvents: (() => undefined) as never },
       tables: { listRuns: () => [] as never[] },
       planForks: {
         countOpen: () => 0,
@@ -169,7 +175,10 @@ describe('WP-4.6 host RPC face — query-path stale pre-check (RR-015①)', () =
           return [] as never[]
         },
       },
-      interventions: { listInterventions: () => [] as never[], getIntervention: () => null },
+      interventions: { listInterventions: () => [] as never[], getIntervention: () => null, insertIntervention: (() => undefined) as never },
+      // RR-017② (WP-6.4): InterventionService composition faces (never called here).
+      registry: {},
+      externalState: () => ({ workstreams: new Map<string, never>() }),
       allocator: { reserve: () => ({ id: 'MA-1', kind: 'MA' }), commit: () => {}, release: () => {} },
     } as unknown as HostWiring
     const services = new ProductionResearchRpcServices({ wiring, schemaRoot: SCHEMA_ROOT })

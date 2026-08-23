@@ -68,6 +68,7 @@ import {
   type SourceRefJson,
 } from '../../src/host/persistence/store/index.js'
 import { INTERVENTION_TABLE } from '../../src/host/service/flooding/index.js'
+import { INBOX_ITEM_TABLE } from '../../src/host/service/inbox/index.js'
 import { AWARENESS_TABLE } from '../../src/host/service/attention/index.js'
 import {
   openRunBindingDatabase,
@@ -155,6 +156,7 @@ function scanSourceDdlTargets(): string[] {
     PLAN_FORK_TABLE,
     MANAGEMENT_ACTION_TABLE,
     INTERVENTION_TABLE,
+    INBOX_ITEM_TABLE,
     AWARENESS_TABLE,
     NEXT_ACTION_TABLE,
     BLOCKER_TABLE,
@@ -186,9 +188,9 @@ function scanSourceDdlTargets(): string[] {
 }
 
 /**
- * All fourteen §15 tables this plugin creates (3 store + 2 runbinding +
+ * All fifteen §15 tables this plugin creates (3 store + 2 runbinding +
  * 2 planfork + 1 flooding + 1 attention + 2 actions (WP-5.2) +
- * 3 reporting (WP-5.3)), sorted. The source scan sees every CREATE
+ * 3 reporting (WP-5.3) + 1 inbox (WP-6.4)), sorted. The source scan sees every CREATE
  * TABLE in src/ regardless of which init path applies the DDL.
  */
 const ALL_TABLES = [
@@ -197,6 +199,7 @@ const ALL_TABLES = [
   'derived_state',
   'discovered_session',
   'history_event',
+  'inbox_item',
   'interaction',
   'intervention',
   'management_action',
@@ -322,6 +325,19 @@ const PINNED_COLUMNS: ReadonlyMap<string, readonly string[]> = new Map([
     ],
   ],
   [
+    'inbox_item',
+    [
+      'id',
+      'source',
+      'payload',
+      'raw',
+      'context_refs',
+      'state',
+      'converted_to',
+      'created_at',
+    ],
+  ],
+  [
     'awareness',
     [
       'object_kind',
@@ -407,7 +423,7 @@ function textColumns(raw: DatabaseSync, table: string): string[] {
 }
 
 describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned', () => {
-  it('src contains EXACTLY the fourteen known CREATE TABLE targets (no new table can land unreviewed)', () => {
+  it('src contains EXACTLY the fifteen known CREATE TABLE targets (no new table can land unreviewed)', () => {
     expect(scanSourceDdlTargets()).toEqual(ALL_TABLES)
   })
 

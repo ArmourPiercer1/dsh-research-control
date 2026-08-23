@@ -28,7 +28,9 @@
  *  | reorderPlan            | PlanStore.savePlan (§4.4 validations + atomic write) + PLAN_REORDER ledger row |
  *  | selectPlanFork         | PlanForkSelectService.select (WP-3.4: actor re-asserted USER at runtime)     |
  *  | dismissPlanFork        | PlanForkSelectService.dismiss (WP-3.4: actor re-asserted USER at runtime)    |
- *  | updateInterventionState| §13 transition guard (pure) + the DDL-reserved state-cache row side          |
+ *  | updateInterventionState| InterventionService.updateState (RR-017②, WP-6.4: §13    |
+ *  |                        | guard single source + state-cache row — WP-5.1 layer on the |
+ *  |                        | user-surface second connection)                     |
  *  | registerInteraction    | reporting service `registerInteraction` (WP-5.3 production: the           |
  *  |                        | interaction table on the user-surface second connection; related_         |
  *  |                        | workstreams existence checked against the declarative tree, §16 rule 2)   |
@@ -127,7 +129,11 @@ import {
   type PlanForkSelectOptions,
 } from '../../service/select/index.js'
 import { ReportingService } from '../../service/reporting/index.js'
-import { checkInterventionTransition } from '../../service/flooding/index.js'
+import {
+  InterventionLifecycleStore,
+  InterventionService,
+  USER_ACTOR as INTERVENTION_USER_ACTOR,
+} from '../../service/intervention/index.js'
 import type { InterventionRecord } from '../../service/flooding/index.js'
 import {
   managementActionToParams,
@@ -185,17 +191,6 @@ export interface ResearchRpcServices {
  */
 const USER_ACTOR: ActorRef = { kind: 'USER' }
 
-/**
- * The state-cache row side of the intervention table — the ONLY columns
- * the frozen DDL trigger permits to change after creation
- * (intervention_no_content_update: 「only the state-cache columns
- * status/closed_at/resolution_note may change, user-only per INV-PERM-4」).
- * The conditional `AND status = ?` is the optimistic concurrency gate
- * (same pattern as the planfork store's conditional UPDATE).
- */
-const SQL_UPDATE_INTERVENTION_STATE =
-  'UPDATE intervention SET status = ?, closed_at = ?, resolution_note = ? WHERE id = ? AND status = ?'
-
 /** Task execution/validation vocabularies for the Current-zone fold. */
 const TASK_EXECUTIONS = new Set(['PLANNED', 'ACTIVE', 'PAUSED', 'EXECUTED', 'CANCELLED'])
 const TASK_VALIDATIONS = new Set(['NOT_REQUIRED', 'PENDING', 'UNDER_REVIEW', 'PASSED', 'FAILED'])
@@ -237,6 +232,12 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
   /** The WP-5.3 reporting layer (interaction / reporting_item /
    *  scheduled_event tables) on the same user-surface second connection. */
   readonly #reporting: ReportingService
+  /** RR-017② (WP-6.4): the WP-5.1 intervention layer — the 13-RPC
+   *  `updateInterventionState` routes through `updateState` (equivalence:
+   *  same §13 guard single source, same optimistic conditional UPDATE on
+   *  the lifecycle row, same 1:1 result shape; existing tests +
+   *  TC-E2E-011 prove the re-route). */
+  readonly #intervention: InterventionService
   #closed = false
 
   constructor(options: ProductionResearchRpcServicesOptions) {
@@ -280,6 +281,28 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       db: this.#db,
       allocator: options.wiring.allocator,
       projectId: options.wiring.projectId,
+      now: this.#now,
+    })
+
+    // RR-017② (WP-6.4): the WP-5.1 intervention layer on the same
+    // user-surface second connection (dual-connection 先例 — the lifecycle
+    // store applies the WP-3.5 DDL single source idempotently). The
+    // 13-RPC `updateInterventionState` now routes through
+    // `InterventionService.updateState` (equivalence: same §13 guard
+    // single source + same optimistic conditional UPDATE + 1:1 result
+    // shape; the RPC face keeps its actor-agnostic USER semantics — the
+    // service re-asserts USER at runtime, INV-PERM-4).
+    const interventionLifecycle = new InterventionLifecycleStore({
+      db: this.#db,
+      interventions: options.wiring.interventions,
+    })
+    this.#intervention = new InterventionService({
+      store: options.wiring.store,
+      registry: options.wiring.registry,
+      lifecycle: interventionLifecycle,
+      allocator: options.wiring.allocator,
+      projectId: options.wiring.projectId,
+      externalState: () => ({ workstreams: options.wiring.externalState().workstreams }),
       now: this.#now,
     })
   }
@@ -663,40 +686,10 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
   }
 
   updateInterventionState(args: UpdateInterventionStateArgs): UpdateInterventionStateResult {
-    const current = this.#wiring.interventions.getIntervention(args.interventionId)
-    if (current === null) {
-      throw new Error(`updateInterventionState: intervention ${args.interventionId} does not exist`)
-    }
-    // The §13 transition guard (pure business-layer face; INV-PERM-4 —
-    // user-only; self-loops and terminal exits rejected).
-    checkInterventionTransition(args.interventionId, current.status, args.status)
-    if (args.resolutionNote !== undefined && args.status !== 'CLOSED') {
-      throw new Error(
-        'updateInterventionState: resolutionNote is only valid when closing an Intervention (status CLOSED; DOMAIN_SCHEMA §9.2)',
-      )
-    }
-    const closedAt = args.status === 'CLOSED' ? this.#now() : null
-    const affected = this.#db.run(
-      SQL_UPDATE_INTERVENTION_STATE,
-      args.status,
-      closedAt,
-      args.resolutionNote ?? null,
-      args.interventionId,
-      current.status,
-    )
-    if (affected === 0) {
-      throw new Error(
-        `updateInterventionState: intervention ${args.interventionId} moved concurrently ` +
-          `(expected status ${current.status}) — refetch and retry`,
-      )
-    }
-    return {
-      interventionId: args.interventionId,
-      statusFrom: current.status,
-      statusTo: args.status,
-      closedAt,
-      resolutionNote: args.status === 'CLOSED' ? (args.resolutionNote ?? null) : null,
-    }
+    // RR-017② (WP-6.4): re-route to the WP-5.1 InterventionService
+    // (same §13 guard single source, same optimistic gate, 1:1 result
+    // shape — the inline pre-route implementation is retired).
+    return this.#intervention.updateState(args.interventionId, args.status, INTERVENTION_USER_ACTOR, args.resolutionNote)
   }
 
   async registerInteraction(args: RegisterInteractionArgs): Promise<RegisterInteractionResult> {

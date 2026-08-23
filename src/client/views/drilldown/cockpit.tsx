@@ -41,6 +41,10 @@ import type {
   WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
 import { createResearchStore, type ResearchStore, type SliceState } from '../../stores/index.js'
+// RR-017① — Phase 5/6 切片直 import（独立切片文件 — 多 WP 并行纪律:
+// 不改 stores/index.ts 公共面, 同 actions 视图 import 自己的切片）。
+import { createActionsSlicesStore } from '../../stores/actions-slices.js'
+import { createInboxSliceStore } from '../../stores/inbox-slice.js'
 import { HomeDashboard } from '../home/HomeDashboard.js'
 import { HistoryTimelineView } from '../history/HistoryTimelineView.js'
 import { PlanGraphContainer } from '../../graph/PlanGraphContainer.js'
@@ -53,15 +57,48 @@ import { InterventionBoard } from './intervention-board.js'
 import { PfPanel } from './pf-panel.js'
 import { TopicPage } from './topic-page.js'
 import { useHistorySlice, useWsSlice } from './binding-hooks.js'
+import { InterventionGroupsView } from '../intervention/InterventionGroupsView.js'
+import { ActionsViewContainer } from '../actions/actions-container.js'
+import { ReportingView } from '../reporting/ReportingView.js'
+import { AttentionView } from '../attention/AttentionView.js'
+import { BriefView } from '../brief/BriefView.js'
+import { InboxViewContainer } from '../inbox/inbox-container.js'
 import styles from './cockpit.module.css'
 
-/** One page of the in-tab navigation stack. */
+/** One page of the in-tab navigation stack.
+ *
+ *  RR-017① (WP-6.4): the Phase 5 page set (intervention / actions /
+ *  reporting / attention / brief) + the Phase 6 Inbox page are registered
+ *  here — all six user-reachable through the in-tab nav (minimal wiring:
+ *  one nav section + six page bodies; data channels follow each WP's
+ *  delivery state — fail-loud where not wired, per WP-5.2/WP-6.4 报告). */
 type CockpitPage =
   | { readonly kind: 'home' }
   | { readonly kind: 'project' }
   | { readonly kind: 'topic'; readonly topicId: string }
   | { readonly kind: 'ws'; readonly workstreamId: string }
   | { readonly kind: 'history'; readonly workstreamId: string }
+  | { readonly kind: 'intervention' }
+  | { readonly kind: 'actions' }
+  | { readonly kind: 'reporting' }
+  | { readonly kind: 'attention' }
+  | { readonly kind: 'brief' }
+  | { readonly kind: 'inbox' }
+
+/** RR-017① — the in-tab nav entries (label = 中文组件纪律; kind = page;
+ *  全部为无参页面 — 钻取页 project/topic/ws/history 不进导航栏,
+ *  仍经 Home/页面内入口到达, 保持既有钻取路径不变)。 */
+type PlainPageKind = 'home' | 'intervention' | 'actions' | 'reporting' | 'attention' | 'brief' | 'inbox'
+
+const COCKPIT_NAV: ReadonlyArray<{ readonly kind: PlainPageKind; readonly label: string }> = [
+  { kind: 'home', label: '首页' },
+  { kind: 'intervention', label: '干预' },
+  { kind: 'actions', label: '行动' },
+  { kind: 'reporting', label: '汇报' },
+  { kind: 'attention', label: '注意力' },
+  { kind: 'brief', label: '简报' },
+  { kind: 'inbox', label: '收件箱' },
+]
 
 /** epoch ms → local display text (deterministic, no timezone surprises
  *  in tests: the views show whatever the host clock produced). */
@@ -172,6 +209,12 @@ export function ResearchCockpit(): ReactElement {
   // One factory result per tab mount — the store handle never lives at
   // module level (the factory binds the mount-time `researchRpc` facade).
   const store = useMemo(() => createResearchStore(), [])
+  // RR-017① — Phase 5/6 切片工厂结果（同 mount 纪律: 工厂非句柄;
+  // actions 缺省参数 — objectiveProgress/nextActions/blockers 数据面
+  // fail-loud（冻结 13 RPC 无注意力面, WP-5.2 报告口径）; inbox 缺省
+  // provider = NOT_WIRED（冻结 13 RPC 无 Inbox 面, WP-6.4 报告口径））。
+  const actionsStore = useMemo(() => createActionsSlicesStore(), [])
+  const inboxStore = useMemo(() => createInboxSliceStore(), [])
   const [page, setPage] = useState<CockpitPage>({ kind: 'home' })
   const [selection, setSelection] = useState<DrilldownSelection>(null)
   const [sessionPointer, setSessionPointer] = useState<{ sessionId: string; runId: string } | null>(null)
@@ -228,6 +271,39 @@ export function ResearchCockpit(): ReactElement {
         </div>
       )}
 
+      {/* RR-017① — in-tab nav（Phase 5/6 六页注册 — 全用户可达;
+          内联样式: cockpit.module.css 不在 WP-6.4 授权路径内, 最小侵入
+          只改本文件, 报告「偏离与豁免」§2）。 */}
+      <nav
+        aria-label="cockpit 导航"
+        data-cockpit-nav
+        style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1, #e5e6eb)' }}
+      >
+        {COCKPIT_NAV.map((entry) => (
+          <button
+            key={entry.kind}
+            type="button"
+            data-cockpit-nav-item={entry.kind}
+            onClick={() => {
+              setSelection(null)
+              setPage({ kind: entry.kind } as Extract<CockpitPage, { readonly kind: PlainPageKind }>)
+            }}
+            style={{
+              font: 'inherit',
+              fontSize: 13,
+              padding: '4px 12px',
+              borderRadius: 6,
+              border: page.kind === entry.kind ? '1px solid var(--dsw-alias-interactive-bg-primary, #3370ff)' : '1px solid var(--dsw-alias-border-l2, #cfd3da)',
+              background: page.kind === entry.kind ? 'var(--dsw-alias-interactive-bg-hover, rgba(51, 112, 255, 0.08))' : 'var(--dsw-alias-bg-layer-1, #ffffff)',
+              color: 'var(--dsw-alias-label-primary, #1f2329)',
+              cursor: 'pointer',
+            }}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </nav>
+
       {page.kind === 'home' && (
         <>
           <HomeDashboard
@@ -270,6 +346,81 @@ export function ResearchCockpit(): ReactElement {
             历史时间线 · {page.workstreamId}
           </h1>
           <HistoryTimelineView store={store} workstreamId={page.workstreamId} pageSize={200} initialOrder="semantic" />
+        </section>
+      )}
+
+      {/* RR-017① — Phase 5 五页 + Phase 6 Inbox 页（数据面各随所属 WP
+          交付状态: 冻结 13 RPC 面 fail-loud 的页面在视图内大声点名缺口,
+          绝不伪造数据 — WP-5.2/WP-6.4 报告口径）。 */}
+      {page.kind === 'intervention' && (
+        <section className={styles.page} aria-label="干预分组页">
+          <h1 className={styles.pageTitle}>
+            <button type="button" className={styles.backButton} onClick={() => setPage({ kind: 'home' })}>
+              ← 返回
+            </button>{' '}
+            干预分组
+          </h1>
+          <InterventionGroupsView store={store} onOpenWorkstream={openWs} />
+        </section>
+      )}
+
+      {page.kind === 'actions' && (
+        <section className={styles.page} aria-label="行动页">
+          <h1 className={styles.pageTitle}>
+            <button type="button" className={styles.backButton} onClick={() => setPage({ kind: 'home' })}>
+              ← 返回
+            </button>{' '}
+            下一步行动 · 阻碍 · 目标
+          </h1>
+          <ActionsViewContainer store={actionsStore} />
+        </section>
+      )}
+
+      {page.kind === 'reporting' && (
+        <section className={styles.page} aria-label="汇报页">
+          <h1 className={styles.pageTitle}>
+            <button type="button" className={styles.backButton} onClick={() => setPage({ kind: 'home' })}>
+              ← 返回
+            </button>{' '}
+            沟通与日程
+          </h1>
+          <ReportingView store={store} />
+        </section>
+      )}
+
+      {page.kind === 'attention' && (
+        <section className={styles.page} aria-label="注意力页">
+          <h1 className={styles.pageTitle}>
+            <button type="button" className={styles.backButton} onClick={() => setPage({ kind: 'home' })}>
+              ← 返回
+            </button>{' '}
+            注意力
+          </h1>
+          <AttentionView store={store} />
+        </section>
+      )}
+
+      {page.kind === 'brief' && (
+        <section className={styles.page} aria-label="简报页">
+          <h1 className={styles.pageTitle}>
+            <button type="button" className={styles.backButton} onClick={() => setPage({ kind: 'home' })}>
+              ← 返回
+            </button>{' '}
+            研究简报
+          </h1>
+          <BriefView store={store} />
+        </section>
+      )}
+
+      {page.kind === 'inbox' && (
+        <section className={styles.page} aria-label="研究收件箱页">
+          <h1 className={styles.pageTitle}>
+            <button type="button" className={styles.backButton} onClick={() => setPage({ kind: 'home' })}>
+              ← 返回
+            </button>{' '}
+            研究收件箱
+          </h1>
+          <InboxViewContainer store={inboxStore} />
         </section>
       )}
     </div>

@@ -1,0 +1,240 @@
+/**
+ * Intervention 分组视图样式（WP-5.1）。
+ *
+ * CSS Modules + CSS 自定义属性 — 同 home / drilldown 约定: 局部 `--rc-*`
+ * token 优先解析宿主 `--dsw-alias-*`（宿主主题在位时）, 缺席时落到中性
+ * 回退值（独立渲染也成立）。
+ */
+
+.view {
+  /* --rc-* 局部 token → 宿主 --dsw-* 别名（回退值在下）。 */
+  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
+  --rc-label-caption: var(--dsw-alias-label-caption, #9aa1ab);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
+  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
+  --rc-border-l2: var(--dsw-alias-border-l2, #cfd3da);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
+  --rc-error-secondary: var(--dsw-alias-state-error-secondary, #fdeeed);
+  --rc-warning-primary: var(--dsw-alias-state-warning-primary, #d97706);
+  --rc-warning-secondary: var(--dsw-alias-state-warning-secondary, #fdf3e3);
+  --rc-success-primary: var(--dsw-alias-state-success-primary, #2f7d46);
+  --rc-success-secondary: var(--dsw-alias-state-success-secondary, #eaf5ee);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(17, 17, 17, 0.05));
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.viewTitle {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+}
+
+.errorBanner {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--rc-error-secondary);
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+}
+
+.faultNote {
+  margin: 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+}
+
+.empty {
+  margin: 0;
+  color: var(--rc-label-caption);
+  font-size: var(--rc-font-xxs);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* -- 来源组（机械触发 / 用户创建）-------------------------------------- */
+
+.group {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-2);
+  padding: 10px 12px;
+}
+
+.groupTitle {
+  margin: 0 0 8px;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.groupCount {
+  font-size: var(--rc-font-xxs);
+  font-weight: 500;
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 999px;
+  padding: 0 8px;
+  line-height: 18px;
+}
+
+.groupEmpty {
+  margin: 0;
+  color: var(--rc-label-caption);
+  font-size: var(--rc-font-xxs);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* -- 行 ---------------------------------------------------------------- */
+
+.row {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-1);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rowTitle {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+}
+
+.rowMeta {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* -- 状态徽标（OPEN / PENDING / CLOSED）--------------------------------- */
+
+.badge {
+  align-self: flex-start;
+  font-size: var(--rc-font-xxs);
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 8px;
+  line-height: 18px;
+  border: 1px solid transparent;
+}
+
+.badge_OPEN {
+  color: var(--rc-success-primary);
+  background: var(--rc-success-secondary);
+  border-color: var(--rc-success-primary);
+}
+
+.badge_PENDING {
+  color: var(--rc-warning-primary);
+  background: var(--rc-warning-secondary);
+  border-color: var(--rc-warning-primary);
+}
+
+.badge_CLOSED {
+  color: var(--rc-label-caption);
+  background: var(--rc-bg-layer-2);
+  border-color: var(--rc-border-l2);
+}
+
+/* -- 操作面（用户状态迁移）---------------------------------------------- */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  flex-wrap: wrap;
+}
+
+.noteInput {
+  flex: 1 1 240px;
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.button,
+.buttonClose {
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled),
+.buttonClose:hover:not(:disabled) {
+  background: var(--rc-interactive-hover);
+}
+
+.buttonClose {
+  color: var(--rc-error-primary);
+  border-color: var(--rc-error-primary);
+}
+
+.button:disabled,
+.buttonClose:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* -- WS 钻取 chips ------------------------------------------------------ */
+
+.wsChips {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  flex-wrap: wrap;
+}
+
+.wsChip {
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 999px;
+  padding: 1px 10px;
+  cursor: pointer;
+}
+
+.wsChip:hover {
+  background: var(--rc-interactive-hover);
+}

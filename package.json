@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "DSH Research Control Plane V1 plugin (WP-0.5: client slot spike — conversation.view Research tab + ModuleLoader client bundle)",
+  "description": "DSH Research Control Plane V1 plugin: a Git-backed, event-sourced research-workflow Cockpit for DeepSeek Harness (Project/Topic/Workstream + History/Current/Future + immutable Agent PlanFork + Intervention attention plane + read-only Investigator)",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -26,18 +26,19 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/index.js",
-    "lib/index.d.ts",
-    "lib/typert.host.js",
-    "lib/typert.host.d.ts",
-    "lib/typert.remote-client.js",
-    "lib/typert.remote-client.d.ts",
-    "lib/rpc-contracts-*.js",
-    "lib/rpc-contracts-*.d.ts",
-    "lib/client.js",
-    "lib/client.js.map",
+    "lib",
     "src",
-    "cordis.patch.yml"
+    "schema",
+    "SNAPSHOT.md",
+    "cordis.patch.yml",
+    "ARCHITECTURE.md",
+    "DOMAIN_SCHEMA.md",
+    "DSH_ADAPTER.md",
+    "GIT_INTEGRATION.md",
+    "HISTORY_EVENT_CATALOG.md",
+    "PLAN_FORK_SPEC.md",
+    "SUBAGENT_ROUTING.md",
+    "TEST_MATRIX.md"
   ],
   "dsh": {
     "bundle": {
@@ -49,12 +50,17 @@
     }
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/snapshot-release.mjs",
     "test": "vitest run",
     "lint": "node scripts/check-imports.mjs",
     "test:e2e": "bash scripts/e2e-run.sh",
     "test:e2e:playwright": "playwright test --config e2e/playwright.config.ts",
-    "test:perf": "vitest run --config tests/perf/vitest.perf.config.ts"
+    "test:perf": "vitest run --config tests/perf/vitest.perf.config.ts",
+    "pack:verify": "node scripts/pack-verify.mjs",
+    "prepare": "tsdown && node scripts/snapshot-release.mjs"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",

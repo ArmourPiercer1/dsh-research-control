@@ -11,3 +11,19 @@ test-results/
 # pnpm pack output (scripts/e2e-run.sh packs on demand)
 dsh-research-control-*.tgz
 .npm-cache-tmp/
+# WP-8.4 (SI-001): release-time snapshot artifacts — build-time copies of the
+# frozen workspace-root artifacts (8 root docs + schema/ + provenance manifest).
+# The canonical frozen copies stay at the workspace root; the plugin repo never
+# vendors them (double-source would violate the freeze discipline). Regenerated
+# by `pnpm run build` (scripts/snapshot-release.mjs); shipped via the `files`
+# surface in every pack.
+/schema/
+/SNAPSHOT.md
+/ARCHITECTURE.md
+/DOMAIN_SCHEMA.md
+/DSH_ADAPTER.md
+/GIT_INTEGRATION.md
+/HISTORY_EVENT_CATALOG.md
+/PLAN_FORK_SPEC.md
+/SUBAGENT_ROUTING.md
+/TEST_MATRIX.md

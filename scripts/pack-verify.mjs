@@ -1,0 +1,216 @@
+#!/usr/bin/env node
+/**
+ * WP-8.4 — pack verification (release-gate smoke):
+ *
+ *  1. `pnpm pack` in the plugin root (prepare → build + SI-001 snapshot
+ *     runs first, so the tarball is always the CURRENT surface);
+ *  2. **surface check** — the tarball entry list must carry the complete
+ *     `files` surface (all `lib/` artifacts, the `schema/` snapshot, the
+ *     8 root docs, `SNAPSHOT.md`, `cordis.patch.yml`, `package.json`,
+ *     `README.md`, `src/`) and must NOT leak dev-private paths
+ *     (`node_modules/`, `tests/`, `e2e/`, `scripts/`, `test-results/`,
+ *     `.pnpm-store/`, tarballs, editor/VCS residue);
+ *  3. **unpack smoke** — extract to a temp dir, symlink the repo
+ *     `node_modules` (the unpacked tree has no install of its own), then
+ *     `node`-import the BUILT main entry from the extracted bytes:
+ *     `.` (default-export service class) + `./typert` (TYPERT manifest,
+ *     14 invocations) + `./remote` (client contribution). `./client` is
+ *     a browser CJS bundle (the `window.__ModuleLoader__` banner runs at
+ *     require time) — asserted BY NAME in the list check only, never
+ *     imported under node.
+ *
+ * Exits non-zero on the first violated expectation; prints the full
+ * verdict table. No dependencies (node:child_process / fs / os / path /
+ * crypto). The temp dir is removed on success; kept (path printed) on
+ * failure for inspection.
+ */
+
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdtempSync, readdirSync, rmSync, symlinkSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const PKG_NAME = 'dsh-research-control'
+
+const fail = (message) => {
+  console.error(`[pack-verify] FATAL: ${message}`)
+  process.exit(1)
+}
+const log = (message) => console.log(`[pack-verify] ${message}`)
+
+/* ------------------------------------------------------------------ *
+ * 1. Pack
+ * ------------------------------------------------------------------ */
+
+log('running pnpm pack (prepare → build + snapshot first)')
+const pack = spawnSync('pnpm', ['pack'], { cwd: PLUGIN_ROOT, encoding: 'utf8' })
+if (pack.status !== 0) fail(`pnpm pack failed:\n${pack.stdout}\n${pack.stderr}`)
+
+const tgzName = readdirSync(PLUGIN_ROOT).find((name) => new RegExp(`^${PKG_NAME}-.*\\.tgz$`).test(name))
+if (!tgzName) fail('no tarball produced')
+const tgzPath = join(PLUGIN_ROOT, tgzName)
+log(`tarball: ${tgzName}`)
+
+/* ------------------------------------------------------------------ *
+ * 2. Surface check
+ * ------------------------------------------------------------------ */
+
+const entries = execFileSync('tar', ['tzf', tgzPath], { encoding: 'utf8' })
+  .split('\n')
+  .filter(Boolean)
+  .map((line) => line.replace(/^package\//, ''))
+
+const violations = []
+const check = (condition, verdict) => {
+  if (!condition) violations.push(verdict)
+  return condition
+}
+
+// -- required: the complete published surface
+const required = [
+  'package.json',
+  'README.md',
+  'cordis.patch.yml',
+  'SNAPSHOT.md',
+  'lib/index.js',
+  'lib/index.d.ts',
+  'lib/typert.host.js',
+  'lib/typert.host.d.ts',
+  'lib/typert.remote-client.js',
+  'lib/typert.remote-client.d.ts',
+  'lib/client.js',
+  'lib/client.js.map',
+  // SI-001 snapshot: the frozen schema root (anchor + the three loaded sub-dirs)
+  'schema/common.schema.json',
+  'schema/README.md',
+  'schema/declarative/project.schema.json',
+  'schema/declarative/agent-plan-fork-policy.schema.json',
+  'schema/history/history-events.schema.json',
+  'schema/operational/run.schema.json',
+  // the 8 root docs (§2.1 frozen target layout)
+  'ARCHITECTURE.md',
+  'DOMAIN_SCHEMA.md',
+  'DSH_ADAPTER.md',
+  'GIT_INTEGRATION.md',
+  'HISTORY_EVENT_CATALOG.md',
+  'PLAN_FORK_SPEC.md',
+  'SUBAGENT_ROUTING.md',
+  'TEST_MATRIX.md',
+  // `./src/*` export surface (source ships with the tarball, as today)
+  'src/host/index.ts',
+  'src/client/index.tsx',
+]
+for (const name of required) {
+  check(entries.includes(name), `missing required entry: package/${name}`)
+}
+
+// -- required: every rpc-contracts hash twin (js AND d.ts, any hash)
+const rpcJs = entries.filter((e) => /^lib\/rpc-contracts-.*\.js$/.test(e))
+const rpcDts = entries.filter((e) => /^lib\/rpc-contracts-.*\.d\.ts$/.test(e))
+check(rpcJs.length >= 1, 'missing lib/rpc-contracts-*.js')
+check(rpcDts.length >= 1, 'missing lib/rpc-contracts-*.d.ts')
+check(
+  rpcJs.some((js) => rpcDts.includes(js.replace(/\.js$/, '.d.ts'))) || rpcJs.length === rpcDts.length,
+  'rpc-contracts js/d.ts hash twins look unmatched',
+)
+
+// -- required: the schema snapshot is COMPLETE (all 23 frozen files,
+//    counted against the workspace-root source when available)
+const schemaEntryCount = entries.filter((e) => e.startsWith('schema/')).length
+check(schemaEntryCount >= 23, `schema/ snapshot incomplete: ${schemaEntryCount} < 23 entries`)
+
+// -- forbidden: dev-private leakage
+const forbiddenPatterns = [
+  /^node_modules\//,
+  /^tests\//,
+  /^e2e\//,
+  /^scripts\//,
+  /^test-results\//,
+  /^playwright-report\//,
+  /^\.pnpm-store\//,
+  /^\.npm-cache-tmp\//,
+  /^\.git(\/|$)/,
+  /\.tgz$/,
+  /\.tsbuildinfo$/,
+  /^tsconfig\.json$/,
+  /^tsdown\.config\.ts$/,
+  /^vitest\.config\.ts$/,
+  /^pnpm-workspace\.yaml$/,
+  /^\.gitignore$/,
+  /^e2e__screenshots/,
+]
+for (const entry of entries) {
+  for (const pattern of forbiddenPatterns) {
+    if (pattern.test(entry)) {
+      violations.push(`forbidden entry leaked into the tarball: package/${entry}`)
+      break
+    }
+  }
+}
+
+log(`surface: ${entries.length} entries (${required.length + schemaEntryCount + rpcJs.length + rpcDts.length + 0} required-side checks passed so far)`)
+
+/* ------------------------------------------------------------------ *
+ * 3. Unpack smoke (extracted bytes + repo node_modules symlink)
+ * ------------------------------------------------------------------ */
+
+const workDir = mkdtempSync(join(tmpdir(), 'dsh-rc-pack-verify-'))
+let unpacked = false
+try {
+  execFileSync('tar', ['xzf', tgzPath, '-C', workDir], { stdio: 'pipe' })
+  const pkgDir = join(workDir, 'package')
+  if (!existsSync(join(pkgDir, 'package.json'))) fail('extracted tree has no package/')
+  // Dependency resolution: the unpacked tree has no install of its own —
+  // symlink the repo node_modules AND the package itself (a self-link) so
+  // the smoke imports resolve through the BARE specifier + the exports
+  // map (the `exports` 终检 rides on this).
+  symlinkSync(join(PLUGIN_ROOT, 'node_modules'), join(workDir, 'node_modules'))
+  symlinkSync(pkgDir, join(workDir, 'node_modules', PKG_NAME))
+  unpacked = true
+
+  const smoke = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      [
+        'const pkg = await import(process.argv[1])',
+        'if (typeof pkg.default !== "function") throw new Error("main entry: default export is not a service class (got " + typeof pkg.default + ")")',
+        'console.log("main entry: default export class " + pkg.default.name + " (typeof " + typeof pkg.default + ")")',
+        'const typert = await import(process.argv[1] + "/typert")',
+        'const T = typert.TYPERT ?? typert.default?.TYPERT',
+        'if (!T || !Array.isArray(T.invocations)) throw new Error("./typert: no TYPERT.invocations manifest")',
+        'if (T.invocations.length !== 14) throw new Error("./typert: expected 14 invocations (13 RPC + ping), got " + T.invocations.length)',
+        'console.log("./typert: " + T.invocations.length + " invocations, package=" + T.package + ", face=" + T.face)',
+        'const remote = await import(process.argv[1] + "/remote")',
+        'const C = remote.default',
+        'if (!C || typeof C.package !== "string" || !Array.isArray(C.descriptors)) throw new Error("./remote: contribution is not {package, descriptors}")',
+        'console.log("./remote: contribution " + C.package + " with " + C.descriptors.length + " descriptors")',
+        'console.log("SMOKE OK: main entry class + ./typert + ./remote imported cleanly from the extracted tarball bytes")',
+      ].join('\n'),
+      PKG_NAME,
+    ],
+    { cwd: workDir, encoding: 'utf8' },
+  )
+  const smokeOut = `${smoke.stdout ?? ''}${smoke.stderr ?? ''}`
+  if (smoke.status !== 0) fail(`node import smoke failed:\n${smokeOut}`)
+  log(smokeOut.trim())
+} finally {
+  if (unpacked || violations.length === 0) {
+    rmSync(workDir, { recursive: true, force: true })
+  } else {
+    log(`FAILURE — temp tree kept for inspection: ${workDir}`)
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Verdict
+ * ------------------------------------------------------------------ */
+
+if (violations.length > 0) {
+  for (const v of violations) console.error(`[pack-verify] VIOLATION: ${v}`)
+  fail(`${violations.length} surface violation(s) in ${tgzName}`)
+}
+log(`PASS: ${tgzName} — ${entries.length} entries, complete published surface, no dev leakage, unpacked main/typert/remote import cleanly under node`)

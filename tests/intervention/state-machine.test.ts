@@ -122,8 +122,8 @@ describe('assertInterventionTransition（9 格矩阵 — 冻结 §13 全转换�
 
 describe('interventionTargets（冻结表合法出口集）', () => {
   it('OPEN → [PENDING, CLOSED]; PENDING → [OPEN, CLOSED]; CLOSED → []（终态无出口）', () => {
-    expect(interventionTargets('OPEN').sort()).toEqual(['CLOSED', 'PENDING'])
-    expect(interventionTargets('PENDING').sort()).toEqual(['CLOSED', 'OPEN'])
+    expect([...interventionTargets('OPEN')].sort()).toEqual(['CLOSED', 'PENDING'])
+    expect([...interventionTargets('PENDING')].sort()).toEqual(['CLOSED', 'OPEN'])
     expect(interventionTargets('CLOSED')).toEqual([])
   })
 })

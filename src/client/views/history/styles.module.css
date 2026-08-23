@@ -1,0 +1,257 @@
+/* History timeline view (WP-4.4) — CSS Modules + CSS custom properties.
+ *
+ * Local `--rc-*` prefix approximates the host token system (the host
+ * design tokens are not importable from this repo — INV-PERM-5 / frozen
+ * docs read-only); values are chosen to stay neutral so the host shell
+ * chrome reads as one surface. Product copy in the components is Chinese;
+ * this file carries presentation only. */
+
+.root {
+  /* local token approximations (host tokens: bg surface, fg, accent, line, muted) */
+  --rc-bg: #ffffff;
+  --rc-fg: #1f2328;
+  --rc-muted: #59636e;
+  --rc-line: #d7dde3;
+  --rc-accent: #0b6bcb;
+  --rc-accent-soft: #e7f1fb;
+  --rc-danger: #b3261e;
+  --rc-danger-soft: #fdecea;
+  --rc-ok: #1a7f37;
+  --rc-warn: #9a6700;
+  --rc-chip-bg: #eef1f4;
+  --rc-radius: 6px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  color: var(--rc-fg);
+  background: var(--rc-bg);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.scope {
+  color: var(--rc-muted);
+  font-size: 12px;
+}
+
+/* -- tab groups (order switch + view switch) ------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.tab {
+  padding: 4px 12px;
+  border: 1px solid var(--rc-line);
+  border-radius: var(--rc-radius);
+  background: transparent;
+  color: var(--rc-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tabActive {
+  composes: tab;
+  background: var(--rc-accent-soft);
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+  font-weight: 600;
+}
+
+/* -- status lines (loading / empty / error) --------------------------- */
+
+.status {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed var(--rc-line);
+  border-radius: var(--rc-radius);
+  color: var(--rc-muted);
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rc-danger);
+  border-radius: var(--rc-radius);
+  background: var(--rc-danger-soft);
+  color: var(--rc-danger);
+  font-size: 13px;
+}
+
+/* -- the atomic timeline ---------------------------------------------- */
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rc-line);
+  border-radius: var(--rc-radius);
+}
+
+.event {
+  display: grid;
+  grid-template-columns: auto auto minmax(150px, auto) 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rc-line);
+}
+
+.event:last-child {
+  border-bottom: none;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--rc-chip-bg);
+  color: var(--rc-fg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.actor {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--rc-line);
+  border-radius: 10px;
+  text-align: center;
+  color: var(--rc-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.time {
+  color: var(--rc-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeSub {
+  color: var(--rc-line);
+}
+
+.seq {
+  color: var(--rc-muted);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.payload {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--rc-muted);
+}
+
+.payload pre {
+  margin: 6px 0 2px;
+  padding: 8px;
+  overflow-x: auto;
+  border: 1px solid var(--rc-line);
+  border-radius: var(--rc-radius);
+  background: var(--rc-chip-bg);
+  color: var(--rc-fg);
+  font-size: 12px;
+}
+
+/* -- the per-Run wrapper view ----------------------------------------- */
+
+.runGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.runGroup {
+  border: 1px solid var(--rc-line);
+  border-radius: var(--rc-radius);
+}
+
+.runGroupHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rc-line);
+  background: var(--rc-chip-bg);
+}
+
+.runId {
+  font-weight: 600;
+}
+
+.statusRunning {
+  composes: badge;
+  color: var(--rc-warn);
+}
+
+.statusFinished {
+  composes: badge;
+  color: var(--rc-ok);
+}
+
+.statusFailed {
+  composes: badge;
+  color: var(--rc-danger);
+}
+
+.statusCancelled {
+  composes: badge;
+  color: var(--rc-muted);
+}
+
+.count {
+  color: var(--rc-muted);
+  font-size: 12px;
+}
+
+/* -- pagination footer ------------------------------------------------- */
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.loadMore {
+  padding: 6px 20px;
+  border: 1px solid var(--rc-accent);
+  border-radius: var(--rc-radius);
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.loadMore:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.endLine {
+  margin: 0;
+  color: var(--rc-muted);
+  font-size: 12px;
+}

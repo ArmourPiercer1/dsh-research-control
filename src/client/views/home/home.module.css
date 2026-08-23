@@ -1,0 +1,265 @@
+/**
+ * Home dashboard styles (WP-4.2).
+ *
+ * CSS Modules + CSS custom properties. The local `--rc-*` variables
+ * approximate the host token system (DSH_ADAPTER §6: host tokens are
+ * `--dsw-*`): each `--rc-*` resolves to the matching `--dsw-alias-*` when
+ * the host theme provides it, and falls back to a neutral value otherwise,
+ * so the view renders sensibly both inside the host shell and standalone.
+ */
+
+.home {
+  /* --rc-* local tokens → host --dsw-* aliases when present (fallbacks below). */
+  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
+  --rc-label-tertiary: var(--dsw-alias-label-tertiary, #8a919c);
+  --rc-label-caption: var(--dsw-alias-label-caption, #9aa1ab);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
+  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
+  --rc-border-l2: var(--dsw-alias-border-l2, #cfd3da);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
+  --rc-error-secondary: var(--dsw-alias-state-error-secondary, #fdeeed);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(17, 17, 17, 0.05));
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+/* -- header / page actions ------------------------------------------------ */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  color: var(--rc-label-primary);
+}
+
+.refresh,
+.retry {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  cursor: pointer;
+}
+
+.refresh:hover,
+.retry:hover {
+  background: var(--rc-interactive-hover);
+}
+
+/* -- loading / error states ---------------------------------------------- */
+
+.loading {
+  margin: 0;
+  color: var(--rc-label-tertiary);
+}
+
+.refreshing {
+  margin: 0;
+  color: var(--rc-label-caption);
+  font-size: var(--rc-font-xxs);
+}
+
+.errorBanner {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--rc-error-secondary);
+  color: var(--rc-error-primary);
+}
+
+.failed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+}
+
+.errorText {
+  margin: 0;
+  color: var(--rc-error-primary);
+}
+
+/* -- project card ---------------------------------------------------------- */
+
+.projectCard {
+  padding: 12px 16px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+}
+
+.projectTitle {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.projectDesc {
+  margin: 0 0 8px;
+  color: var(--rc-label-secondary);
+}
+
+.metaList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.metaItem {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+/* -- sections (topics / interventions / placeholders) ---------------------- */
+
+.topics,
+.interventions,
+.phase {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--rc-label-primary);
+}
+
+.empty {
+  margin: 0;
+  color: var(--rc-label-tertiary);
+}
+
+.topicList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topicCard {
+  padding: 8px 12px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+}
+
+.topicButton {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font: inherit;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+
+.topicButton:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.topicTitle {
+  font-weight: 600;
+}
+
+.topicCount {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+/* -- interventions ---------------------------------------------------------- */
+
+.interventionList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intervention {
+  padding: 8px 12px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+}
+
+.interventionTitle {
+  margin: 0 0 2px;
+}
+
+.interventionMeta {
+  margin: 0 0 6px;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+.chips {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--rc-interactive-hover);
+}
+
+/* -- phase placeholders ------------------------------------------------------ */
+
+.phase {
+  padding: 8px 12px;
+  border: 1px dashed var(--rc-border-l2);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-2);
+}
+
+.phaseText {
+  margin: 0;
+  color: var(--rc-label-caption);
+  font-size: var(--rc-font-xxs);
+}

@@ -1,0 +1,367 @@
+/**
+ * Workstream page styles (WP-4.3) — CSS Modules + local custom
+ * properties.
+ *
+ * Token system: the `--rc-*` custom properties are LOCAL approximations
+ * of the host design tokens (the plugin's client bundle runs inside the
+ * host shell; the exact host token values live on the shell side and
+ * must not be imported — DSH_ADAPTER §6 forbids cross-package imports).
+ * Values are chosen to sit close to the host's light theme so the page
+ * reads as part of it; a future token-mapping WP can retune the values
+ * in this one file only.
+ *
+ * Product copy is Chinese (rendered by the components); class names are
+ * the module's stable face.
+ */
+
+.page {
+  /* Local token approximations (host light-theme neighbours). */
+  --rc-text: #1c2333;
+  --rc-text-muted: #5c6675;
+  --rc-surface: #ffffff;
+  --rc-surface-alt: #f4f6f9;
+  --rc-border: #d8dde5;
+  --rc-accent: #2f6bde;
+  --rc-accent-soft: #e9f0fc;
+  --rc-ok: #257a4e;
+  --rc-warn: #a06a12;
+  --rc-danger: #bd3f3f;
+
+  box-sizing: border-box;
+  color: var(--rc-text);
+  background: var(--rc-surface-alt);
+  font-family: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 16px;
+  min-height: 100%;
+}
+
+.page *,
+.page *::before,
+.page *::after {
+  box-sizing: border-box;
+}
+
+/* -- page header -- */
+
+.header {
+  margin: 0 0 12px;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.headerMeta {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+.headerSummary {
+  margin: 4px 0 0;
+  color: var(--rc-text-muted);
+}
+
+.staleBanner {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--rc-warn);
+  border-radius: 6px;
+  background: #fbf6ec;
+  color: var(--rc-warn);
+  font-size: 13px;
+}
+
+/* -- three-zone layout: History | Current Execution | Future Plan (§27.4) -- */
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(280px, 1.35fr) minmax(280px, 1.35fr);
+  gap: 12px;
+  align-items: start;
+}
+
+/* narrow viewports: the zones stack (same DOM, one column) */
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* -- zone panel -- */
+
+.zone {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--rc-surface);
+  border: 1px solid var(--rc-border);
+  border-radius: 8px;
+}
+
+.zoneTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.sectionTitle {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rc-text-muted);
+  text-transform: uppercase;
+}
+
+/* -- lists and rows -- */
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.taskRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rc-border);
+}
+
+.taskRow:last-child {
+  border-bottom: none;
+}
+
+.planList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: plan-position;
+}
+
+.planRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rc-border);
+}
+
+.planRow:last-child {
+  border-bottom: none;
+}
+
+.planPosition {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.taskId {
+  color: var(--rc-text-muted);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.taskTitle {
+  font-weight: 500;
+}
+
+.criterionList {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  list-style: disc;
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+/* -- badges (execution / validation / kind / PF status) -- */
+
+.badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--rc-surface-alt);
+  border: 1px solid var(--rc-border);
+  color: var(--rc-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.badge[data-execution='ACTIVE'] {
+  color: var(--rc-ok);
+  border-color: var(--rc-ok);
+}
+
+.badge[data-execution='PAUSED'] {
+  color: var(--rc-warn);
+  border-color: var(--rc-warn);
+}
+
+.badge[data-validation='PENDING'],
+.badge[data-validation='UNDER_REVIEW'] {
+  color: var(--rc-warn);
+  border-color: var(--rc-warn);
+}
+
+.badge[data-validation='FAILED'] {
+  color: var(--rc-danger);
+  border-color: var(--rc-danger);
+}
+
+.badge[data-run-status='RUNNING'] {
+  color: var(--rc-ok);
+  border-color: var(--rc-ok);
+}
+
+.badge[data-run-status='FAILED'] {
+  color: var(--rc-danger);
+  border-color: var(--rc-danger);
+}
+
+/* -- run row detail spans -- */
+
+.liveRuns,
+.runTask,
+.runIntent,
+.runCheckpoint {
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+.liveRuns {
+  color: var(--rc-accent);
+}
+
+/* -- History zone -- */
+
+.historyCount {
+  margin: 0;
+}
+
+.historyEntry {
+  margin-top: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--rc-accent);
+  border-radius: 6px;
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.historyEntry:hover {
+  background: var(--rc-accent);
+  color: var(--rc-surface);
+}
+
+/* -- Future zone: reorder entry + PF overlay data seam -- */
+
+.moveButton {
+  padding: 0 6px;
+  height: 22px;
+  border: 1px solid var(--rc-border);
+  border-radius: 4px;
+  background: var(--rc-surface);
+  color: var(--rc-text);
+  cursor: pointer;
+}
+
+.moveButton:hover:not(:disabled) {
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+}
+
+.moveButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.reorderNote {
+  margin: 4px 0 0;
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+.reorderFault {
+  margin: 4px 0 0;
+  color: var(--rc-danger);
+  font-size: 12px;
+}
+
+/* PF overlay rows — the WP-4.5 data seam: plain rows today; the distinct
+   overlay visual style (different stroke/opacity/label per §27.6) is
+   applied in WP-4.5 against `data-pf` / `data-pf-status` without data-path
+   changes. */
+.planForkRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rc-border);
+}
+
+.planForkRow:last-child {
+  border-bottom: none;
+}
+
+.planForkCount {
+  margin: 0;
+  font-size: 12px;
+  color: var(--rc-text-muted);
+}
+
+.planForkMeta,
+.planForkReason {
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+/* -- empty states / page-level states -- */
+
+.empty {
+  margin: 0;
+  color: var(--rc-text-muted);
+  font-size: 13px;
+}
+
+.loadingNote,
+.loadFault {
+  margin: 24px 0 0;
+  color: var(--rc-text-muted);
+}
+
+.loadFault {
+  color: var(--rc-danger);
+}
+
+.retryButton {
+  margin-top: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--rc-accent);
+  border-radius: 6px;
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-size: 13px;
+  cursor: pointer;
+}

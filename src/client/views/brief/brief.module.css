@@ -1,0 +1,347 @@
+/**
+ * Brief 视图样式（WP-5.5）。
+ *
+ * CSS Modules + CSS custom properties（同 WP-4.2 home.module.css /
+ * WP-5.4 attention.module.css 纪律）: 本地 `--rc-*` 变量近似宿主 token
+ * 系统（DSH_ADAPTER §6: 宿主 tokens 是 `--dsw-*`）—— 宿主主题提供时
+ * 解析到对应 `--dsw-alias-*`, 否则落到中性回退值。
+ */
+
+.brief {
+  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
+  --rc-label-tertiary: var(--dsw-alias-label-tertiary, #8a919c);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
+  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
+  --rc-border-l2: var(--dsw-alias-border-l2, #cfd3da);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
+  --rc-error-secondary: var(--dsw-alias-state-error-secondary, #fdeeed);
+  --rc-interactive-primary: var(--dsw-alias-interactive-primary, #1456f0);
+  --rc-interactive-secondary: var(--dsw-alias-interactive-secondary, #e8f0ff);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(17, 17, 17, 0.05));
+  --rc-ok-primary: var(--dsw-alias-state-success-primary, #23804b);
+  --rc-ok-secondary: var(--dsw-alias-state-success-secondary, #e9f6ef);
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+/* -- header ----------------------------------------------------------- */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  color: var(--rc-label-primary);
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.refresh {
+  padding: 4px 12px;
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  font-size: var(--rc-font-xxs);
+  cursor: pointer;
+}
+
+.refresh:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.dataPlaneNote {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* -- states ------------------------------------------------------------ */
+
+.loading {
+  margin: 8px 0;
+  color: var(--rc-label-secondary);
+}
+
+.failed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.errorText {
+  margin: 0;
+  color: var(--rc-error-primary);
+}
+
+.retry {
+  padding: 4px 12px;
+  border: 1px solid var(--rc-error-primary);
+  border-radius: 6px;
+  background: var(--rc-error-secondary);
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+  cursor: pointer;
+}
+
+.errorBar {
+  padding: 8px 10px;
+  border: 1px solid var(--rc-error-primary);
+  border-radius: 6px;
+  background: var(--rc-error-secondary);
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* -- L1 ---------------------------------------------------------------- */
+
+.l1 {
+  padding: 10px 12px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-2);
+}
+
+.levelTitle {
+  margin: 0 0 6px;
+  font-size: var(--rc-font-xxs);
+  font-weight: 600;
+  color: var(--rc-label-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.l1Statement {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  line-height: 1.6;
+}
+
+/* -- ref chips ---------------------------------------------------------- */
+
+.refChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.refChip,
+.refChipSelected {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--rc-font-xxs);
+  font-family: var(--rc-font-family);
+  cursor: pointer;
+  border: 1px solid var(--rc-interactive-primary);
+  background: var(--rc-interactive-secondary);
+  color: var(--rc-interactive-primary);
+}
+
+.refChip:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.refChipSelected {
+  background: var(--rc-interactive-primary);
+  color: var(--rc-bg-layer-1);
+}
+
+/* -- ref detail ---------------------------------------------------------- */
+
+.refDetail {
+  padding: 10px 12px;
+  border: 1px solid var(--rc-interactive-primary);
+  border-radius: 8px;
+  background: var(--rc-interactive-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.refDetailHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.refDetailClear {
+  padding: 2px 8px;
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+  cursor: pointer;
+}
+
+.refDetailRows {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+}
+
+.refDetailRow dt {
+  color: var(--rc-label-tertiary);
+  font-size: var(--rc-font-xxs);
+}
+
+.refDetailRow dd {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  font-family: var(--rc-font-family);
+}
+
+.refJump {
+  align-self: flex-start;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  background: var(--rc-interactive-primary);
+  color: var(--rc-bg-layer-1);
+  font-size: var(--rc-font-xxs);
+  cursor: pointer;
+}
+
+.refJumpHint {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+/* -- L2 / L3 expand ------------------------------------------------------ */
+
+.expandToggle {
+  align-self: flex-start;
+  padding: 4px 12px;
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  font-size: var(--rc-font-xxs);
+  cursor: pointer;
+}
+
+.expandToggle:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.pointList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.point {
+  padding: 8px 10px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+}
+
+.pointHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.pointCategory {
+  font-size: var(--rc-font-xxs);
+  font-weight: 600;
+  color: var(--rc-label-secondary);
+}
+
+.pointStatus {
+  font-size: var(--rc-font-xxs);
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--rc-ok-secondary);
+  color: var(--rc-ok-primary);
+}
+
+.point[data-point-status='PLACEHOLDER'] .pointStatus,
+.point[data-point-status='GAP'] .pointStatus {
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-tertiary);
+}
+
+.pointStatement {
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* -- L3 table ------------------------------------------------------------ */
+
+.l3Table {
+  margin-top: 8px;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.l3Table th,
+.l3Table td {
+  border: 1px solid var(--rc-border-l1);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  font-size: var(--rc-font-xxs);
+}
+
+.l3Table th {
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+}
+
+.l3Plane {
+  min-width: 220px;
+}
+
+.l3Note {
+  display: block;
+  margin-top: 2px;
+  color: var(--rc-label-tertiary);
+  font-size: var(--rc-font-xxs);
+}
+
+tr[data-plane-status='PLACEHOLDER'] td {
+  color: var(--rc-label-tertiary);
+}
+
+tr[data-plane-status='AVAILABLE'] td[data-plane-status] {
+  color: var(--rc-ok-primary);
+}
+
+tr[data-plane-status='EMPTY'] td[data-plane-status] {
+  color: var(--rc-label-tertiary);
+}

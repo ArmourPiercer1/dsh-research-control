@@ -22,7 +22,7 @@
  * single-run jitter.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpus, platform, release, tmpdir, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { afterAll } from 'vitest'
@@ -149,7 +149,94 @@ export function onceMs(fn: () => unknown): number {
   return performance.now() - t0
 }
 
+export interface PairedRatio {
+  /** Median of the SMALL-side per-round times (ms). */
+  readonly smallMs: number
+  /** Median of the BIG-side per-round times (ms). */
+  readonly bigMs: number
+  /** The pass statistic: median of the PAIRED per-round ratios. */
+  readonly ratio: number
+  /** Ratio of the two medians (informational — sensitive to denominator noise). */
+  readonly ratioOfMedians: number
+  readonly smallRuns: readonly number[]
+  readonly bigRuns: readonly number[]
+  readonly pairedRuns: readonly number[]
+}
+
+/**
+ * Interleaved PAIRED ratio measurement (WP-8.2, TC-PERF-005 stability —
+ * RR-014④「余量薄 — 机器敏感」). The naive design (block-measure 1k, then
+ * block-measure 10k, ratio of medians) lets slow system drift (CPU
+ * frequency scaling, thermal, background load, WSL2 scheduler) and JIT
+ * warm-up ORDER bias the 1k-side denominator (which sits near the ~2.5ms
+ * timer floor) and inflate the ratio — observed suite-run-to-run band
+ * 7.85x–14.56x on the same machine/code, all under the 15x line but with
+ * a 3% worst-case margin. The paired design measures (small, big)
+ * back-to-back in each of `rounds` rounds — near-identical system state
+ * per pair, so shared drift cancels in the paired ratio — with 1 warm-up
+ * pair (cold cache/JIT) excluded from the statistics. Pass statistic =
+ * the MEDIAN of the paired ratios (odd `rounds` ⇒ a true single sample).
+ */
+export function pairedRatio(
+  small: () => unknown,
+  big: () => unknown,
+  rounds: number,
+): PairedRatio {
+  if (!Number.isInteger(rounds) || rounds < 3) {
+    throw new Error(`pairedRatio: rounds must be an integer >= 3 (got ${String(rounds)})`)
+  }
+  small() // warm-up (cold cache/JIT — excluded)
+  big()
+  const smallRuns: number[] = []
+  const bigRuns: number[] = []
+  const pairedRuns: number[] = []
+  for (let r = 0; r < rounds; r++) {
+    const s = onceMs(small)
+    const b = onceMs(big)
+    smallRuns.push(s)
+    bigRuns.push(b)
+    pairedRuns.push(b / s)
+  }
+  const smallMs = median(smallRuns)
+  const bigMs = median(bigRuns)
+  return {
+    smallMs,
+    bigMs,
+    ratio: median(pairedRuns),
+    ratioOfMedians: bigMs / smallMs,
+    smallRuns,
+    bigRuns,
+    pairedRuns,
+  }
+}
+
+/** Human-readable paired-ratio line for the console (report material). */
+export function fmtPaired(p: PairedRatio): string {
+  const band = (runs: readonly number[]): string =>
+    `${Math.min(...runs).toFixed(2)}–${Math.max(...runs).toFixed(2)}`
+  return (
+    `small median ${p.smallMs.toFixed(1)} ms | big median ${p.bigMs.toFixed(1)} ms | ` +
+    `paired median ${p.ratio.toFixed(2)}x (band ${band(p.pairedRuns)}x; ratio-of-medians ${p.ratioOfMedians.toFixed(2)}x)`
+  )
+}
+
 /** Human-readable timing line for the console (report material). */
 export function fmtTiming(t: Timing): string {
   return `median ${t.medianMs.toFixed(1)} ms (min ${t.minMs.toFixed(1)} / max ${t.maxMs.toFixed(1)} over ${t.runs.length} runs)`
+}
+
+/**
+ * Machine-environment fingerprint for the profile report (WP-8.2 task:
+ * 机器环境说明). Logged once by TC-PERF-001's beforeAll; every absolute
+ * number in the report is relative to this machine (ratio assertions are
+ * machine-invariant, absolute ones carry the CI relaxation).
+ */
+export function envFingerprint(): string {
+  const c = cpus()
+  const model = c[0]?.model?.replace(/\s+/g, ' ').trim() ?? 'unknown cpu'
+  return (
+    `node ${process.version} / ${platform()}-${process.arch} (kernel ${String(release())})` +
+    ` / ${c.length} cpus (${model})` +
+    ` / ${Math.round(totalmem() / 1024 / 1024)} MB RAM`
+  )
 }

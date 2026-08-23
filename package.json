@@ -53,7 +53,8 @@
     "test": "vitest run",
     "lint": "node scripts/check-imports.mjs",
     "test:e2e": "bash scripts/e2e-run.sh",
-    "test:e2e:playwright": "playwright test --config e2e/playwright.config.ts"
+    "test:e2e:playwright": "playwright test --config e2e/playwright.config.ts",
+    "test:perf": "vitest run --config tests/perf/vitest.perf.config.ts"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",

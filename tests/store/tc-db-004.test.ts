@@ -69,6 +69,7 @@ import {
 } from '../../src/host/persistence/store/index.js'
 import { INTERVENTION_TABLE } from '../../src/host/service/flooding/index.js'
 import { INBOX_ITEM_TABLE } from '../../src/host/service/inbox/index.js'
+import { ANALYSIS_RECORD_TABLE } from '../../src/host/service/analysis/index.js'
 import { AWARENESS_TABLE } from '../../src/host/service/attention/index.js'
 import {
   openRunBindingDatabase,
@@ -163,6 +164,7 @@ function scanSourceDdlTargets(): string[] {
     INTERACTION_TABLE,
     REPORTING_ITEM_TABLE,
     SCHEDULED_EVENT_TABLE,
+    ANALYSIS_RECORD_TABLE,
   }
   const targets = new Set<string>()
   // The trailing `\s*\(` distinguishes REAL DDL (the column list opens on
@@ -188,12 +190,14 @@ function scanSourceDdlTargets(): string[] {
 }
 
 /**
- * All fifteen §15 tables this plugin creates (3 store + 2 runbinding +
+ * All sixteen §15 tables this plugin creates (3 store + 2 runbinding +
  * 2 planfork + 1 flooding + 1 attention + 2 actions (WP-5.2) +
- * 3 reporting (WP-5.3) + 1 inbox (WP-6.4)), sorted. The source scan sees every CREATE
- * TABLE in src/ regardless of which init path applies the DDL.
+ * 3 reporting (WP-5.3) + 1 inbox (WP-6.4) + 1 analysis (WP-7.3)), sorted.
+ * The source scan sees every CREATE TABLE in src/ regardless of which init
+ * path applies the DDL.
  */
 const ALL_TABLES = [
+  'analysis_record',
   'awareness',
   'blocker',
   'derived_state',
@@ -423,7 +427,7 @@ function textColumns(raw: DatabaseSync, table: string): string[] {
 }
 
 describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned', () => {
-  it('src contains EXACTLY the fifteen known CREATE TABLE targets (no new table can land unreviewed)', () => {
+  it('src contains EXACTLY the sixteen known CREATE TABLE targets (no new table can land unreviewed)', () => {
     expect(scanSourceDdlTargets()).toEqual(ALL_TABLES)
   })
 

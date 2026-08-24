@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/common.schema.json",
+  "title": "Common structures",
+  "$defs": {
+    "isoTimestamp": { "type": "string", "format": "date-time", "description": "UTC ISO 8601，如 2026-08-21T12:34:56Z（YAML 载体）" },
+    "isoDate": { "type": "string", "format": "date", "description": "如 2026-08-21" },
+    "epochMs": { "type": "integer", "minimum": 0, "description": "epoch 毫秒（SQLite/内存载体）" },
+    "objectKind": {
+      "enum": ["PROJECT", "TOPIC", "WORKSTREAM", "TASK", "GATE", "MILESTONE", "RUN", "CLAIM", "FACT", "ARTIFACT", "RELATION", "OBJECTIVE", "INTERVENTION", "NEXT_ACTION", "BLOCKER", "INTERACTION", "REPORTING_ITEM", "SCHEDULED_EVENT", "INBOX_ITEM", "PLAN_FORK", "TOPOLOGY_EDGE", "DISCOVERED_SESSION", "HISTORY_EVENT", "ANALYSIS_RECORD"]
+    },
+    "typedRef": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "$ref": "#/$defs/objectKind" },
+        "id": { "type": "string", "pattern": "^[A-Z]+-[1-9][0-9]*$" }
+      }
+    },
+    "actorRef": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["USER", "AGENT", "PLUGIN", "SYSTEM"] },
+        "user_id": { "type": "string" },
+        "run_id": { "type": "string", "pattern": "^R-[1-9][0-9]*$" },
+        "session_id": { "type": "string" },
+        "label": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "sourceRef": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["DSH_SESSION", "FILE", "GIT", "MANUAL", "IMPORT", "INTERACTION", "PLUGIN"] },
+        "session_id": { "type": "string" },
+        "path": { "type": "string" },
+        "commit_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "interaction_id": { "type": "string", "pattern": "^INT-[1-9][0-9]*$" },
+        "note": { "type": "string" }
+      }
+    },
+    "idProject": { "type": "string", "pattern": "^PRJ-[1-9][0-9]*$" },
+    "idTopic": { "type": "string", "pattern": "^TPC-[1-9][0-9]*$" },
+    "idWorkstream": { "type": "string", "pattern": "^WS-[1-9][0-9]*$" },
+    "idTask": { "type": "string", "pattern": "^T-[1-9][0-9]*$" },
+    "idGate": { "type": "string", "pattern": "^G-[1-9][0-9]*$" },
+    "idMilestone": { "type": "string", "pattern": "^M-[1-9][0-9]*$" },
+    "idRun": { "type": "string", "pattern": "^R-[1-9][0-9]*$" },
+    "idClaim": { "type": "string", "pattern": "^C-[1-9][0-9]*$" },
+    "idFact": { "type": "string", "pattern": "^F-[1-9][0-9]*$" },
+    "idArtifact": { "type": "string", "pattern": "^A-[1-9][0-9]*$" },
+    "idTopologyEdge": { "type": "string", "pattern": "^TE-[1-9][0-9]*$" },
+    "idPlanFork": { "type": "string", "pattern": "^PF-[1-9][0-9]*$" },
+    "idObjective": { "type": "string", "pattern": "^OBJ-[1-9][0-9]*$" },
+    "idIntervention": { "type": "string", "pattern": "^IV-[1-9][0-9]*$" },
+    "idNextAction": { "type": "string", "pattern": "^NA-[1-9][0-9]*$" },
+    "idBlocker": { "type": "string", "pattern": "^BLK-[1-9][0-9]*$" },
+    "idInteraction": { "type": "string", "pattern": "^INT-[1-9][0-9]*$" },
+    "idReportingItem": { "type": "string", "pattern": "^RPT-[1-9][0-9]*$" },
+    "idScheduledEvent": { "type": "string", "pattern": "^SEV-[1-9][0-9]*$" },
+    "idHistoryEvent": { "type": "string", "pattern": "^H-[1-9][0-9]*$" },
+    "idInboxItem": { "type": "string", "pattern": "^IN-[1-9][0-9]*$" },
+    "idDiscoveredSession": { "type": "string", "pattern": "^DS-[1-9][0-9]*$" },
+    "idManagementAction": { "type": "string", "pattern": "^MA-[1-9][0-9]*$" },
+    "idAnalysisRecord": { "type": "string", "pattern": "^AN-[1-9][0-9]*$" },
+    "idRelation": { "type": "string", "pattern": "^REL-[1-9][0-9]*$" },
+    "attentionMode": { "enum": ["FOCUS", "NORMAL", "BACKGROUND"] },
+    "wsLifecycle": { "enum": ["PLANNED", "REALIZED", "DROPPED"] },
+    "artifactType": { "enum": ["DATASET", "FIGURE", "MODEL", "CODE", "REPORT", "NOTE", "OTHER"] },
+    "planItemId": { "anyOf": [{ "$ref": "#/$defs/idTask" }, { "$ref": "#/$defs/idGate" }, { "$ref": "#/$defs/idMilestone" }] }
+  }
+}

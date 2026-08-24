@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/operational/run.schema.json",
+  "title": "Run / DiscoveredSession（operational 行投影）",
+  "oneOf": [{ "$ref": "#/$defs/Run" }, { "$ref": "#/$defs/DiscoveredSession" }],
+  "$defs": {
+    "Run": {
+      "type": "object",
+      "required": ["id", "workstream_id", "status", "initiated_by", "started_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idRun" },
+        "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream", "description": "Formal Run 必须绑定 Workstream" },
+        "task_id": { "$ref": "../common.schema.json#/$defs/idTask" },
+        "dsh_session_id": { "type": "string" },
+        "status": { "enum": ["RUNNING", "FINISHED", "FAILED", "CANCELLED"] },
+        "intent": { "type": "string" },
+        "initiated_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "started_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "ended_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "summary": { "type": "string" },
+        "last_checkpoint_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "last_checkpoint_note": { "type": "string" }
+      }
+    },
+    "DiscoveredSession": {
+      "type": "object",
+      "required": ["id", "dsh_session_id", "workspace_root", "discovered_at", "state"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idDiscoveredSession" },
+        "dsh_session_id": { "type": "string", "minLength": 1 },
+        "workspace_root": { "type": "string", "minLength": 1 },
+        "discovered_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "state": { "enum": ["PENDING", "BOUND", "DETACHED", "IGNORED"] },
+        "bound_run_id": { "$ref": "../common.schema.json#/$defs/idRun" },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

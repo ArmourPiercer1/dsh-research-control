@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/project.schema.json",
+  "title": ".research/project.yaml",
+  "type": "object",
+  "required": ["id", "title", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "../common.schema.json#/$defs/idProject" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description": { "type": "string" },
+    "importance": { "type": "integer", "minimum": 1, "maximum": 5, "default": 3 },
+    "attention_mode": { "$ref": "../common.schema.json#/$defs/attentionMode", "default": "NORMAL" },
+    "current_objective_refs": {
+      "type": "array", "default": [],
+      "items": { "$ref": "../common.schema.json#/$defs/idObjective" }
+    },
+    "target_date": { "$ref": "../common.schema.json#/$defs/isoDate" },
+    "created_at": { "$ref": "../common.schema.json#/$defs/isoTimestamp" }
+  }
+}

@@ -23,14 +23,16 @@
  *  2. **内容一致**：逐文件 sha256 源==目标断言（SI-001 的「内容一致」
  *     判定），任何漂移 = 构建失败。
  *  3. **正本唯一**：快照不声明自己为正源；`SNAPSHOT.md` 清单记录源根、
- *     生成时间、逐文件哈希与只读声明。运行时 schema 解析
+ *     生成时间、逐文件哈希与只读声明（内容不变则不重写——构建不产生
+ *     时间戳抖动）。运行时 schema 解析
  *     （`src/host/dsh-adapter/host/index.ts #resolveSchemaRoot`）自包内
  *     `lib/` 向上一级命中 `<pkg>/schema`（§2.1 布局即解析契约）。
  *
  * 缺席语义（git install 场景，publish.md「build-script catch」）：pnpm 的
  * git 安装只拿到插件仓库树，工作区根不存在 → 本脚本**大声跳过**（不失败：
- * 快照是交付形态，不是安装前置；运行时 `#resolveSchemaRoot` 的
- * `DSH_RESEARCH_SCHEMA_ROOT` 覆盖 + fail-loud 是那条路径的兜底）。源根
+ * 冻结面（schema/ + 8 文档 + SNAPSHOT.md）已提交进版本树，跳过仅表示
+ * 「不刷新」，包内快照原样随附，运行时 `#resolveSchemaRoot` 照常自
+ * `<pkg>/schema` 解析；`DSH_RESEARCH_SCHEMA_ROOT` 覆盖仍然优先）。源根
  * 「部分在场」（schema 与文档只来其一）= 冻结面损坏 → 失败。
  *
  * 无依赖（node:fs / node:crypto / node:process）。环境变量：
@@ -91,8 +93,8 @@ if (!existsSync(schemaAnchor)) {
   }
   log(
     `SKIP: no frozen sources at ${SOURCE_ROOT} (git-install context — the workspace root ` +
-      'is not part of the plugin repo). The package ships without the schema/docs snapshot; ' +
-      'runtime schema resolution needs DSH_RESEARCH_SCHEMA_ROOT (fail-loud).',
+      'is not part of the plugin repo). The committed snapshot (schema/ + 8 root docs + ' +
+      'SNAPSHOT.md) ships as-is; only the dev-root refresh is skipped.',
   )
   process.exit(0)
 }
@@ -150,7 +152,9 @@ if (existsSync(destSchema)) {
   chmodSync(destSchema, 0o755) // unlinking entries needs the dir itself writable
   rmSync(destSchema, { recursive: true })
 }
-rmSync(join(PLUGIN_ROOT, 'SNAPSHOT.md'), { force: true })
+const snapshotManifestPath = join(PLUGIN_ROOT, 'SNAPSHOT.md')
+const previousManifest = existsSync(snapshotManifestPath) ? readFileSync(snapshotManifestPath, 'utf8') : null
+rmSync(snapshotManifestPath, { force: true })
 
 /* ------------------------------------------------------------------ *
  * Copy + content-identity verification (sha256 source == destination)
@@ -213,7 +217,18 @@ const manifest = [
   ...manifestRows.map(({ rel, hash, bytes }) => `| \`${rel}\` | \`${hash}\` | ${bytes} |`),
   '',
 ].join('\n')
-writeFileSync(join(PLUGIN_ROOT, 'SNAPSHOT.md'), manifest)
-chmodSync(join(PLUGIN_ROOT, 'SNAPSHOT.md'), 0o444)
+/** Drops the volatile timestamp line so two manifests compare by content alone. */
+const stripVolatile = (text) => text.split('\n').filter((line) => !line.startsWith('> 生成时间：')).join('\n')
+
+if (previousManifest !== null && stripVolatile(previousManifest) === stripVolatile(manifest)) {
+  // The clean step above removed the old manifest; write the captured bytes
+  // back verbatim so the committed file (timestamp included) survives intact.
+  writeFileSync(snapshotManifestPath, previousManifest)
+  chmodSync(snapshotManifestPath, 0o444)
+  log('SNAPSHOT.md unchanged (file set + hashes identical) — restored verbatim; no timestamp churn in the version tree')
+} else {
+  writeFileSync(snapshotManifestPath, manifest)
+  chmodSync(snapshotManifestPath, 0o444)
+}
 
 log(`snapshot complete: ${manifestRows.length} files (8 docs + ${manifestRows.length - FROZEN_DOCS.length} schema) → ${PLUGIN_ROOT}; read-only; provenance in SNAPSHOT.md`)

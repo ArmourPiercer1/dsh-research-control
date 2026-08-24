@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/operational/provenance.schema.json",
+  "title": "ManagementAction / AnalysisRecord（operational 行投影）",
+  "oneOf": [{ "$ref": "#/$defs/ManagementAction" }, { "$ref": "#/$defs/AnalysisRecord" }],
+  "$defs": {
+    "ManagementAction": {
+      "type": "object",
+      "required": ["id", "action_kind", "actor", "subject_refs", "occurred_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idManagementAction" },
+        "action_kind": {
+          "enum": ["PLAN_REORDER", "PLAN_ITEM_ADDED", "PLAN_ITEM_REMOVED", "PF_CREATED", "PF_SELECTED", "PF_DISMISSED", "PF_STALE_MARKED", "CHECKPOINT_SAVED", "RESTORE_PERFORMED", "TOPOLOGY_EDITED", "MANIFEST_EDITED", "CONTRACT_EDITED", "WS_LIFECYCLE_CHANGED", "OBJECTIVE_EDITED", "INBOX_CONVERTED"]
+        },
+        "actor": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "subject_refs": {
+          "type": "array",
+          "items": { "$ref": "../common.schema.json#/$defs/typedRef" }
+        },
+        "git_commit_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "git_blob_oids": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "oid"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+            }
+          }
+        },
+        "detail": { "type": "string" },
+        "occurred_at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+      }
+    },
+    "AnalysisRecord": {
+      "type": "object",
+      "required": ["id", "source_ref", "content", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idAnalysisRecord" },
+        "source_ref": { "$ref": "../common.schema.json#/$defs/typedRef" },
+        "investigator_run_id": { "$ref": "../common.schema.json#/$defs/idRun" },
+        "dsh_session_id": { "type": "string" },
+        "content": { "type": "string", "minLength": 1 },
+        "created_at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+      }
+    }
+  }
+}

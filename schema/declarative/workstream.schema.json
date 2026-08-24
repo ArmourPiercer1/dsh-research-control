@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/workstream.schema.json",
+  "title": ".research/topics/<t>/workstreams/<ws-id>/workstream.yaml",
+  "type": "object",
+  "required": ["id", "topic_id", "title", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+    "topic_id": { "$ref": "../common.schema.json#/$defs/idTopic" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "lifecycle": { "$ref": "../common.schema.json#/$defs/wsLifecycle", "default": "PLANNED" },
+    "summary": { "type": "string" },
+    "origin_topology_edge_ref": { "$ref": "../common.schema.json#/$defs/idTopologyEdge" },
+    "created_at": { "$ref": "../common.schema.json#/$defs/isoTimestamp" }
+  }
+}

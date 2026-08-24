@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/plan.schema.json",
+  "title": ".research/topics/<t>/workstreams/<w>/plan.yaml",
+  "description": "canonical Future Plan：只保存当前 Future zone 的有序 ID；顺序即用户意图（INV-PLAN-1/2/9）",
+  "type": "object",
+  "required": ["workstream", "ordered_items"],
+  "additionalProperties": false,
+  "properties": {
+    "workstream": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+    "ordered_items": {
+      "type": "array",
+      "items": { "$ref": "../common.schema.json#/$defs/planItemId" }
+    }
+  }
+}

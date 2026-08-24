@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/milestone.schema.json",
+  "title": ".research/.../items/milestones/<milestone-id>.yaml",
+  "type": "object",
+  "required": ["id", "workstream_id", "title", "statement", "created_by", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "../common.schema.json#/$defs/idMilestone" },
+    "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "statement": { "type": "string", "minLength": 1 },
+    "created_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+    "created_at": { "$ref": "../common.schema.json#/$defs/isoTimestamp" }
+  }
+}

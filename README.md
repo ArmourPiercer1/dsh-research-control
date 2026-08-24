@@ -33,10 +33,10 @@ dsh plugin --profile web add ./dsh-research-control-<version>.tgz
 
 ```sh
 dsh plugin --profile web add ./path/to/dsh-research-control        # 本地 checkout
-dsh plugin --profile web add github:you/dsh-research-control       # git host
+dsh plugin --profile web add github:ArmourPiercer1/dsh-research-control  # git host
 ```
 
-git 安装取的是**源码**：pnpm 在安装后运行本包的 `prepare` 脚本（`tsdown` 构建 `lib/` 入口 + 快照钩子；自包含，不假设兄弟 monorepo）。**pnpm ≥ 10 默认拒绝执行 git 依赖的构建脚本**，首次 `add` 会失败并提示修法——把 pnpm 打印的包键写进 **profile 的 `pnpm-workspace.yaml`**：
+git 安装取的是**源码**：冻结面（`schema/` + 8 份文档）已提交进版本树，pnpm 安装后运行的 `prepare` 只需构建 `lib/` 入口（`tsdown`；自包含，不假设兄弟 monorepo），git 安装开箱即可启动。**pnpm ≥ 10 默认拒绝执行 git 依赖的构建脚本**，首次 `add` 会失败并提示修法——把 pnpm 打印的包键写进 **profile 的 `pnpm-workspace.yaml`**：
 
 ```yaml
 allowBuilds:
@@ -103,7 +103,7 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 | `pnpm run test:perf` | 性能门禁（TC-PERF-001..006：10k 全谱系数据集；`DSH_RUN_PERF=1` 语义内置于 config） |
 | `pnpm run test:e2e` | Playwright 真机循环：隔离 smoke home（**绝不**触碰 `~/.dsh` 与 3080），TC-DSH-005/007/008/009/010 + TC-E2E 双相位 + N 轮 load/unload；`--reset` 显式重置种子面 |
 | `pnpm run pack:verify` | 发布门禁冒烟：`pnpm pack` 产物清单核查（files 面完整性 + 开发私有路径零泄漏）+ 解包后 node 实 import 主入口/`./typert`/`./remote` |
-| `pnpm run prepare` | 安装期钩子（git install / `pnpm pack` 自动触发）：同 `build`，自包含（不假设兄弟 monorepo）；无工作区根时快照钩子大声跳过 |
+| `pnpm run prepare` | 安装期钩子（git install / `pnpm pack` 自动触发）：同 `build`，自包含（不假设兄弟 monorepo）；无工作区根时快照钩子跳过——冻结面已提交进版本树，仅跳过「刷新」 |
 
 源码布局见 [ARCHITECTURE.md §2.1](ARCHITECTURE.md)；测试策略与机器环境指纹见 TEST_MATRIX.md 与 `tests/` 各套件头注。
 

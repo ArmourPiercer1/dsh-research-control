@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/operational/reporting.schema.json",
+  "title": "Interaction / ReportingItem / ScheduledEvent（operational 行投影）",
+  "oneOf": [{ "$ref": "#/$defs/Interaction" }, { "$ref": "#/$defs/ReportingItem" }, { "$ref": "#/$defs/ScheduledEvent" }],
+  "$defs": {
+    "Interaction": {
+      "type": "object",
+      "required": ["id", "kind", "title", "occurred_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idInteraction" },
+        "kind": {
+          "enum": ["MEETING", "AD_HOC_DISCUSSION", "SUPERVISOR_UPDATE", "COLLABORATOR_DISCUSSION", "EXPERIMENT_SHIFT_HANDOFF", "OTHER"]
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "occurred_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" },
+        "related_workstreams": {
+          "type": "array",
+          "items": { "$ref": "../common.schema.json#/$defs/idWorkstream" }
+        }
+      }
+    },
+    "ReportingItem": {
+      "type": "object",
+      "required": ["id", "audience", "statement", "status", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idReportingItem" },
+        "audience": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 1 },
+        "material_refs": {
+          "type": "array",
+          "items": { "$ref": "../common.schema.json#/$defs/typedRef" }
+        },
+        "status": {
+          "enum": ["OPEN", "MATERIAL_READY", "READY_TO_REPORT", "REPORTED", "FOLLOW_UP_REQUIRED"]
+        },
+        "occasion_ref": { "$ref": "../common.schema.json#/$defs/idScheduledEvent" },
+        "created_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "reported_at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+      }
+    },
+    "ScheduledEvent": {
+      "type": "object",
+      "required": ["id", "title", "schedule"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idScheduledEvent" },
+        "title": { "type": "string", "minLength": 1 },
+        "schedule": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind", "at"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "const": "ONCE" },
+                "at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["kind", "freq"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "const": "RECURRING" },
+                "freq": { "enum": ["DAILY", "WEEKLY", "MONTHLY"] },
+                "interval": { "type": "integer", "minimum": 1, "default": 1 },
+                "until": { "$ref": "../common.schema.json#/$defs/epochMs" }
+              }
+            }
+          ]
+        },
+        "related_refs": {
+          "type": "array",
+          "items": {
+            "allOf": [{ "$ref": "../common.schema.json#/$defs/typedRef" }],
+            "properties": { "kind": { "enum": ["REPORTING_ITEM", "INTERVENTION", "TOPIC"] } }
+          }
+        },
+        "reminder_lead_ms": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

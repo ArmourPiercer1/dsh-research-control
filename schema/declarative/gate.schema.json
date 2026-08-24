@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/gate.schema.json",
+  "title": ".research/.../items/gates/<gate-id>.yaml",
+  "type": "object",
+  "required": ["id", "workstream_id", "title", "criteria", "created_by", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "../common.schema.json#/$defs/idGate" },
+    "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "criteria": { "type": "string", "minLength": 1 },
+    "references": { "type": "array", "default": [], "items": { "type": "string" } },
+    "created_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+    "created_at": { "$ref": "../common.schema.json#/$defs/isoTimestamp" }
+  }
+}

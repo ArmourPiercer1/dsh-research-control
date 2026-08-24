@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/history/history-event-envelope.schema.json",
+  "title": "HistoryEvent 信封（不含 eventType/payload 判别）",
+  "description": "完整判别形式见 history-events.schema.json；HISTORY_EVENT_CATALOG §1",
+  "type": "object",
+  "required": ["eventId", "ownerWorkstreamId", "eventSeq", "eventType", "schemaVersion", "occurredAt", "recordedAt", "actor", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": { "$ref": "../common.schema.json#/$defs/idHistoryEvent" },
+    "ownerWorkstreamId": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+    "eventSeq": { "type": "integer", "minimum": 1 },
+    "eventType": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "occurredAt": { "$ref": "../common.schema.json#/$defs/epochMs" },
+    "recordedAt": { "$ref": "../common.schema.json#/$defs/epochMs" },
+    "actor": { "$ref": "../common.schema.json#/$defs/actorRef" },
+    "source": { "$ref": "../common.schema.json#/$defs/sourceRef" },
+    "payload": { "type": "object" }
+  }
+}

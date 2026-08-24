@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/operational/attention.schema.json",
+  "title": "Intervention / NextAction / Blocker / Awareness（operational 行投影）",
+  "oneOf": [{ "$ref": "#/$defs/Intervention" }, { "$ref": "#/$defs/NextAction" }, { "$ref": "#/$defs/Blocker" }, { "$ref": "#/$defs/Awareness" }],
+  "$defs": {
+    "Intervention": {
+      "type": "object",
+      "required": ["id", "title", "origin", "status", "created_by", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idIntervention" },
+        "title": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string" },
+        "origin": { "enum": ["USER", "AGENT_REPORT", "AUTO_FLOODING", "AUTO_AUDIT"] },
+        "workstream_ids": {
+          "type": "array",
+          "items": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+          "description": "关联 WS；INTERVENTION_CREATED 事件 owner = 第一个；空 => 不产生 History 事件"
+        },
+        "source_refs": {
+          "type": "array",
+          "items": { "$ref": "../common.schema.json#/$defs/typedRef" }
+        },
+        "status": { "enum": ["OPEN", "PENDING", "CLOSED"], "description": "仅用户显式修改（INV-PERM-4）" },
+        "created_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "created_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "closed_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "resolution_note": { "type": "string" }
+      }
+    },
+    "NextAction": {
+      "type": "object",
+      "required": ["id", "statement", "status", "created_by", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idNextAction" },
+        "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+        "statement": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string" },
+        "status": { "enum": ["PROPOSED", "PROMOTED", "DISMISSED"] },
+        "promoted_to_task_id": { "$ref": "../common.schema.json#/$defs/idTask" },
+        "created_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "created_at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+      }
+    },
+    "Blocker": {
+      "type": "object",
+      "required": ["id", "statement", "affects", "status", "source", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idBlocker" },
+        "statement": { "type": "string", "minLength": 1 },
+        "affects": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "allOf": [{ "$ref": "../common.schema.json#/$defs/typedRef" }],
+            "properties": { "kind": { "enum": ["WORKSTREAM", "TASK", "RUN"] } }
+          }
+        },
+        "status": { "enum": ["ACTIVE", "CLEARED"] },
+        "source": { "type": "string", "minLength": 1 },
+        "references": { "type": "array", "items": { "type": "string" } },
+        "created_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "cleared_at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+      }
+    },
+    "Awareness": {
+      "type": "object",
+      "required": ["object_ref", "state", "updated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "object_ref": {
+          "allOf": [{ "$ref": "../common.schema.json#/$defs/typedRef" }],
+          "properties": { "kind": { "enum": ["CLAIM", "FACT", "ARTIFACT", "MILESTONE", "INTERVENTION", "PLAN_FORK"] } },
+          "description": "kind 限高价值对象（INV-ATTN-4）"
+        },
+        "state": { "enum": ["UNSEEN", "SEEN", "REVIEWED", "ASSESSED"] },
+        "updated_at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+      }
+    }
+  }
+}

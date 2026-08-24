@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/task.schema.json",
+  "title": ".research/.../items/tasks/<task-id>.yaml",
+  "description": "Task 定义文件（仅声明式内容；execution/validation 由 History 派生，INV-PLAN-9）",
+  "type": "object",
+  "required": ["id", "workstream_id", "title", "goal", "created_by", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "../common.schema.json#/$defs/idTask" },
+    "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "goal": { "type": "string", "minLength": 1 },
+    "deliverables": { "type": "array", "default": [], "items": { "type": "string" } },
+    "acceptance_criteria": {
+      "type": "array", "default": [],
+      "items": { "type": "string", "minLength": 1 },
+      "description": "为空 => validation 只能 NOT_REQUIRED（INV-TASK-3）"
+    },
+    "created_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+    "created_at": { "$ref": "../common.schema.json#/$defs/isoTimestamp" },
+    "note": { "type": "string" }
+  }
+}

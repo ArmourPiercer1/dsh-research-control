@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/workspace.schema.json",
+  "title": ".research/workspace.yaml",
+  "type": "object",
+  "required": ["workspace"],
+  "additionalProperties": false,
+  "properties": {
+    "workspace": {
+      "type": "object",
+      "required": ["root"],
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string", "default": "." },
+        "git_required": { "type": "boolean", "default": true }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strict_tracked": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "paths": { "type": "array", "default": [], "items": { "type": "string" } }
+          }
+        },
+        "discovery_zones": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "artifact_types": {
+                "type": "array",
+                "items": { "$ref": "../common.schema.json#/$defs/artifactType" }
+              }
+            }
+          }
+        },
+        "ignored": { "type": "array", "default": [], "items": { "type": "string" } }
+      }
+    }
+  }
+}

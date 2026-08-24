@@ -28,12 +28,12 @@
 2. 复制 8 份工作区根 .md（§40 冻结记录表 7 份 Frozen V1 文档 + `SUBAGENT_ROUTING.md`——工作区根恰 8 份 .md，「8 份」按全量快照）→ 包根；`schema/**`（23 文件）→ 包根 `schema/`（同构镜像）；
 3. **内容一致断言**：逐文件 sha256 源==目标，漂移即构建失败；
 4. **只读声明**：文件 0444 / 目录 0555；重跑先恢复写权限再清除（幂等前提）；
-5. **来源清单** `SNAPSHOT.md`：源根、生成时间、逐文件 sha256/字节、只读声明（「快照不是正源」）；
-6. **缺席语义**：源根完全不在（git install 只拿到插件仓库树）→ **大声跳过**（退出 0 + FATAL 级日志行）——快照是交付形态而非安装前置，那条路径由运行时的 `DSH_RESEARCH_SCHEMA_ROOT` 覆盖 + `#resolveSchemaRoot` fail-loud 兜底；源根**部分在场**（schema 与文档只来其一）= 冻结面撕裂 → 构建失败。
+5. **来源清单** `SNAPSHOT.md`：源根、生成时间、逐文件 sha256/字节、只读声明（「快照不是正本」）；内容（哈希表）不变则不重写——构建不产生时间戳抖动；
+6. **缺席语义**：源根完全不在（git install 只拿到插件仓库树）→ **大声跳过**（退出 0 + 日志行）——冻结面已提交进版本树（见下「git 纪律」），跳过仅表示「不刷新」，包内快照原样随附，运行时照常自 `<pkg>/schema` 解析（`DSH_RESEARCH_SCHEMA_ROOT` 覆盖仍优先）；源根**部分在场**（schema 与文档只来其一）= 冻结面撕裂 → 构建失败。
 
 **运行时契约**：`src/host/dsh-adapter/host/index.ts #resolveSchemaRoot` 自包内模块向上一级查找 `<pkg>/schema`（`common.schema.json` + `history/` + `declarative/` + `operational/` 可用性判定）——§2.1 的包根布局即解析契约；`DSH_RESEARCH_SCHEMA_ROOT` 覆盖优先（e2e 用工作区根正本指向，见 `scripts/e2e-run.sh` 的 `E2E_SCHEMA_ROOT`）。
 
-**git 纪律**：快照产物（8 文档 + `schema/` + `SNAPSHOT.md`）全部 gitignore（`.gitignore` 的 WP-8.4 段）——它们是构建产物（同 `lib/`、tgz 的地位），不进插件仓库版本树。
+**git 纪律（发布修订）**：发布期快照（8 文档 + `schema/` + `SNAPSHOT.md`）**提交进版本树**——git 安装（宿主 publish.md「build-script catch」）只取仓库树，冻结面必须随树交付，否则包启动即 `#resolveSchemaRoot` fail-loud（正本只存在于开发机工作区根）。工作区根仍是开发期唯一正本；`pnpm run build` 的逐文件 sha256 断言（本节第 3 条）保证入仓快照与正本恒内容一致（漂移即构建失败）。`lib/` 维持构建产物地位、不入版本树（git 安装由 `prepare` 构建）。
 
 ## 3. 安装流与构建脚本许可（pnpm `allowBuilds`）
 
@@ -42,10 +42,10 @@
 | 通道 | 命令 | 构建许可 |
 |---|---|---|
 | 本地 tarball | `dsh plugin --profile <p> add ./dsh-research-control-<v>.tgz` | **无**（预构建字节，不触发 prepare） |
-| 本地/远程 git | `dsh plugin --profile <p> add <path>\|github:you/repo[#sha]` | **需要**：pnpm ≥10 拒绝执行 git 依赖的 `prepare`，首次 add 失败并打印包键；用户须把 `allowBuilds: {dsh-research-control: true}` 写进 **profile 的 `pnpm-workspace.yaml`** 并重跑 add |
+| 本地/远程 git | `dsh plugin --profile <p> add <path>\|github:you/repo[#sha]` | **需要**：pnpm ≥10 拒绝执行 git 依赖的 `prepare`，首次 add 失败并打印包键；用户须把 `allowBuilds: {dsh-research-control: true}` 写进 **profile 的 `pnpm-workspace.yaml`** 并重跑 add（冻结面已随树入仓，`prepare` 只需构建 `lib/`） |
 | npm 注册表 | `dsh plugin add dsh-research-control`（未来） | 无（`publish` 时 `prepare` 已构建；当前未公开发布） |
 
-`prepare` = `tsdown && node scripts/snapshot-release.mjs`（与 `build` 同构），**自包含**：只依赖本树 `src/`/`e2e/` 与已安装的 devDependencies（pnpm 对 git 依赖默认装 dev 依赖），不假设兄弟 monorepo——对齐宿主 turtle-ui 先例。安全语义必须如实告知用户：`allowBuilds` 是**在沙箱之外执行该包代码的安装期许可**，只放行信任的包并 pin commit。
+`prepare` = `tsdown && node scripts/snapshot-release.mjs`（与 `build` 同构），**自包含**：只依赖本树 `src/`/`e2e/` 与已安装的 devDependencies（pnpm 对 git 依赖默认装 dev 依赖），不假设兄弟 monorepo——对齐宿主 turtle-ui 先例；冻结面已提交进版本树，`prepare` 只需构建 `lib/` 入口，工作区根缺席时快照钩子跳过（§2 缺席语义）。安全语义必须如实告知用户：`allowBuilds` 是**在沙箱之外执行该包代码的安装期许可**，只放行信任的包并 pin commit。
 
 ## 4. 发布门禁冒烟（`pnpm run pack:verify`）
 

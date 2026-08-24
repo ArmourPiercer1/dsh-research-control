@@ -1,6 +1,6 @@
 {
   "name": "dsh-research-control",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "DSH Research Control Plane V1 plugin: a Git-backed, event-sourced research-workflow Cockpit for DeepSeek Harness (Project/Topic/Workstream + History/Current/Future + immutable Agent PlanFork + Intervention attention plane + read-only Investigator)",

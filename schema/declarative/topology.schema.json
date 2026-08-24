@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/topology.schema.json",
+  "title": ".research/topics/<t>/topology.yaml",
+  "type": "object",
+  "required": ["topology"],
+  "additionalProperties": false,
+  "properties": {
+    "topology": {
+      "type": "object",
+      "required": ["topic_id", "edges"],
+      "additionalProperties": false,
+      "properties": {
+        "topic_id": { "$ref": "../common.schema.json#/$defs/idTopic" },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "topic_id", "operation", "lifecycle", "inputs", "outputs"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "$ref": "../common.schema.json#/$defs/idTopologyEdge" },
+              "topic_id": { "$ref": "../common.schema.json#/$defs/idTopic" },
+              "operation": { "enum": ["FORK", "MERGE"] },
+              "lifecycle": { "$ref": "../common.schema.json#/$defs/wsLifecycle" },
+              "inputs": {
+                "type": "array", "minItems": 1, "uniqueItems": true,
+                "items": { "$ref": "../common.schema.json#/$defs/idWorkstream" }
+              },
+              "outputs": {
+                "type": "array", "minItems": 1, "uniqueItems": true,
+                "items": { "$ref": "../common.schema.json#/$defs/idWorkstream" }
+              },
+              "realized_event_id": { "$ref": "../common.schema.json#/$defs/idHistoryEvent" },
+              "note": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/agent-plan-fork-policy.schema.json",
+  "title": ".research/policies/agent-plan-fork.yaml",
+  "description": "PLAN_FORK_SPEC §9",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean", "default": true },
+    "anchors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow_boundary_sentinels": { "type": "boolean", "default": true },
+        "required_item_types": {
+          "type": "array", "default": [],
+          "items": { "enum": ["TASK", "GATE", "MILESTONE"] }
+        }
+      }
+    },
+    "flooding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "threshold": { "type": "integer", "minimum": 1, "default": 5 }
+      }
+    },
+    "triggers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "require_at_least_one": { "type": "boolean", "default": true },
+        "allowed_kinds": {
+          "type": "array",
+          "default": ["CLAIM", "FACT", "ARTIFACT", "MILESTONE", "OBJECTIVE"],
+          "items": { "enum": ["CLAIM", "FACT", "ARTIFACT", "MILESTONE", "OBJECTIVE"] }
+        }
+      }
+    }
+  }
+}

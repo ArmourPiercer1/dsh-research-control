@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/operational/relation.schema.json",
+  "title": "Relation（operational 行投影）",
+  "description": "RELY_ON 方向（INV-REL-1/2）；(source,relation_type,target) 组合表与唯一性由 service 层执行",
+  "oneOf": [{ "$ref": "#/$defs/Relation" }],
+  "$defs": {
+    "Relation": {
+      "type": "object",
+      "required": ["id", "source", "relation_type", "target", "created_by", "created_at", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idRelation" },
+        "source": { "$ref": "../common.schema.json#/$defs/typedRef" },
+        "relation_type": {
+          "enum": ["DEPENDS_ON", "SUPPORTED_BY", "CONTRADICTED_BY", "DERIVED_FROM", "PRODUCED_BY", "VALIDATED_BY", "CONSUMES", "CONTRIBUTES_TO", "IMPLEMENTS", "RELATED_TO"]
+        },
+        "target": { "$ref": "../common.schema.json#/$defs/typedRef" },
+        "created_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "created_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "status": { "enum": ["ACTIVE", "REMOVED"] },
+        "removed_at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+      }
+    }
+  }
+}

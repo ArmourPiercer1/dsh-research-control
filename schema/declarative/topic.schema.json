@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/declarative/topic.schema.json",
+  "title": ".research/topics/<topic-id>/topic.yaml",
+  "type": "object",
+  "required": ["id", "project_id", "title", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "../common.schema.json#/$defs/idTopic" },
+    "project_id": { "$ref": "../common.schema.json#/$defs/idProject" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description": { "type": "string" },
+    "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "attention_mode": { "$ref": "../common.schema.json#/$defs/attentionMode" },
+    "objective_refs": {
+      "type": "array", "default": [],
+      "items": { "$ref": "../common.schema.json#/$defs/idObjective" }
+    },
+    "created_at": { "$ref": "../common.schema.json#/$defs/isoTimestamp" }
+  }
+}

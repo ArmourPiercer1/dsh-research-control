@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/operational/semantic-labels.schema.json",
+  "title": "Claim / Fact / Artifact（operational 行投影）",
+  "oneOf": [{ "$ref": "#/$defs/Claim" }, { "$ref": "#/$defs/Fact" }, { "$ref": "#/$defs/Artifact" }],
+  "$defs": {
+    "Claim": {
+      "type": "object",
+      "required": ["id", "workstream_id", "statement", "created_by", "recorded_at", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idClaim" },
+        "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+        "statement": { "type": "string", "minLength": 1 },
+        "created_by_run": { "$ref": "../common.schema.json#/$defs/idRun" },
+        "created_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "references": { "type": "array", "items": { "type": "string" } },
+        "recorded_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "status": { "enum": ["ACTIVE", "RETRACTED"] }
+      }
+    },
+    "Fact": {
+      "type": "object",
+      "required": ["id", "workstream_id", "statement", "created_by", "recorded_at", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idFact" },
+        "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+        "statement": { "type": "string", "minLength": 1 },
+        "created_by_run": { "$ref": "../common.schema.json#/$defs/idRun" },
+        "created_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "references": { "type": "array", "items": { "type": "string" } },
+        "recorded_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "status": { "const": "ACTIVE" }
+      }
+    },
+    "Artifact": {
+      "type": "object",
+      "required": ["id", "workstream_id", "type", "title", "uri", "recorded_at", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idArtifact" },
+        "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+        "type": { "$ref": "../common.schema.json#/$defs/artifactType" },
+        "title": { "type": "string", "minLength": 1 },
+        "uri": { "type": "string", "minLength": 1 },
+        "content_hash": { "type": "string" },
+        "created_by_run": { "$ref": "../common.schema.json#/$defs/idRun" },
+        "related_task": { "$ref": "../common.schema.json#/$defs/idTask" },
+        "supersedes": { "$ref": "../common.schema.json#/$defs/idArtifact" },
+        "recorded_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "status": { "enum": ["REGISTERED", "MISSING"] }
+      }
+    }
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/operational/plan-fork.schema.json",
+  "title": "PlanFork（operational 行投影；完整规则见 PLAN_FORK_SPEC.md）",
+  "oneOf": [{ "$ref": "#/$defs/PlanFork" }],
+  "$defs": {
+    "BasePlanObject": {
+      "type": "object",
+      "required": ["path", "git_blob_oid"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "git_blob_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "NewItemSpecTask": {
+      "type": "object",
+      "required": ["title", "goal"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "goal": { "type": "string", "minLength": 1 },
+        "deliverables": { "type": "array", "items": { "type": "string" } },
+        "acceptance_criteria": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "NewItemSpecGate": {
+      "type": "object",
+      "required": ["title", "criteria"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "criteria": { "type": "string", "minLength": 1 },
+        "references": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "NewItemSpecMilestone": {
+      "type": "object",
+      "required": ["title", "statement"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "statement": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ProposedItem": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["action", "kind", "ref"],
+          "additionalProperties": false,
+          "properties": {
+            "action": { "const": "KEEP" },
+            "kind": { "enum": ["TASK", "GATE", "MILESTONE"] },
+            "ref": { "$ref": "../common.schema.json#/$defs/planItemId" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["action", "kind", "spec"],
+          "additionalProperties": false,
+          "properties": {
+            "action": { "const": "NEW" },
+            "kind": { "enum": ["TASK", "GATE", "MILESTONE"] },
+            "spec": {
+              "oneOf": [
+                { "$ref": "#/$defs/NewItemSpecTask" },
+                { "$ref": "#/$defs/NewItemSpecGate" },
+                { "$ref": "#/$defs/NewItemSpecMilestone" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "PlanFork": {
+      "type": "object",
+      "required": ["id", "workstream_id", "base_plan_objects", "fork_anchor", "merge_anchor", "proposed_items", "trigger_refs", "reason", "necessity", "created_by_run", "created_at", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idPlanFork" },
+        "workstream_id": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+        "base_plan_objects": {
+          "type": "array", "minItems": 1,
+          "items": { "$ref": "#/$defs/BasePlanObject" }
+        },
+        "base_git_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "fork_anchor": { "oneOf": [{ "$ref": "../common.schema.json#/$defs/planItemId" }, { "enum": ["__START__", "__END__"] }] },
+        "merge_anchor": { "oneOf": [{ "$ref": "../common.schema.json#/$defs/planItemId" }, { "enum": ["__START__", "__END__"] }] },
+        "proposed_items": {
+          "type": "array", "minItems": 1,
+          "items": { "$ref": "#/$defs/ProposedItem" }
+        },
+        "trigger_refs": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "allOf": [{ "$ref": "../common.schema.json#/$defs/typedRef" }],
+            "properties": { "kind": { "enum": ["CLAIM", "FACT", "ARTIFACT", "MILESTONE", "OBJECTIVE"] } }
+          }
+        },
+        "reason": { "type": "string", "minLength": 1 },
+        "necessity": { "type": "string", "minLength": 1 },
+        "created_by_run": { "$ref": "../common.schema.json#/$defs/idRun" },
+        "created_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "status": { "enum": ["OPEN", "SELECTED", "DISMISSED", "STALE"] },
+        "selected_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "selected_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "dismissed_at": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "stale_reason": { "type": "string" }
+      }
+    }
+  }
+}

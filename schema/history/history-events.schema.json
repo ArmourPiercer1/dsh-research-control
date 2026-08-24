@@ -1,0 +1,347 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/history/history-events.schema.json",
+  "title": "History 事件目录（20 个事件的完整信封+payload 判别联合）",
+  "description": "HISTORY_EVENT_CATALOG §4/§5；Relation 组合表、状态机合法转换等跨字段约束由 service 层执行",
+  "$defs": {
+    "taskExecution": { "enum": ["PLANNED", "ACTIVE", "PAUSED", "EXECUTED", "CANCELLED"] },
+    "taskValidation": { "enum": ["NOT_REQUIRED", "PENDING", "UNDER_REVIEW", "PASSED", "FAILED"] },
+    "relationType": {
+      "enum": ["DEPENDS_ON", "SUPPORTED_BY", "CONTRADICTED_BY", "DERIVED_FROM", "PRODUCED_BY", "VALIDATED_BY", "CONSUMES", "CONTRIBUTES_TO", "IMPLEMENTS", "RELATED_TO"]
+    },
+    "runStartEntry": {
+      "type": "object",
+      "required": ["run_id"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "$ref": "../common.schema.json#/$defs/idRun" },
+        "task_id": { "$ref": "../common.schema.json#/$defs/idTask" },
+        "dsh_session_id": { "type": "string" },
+        "intent": { "type": "string" }
+      }
+    },
+    "envelopeCore": {
+      "type": "object",
+      "required": ["eventId", "ownerWorkstreamId", "eventSeq", "eventType", "schemaVersion", "occurredAt", "recordedAt", "actor", "payload"],
+      "additionalProperties": false,
+      "properties": {
+        "eventId": { "$ref": "../common.schema.json#/$defs/idHistoryEvent" },
+        "ownerWorkstreamId": { "$ref": "../common.schema.json#/$defs/idWorkstream" },
+        "eventSeq": { "type": "integer", "minimum": 1 },
+        "eventType": { "type": "string" },
+        "schemaVersion": { "type": "integer", "minimum": 1 },
+        "occurredAt": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "recordedAt": { "$ref": "../common.schema.json#/$defs/epochMs" },
+        "actor": { "$ref": "../common.schema.json#/$defs/actorRef" },
+        "source": { "$ref": "../common.schema.json#/$defs/sourceRef" },
+        "payload": { "type": "object" }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "RUN_STARTED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["run_id", "initiated_by"], "additionalProperties": false,
+          "properties": {
+            "run_id": { "$ref": "../common.schema.json#/$defs/idRun" },
+            "task_id": { "$ref": "../common.schema.json#/$defs/idTask" },
+            "dsh_session_id": { "type": "string" },
+            "intent": { "type": "string" },
+            "initiated_by": { "$ref": "../common.schema.json#/$defs/actorRef" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "RUNS_STARTED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["runs"], "additionalProperties": false,
+          "properties": {
+            "runs": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/runStartEntry" } },
+            "batch_source": { "$ref": "../common.schema.json#/$defs/sourceRef" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "RUN_FINISHED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["run_id"], "additionalProperties": false,
+          "properties": {
+            "run_id": { "$ref": "../common.schema.json#/$defs/idRun" },
+            "outcome_summary": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "RUN_FAILED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["run_id"], "additionalProperties": false,
+          "properties": {
+            "run_id": { "$ref": "../common.schema.json#/$defs/idRun" },
+            "error_summary": { "type": "string" },
+            "failure_kind": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "RUN_CANCELLED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["run_id", "cancelled_by"], "additionalProperties": false,
+          "properties": {
+            "run_id": { "$ref": "../common.schema.json#/$defs/idRun" },
+            "reason": { "type": "string" },
+            "cancelled_by": { "$ref": "../common.schema.json#/$defs/actorRef" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "TASK_EXECUTION_CHANGED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["task_id", "from", "to"], "additionalProperties": false,
+          "properties": {
+            "task_id": { "$ref": "../common.schema.json#/$defs/idTask" },
+            "from": { "$ref": "#/$defs/taskExecution" },
+            "to": { "$ref": "#/$defs/taskExecution" },
+            "reason": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "TASK_VALIDATION_CHANGED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["task_id", "from", "to"], "additionalProperties": false,
+          "properties": {
+            "task_id": { "$ref": "../common.schema.json#/$defs/idTask" },
+            "from": { "$ref": "#/$defs/taskValidation" },
+            "to": { "$ref": "#/$defs/taskValidation" },
+            "reviewer": { "$ref": "../common.schema.json#/$defs/actorRef" },
+            "note": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "ACCEPTANCE_CRITERIA_CHANGED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["task_id", "from", "to"], "additionalProperties": false,
+          "properties": {
+            "task_id": { "$ref": "../common.schema.json#/$defs/idTask" },
+            "from": { "type": "array", "items": { "type": "string" } },
+            "to": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "FACT_RECORDED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["fact_id", "statement"], "additionalProperties": false,
+          "properties": {
+            "fact_id": { "$ref": "../common.schema.json#/$defs/idFact" },
+            "statement": { "type": "string", "minLength": 1 },
+            "created_by_run": { "$ref": "../common.schema.json#/$defs/idRun" },
+            "references": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "CLAIM_RECORDED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["claim_id", "statement"], "additionalProperties": false,
+          "properties": {
+            "claim_id": { "$ref": "../common.schema.json#/$defs/idClaim" },
+            "statement": { "type": "string", "minLength": 1 },
+            "created_by_run": { "$ref": "../common.schema.json#/$defs/idRun" },
+            "references": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "CLAIM_RETRACTED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["claim_id"], "additionalProperties": false,
+          "properties": {
+            "claim_id": { "$ref": "../common.schema.json#/$defs/idClaim" },
+            "reason": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "ARTIFACT_REGISTERED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["artifact_id", "type", "title", "uri"], "additionalProperties": false,
+          "properties": {
+            "artifact_id": { "$ref": "../common.schema.json#/$defs/idArtifact" },
+            "type": { "$ref": "../common.schema.json#/$defs/artifactType" },
+            "title": { "type": "string", "minLength": 1 },
+            "uri": { "type": "string", "minLength": 1 },
+            "content_hash": { "type": "string" },
+            "created_by_run": { "$ref": "../common.schema.json#/$defs/idRun" },
+            "related_task": { "$ref": "../common.schema.json#/$defs/idTask" },
+            "supersedes": { "$ref": "../common.schema.json#/$defs/idArtifact" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "ARTIFACT_MARKED_MISSING" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["artifact_id"], "additionalProperties": false,
+          "properties": {
+            "artifact_id": { "$ref": "../common.schema.json#/$defs/idArtifact" },
+            "reason": { "type": "string" },
+            "detected_by": { "$ref": "../common.schema.json#/$defs/actorRef" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "RELATION_ADDED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["relation_id", "source", "relation_type", "target"], "additionalProperties": false,
+          "properties": {
+            "relation_id": { "$ref": "../common.schema.json#/$defs/idRelation" },
+            "source": { "$ref": "../common.schema.json#/$defs/typedRef" },
+            "relation_type": { "$ref": "#/$defs/relationType" },
+            "target": { "$ref": "../common.schema.json#/$defs/typedRef" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "RELATION_REMOVED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["relation_id", "source", "relation_type", "target"], "additionalProperties": false,
+          "properties": {
+            "relation_id": { "$ref": "../common.schema.json#/$defs/idRelation" },
+            "source": { "$ref": "../common.schema.json#/$defs/typedRef" },
+            "relation_type": { "$ref": "#/$defs/relationType" },
+            "target": { "$ref": "../common.schema.json#/$defs/typedRef" },
+            "reason": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "GATE_EVALUATED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["gate_id", "result", "evaluated_by"], "additionalProperties": false,
+          "properties": {
+            "gate_id": { "$ref": "../common.schema.json#/$defs/idGate" },
+            "result": { "enum": ["PASSED", "FAILED", "WAIVED"] },
+            "evaluated_by": { "$ref": "../common.schema.json#/$defs/actorRef" },
+            "note": { "type": "string" },
+            "evidence_refs": {
+              "type": "array",
+              "items": { "$ref": "../common.schema.json#/$defs/typedRef" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "MILESTONE_ACHIEVED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["milestone_id"], "additionalProperties": false,
+          "properties": {
+            "milestone_id": { "$ref": "../common.schema.json#/$defs/idMilestone" },
+            "evidence_refs": {
+              "type": "array",
+              "items": { "$ref": "../common.schema.json#/$defs/typedRef" }
+            },
+            "note": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "INTERVENTION_CREATED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["intervention_id", "title", "origin"], "additionalProperties": false,
+          "properties": {
+            "intervention_id": { "$ref": "../common.schema.json#/$defs/idIntervention" },
+            "title": { "type": "string", "minLength": 1 },
+            "origin": { "enum": ["USER", "AGENT_REPORT", "AUTO_FLOODING", "AUTO_AUDIT"] },
+            "source_refs": {
+              "type": "array",
+              "items": { "$ref": "../common.schema.json#/$defs/typedRef" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "TOPOLOGY_FORK_REALIZED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["topology_edge_id", "inputs", "outputs"], "additionalProperties": false,
+          "properties": {
+            "topology_edge_id": { "$ref": "../common.schema.json#/$defs/idTopologyEdge" },
+            "inputs": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "../common.schema.json#/$defs/idWorkstream" } },
+            "outputs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "../common.schema.json#/$defs/idWorkstream" } }
+          }
+        }
+      }
+    },
+    {
+      "allOf": [{ "$ref": "#/$defs/envelopeCore" }],
+      "properties": {
+        "eventType": { "const": "TOPOLOGY_MERGE_REALIZED" }, "schemaVersion": { "const": 1 },
+        "payload": {
+          "type": "object", "required": ["topology_edge_id", "inputs", "outputs"], "additionalProperties": false,
+          "properties": {
+            "topology_edge_id": { "$ref": "../common.schema.json#/$defs/idTopologyEdge" },
+            "inputs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "../common.schema.json#/$defs/idWorkstream" } },
+            "outputs": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "../common.schema.json#/$defs/idWorkstream" } }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-research-control.invalid/schema/operational/inbox.schema.json",
+  "title": "InboxItem（operational 行投影）",
+  "oneOf": [{ "$ref": "#/$defs/InboxItem" }],
+  "$defs": {
+    "InboxItem": {
+      "type": "object",
+      "required": ["id", "source", "payload", "state", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/idInboxItem" },
+        "source": {
+          "enum": ["HUMAN_QUICK_CAPTURE", "UNCLASSIFIED_AUDIT_FINDING", "IMPORTED_MEETING_NOTE", "UNREGISTERED_WORKSPACE_CHANGE", "AGENT_UNSTRUCTURED_REPORT", "EXTERNAL_NOTE", "DISCOVERED_SESSION"]
+        },
+        "payload": { "type": "string", "minLength": 1 },
+        "raw": {},
+        "context_refs": {
+          "type": "array",
+          "items": { "$ref": "../common.schema.json#/$defs/typedRef" }
+        },
+        "state": { "enum": ["CAPTURED", "CONVERTED", "DISMISSED"] },
+        "converted_to": { "$ref": "../common.schema.json#/$defs/typedRef" },
+        "created_at": { "$ref": "../common.schema.json#/$defs/epochMs" }
+      }
+    }
+  }
+}

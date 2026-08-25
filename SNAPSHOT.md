@@ -1,6 +1,6 @@
 # SNAPSHOT.md — 发布期快照清单（SI-001；生成物，勿编辑）
 
-> 生成时间：2026-08-24T15:14:14.439Z
+> 生成时间：2026-08-25T09:19:07.470Z
 > 源根（开发期正本，唯一）：`/home/armourpiercer/projects/dsh-plugins/research-control-plane`
 > 政策：`docs/execution/spec-issues/SI-001.md`（`resolved-compatibly`）+ ARCHITECTURE §2.1「目录结构（冻结目标）」。
 
@@ -14,7 +14,7 @@
 | 文件（包内相对路径） | sha256 | 字节 |
 |---|---|---|
 | `ARCHITECTURE.md` | `b4ee4a221baeebcbcfe579ed0be94067a5838e9fe284cc357d6c6cf51a0aa9da` | 26130 |
-| `DOMAIN_SCHEMA.md` | `d8239552eaa4080a4e05b85e5599c9f3ea27460333cbfc00f568d61fe4830db6` | 33772 |
+| `DOMAIN_SCHEMA.md` | `e015444da17e901fbe6132eae5e585e31fc0f595417867284f7e4a5137b1232a` | 34545 |
 | `DSH_ADAPTER.md` | `6be9c1cbf218b2a6b49cc08785856169923517ab351d245dcdf63010586431e5` | 31639 |
 | `GIT_INTEGRATION.md` | `266f3198a5a4de524d89aab16e20cde162c652fe660789ea56c0f861106aa35b` | 12145 |
 | `HISTORY_EVENT_CATALOG.md` | `5c0212e2edbffa126aeceeef80ac20b4a92010bcd8abc445619eba00f595de61` | 14388 |

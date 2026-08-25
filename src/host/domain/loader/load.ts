@@ -85,6 +85,14 @@ interface Slot {
 
 const TOP_LEVEL_FILES = new Set(['schema-version', 'project.yaml', 'objectives.yaml', 'workspace.yaml'])
 const TOP_LEVEL_DIRS = new Set(['topics', 'merges', 'policies'])
+/**
+ * V2 (design §3.1/§3.3): the STANDALONE state area — the runtime home of
+ * the project database (`state/research.sqlite`). 状态区，不入声明树语义:
+ * the walk RECOGNIZES it as a known entry (no UNKNOWN_ENTRY) but never
+ * DESCENDS into it — it is outside the declarative layout (and outside
+ * the checkpoint commit scope — the git whitelist excludes it).
+ */
+const TOP_LEVEL_STATE_DIR = 'state'
 
 /* ------------------------------------------------------------------ *
  * Entry point
@@ -268,6 +276,11 @@ function walkLayout(reader: ResearchFileReader, root: string, errors: ResearchLo
         slots.push({ kind, relPath: entry.name, required: entry.name === 'project.yaml' })
       }
     } else if (TOP_LEVEL_DIRS.has(entry.name)) {
+      if (entry.kind !== 'directory') unknownEntry(entry.name, `expected a directory, got a file`)
+    } else if (entry.name === TOP_LEVEL_STATE_DIR) {
+      // V2 state area (design §3.3): known, non-declarative — the walk
+      // recognizes it and stops (it never descends into the state area;
+      // a FILE named `state` is still a layout violation).
       if (entry.kind !== 'directory') unknownEntry(entry.name, `expected a directory, got a file`)
     } else {
       unknownEntry(entry.name)

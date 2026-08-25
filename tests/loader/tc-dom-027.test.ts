@@ -570,6 +570,26 @@ describe('TC-DOM-027 — layout structure (PATH_RULE / UNKNOWN_ENTRY / schema-ve
     expect(result.tree.topics[0]!.doc).not.toBeNull()
   })
 
+  it('V2 state/ area is a KNOWN non-declarative entry (design §3.3): recognized, not descended, zero errors', () => {
+    // The STANDALONE database lives at .research/state/research.sqlite —
+    // the layout walk must recognize `state/` (no UNKNOWN_ENTRY) and never
+    // descend into it (the state area is outside the declarative 真源).
+    const result = load(mutate(baseTreeFiles(), {
+      'state/research.sqlite': 'SQLite format 3\0not-a-real-db-bytes',
+    }))
+    expect(result.errors).toEqual([])
+    expect(result.tree.project).not.toBeNull()
+    expect(result.tree.topics[0]!.doc).not.toBeNull()
+  })
+
+  it('a FILE named `state` at the top level is still a layout violation (UNKNOWN_ENTRY)', () => {
+    const result = load(mutate(baseTreeFiles(), {
+      'state': 'not a directory\n',
+    }))
+    const e = expectSingleError(result, 'UNKNOWN_ENTRY', 'state')
+    expect(e.message).toContain('expected a directory')
+  })
+
   it('unknown topic-level file → UNKNOWN_ENTRY', () => {
     const result = load(mutate(baseTreeFiles(), {
       'topics/TPC-1/readme.md': 'x\n',

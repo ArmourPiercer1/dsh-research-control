@@ -1,9 +1,10 @@
 /**
  * WP-3.6 (RR-011 (d)) — read the Project id from `.research/project.yaml`
- * BEFORE the wiring exists (chicken-and-egg: the data dir is
- * `$DSH_HOME/research-control/<project-id>` per DSH_ADAPTER §9, so the
- * dsh-adapter needs the id before it can name the directory the wiring's
- * store opens).
+ * BEFORE the wiring exists (chicken-and-egg: the data dir is keyed by
+ * the project id — V2-T2.4, design §3.3: MANAGED
+ * `<hub>/<hubDir>/projects/<projectId>/`, STANDALONE
+ * `<ws>/<treeDir>/state/` — so the dsh-adapter needs the id before it
+ * can name the directory the wiring's store opens).
  *
  * This is a MINIMAL reader — one file, one key (`id`, the frozen
  * `project.schema.json` top-level key, path-id checked by the full loader

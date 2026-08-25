@@ -8,11 +8,15 @@
  *   save.conflict-check   §5.1 冲突状态检测前置; 进行中 → GitConflictStateError
  *                         (结构化拒绝, INV-GIT-4 fail loud)
  *   save.status           W4 status --porcelain=v2 --branch:
- *                         汇总 .research/** 待提交变更 → changedFiles;
+ *                         汇总提交面内待提交变更 → changedFiles
+ *                         (V2-T2.4: 提交面 = .research/** 减去 state/ 状态区,
+ *                         design §3.3 — 与 W9/W10 pathspec 同一口径);
  *                         detached HEAD → 明确警告 (§5 允许但警告);
  *                         无变更 → save.no-op 成功短路 (§5 步骤 2, 无空 commit)
- *   save.stage            W9 git add -- .research/ (只暂存 .research 路径)
+ *   save.stage            W9 git add -- .research/ ':(exclude).research/state/'
+ *                         (只暂存 .research 路径, 排除 state/ 状态区)
  *   save.commit           W10 git commit -m "research: <摘要>" -- .research/
+ *                         ':(exclude).research/state/'
  *                         (pathspec 限定提交范围; 步骤 2→4 竞态按 no-op 语义)
  *   save.rev-parse        W11 git rev-parse HEAD → commit OID
  *   save.staged-check     service 层断言: 无关 staged 不被吞且保持 staged
@@ -42,6 +46,8 @@ import {
   GitInputError,
   revParseHead,
   RESEARCH_PATHSPEC,
+  RESEARCH_STATE_EXCLUDE_SPEC,
+  isWithinCommitScope,
   stageResearch,
   status,
   type GitStatus,
@@ -50,9 +56,14 @@ import { NotARepoError, StagedPreservationError } from './errors.js'
 import type { StructuredLogger } from './logger.js'
 import type { SaveCheckpointOptions, SaveCheckpointResult } from './types.js'
 
-/** `.research/**` 判定 (repo-root-relative). */
+/**
+ * 提交面判定 (repo-root-relative): `.research/**` 减去 `state/` 状态区
+ * (V2-T2.4, design §3.3 — state/ 在 checkpoint 提交白名单之外: 独立模式
+ * 的库目录是运行态数据, 永不入 commit). 与 W9/W10 pathspec 的提交范围
+ * 一致, changedFiles / leftover 检查 / 「无关 staged」断言全部用同一口径.
+ */
 function isResearchPath(p: string): boolean {
-  return p.startsWith(RESEARCH_PATHSPEC)
+  return isWithinCommitScope(p)
 }
 
 /** 人类可读的 status 条目描述 (断言快照用). */
@@ -164,9 +175,9 @@ export async function saveResearchCheckpoint(root: string, opts: SaveCheckpointO
     return { committed: false, commitOid: null, changedFiles: [], warnings }
   }
 
-  // ── §5 步骤 3: W9 只暂存 .research 路径 ──
+  // ── §5 步骤 3: W9 只暂存 .research 路径 (V2: 排除 state/ 状态区) ──
   await stageResearch(root, opts)
-  logger.info('save.stage', { pathspec: RESEARCH_PATHSPEC })
+  logger.info('save.stage', { pathspec: RESEARCH_PATHSPEC, exclude: RESEARCH_STATE_EXCLUDE_SPEC })
 
   // ── §5 步骤 4: W10 pathspec 限定提交 (不含用户其他 staged changes, §5.2) ──
   const message = `${CHECKPOINT_MESSAGE_PREFIX}${opts.summary}`
@@ -174,11 +185,16 @@ export async function saveResearchCheckpoint(root: string, opts: SaveCheckpointO
     await commitResearch(root, message, opts)
   } catch (e) {
     // §5.2 实测: 步骤 2→4 之间变更消失的竞态 → pathspec commit exit 1
-    // ("no changes added to commit"); 按同一 no-op 语义处理 (成功空操作)。
+    // ("no changes added to commit"); V2 (T2.4, design §3.3): state/ 目录
+    // 存在时 (独立模式) 同一竞态的消息是 "nothing added to commit but
+    // untracked files present" (untracked = 被排除的 state/ 文件); 均按
+    // 同一 no-op 语义处理 (成功空操作)。
     if (
       e instanceof GitCommandError &&
       e.exitCode === 1 &&
-      /no changes added to commit|nothing to commit/i.test(`${e.stdout}\n${e.stderr}`)
+      /no changes added to commit|nothing added to commit|nothing to commit/i.test(
+        `${e.stdout}\n${e.stderr}`,
+      )
     ) {
       logger.warn('save.no-op', { reason: 'changes vanished between status and commit (§5.2 race)' })
       return { committed: false, commitOid: null, changedFiles: [], warnings }

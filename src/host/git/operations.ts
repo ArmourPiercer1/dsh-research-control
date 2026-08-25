@@ -13,7 +13,7 @@ import { existsSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { GitCommandError, GitInputError, GitScopeViolationError } from './errors.js'
 import { runGit } from './runner.js'
-import { LOG_FORMAT_ARG, RESEARCH_PATHSPEC } from './whitelist.js'
+import { LOG_FORMAT_ARG, RESEARCH_PATHSPEC, RESEARCH_STATE_EXCLUDE_SPEC } from './whitelist.js'
 import type {
   DiffEntry,
   FileLogEntry,
@@ -329,11 +329,13 @@ export async function restoreFile(
 // ─────────────────────────── W9 暂存 ───────────────────────────
 
 /**
- * W9 (checkpoint 第一步, **用户**): `git add -- .research/` — pathspec 由
- * 白名单固定, 其他 pathspec 不可达 (INV-GIT-3 路径隔离).
+ * W9 (checkpoint 第一步, **用户**): `git add -- .research/
+ * ':(exclude).research/state/'` — pathspec 由白名单固定, 其他 pathspec
+ * 不可达 (INV-GIT-3 路径隔离). V2 (design §3.3): 排除项 = state/ 状态区
+ * (独立模式库目录, checkpoint 提交白名单之外, 永不入 commit).
  */
 export async function stageResearch(root: string, opts?: GitOptions): Promise<void> {
-  const argv = ['add', '--', RESEARCH_PATHSPEC]
+  const argv = ['add', '--', RESEARCH_PATHSPEC, RESEARCH_STATE_EXCLUDE_SPEC]
   const res = await runGit(root, argv, opts)
   if (res.exitCode !== 0) commandFailed(root, argv, res)
 }
@@ -341,9 +343,11 @@ export async function stageResearch(root: string, opts?: GitOptions): Promise<vo
 // ─────────────────────────── W10 检查点提交 ───────────────────────────
 
 /**
- * W10 (checkpoint 第二步, **用户**): `git commit -m <msg> -- .research/` —
- * pathspec 限定提交范围 (§5). 实测语义 (§5.2, 2026-08-21, TC-GIT-002 固化):
- * 无关 staged 变更未进入 commit 且事后仍保持 staged.
+ * W10 (checkpoint 第二步, **用户**): `git commit -m <msg> -- .research/
+ * ':(exclude).research/state/'` — pathspec 限定提交范围 (§5). 实测语义
+ * (§5.2, 2026-08-21, TC-GIT-002 固化): 无关 staged 变更未进入 commit 且
+ * 事后仍保持 staged. V2 (design §3.3): 排除项与 W9 一致 — state/ 状态区
+ * 永不入 commit (提交白名单之外的子目录).
  *
  * 提交者身份使用用户自己的 git config — 本层不覆盖 author/committer (§5).
  *
@@ -358,7 +362,7 @@ export async function commitResearch(root: string, message: string, opts?: GitOp
       `commitResearch: commit message must start with ${JSON.stringify(CHECKPOINT_MESSAGE_PREFIX)} (GIT_INTEGRATION §5), got: ${JSON.stringify(message.slice(0, 40))}`,
     )
   }
-  const argv = ['commit', '-m', message, '--', RESEARCH_PATHSPEC]
+  const argv = ['commit', '-m', message, '--', RESEARCH_PATHSPEC, RESEARCH_STATE_EXCLUDE_SPEC]
   const res = await runGit(root, argv, opts)
   if (res.exitCode !== 0) commandFailed(root, argv, res)
 }

@@ -6,12 +6,14 @@
  * 判定 (GUI 按钮) 属于 WP-1.5 service 层。本函数是**唯一写历史**的编排
  * (INV-GIT-2: 默认不静默 commit; checkpoint 仅用户显式触发)。
  *
- * 流程 (照录 §5):
+ * 流程 (照录 §5; V2-T2.4: 提交面 = .research/** 减去 state/ 状态区,
+ * design §3.3 — state/ 为独立模式库目录, 在 checkpoint 提交白名单之外):
  *   1. 冲突状态检测 (§5.1); 检测到 → 拒绝并提示用户先自行解决 (INV-GIT-4)
- *   2. git status --porcelain=v2: 汇总 .research/** 的待提交变更;
- *      无变更 → 直接返回「无可提交内容」(成功, 不报错)
- *   3. git add -- .research/                          (W9, 只暂存 .research 路径)
- *   4. git commit -m "research: <摘要>" -- .research/  (W10, pathspec 限定提交范围)
+ *   2. git status --porcelain=v2: 汇总提交面内 (.research/**, 不含 state/)
+ *      的待提交变更; 无变更 → 直接返回「无可提交内容」(成功, 不报错)
+ *   3. git add -- .research/ ':(exclude).research/state/'              (W9)
+ *   4. git commit -m "research: <摘要>" -- .research/
+ *      ':(exclude).research/state/'                                   (W10)
  *   5. git rev-parse HEAD → 记录 commit OID            (W11)
  *   (6. [WP-1.5] 写 ManagementAction(CHECKPOINT_SAVED, git_commit_oid, git_blob_oids))
  *
@@ -33,7 +35,7 @@
 import { GitCommandError, GitInputError } from './errors.js'
 import { assertNoConflictState, detectConflictState } from './conflict.js'
 import { commitResearch, revParseHead, stageResearch, status } from './operations.js'
-import { RESEARCH_PATHSPEC } from './whitelist.js'
+import { isWithinCommitScope } from './whitelist.js'
 import type { CheckpointResult, GitOptions } from './types.js'
 
 /**
@@ -71,7 +73,11 @@ export async function saveCheckpoint(
       'detached HEAD: checkpoint commit will land on a detached HEAD and may be lost (GIT_INTEGRATION §5)',
     )
   }
-  const researchEntries = st.entries.filter((e) => e.path.startsWith(RESEARCH_PATHSPEC))
+  // V2 (design §3.3): commit scope = .research/** minus the state/ sub-directory
+  // (the runtime database area is outside the checkpoint commit whitelist) —
+  // the same scope W9/W10's pathspec stages/commits, so a state/-only change
+  // short-circuits here as 「无可提交内容」 instead of staging nothing.
+  const researchEntries = st.entries.filter((e) => isWithinCommitScope(e.path))
   if (researchEntries.length === 0) {
     // 「无可提交内容」(成功, 不报错)
     return { committed: false, shortCircuited: true, commitOid: null, warnings }
@@ -85,12 +91,17 @@ export async function saveCheckpoint(
     await commitResearch(root, `research: ${summary}`, opts)
   } catch (e) {
     // §5.2 实测: .research/ 无变更时 pathspec commit → exit 1 "no changes
-    // added to commit" (消息在 stdout)。步骤 2 前置短路是主路径; 这里覆盖
-    // 步骤 2→4 之间的竞态 (变更恰好消失), 按同一语义视为成功空操作。
+    // added to commit" (消息在 stdout)。V2 补充 (T2.4, design §3.3): state/
+    // 目录存在时 (独立模式) 同一竞态的消息是 "nothing added to commit but
+    // untracked files present" (untracked = 被排除的 state/ 文件) — 同一
+    // no-op 语义。步骤 2 前置短路是主路径; 这里覆盖步骤 2→4 之间的竞态
+    // (变更恰好消失), 按同一语义视为成功空操作。
     if (
       e instanceof GitCommandError &&
       e.exitCode === 1 &&
-      /no changes added to commit|nothing to commit/i.test(`${e.stdout}\n${e.stderr}`)
+      /no changes added to commit|nothing added to commit|nothing to commit/i.test(
+        `${e.stdout}\n${e.stderr}`,
+      )
     ) {
       return { committed: false, shortCircuited: true, commitOid: null, warnings }
     }

@@ -580,9 +580,19 @@ Investigator 分析的持久化形式（默认 transient；仅用户显式保存
 │                   └── milestones/<milestone-id>.yaml
 ├── merges/
 │   └── <topology-edge-id>/contract.md  # MergeContract（§3.2）
-└── policies/
-    └── agent-plan-fork.yaml  # AgentPlanForkPolicy（PLAN_FORK_SPEC §9）
+├── policies/
+│   └── agent-plan-fork.yaml  # AgentPlanForkPolicy（PLAN_FORK_SPEC §9）
+└── state/
+    └── research.sqlite  # V2（设计 §3.3）：运行态事件库（单工作区模式落点）——状态区，不入声明树语义
 ```
+
+> **V2 注（§3.3 数据库布局，T2.4）**：`state/` 是插件运行态状态区（单工作区
+> 模式的库目录 `<treeDir>/state/research.sqlite`；受管模式的库在中枢
+> `<hubDir>/projects/<id>/research.sqlite`）。`state/` 是布局的**已知非声明式
+> 条目**：装载器（§14 walk）识别它但不展开、不校验其内容；checkpoint 提交
+> 白名单（W9/W10）显式排除 `.research/state/`（运行态数据库永不入 commit）。
+> V1 的 `$DSH_HOME/research-control/<id>/` 库路径自 V2 起退役（仅启动日志
+> 提示，不自动搬运，设计 §14）。
 
 ### 14.1 workspace.yaml（工程默认结构）
 

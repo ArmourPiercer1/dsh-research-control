@@ -54,18 +54,43 @@
  * COMPLETES the dependency graph over the registered research workspace:
  * `createHostWiring` (src/host/service/wiring — store → registry → tree →
  * run/DS tables → allocator → runbinding + sessionlink → planfork/stale →
- * flooding → tools → startup reconciliation). A single research workspace
- * (exactly one registered workspace carrying a `.research/` tree) is the
- * V1 precondition: ZERO leaves the plane in spike mode (warned), MORE THAN
- * ONE fails the fiber loud (TC-DSH-008 — never guess between two
- * projects). The data dir is `$DSH_HOME/research-control/<project-id>`
- * (DSH_ADAPTER §9 — this file is the ONE place the
- * `@deepseek-ai/dsh-home-paths` import is allowed). Every opened resource
- * returns to ONE disposer registered with `ctx.effect` (fiber unmount →
- * `HostWiring.close()`: discovery subscription + all second connections +
- * the store connection). A `[Service.init]` throw = fiber FAILED before
- * ACTIVE (the wiring unwinds its partial resources itself). The 11 agent
- * tools (WP-3.3) are registered through `ctx.tools.register` (DSH_ADAPTER
+ * flooding → tools → startup reconciliation).
+ * V2-T2.2 (design §4/§13 row 1): the V1 「exactly one `.research`
+ * workspace」 precondition is REPLACED by the §4 discovery &
+ * reconciliation state machine (src/host/dsh-adapter/host/discovery.ts):
+ * every registered workspace's root level is scanned for the configured
+ * `<hubDir>`/`<treeDir>` (T2.1 `getResearchDirNames`), exactly-one-hub is
+ * enforced loud (≥ 2 hubs ⇒ fiber FAILED, TC-DSH-008), the hub's
+ * `registry.yaml` is parsed (T2.3 kernel, malformed ⇒ fail-loud), and
+ * every discovered tree is reconciled against the registry: MANAGED
+ * (registered ∧ tree), STANDALONE (unregistered ∧ tree, warned), MISSING
+ * (registered ∧ no tree, warned — awaiting the T3.x disposition UI).
+ * One `HostWiring` + one RPC service port is built per MANAGED/STANDALONE
+ * project (a `Map<projectId, …>` — `createHostWiring` keeps its
+ * single-project construction). The §12.1 routing reservation
+ * (`resolveProject`, discovery.ts) resolves the 13 frozen RPCs' target
+ * under a multi-project plane (the optional `projectId` request field
+ * lands in T3.1 — until then, an omitted id on a multi-project plane
+ * fails loud with the project list). V2-T2.4 (design §3.3): the data
+ * dir is RESOLVED by kind through the pure storage-locations layer —
+ * MANAGED `<hub>/<hubDir>/projects/<id>/`, STANDALONE
+ * `<ws>/<treeDir>/state/` (the db file `research.sqlite` in each; the
+ * STANDALONE state/ subdir is outside the checkpoint commit scope —
+ * the git whitelist's W9/W10 carry the explicit exclude pathspec); the
+ * V1 `$DSH_HOME/research-control/<id>/` layout is retired (one startup
+ * warn line via `hintOldDbHome` when it survives — no automatic
+ * migration, design §14). This file is the ONE place the `@deepseek-ai/
+ * dsh-home-paths` import is allowed (INV-PERM-5) — now only
+ * `resolveDshHome` for that legacy probe. The 11 agent tools + the
+ * investigate/analysis
+ * commands register ONLY on a single-project plane (their frozen face
+ * carries no projectId — a multi-project plane warns loud instead of
+ * registering an ambiguous binding). Every opened resource returns to ONE
+ * disposer registered with `ctx.effect` (fiber unmount → close the RPC
+ * ports, then every `HostWiring.close()`). A `[Service.init]` throw =
+ * fiber FAILED before ACTIVE (the init unwinds any partially composed
+ * per-project resources itself). The 11 agent tools (WP-3.3) are
+ * registered through `ctx.tools.register` (DSH_ADAPTER
  * §10.1) as PLAIN `ToolDefinition`s: `parameters` is the host's own
  * `parameterSchemaSpecToJsonSchema` projection of the plugin's mirror DSL,
  * `output.schema` is the plugin's raw-JSON-Schema face VERBATIM (the
@@ -89,7 +114,7 @@
  * surface stays exactly `ping` until Phase 2).
  */
 
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Service, type Context } from '@deepseek-ai/cordis'
@@ -100,7 +125,7 @@ import {
   type ToolDefinition,
   type ToolRunContext,
 } from '@deepseek-ai/dsh-tools'
-import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   DismissPlanForkArgsSchema,
@@ -154,14 +179,26 @@ import {
 } from '../../service/sessionlink/index.js'
 import { isToolError, type ResearchToolDefinition, type ToolJsonValue } from '../../tools/index.js'
 import {
+  DiscoverError,
+  discoverPlane,
+  probeWorkspaces,
+  resolveProject,
+  type PlaneState,
+} from './discovery.js'
+import {
+  hintOldDbHome,
+  nodeFsStorageIo,
+  resolveDbDir,
+} from '../../service/storage-locations/index.js'
+import {
   createHostWiring,
-  readProjectId,
   type HostWiring,
   type HostWiringLogger,
 } from '../../service/wiring/index.js'
 import { HostAgentLauncherAdapter, type LauncherHostContext } from '../launcher/index.js'
 import { registerAnalysisCommands } from './analysis-commands.js'
 import { registerInvestigationCommand } from './investigate-command.js'
+import { getResearchDirNames, registerResearchSettings } from './settings.js'
 
 /**
  * Validated plugin config.
@@ -207,6 +244,20 @@ interface WorkspaceRegistryLike {
  */
 interface WorkspaceHostContext {
   workspaceRegistry: WorkspaceRegistryLike
+}
+
+/**
+ * The composed research plane (V2-T2.2 — `#initResearchPlane`'s result):
+ * the discovered state + the per-project resources, keyed by project id
+ * (the §12.1 routing map). Empty maps = the empty/spike plane (the V1
+ * `undefined` wiring is now a shape — `plane.hub === null`, no projects).
+ */
+interface PlaneInitResult {
+  readonly plane: PlaneState
+  /** One live wiring per MANAGED/STANDALONE project (never MISSING). */
+  readonly wirings: Map<string, HostWiring>
+  /** One RPC service port per project (1:1 with `wirings`). */
+  readonly rpcs: Map<string, ResearchRpcServices>
 }
 
 /** Minimal structural slice of the DSH tools service (DSH_ADAPTER §10.1 —
@@ -278,28 +329,57 @@ export class ResearchControlService extends TypertRemoteService {
   #sessionAdapter: HostSessionAdapter | undefined
 
   /**
-   * WP-3.6: the live host wiring (the RR-011 dependency graph) — `undefined`
-   * only in spike mode (no research workspace registered) or before
-   * `[Service.init]` completes. Disposed through `ctx.effect` →
-   * `HostWiring.close()`.
+   * WP-3.6 / V2-T2.2: the live host wiring of the SINGLE-PROJECT plane
+   * (the RR-011 dependency graph) — `undefined` on a multi-project
+   * plane (the per-project wirings live in the map built in
+   * `#initResearchPlane`, disposed through the plane effect), in the
+   * empty/spike plane, or before `[Service.init]` completes. The 11
+   * agent tools resolve their data face through this field
+   * (`#runResearchTool`) — the tools register only on a single-project
+   * plane, so the resolution is unambiguous.
    */
   #wiring: HostWiring | undefined
 
   /**
-   * WP-4.1a: the RPC service port the 13 `@Remote` methods forward to.
-   * Production: composed in `[Service.init]` over the wiring-assembled
-   * instances (`ProductionResearchRpcServices` — owns one second SQLite
-   * connection, disposed through its own `ctx.effect`). Tests: injected
-   * through the optional 3rd constructor argument (a stub). `undefined`
-   * only in spike mode / before init — the 13 methods then fail loud.
+   * V2-T2.2 (design §4 step 6): the discovered plane state — set in
+   * `[Service.init]` in EVERY mode (the empty plane included: hub
+   * `null`, no projects — the V1 spike mode is now a plane shape, not
+   * the absence of a plane). `undefined` only before init.
+   *
+   * WP-4.6 (TC-E2E) proxy rule: TS `private`, NOT an ECMAScript `#`
+   * member — the `@Remote` call chain reads it through the cordis
+   * traceable proxy (`requireRpc` → `resolveProject`), and V8 refuses
+   * ANY `#`-member access from a Proxy receiver.
+   */
+  private plane: PlaneState | undefined
+
+  /**
+   * V2-T2.2: the per-project RPC service ports (one
+   * `ProductionResearchRpcServices` per MANAGED/STANDALONE project,
+   * keyed by project id — the §12.1 routing map). `undefined` only
+   * before init. Same proxy rule as {@link plane} (TS `private`, not
+   * `#`).
+   */
+  private projectRpcs: Map<string, ResearchRpcServices> | undefined
+
+  /**
+   * WP-4.1a / V2-T2.2: the RPC service port the 13 `@Remote` methods
+   * forward to. V2-T2.2: the PRODUCTION ports live in
+   * {@link projectRpcs} (one per plane project — the §12.1 routing map,
+   * composed in `#initResearchPlane`, disposed through the plane
+   * effect). This field is now the TEST seam only: a stub injected
+   * through the optional 3rd constructor argument, which
+   * `requireRpc` consults FIRST (existing rpc-face suites construct the
+   * service without running `[Service.init]` and forward to the stub).
    *
    * WP-4.6 (TC-E2E): TS `private`, NOT an ECMAScript `#` member — the
    * typert gateway invokes `@Remote` methods through the cordis traceable
    * proxy (`ctx.get(serviceKey)` → `Reflect.apply(method, proxy, args)`),
    * and V8 refuses ANY `#`-member access from a Proxy receiver ("Receiver
-   * must be an instance of class …"). `rpc`/`requireRpc` are the only
-   * members on the `@Remote` call chain; the rest of the class keeps true
-   * `#` privacy (its paths run with the real instance receiver).
+   * must be an instance of class …"). `rpc`/`plane`/`projectRpcs` +
+   * `requireRpc` are the only members on the `@Remote` call chain; the
+   * rest of the class keeps true `#` privacy (its paths run with the
+   * real instance receiver).
    */
   private rpc: ResearchRpcServices | undefined
 
@@ -335,11 +415,14 @@ export class ResearchControlService extends TypertRemoteService {
    * 版本不匹配时明确报错而非静默失败).
    *
    * WP-2.6 (b): the startup `.dshrc-tmp` sweep (G1 round-1 重点 6): every
-   * registered DSH workspace with a `.research/` tree is swept of stale
-   * crash residue — the front-line defense before W9 `git add -- .research/`
+   * registered DSH workspace with a research tree is swept of stale
+   * crash residue — the front-line defense before W9 `git add -- <treeDir>/`
    * (TC-GIT-003) can stage residue into a checkpoint. Per-workspace
    * failures are WARNED, not fatal (boot hygiene; a genuinely unreadable
-   * tree fails loudly at load time anyway).
+   * tree fails loudly at load time anyway). V2-T2.2: the sweep follows
+   * the CONFIGURED tree name (T2.1 `getResearchDirNames`), so the
+   * settings namespace registers BEFORE the sweep (a read before
+   * registration would warn about a not-registered section).
    *
    * WP-0.4: instantiate the session adapter and its counting subscriptions.
    * The structural cast is the single wiring point (the WP-0.3
@@ -373,21 +456,7 @@ export class ResearchControlService extends TypertRemoteService {
     }
     assertMinDshVersion(minDshVersion, createPackageVersionSource(DSH_VERSION_PACKAGE, import.meta.url))
 
-    // (b) G1 分诊 — startup sweep of stale crash residue (W9 front line).
-    try {
-      const registry = (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry
-      for (const workspace of registry.list()) {
-        const researchRoot = join(workspace.path, '.research')
-        if (!existsSync(researchRoot)) continue
-        sweepStaleTmp(researchRoot, (entry) => {
-          console.warn(`[research-control] swept stale crash residue: ${entry.path} (${String(entry.size)} bytes)`)
-        })
-      }
-    } catch (cause) {
-      console.warn(`[research-control] startup tmp sweep skipped: ${(cause as Error).message}`)
-    }
-
-    // (c) WP-0.4 session adapter + counting subscriptions (unchanged).
+    // (b) WP-0.4 session adapter + counting subscriptions (unchanged).
     const sessionCtx = this.ctx as SessionHostContext
     this.#sessionAdapter = new HostSessionAdapter(sessionCtx)
     this.#sessionAdapter.observeSessionLifecycle((): void => {
@@ -397,77 +466,128 @@ export class ResearchControlService extends TypertRemoteService {
       /* counters only — spike evidence, not business logic */
     })
 
-    // (d) WP-3.6 (RR-011 ledger): the host service wiring over the
-    // registered research workspace. A throw here (misconfiguration, a
-    // broken .research tree, an unusable registry, a failed startup
+    // (c) V2-T2.1 (design §7.5 / §3.1, Q4): the research settings
+    // namespace — the two configurable directory names (treeDir/hubDir,
+    // defaults `.research` / `.research-control`) live in the DSH
+    // user-settings document. Registered in EVERY mode (spike mode
+    // included — the settings card is a global preference the operator
+    // configures before any research tree exists). Resilient by
+    // construction: read through the optional-service `ctx.get` face
+    // (no hard inject), absent service → one warn + defaults (see
+    // ./settings.ts module header). V2-T2.2 moved this BEFORE the
+    // startup sweep: the sweep and the discovery below read the
+    // configured names exclusively through getResearchDirNames (live
+    // per rescan — the §7.5 save→rescan transaction), and a read before
+    // the namespace is registered would warn about a not-registered
+    // section.
+    registerResearchSettings(this.ctx)
+
+    // (d) G1 分诊 — startup sweep of stale crash residue (W9 front line).
+    // V2-T2.2: the tree name comes from the settings domain (design
+    // §3.1: 发现逻辑只认配置后的名字) — a renamed tree is swept too.
+    try {
+      const registry = (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry
+      const treeDir = getResearchDirNames(this.ctx).treeDir
+      for (const workspace of registry.list()) {
+        const researchRoot = join(workspace.path, treeDir)
+        if (!existsSync(researchRoot)) continue
+        sweepStaleTmp(researchRoot, (entry) => {
+          console.warn(`[research-control] swept stale crash residue: ${entry.path} (${String(entry.size)} bytes)`)
+        })
+      }
+    } catch (cause) {
+      console.warn(`[research-control] startup tmp sweep skipped: ${(cause as Error).message}`)
+    }
+
+    // (e) V2-T2.2 (design §4 / §13 row 1): the research plane over ALL
+    // registered workspaces — hub discovery + registry parse + the
+    // dual-source reconciliation (./discovery.ts), one HostWiring + one
+    // RPC service port per MANAGED/STANDALONE project. A throw here
+    // (≥ 2 hubs, a malformed/absent registry, a project-id conflict, a
+    // broken tree, an unusable registry schema, a failed startup
     // reconciliation under `failLoud`) fails the fiber BEFORE ACTIVE —
-    // TC-DSH-008 fail-loud; the wiring unwinds its partial resources
-    // itself, and the effect registered below disposes the survivors on
-    // fiber death.
+    // TC-DSH-008 fail-loud; `#initResearchPlane` unwinds the projects it
+    // already composed, and the effect registered below disposes the
+    // survivors on fiber death.
     const adapter = this.#sessionAdapter
     // WP-4.1a: the frozen schema root is resolved ONCE here — the plane
     // builder and the RPC facade both need it (the declarative schema
     // dir for the tree loader, the plan kernel, and the post-restore
     // validation).
     const schemaRoot = this.#resolveSchemaRoot(import.meta.url)
-    this.#wiring = this.#initResearchPlane(adapter, schemaRoot)
-    if (this.#wiring !== undefined) {
+    const plane = this.#initResearchPlane(adapter, schemaRoot)
+    this.plane = plane.plane
+    this.projectRpcs = plane.rpcs
+    this.#wiring = plane.wirings.size === 1 ? [...plane.wirings.values()][0]! : undefined
+    if (plane.wirings.size > 0) {
       // ONE disposer for the whole graph (DSH_ADAPTER §9: `[Service.init]`
       // open, `ctx.effect` close — the storage-sqlite register/close
       // pattern). Cordis runs disposers in REVERSE registration order on
-      // fiber unmount; `close()` is itself idempotent and orders its own
-      // teardown internally (second connections before the store).
+      // fiber unmount; each `close()` is idempotent and orders its own
+      // teardown internally (a project's RPC port — a second connection —
+      // closes before that project's store connection).
       this.ctx.effect(() => {
-        const wiring = this.#wiring
+        const wirings = plane.wirings
+        const rpcs = plane.rpcs
         return (): void => {
-          wiring?.close()
+          for (const service of rpcs.values()) service.close?.()
+          for (const wiring of wirings.values()) wiring.close()
+          this.projectRpcs = undefined
+          this.plane = undefined
           this.#wiring = undefined
         }
       })
-      // WP-4.1a: the RPC service port — the production implementation
-      // over the wiring-assembled instances (one extra second
-      // connection of its own, disposed by its OWN effect; the guard
-      // keeps a constructor-injected stub — tests only — untouched).
-      if (this.rpc === undefined) {
-        this.rpc = new ProductionResearchRpcServices({
-          wiring: this.#wiring,
-          schemaRoot,
-        })
-      }
-      this.ctx.effect(() => {
-        const rpc = this.rpc
-        return (): void => {
-          rpc?.close?.()
-          this.rpc = undefined
+      if (this.#wiring !== undefined) {
+        // Single-project plane (the V1 shape): the 11 agent tools + the
+        // plugin-OWNED commands bind to the sole wiring — byte-identical
+        // registration to V1. (Multi-project planes skip both — see the
+        // warn below: their frozen face carries no projectId, so there is
+        // no unambiguous routing target until T3.x.)
+        this.#registerResearchTools(this.#wiring)
+        // WP-7.4 / G7 S1b+S1: the plugin-OWNED one-click + analysis
+        // data-face commands on the DSH built-in command registry —
+        // registration-as-effect (the disposers unregister on fiber
+        // unmount, the 11-tool convention). The client reaches them over
+        // the built-in `commands/execute` gateway carrier (NO new RPC —
+        // the 13-RPC §7.1 list stays byte-identical; see
+        // investigate-command.ts / analysis-commands.ts for the
+        // compatibility argument + the §6 U✅/P❌ semantics). A deployment
+        // without a command registry (non-web profile) is warned loud:
+        // every launch/save attempt still fails loud at use time (IVL_*)
+        // — no silent downgrade.
+        const disposeCommand = registerInvestigationCommand(this.ctx, this.#wiring)
+        const disposeAnalysisCommands = registerAnalysisCommands(this.ctx, this.#wiring)
+        if (disposeCommand === null || disposeAnalysisCommands === null) {
+          console.warn(
+            '[research-control] the host exposes no command registry (non-web profile) — ' +
+              'the /research-investigate one-click entry and the analysis data-face ' +
+              'commands (/research-transient-read, /research-analysis-list, ' +
+              '/research-analysis-save) are unavailable (any attempt still fails loud ' +
+              'at use time; no degraded launch, no forged data)',
+          )
+        } else {
+          this.ctx.effect(() => disposeCommand)
+          this.ctx.effect(() => disposeAnalysisCommands)
+          console.log(
+            `[research-control] registered the one-click + analysis commands (project ${this.#wiring.projectId}: /research-investigate / /research-transient-read / /research-analysis-list / /research-analysis-save)`,
+          )
         }
-      })
-      this.#registerResearchTools(this.#wiring)
-      // WP-7.4 / G7 S1b+S1: the plugin-OWNED one-click + analysis
-      // data-face commands on the DSH built-in command registry —
-      // registration-as-effect (the disposers unregister on fiber
-      // unmount, the 11-tool convention). The client reaches them over
-      // the built-in `commands/execute` gateway carrier (NO new RPC —
-      // the 13-RPC §7.1 list stays byte-identical; see
-      // investigate-command.ts / analysis-commands.ts for the
-      // compatibility argument + the §6 U✅/P❌ semantics). A deployment
-      // without a command registry (non-web profile) is warned loud:
-      // every launch/save attempt still fails loud at use time (IVL_*)
-      // — no silent downgrade.
-      const disposeCommand = registerInvestigationCommand(this.ctx, this.#wiring)
-      const disposeAnalysisCommands = registerAnalysisCommands(this.ctx, this.#wiring)
-      if (disposeCommand === null || disposeAnalysisCommands === null) {
-        console.warn(
-          '[research-control] the host exposes no command registry (non-web profile) — ' +
-            'the /research-investigate one-click entry and the analysis data-face ' +
-            'commands (/research-transient-read, /research-analysis-list, ' +
-            '/research-analysis-save) are unavailable (any attempt still fails loud ' +
-            'at use time; no degraded launch, no forged data)',
-        )
       } else {
-        this.ctx.effect(() => disposeCommand)
-        this.ctx.effect(() => disposeAnalysisCommands)
-        console.log(
-          `[research-control] registered the one-click + analysis commands (project ${this.#wiring.projectId}: /research-investigate / /research-transient-read / /research-analysis-list / /research-analysis-save)`,
+        // Multi-project plane: no unambiguous binding target for the
+        // frozen tool/command face (V2-T2.2: design §12.1 — an omitted
+        // projectId with several active projects is a clear error, and
+        // the 11 tools' frozen parameters carry no projectId). Warn loud
+        // instead of registering an ambiguous binding: the 13 RPCs and
+        // these surfaces return to full service once multi-project
+        // routing lands (T3.x), and every attempt stays fail-loud in the
+        // meantime (no silent downgrade, no forged routing).
+        console.warn(
+          `[research-control] the plane has ${String(plane.wirings.size)} projects ` +
+            `(${[...plane.wirings.keys()].join(', ')}) — the 11 agent tools and the ` +
+            'investigate/analysis commands are NOT registered this round: their frozen ' +
+            'face carries no projectId, so there is no unambiguous routing target ' +
+            '(design §12.1); the 13 RPCs likewise fail loud with the project list ' +
+            'until their optional projectId parameter is wired (T3.1)',
         )
       }
     }
@@ -570,20 +690,47 @@ export class ResearchControlService extends TypertRemoteService {
   }
 
   /**
-   * The RPC port guard: spike mode (no research workspace registered) or
-   * pre-init ⇒ the 13 methods fail loud (the gateway carries the message
-   * to the client as a `ok: false` failure; `ping` still serves — the
-   * WP-0.3 spike-mode contract).
+   * The RPC port guard + §12.1 routing (V2-T2.2):
+   *  - a constructor-injected stub (TESTS only) always wins — the
+   *    existing rpc-face suite constructs the service without running
+   *    `[Service.init]` and forwards to the stub;
+   *  - pre-init (plane not discovered yet) or an empty plane (no
+   *    MANAGED/STANDALONE project — the V1 spike mode) ⇒ the 13 methods
+   *    fail loud with the spike-mode message (the gateway carries it to
+   *    the client as an `ok: false` failure; `ping` still serves — the
+   *    WP-0.3 spike-mode contract);
+   *  - otherwise the target project is resolved per design §12.1
+   *    ({@link resolveProject}): the frozen 13 RPCs carry no `projectId`
+   *    yet (T3.1 adds the optional field — the method bodies stay
+   *    `requireRpc()` today and become `requireRpc(args.projectId)`
+   *    then, so this seam is the ONLY routing point). A single-project
+   *    plane resolves to its sole project (the V1 implicit behavior —
+   *    byte-identical RPC results); a multi-project plane with an
+   *    omitted id fails loud listing every project id (never guess).
    */
-  private requireRpc(): ResearchRpcServices {
-    const rpc = this.rpc
-    if (rpc === undefined) {
+  private requireRpc(projectId?: string): ResearchRpcServices {
+    const stub = this.rpc
+    if (stub !== undefined) return stub
+    const plane = this.plane
+    const rpcs = this.projectRpcs
+    if (plane === undefined || rpcs === undefined || rpcs.size === 0) {
       throw new Error(
-        'the research control plane is not initialized (spike mode) — the 13 RPCs require a ' +
-          'registered research workspace carrying a .research tree (ping stays available)',
+        'the research control plane is not initialized (spike mode) — the 13 RPCs require an ' +
+          'active project (a hub-registered or standalone research tree; discovery found none) ' +
+          '— ping stays available',
       )
     }
-    return rpc
+    const project = resolveProject(plane, projectId)
+    const service = rpcs.get(project.projectId)
+    if (service === undefined) {
+      // Defensive: after a successful init every plane project has its
+      // RPC port (both maps are filled together in #initResearchPlane).
+      throw new Error(
+        `internal invariant broken: project ${project.projectId} has no RPC service ` +
+          '(init must compose one ProductionResearchRpcServices per plane project)',
+      )
+    }
+    return service
   }
 
   /* ---------------------------------------------------------------- *
@@ -591,86 +738,224 @@ export class ResearchControlService extends TypertRemoteService {
    * ---------------------------------------------------------------- */
 
   /**
-   * Build the host wiring over the registered research workspace
-   * (DSH_ADAPTER §9 data dir + §10.1 tools).
+   * Build the research plane (V2-T2.2 — design §4 全文 + §13 row 1):
+   * scan every registered DSH workspace's root level for the configured
+   * `<hubDir>`/`<treeDir>` (T2.1 names), enforce exactly-one-hub loud
+   * (TC-DSH-008), parse the hub's `registry.yaml` (T2.3 kernel —
+   * malformed ⇒ fail-loud), and reconcile registry entries against the
+   * discovered trees ({@link discoverPlane}):
    *
-   * V1 precondition, enforced loud (TC-DSH-008): EXACTLY ONE registered
-   * workspace may carry a `.research/` tree. ZERO → spike mode (warned;
-   * the plane is not a requirement of a plain DSH host — `ping` still
-   * serves). MORE THAN ONE → throw (refusing to guess between two
-   * research projects; the operator must unregister one).
+   *   registered entry ∧ tree  → MANAGED (wired)
+   *   no entry ∧ tree          → STANDALONE (wired + a log warning —
+   *                              静默，不弹窗: the log line IS the record)
+   *   active entry ∧ no tree   → MISSING (NOT wired — a log warning:
+   *                              挂起，等待用户处置; the four-choice
+   *                              disposition UI lands with T3.x)
    *
-   * @returns the live wiring, or `undefined` in spike mode.
-   * @throws {Error} on ambiguity or on any wiring failure
-   *  (misconfiguration, broken tree, unusable registry, reconciliation
-   *  under `failLoud`) — the fiber fails before ACTIVE.
+   * One `HostWiring` (the unchanged `createHostWiring` single-project
+   * construction) + one `ProductionResearchRpcServices` are built per
+   * MANAGED/STANDALONE project — `Map<projectId, …>` (the §12.1 routing
+   * map). V2-T2.4 (design §3.3): each project's data dir is RESOLVED
+   * by kind through the storage-locations layer (`resolveDbDir`):
+   * MANAGED `<hub>/<hubDir>/projects/<id>/`, STANDALONE
+   * `<ws>/<treeDir>/state/` (auto-created here; the store re-enforces
+   * the owner-only mode on open). The V1 `$DSH_HOME` data-dir layout
+   * is retired — a surviving legacy layout logs ONE warn line via
+   * `hintOldDbHome` (a migration suggestion, no automatic move —
+   * design §14). The startup logging runs here (design §4 静默
+   * 口径: MISSING one warn line each — displayName + path + 等待用户处置;
+   * STANDALONE one warn line each; 0 hub ∧ 0 tree → one empty-plane
+   * warn, the V1 spike mode in the multi-project vocabulary).
+   *
+   * @returns the composed plane (empty maps on the empty/spike plane —
+   *  the V1 `undefined` is now a shape: `plane.plane.hub === null` with
+   *  no projects, so the T3.1 `getResearchPlaneState` serves one state
+   *  type for every mode).
+   * @throws {DiscoverError} on the §4 fail-loud points (≥ 2 hubs, a
+   *  malformed/absent registry, a project-id conflict, duplicate ids) —
+   *  the fiber fails before ACTIVE.
+   * @throws {HostWiringError} on any per-project wiring failure
+   *  (broken tree, unusable registry schema, reconciliation under
+   *  `failLoud`) — the already-composed projects are unwound first
+   *  (a failed init leaks nothing), then the fiber fails before ACTIVE.
    */
-  #initResearchPlane(adapter: HostSessionAdapter, schemaRoot: string): HostWiring | undefined {
+  #initResearchPlane(adapter: HostSessionAdapter, schemaRoot: string): PlaneInitResult {
     const registry = (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry
     const workspaces = registry.list()
-    const researchWorkspaces = workspaces.filter((w) => {
-      const p = join(w.path, '.research')
-      return existsSync(p) && statSync(p).isDirectory()
-    })
-    if (researchWorkspaces.length === 0) {
-      console.warn(
-        '[research-control] no registered workspace carries a .research tree — ' +
-          'the research control plane stays in spike mode (ping only); the tools are NOT registered',
-      )
-      return undefined
-    }
-    if (researchWorkspaces.length > 1) {
-      throw new Error(
-        `[research-control] ${researchWorkspaces.length} registered workspaces carry a .research tree ` +
-          `(${researchWorkspaces.map((w) => w.path).join(', ')}) — the research control plane ` +
-          'supports exactly one research project per host; unregister the extras and restart ' +
-          '(TC-DSH-008: refusing to guess between two projects)',
-      )
-    }
-    const workspace = researchWorkspaces[0]!
-    const researchRoot = join(workspace.path, '.research')
-    const projectId = readProjectId(researchRoot) // WIRING_INPUT on a malformed project.yaml
-    // DSH_ADAPTER §9: the data dir is $DSH_HOME/research-control/<project-id>
-    // — dsh-home-paths is imported HERE ONLY (INV-PERM-5).
-    const dataDir = dshHomePath('research-control', projectId)
+    // Design §4 step 1: the directory names come exclusively from the
+    // settings domain (T2.1 — live read, no hardcoded literal).
+    const dirNames = getResearchDirNames(this.ctx)
 
+    // Design §4 step 2: the root-level scan. The probe also reads each
+    // discovered tree's project id (the routing key + the §3.2 cross-
+    // check operand) — a tree without a usable id fails loud here
+    // (WIRING_INPUT, the V1 single-workspace behavior, unchanged).
+    const probed = probeWorkspaces(workspaces.map((w) => w.path), dirNames)
+    const hubCandidates = probed.filter((p) => p.hasHubDir)
+
+    // Design §4 steps 3-4: the hub's registry is the ONE file discovery
+    // reads from disk (its `<hubDir>` presence is what made the
+    // workspace a hub, so the read belongs to the I/O seam — the pure
+    // core receives the text). A two-hub plane already failed loud
+    // inside discoverPlane, so only the exactly-one-hub case reads.
+    let registryText: string | null = null
+    if (hubCandidates.length === 1) {
+      const hubPath = hubCandidates[0]!.path
+      const registryPath = join(hubPath, dirNames.hubDir, 'registry.yaml')
+      try {
+        registryText = readFileSync(registryPath, 'utf8')
+      } catch (cause) {
+        throw new DiscoverError(
+          'REGISTRY_ABSENT',
+          `[research-control] the hub workspace ${hubPath} carries ${dirNames.hubDir}/ but its ` +
+            `registry file is missing or unreadable: ${registryPath} — a hub without ` +
+            `${join(dirNames.hubDir, 'registry.yaml')} is incomplete (create the registry through ` +
+            'the settings plane, or remove the ' +
+            `${dirNames.hubDir} directory); refusing to start (TC-DSH-008): ` +
+            (cause instanceof Error ? cause.message : String(cause)),
+        )
+      }
+    }
+
+    // Design §4 step 5/6: reconcile into the plane state.
+    const planeState = discoverPlane(probed, dirNames, registryText)
+
+    // Startup logging (design §4 静默口径: 不弹窗但日志在场 — the
+    // disposition UI is T3.x; at boot the log IS the record).
+    if (planeState.hub !== null) {
+      const managed = planeState.projects.filter((p) => p.kind === 'MANAGED').length
+      const standalone = planeState.projects.length - managed
+      console.log(
+        `[research-control] research hub discovered at ${planeState.hub.path} — plane: ` +
+          `${String(managed)} managed, ${String(standalone)} standalone, ${String(planeState.missing.length)} missing ` +
+          `(of ${String(workspaces.length)} registered workspaces)`,
+      )
+    }
+
+    // Design §3.3 (V2-T2.4): the V1 $DSH_HOME/research-control/<id>/ data-dir
+    // layout is RETIRED — one startup warn line when the legacy layout is
+    // still present (a migration SUGGESTION: the operator moves the data by
+    // hand; the plugin NEVER migrates it automatically — design §14).
+    // resolveDshHome is the ONE remaining dsh-home-paths read in this file
+    // (INV-PERM-5: this file is the exempt zone). A probe failure must not
+    // take down the plane (warn and continue — the hint is a courtesy, the
+    // layout itself is inert under V2).
+    try {
+      const legacyHint = hintOldDbHome(resolveDshHome(), nodeFsStorageIo())
+      if (legacyHint !== null) console.warn(legacyHint)
+    } catch (cause) {
+      console.warn(
+        `[research-control] the legacy $DSH_HOME database layout probe failed: ` +
+          (cause instanceof Error ? cause.message : String(cause)),
+      )
+    }
+    if (planeState.projects.length === 0 && planeState.missing.length === 0) {
+      // The empty plane (the V1 spike mode in the multi-project
+      // vocabulary, spirit of the old 「no registered workspace carries a
+      // .research tree」 warn): ping stays, everything else stays loud.
+      // The wording must not lie: when a hub WAS discovered (with an
+      // empty registry) the hub-discovered log line above already
+      // recorded it — say the registry is empty, not that no hub exists.
+      const situation =
+        planeState.hub === null
+          ? `no registered workspace carries a ${dirNames.treeDir} tree and no ${dirNames.hubDir} hub was discovered`
+          : `the discovered hub's registry declares no project (no ${dirNames.treeDir} tree was discovered in any registered workspace)`
+      const remedy =
+        planeState.hub === null
+          ? 'bind a project or create a hub through the settings plane'
+          : 'register a project through the settings plane'
+      console.warn(
+        `[research-control] ${situation} — the research control plane stays in spike ` +
+          `mode (ping only); the tools and the 13 RPCs are NOT registered (${remedy})`,
+      )
+    }
+    for (const project of planeState.projects) {
+      if (project.kind !== 'STANDALONE') continue
+      console.warn(
+        `[research-control] standalone research tree at ${project.wsPath} (project ` +
+          `${project.projectId}) — the tree is not registered in a hub (no registry entry at ` +
+          'this path) — running standalone; silent by design (no popup, this log line is the ' +
+          'record); register it through the settings plane to move it under the hub',
+      )
+    }
+    for (const entry of planeState.missing) {
+      console.warn(
+        `[research-control] MISSING registered project ${entry.id} (${entry.displayName}) — its ` +
+          `${dirNames.treeDir} tree was not discovered at ${entry.path} — awaiting user disposition ` +
+          '(restore data / re-initialize / unbind / defer — the settings plane, T3.x)',
+      )
+    }
+
+    // One HostWiring + one RPC service port per MANAGED/STANDALONE
+    // project (create.ts keeps its single-project construction — this
+    // loop is the multi-project seam).
+    const wirings = new Map<string, HostWiring>()
+    const rpcs = new Map<string, ResearchRpcServices>()
     const logger: HostWiringLogger = {
       info: (step, message) => console.log(`[research-control][${step}] ${message}`),
       warn: (step, message) => console.warn(`[research-control][${step}] ${message}`),
       error: (step, message) => console.error(`[research-control][${step}] ${message}`),
     }
-
     // WP-7.4 / G7 S1a: the production investigator launcher port — the
-    // ONE DSH-touching half (ensure-preset → `ctx.get('agents')`.create
-    // + setup restrict → /permission read-only → followup; see the
-    // adapter module doc for the path-A order and the all-or-nothing
-    // guarantee). The adapter reads `agents` through the documented
-    // optional-service face `ctx.get` (NOT a hard inject — DSH_ADAPTER §4
-    // keeps its four frozen items verbatim; a deployment without the
-    // `agents` service still loads the plugin, and a one-click launch
-    // there fails loud IVL_LAUNCH at use time). `LauncherHostContext` is
-    // now the plain cordis `Context`: every host service is resolved at
-    // launch time through `ctx.get` (the WP-0.4 `HostSessionAdapter`
-    // reads `agents` the same way — production-verified on the real
-    // machine; the plugin does not devDep on the agent package, so its
-    // Context augmentation is invisible — structural consumption,
-    // INV-PERM-5 豁免领地).
+    // ONE DSH-touching half (see the adapter module doc). Stateless over
+    // ctx (reads `agents` through `ctx.get` at launch time) — one
+    // instance shared by every project wiring.
     const launcherAdapter = new HostAgentLauncherAdapter(this.ctx as unknown as LauncherHostContext)
-
-    return createHostWiring({
-      repoRoot: workspace.path,
-      schemaRoot,
-      projectId,
-      dataDir,
-      adapter,
-      launcherAdapter,
-      workspaceRoots: workspaces.map((w) => w.path),
-      logger,
-      // Reconciliation policy: the default `rebuild` (reconstruct a missing
-      // run row from the durable events; fail loud only when impossible) —
-      // DSH_ADAPTER §13-U9 + the WP-2.4 未决 2 scheme. `failLoud` stays an
-      // operator override for the `reconcileRuns` HostWiringOptions field.
-    })
+    try {
+      for (const project of planeState.projects) {
+        // Design §3.3 (V2-T2.4): the database follows the project — the
+        // data dir is RESOLVED by kind through the pure storage-locations
+        // layer (the V1 $DSH_HOME/research-control/<id> layout is retired;
+        // its surviving dirs get the one-time startup hint above, no
+        // automatic migration — design §14):
+        //   MANAGED    → <hub>/<hubDir>/projects/<projectId>/
+        //   STANDALONE → <ws>/<treeDir>/state/   (库目录自动创建; the
+        //   db itself is opened by the wiring's store). Owner-only mode:
+        //   the store enforces 0o700 only on dirs IT creates
+        //   (DSH_ADAPTER §9); this call pre-creates the dir (and missing
+        //   ancestors), so it must set the mode itself — `recursive`
+        //   applies it to every dir created, a pre-existing dir is left
+        //   at its current mode (the store's pre-existing-parent rule).
+        const dataDir = resolveDbDir({
+          kind: project.kind,
+          projectId: project.projectId,
+          hubPath: planeState.hub?.path ?? null,
+          wsPath: project.wsPath,
+          hubDir: dirNames.hubDir,
+          treeDir: dirNames.treeDir,
+        })
+        mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+        const wiring = createHostWiring({
+          repoRoot: project.wsPath,
+          schemaRoot,
+          projectId: project.projectId,
+          dataDir,
+          adapter,
+          launcherAdapter,
+          workspaceRoots: workspaces.map((w) => w.path),
+          logger,
+          // Reconciliation policy: the default `rebuild` (reconstruct a
+          // missing run row from the durable events; fail loud only when
+          // impossible) — DSH_ADAPTER §13-U9 + the WP-2.4 未决 2 scheme.
+          // `failLoud` stays an operator override for the
+          // `reconcileRuns` HostWiringOptions field.
+        })
+        wirings.set(project.projectId, wiring)
+        // The per-project RPC service port (the §12.1 routing map value
+        // — one user-surface second connection per project, disposed
+        // before that project's store connection on fiber unmount).
+        rpcs.set(project.projectId, new ProductionResearchRpcServices({ wiring, schemaRoot }))
+      }
+    } catch (cause) {
+      // A failed init leaks nothing: the failed project's own partial
+      // resources are unwound by createHostWiring itself; close the
+      // projects already composed (RPC port before store connection,
+      // per project), then rethrow (fiber FAILED before ACTIVE).
+      for (const service of rpcs.values()) service.close?.()
+      for (const wiring of wirings.values()) wiring.close()
+      throw cause
+    }
+    return { plane: planeState, wirings, rpcs }
   }
 
   /**

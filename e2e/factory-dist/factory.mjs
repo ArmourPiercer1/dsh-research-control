@@ -1269,6 +1269,15 @@ var GitInputError = class extends GitError {
 */
 /** W9/W10 pathspec and W8 restore scope (INV-GIT-3 / §6). */
 const RESEARCH_PATHSPEC = ".research/";
+/**
+* The git pathspec-magic token that removes the state/ sub-directory
+* from the W9/W10 commit scope (design §3.3: 「`state/` 子目录在
+* checkpoint 提交白名单之外」 — the plugin's own `git add` / `git
+* commit` shapes carry it, so a runtime database can never be staged or
+* committed by a checkpoint, regardless of git's default "add the whole
+* directory" behavior).
+*/
+const RESEARCH_STATE_EXCLUDE_SPEC = ":(exclude).research/state/";
 /** W6 log 格式串 — 冻结建议 (§3 说明): OID、作者时间、标题, 单元分隔符 \x1f. */
 const LOG_FORMAT_ARG = "--format=%H%x1f%aI%x1f%s";
 /**
@@ -1396,9 +1405,10 @@ const WHITELIST_ROWS = [
 		argv: [
 			"add",
 			"--",
-			RESEARCH_PATHSPEC
+			RESEARCH_PATHSPEC,
+			RESEARCH_STATE_EXCLUDE_SPEC
 		],
-		match: (a) => a.length === 3 && is(a, 0, "add") && is(a, 1, "--") && is(a, 2, ".research/")
+		match: (a) => a.length === 4 && is(a, 0, "add") && is(a, 1, "--") && is(a, 2, ".research/") && is(a, 3, ":(exclude).research/state/")
 	},
 	{
 		id: "W10",
@@ -1409,9 +1419,10 @@ const WHITELIST_ROWS = [
 			"-m",
 			"<research: summary>",
 			"--",
-			RESEARCH_PATHSPEC
+			RESEARCH_PATHSPEC,
+			RESEARCH_STATE_EXCLUDE_SPEC
 		],
-		match: (a) => a.length === 5 && is(a, 0, "commit") && is(a, 1, "-m") && typeof a[2] === "string" && a[2].length > 0 && !a[2].includes("\0") && is(a, 3, "--") && is(a, 4, ".research/")
+		match: (a) => a.length === 6 && is(a, 0, "commit") && is(a, 1, "-m") && typeof a[2] === "string" && a[2].length > 0 && !a[2].includes("\0") && is(a, 3, "--") && is(a, 4, ".research/") && is(a, 5, ":(exclude).research/state/")
 	},
 	{
 		id: "W11",
@@ -2897,6 +2908,14 @@ const TOP_LEVEL_DIRS = /* @__PURE__ */ new Set([
 	"merges",
 	"policies"
 ]);
+/**
+* V2 (design §3.1/§3.3): the STANDALONE state area — the runtime home of
+* the project database (`state/research.sqlite`). 状态区，不入声明树语义:
+* the walk RECOGNIZES it as a known entry (no UNKNOWN_ENTRY) but never
+* DESCENDS into it — it is outside the declarative layout (and outside
+* the checkpoint commit scope — the git whitelist excludes it).
+*/
+const TOP_LEVEL_STATE_DIR = "state";
 function loadResearchTree(reader, root, schemaDir) {
 	const errors = [];
 	const schemas = loadSchemas(reader, schemaDir, errors);
@@ -3060,6 +3079,8 @@ function walkLayout(reader, root, errors) {
 				});
 			}
 		} else if (TOP_LEVEL_DIRS.has(entry.name)) {
+			if (entry.kind !== "directory") unknownEntry(entry.name, `expected a directory, got a file`);
+		} else if (entry.name === TOP_LEVEL_STATE_DIR) {
 			if (entry.kind !== "directory") unknownEntry(entry.name, `expected a directory, got a file`);
 		} else unknownEntry(entry.name);
 	}

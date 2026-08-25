@@ -18,6 +18,46 @@ import { GitWhitelistViolationError } from './errors.js'
 /** W9/W10 pathspec and W8 restore scope (INV-GIT-3 / §6). */
 export const RESEARCH_PATHSPEC = '.research/'
 
+/**
+ * V2 (design §3.3): the STANDALONE state sub-directory — the runtime
+ * database area (`<treeDir>/state/research.sqlite`). 状态区，不入声明树
+ * 语义: it is OUTSIDE the checkpoint commit scope (the W9/W10 pathspec
+ * excludes it explicitly, see {@link RESEARCH_STATE_EXCLUDE_SPEC}).
+ */
+export const RESEARCH_STATE_PATHSPEC = '.research/state/'
+
+/**
+ * The git pathspec-magic token that removes the state/ sub-directory
+ * from the W9/W10 commit scope (design §3.3: 「`state/` 子目录在
+ * checkpoint 提交白名单之外」 — the plugin's own `git add` / `git
+ * commit` shapes carry it, so a runtime database can never be staged or
+ * committed by a checkpoint, regardless of git's default "add the whole
+ * directory" behavior).
+ */
+export const RESEARCH_STATE_EXCLUDE_SPEC = ':(exclude).research/state/'
+
+/**
+ * Whether a repo-root-relative path is inside the W9/W10 checkpoint
+ * COMMIT scope: under `.research/` and NOT under the state/ sub-directory
+ * ({@link RESEARCH_STATE_PATHSPEC}).
+ *
+ * The unbind-rename'd ARCHIVED tree (`.research.archived-<timestamp>/`,
+ * design §7.4 解绑) is out of scope by construction: the commit pathspec
+ * is the exact directory prefix `.research/`, not a name glob — git's
+ * pathspec `.research/` matches only paths beneath the `.research`
+ * directory, never a sibling entry that merely shares the name prefix.
+ * This predicate mirrors that rule for the checkpoint's status filtering
+ * (「无可提交内容」 short-circuit) and the service-layer
+ * changedFiles/leftover checks, so the whole commit flow sees exactly
+ * what W9/W10 will stage/commit.
+ */
+export function isWithinCommitScope(p: string): boolean {
+  if (typeof p !== 'string') return false
+  if (!p.startsWith(RESEARCH_PATHSPEC)) return false
+  if (p.startsWith(RESEARCH_STATE_PATHSPEC)) return false
+  return true
+}
+
 /** W6 log 格式串 — 冻结建议 (§3 说明): OID、作者时间、标题, 单元分隔符 \x1f. */
 export const LOG_FORMAT_ARG = '--format=%H%x1f%aI%x1f%s'
 
@@ -157,23 +197,33 @@ export const WHITELIST_ROWS: readonly WhitelistRow[] = [
     id: 'W9',
     operation: '暂存',
     trigger: 'user',
-    argv: ['add', '--', RESEARCH_PATHSPEC],
-    match: (a) => a.length === 3 && is(a, 0, 'add') && is(a, 1, '--') && is(a, 2, RESEARCH_PATHSPEC),
+    // V2 (design §3.3): the state/ sub-directory is excluded from the
+    // commit scope (the runtime database area, never declarative content).
+    argv: ['add', '--', RESEARCH_PATHSPEC, RESEARCH_STATE_EXCLUDE_SPEC],
+    match: (a) =>
+      a.length === 4 &&
+      is(a, 0, 'add') &&
+      is(a, 1, '--') &&
+      is(a, 2, RESEARCH_PATHSPEC) &&
+      is(a, 3, RESEARCH_STATE_EXCLUDE_SPEC),
   },
   {
     id: 'W10',
     operation: '检查点提交',
     trigger: 'user',
-    argv: ['commit', '-m', '<research: summary>', '--', RESEARCH_PATHSPEC],
+    // V2 (design §3.3): same state/ exclusion — a pathspec-limited commit
+    // must commit exactly what W9 staged, no more (no state/), no less.
+    argv: ['commit', '-m', '<research: summary>', '--', RESEARCH_PATHSPEC, RESEARCH_STATE_EXCLUDE_SPEC],
     match: (a) =>
-      a.length === 5 &&
+      a.length === 6 &&
       is(a, 0, 'commit') &&
       is(a, 1, '-m') &&
       typeof a[2] === 'string' &&
       a[2]!.length > 0 &&
       !a[2]!.includes('\0') &&
       is(a, 3, '--') &&
-      is(a, 4, RESEARCH_PATHSPEC),
+      is(a, 4, RESEARCH_PATHSPEC) &&
+      is(a, 5, RESEARCH_STATE_EXCLUDE_SPEC),
   },
   {
     id: 'W11',

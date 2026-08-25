@@ -133,9 +133,11 @@ export interface HostWiringOptions {
    *  `.research/project.yaml`). */
   readonly projectId: string
   /**
-   * The directory holding `research.sqlite`
-   * (`$DSH_HOME/research-control/<project-id>` per DSH_ADAPTER §9; the
-   * `$DSH_HOME` resolution itself lives in the dsh-adapter).
+   * The directory holding `research.sqlite` (V2-T2.4, design §3.3:
+   * MANAGED `<hub>/<hubDir>/projects/<projectId>/`, STANDALONE
+   * `<ws>/<treeDir>/state/` — the dsh-adapter resolves the layout
+   * through the storage-locations layer; this wiring only opens it,
+   * re-enforcing the owner-only mode on the dir it creates).
    */
   readonly dataDir: string
   /** The session adapter port (WP-0.4 `DshSessionAdapter` — the host

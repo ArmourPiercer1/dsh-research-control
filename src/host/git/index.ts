@@ -45,7 +45,10 @@ export {
 export {
   LOG_FORMAT_ARG,
   RESEARCH_PATHSPEC,
+  RESEARCH_STATE_EXCLUDE_SPEC,
+  RESEARCH_STATE_PATHSPEC,
   WHITELIST_ROWS,
+  isWithinCommitScope,
   type WhitelistRow,
 } from './whitelist.js'
 export {

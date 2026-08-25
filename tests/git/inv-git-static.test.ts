@@ -42,7 +42,7 @@ const OPERATION_NAMES = [
 /** 组合原语 (§5.1 / §5 git 半边). */
 const COMPOSITE_NAMES = ['detectConflictState', 'saveCheckpoint'] as const
 /** 纯数据工具 (无 git 能力). */
-const UTILITY_NAMES = ['parsePorcelainV2', 'unquotePath'] as const
+const UTILITY_NAMES = ['isWithinCommitScope', 'parsePorcelainV2', 'unquotePath'] as const
 /** 错误类 (类型化错误, 非能力). */
 const ERROR_NAMES = [
   'GitError',
@@ -131,9 +131,12 @@ describe('INV-GIT-7: 白名单外命令不可达 (类型面)', () => {
       ['update-ref', 'refs/heads/x', 'y'.repeat(40)],
       // 同子命令但非白名单形状 (语法面同样精确):
       ['add', '--', 'other.txt'], // W9 pathspec 固定 .research/
+      ['add', '--', '.research/'], // V1 形状 (无 state/ 排除项) — T2.4 起不再白名单
+      ['add', '--', '.research/', ':(exclude)other/'], // 排除项固定为 state/
       ['commit', '-m', 'x'], // 无 pathspec
       ['commit', '-m', 'research: x'], // 无 pathspec
       ['commit', '-m', 'research: x', '--', 'other/'], // 错误 pathspec
+      ['commit', '-m', 'research: x', '--', '.research/'], // V1 形状 (无 state/ 排除项)
       ['restore', '--', '.research/x.yaml'], // 无 --source
       ['restore', '--source=HEAD', '--', '.research/x.yaml'], // 非 40-hex OID
       ['show', 'HEAD'], // 非 <oid>:<path>
@@ -151,9 +154,14 @@ describe('INV-GIT-7: 白名单外命令不可达 (类型面)', () => {
         git.GitWhitelistViolationError,
       )
     }
-    // 正面: 白名单形状放行 (含可选分页/分支头)
+    // 正面: 白名单形状放行 (含可选分页/分支头; W9/W10 携带 state/ 排除项, T2.4)
     expect(() => assertWhitelisted(['rev-parse', '--show-toplevel'])).not.toThrow()
-    expect(() => assertWhitelisted(['commit', '-m', 'research: x', '--', '.research/'])).not.toThrow()
+    expect(() =>
+      assertWhitelisted(['add', '--', '.research/', ':(exclude).research/state/']),
+    ).not.toThrow()
+    expect(() =>
+      assertWhitelisted(['commit', '-m', 'research: x', '--', '.research/', ':(exclude).research/state/']),
+    ).not.toThrow()
     expect(() =>
       assertWhitelisted(['restore', `--source=${'a'.repeat(40)}`, '--', '.research/x.yaml']),
     ).not.toThrow()
@@ -168,15 +176,24 @@ describe('INV-GIT-7: 白名单外命令不可达 (类型面)', () => {
 })
 
 describe('INV-GIT-2: 无自动 commit 路径 (类型面)', () => {
-  it('唯一 commit 能力 = W10 (pathspec 固定 .research/); add 仅 W9', () => {
+  it('唯一 commit 能力 = W10 (pathspec 固定 .research/ + state/ 排除项); add 仅 W9', () => {
     const commitRows = git.WHITELIST_ROWS.filter((r) => r.argv[0] === 'commit')
     expect(commitRows.map((r) => r.id)).toEqual(['W10'])
-    expect(commitRows[0]!.argv.at(-1)).toBe('.research/')
+    // V2 (design §3.3): the commit scope is `.research/` minus the state/
+    // sub-directory — the exclude pathspec is part of the frozen shape.
+    expect(commitRows[0]!.argv.at(-2)).toBe('.research/')
+    expect(commitRows[0]!.argv.at(-1)).toBe(':(exclude).research/state/')
     const addRows = git.WHITELIST_ROWS.filter((r) => r.argv[0] === 'add')
     expect(addRows.map((r) => r.id)).toEqual(['W9'])
-    expect(addRows[0]!.argv.at(-1)).toBe('.research/')
-    // 类型面: 含 "commit" 的导出函数只有 commitResearch (W10 具名操作)
-    expect(functionExports().filter((n) => /commit/i.test(n))).toEqual(['commitResearch'])
+    expect(addRows[0]!.argv.at(-2)).toBe('.research/')
+    expect(addRows[0]!.argv.at(-1)).toBe(':(exclude).research/state/')
+    // 类型面: 含 "commit" 的导出函数 — commitResearch (W10 具名操作, 唯一
+    // commit 能力) + isWithinCommitScope (T2.4 提交面谓词, 纯判定函数,
+    // 无 git 能力 — 名称含 commit 是因为它判定的正是 W9/W10 的提交范围)
+    expect(functionExports().filter((n) => /commit/i.test(n)).sort()).toEqual([
+      'commitResearch',
+      'isWithinCommitScope',
+    ])
   })
 
   it('commitResearch 强制 research: 前缀 (message 格式, §5)', async () => {

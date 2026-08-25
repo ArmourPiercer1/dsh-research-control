@@ -355,7 +355,7 @@ export function ResearchCockpit(props: ResearchCockpitProps): ReactElement {
       <nav
         aria-label="cockpit 导航"
         data-cockpit-nav
-        style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1, #e5e6eb)' }}
+        style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' }}
       >
         {COCKPIT_NAV.map((entry) => (
           <button
@@ -371,9 +371,9 @@ export function ResearchCockpit(props: ResearchCockpitProps): ReactElement {
               fontSize: 13,
               padding: '4px 12px',
               borderRadius: 6,
-              border: page.kind === entry.kind ? '1px solid var(--dsw-alias-interactive-bg-primary, #3370ff)' : '1px solid var(--dsw-alias-border-l2, #cfd3da)',
-              background: page.kind === entry.kind ? 'var(--dsw-alias-interactive-bg-hover, rgba(51, 112, 255, 0.08))' : 'var(--dsw-alias-bg-layer-1, #ffffff)',
-              color: 'var(--dsw-alias-label-primary, #1f2329)',
+              border: page.kind === entry.kind ? '1px solid var(--dsw-alias-state-business-primary)' : '1px solid var(--dsw-alias-border-l2)',
+              background: page.kind === entry.kind ? 'var(--dsw-alias-interactive-bg-hover)' : 'var(--dsw-alias-bg-layer-1)',
+              color: 'var(--dsw-alias-label-primary)',
               cursor: 'pointer',
             }}
           >

@@ -31,11 +31,11 @@ import type {
 import { TOPOLOGY_GRAPH_STYLES as styles, ensureGraphStyles } from './graph-styles.js'
 
 /* Edge palette — mirrored by --rc-edge-* in the CSS module. */
-const EDGE_REALIZED_FORK = '#3565d8'
-const EDGE_REALIZED_MERGE = '#0c8a5f'
-const EDGE_PLANNED_FORK = '#7c9bd9'
-const EDGE_PLANNED_MERGE = '#63b398'
-const EDGE_DROPPED = '#b8bdc7'
+const EDGE_REALIZED_FORK = 'var(--dsw-alias-state-business-primary)'
+const EDGE_REALIZED_MERGE = 'var(--dsw-alias-state-success-primary)'
+const EDGE_PLANNED_FORK = 'var(--dsw-static-blue-400)'
+const EDGE_PLANNED_MERGE = 'var(--dsw-alias-state-success-secondary)'
+const EDGE_DROPPED = 'var(--dsw-alias-border-l3)'
 
 const LIFECYCLE_TAG: Record<TopologyNodeData['lifecycle'], string> = {
   PLANNED: '规划中',
@@ -117,8 +117,8 @@ function shapeTopologyEdge(edge: TopologyGraphEdge): Edge<TopologyEdgeData> {
   // The merge-contract badge (§27.5): a label at the edge midpoint.
   if (hasContract) {
     result.label = '合并契约'
-    result.labelStyle = { fontSize: 11, fill: '#5c6470' }
-    result.labelBgStyle = { fill: '#f5f6f8', stroke: '#e5e6eb' }
+    result.labelStyle = { fontSize: 11, fill: 'var(--dsw-alias-label-secondary)' }
+    result.labelBgStyle = { fill: 'var(--dsw-alias-bg-layer-2)', stroke: 'var(--dsw-alias-border-l1)' }
     result.labelBgPadding = [4, 2] as [number, number]
     result.labelBgBorderRadius = 4
   }

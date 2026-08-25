@@ -8,20 +8,20 @@
 
 .view {
   /* --rc-* 局部 token → 宿主 --dsw-* 别名（回退值在下）。 */
-  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
-  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
-  --rc-label-caption: var(--dsw-alias-label-caption, #9aa1ab);
-  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
-  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
-  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
-  --rc-border-l2: var(--dsw-alias-border-l2, #cfd3da);
-  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
-  --rc-error-secondary: var(--dsw-alias-state-error-secondary, #fdeeed);
-  --rc-warning-primary: var(--dsw-alias-state-warning-primary, #d97706);
-  --rc-warning-secondary: var(--dsw-alias-state-warning-secondary, #fdf3e3);
-  --rc-success-primary: var(--dsw-alias-state-success-primary, #2f7d46);
-  --rc-success-secondary: var(--dsw-alias-state-success-secondary, #eaf5ee);
-  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(17, 17, 17, 0.05));
+  --rc-label-primary: var(--dsw-alias-label-primary);
+  --rc-label-secondary: var(--dsw-alias-label-secondary);
+  --rc-label-caption: var(--dsw-alias-label-caption);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2);
+  --rc-border-l1: var(--dsw-alias-border-l1);
+  --rc-border-l2: var(--dsw-alias-border-l2);
+  --rc-error-primary: var(--dsw-alias-state-error-primary);
+  --rc-error-secondary: var(--dsw-alias-state-error-secondary);
+  --rc-warning-primary: var(--dsw-alias-state-warn-primary);
+  --rc-warning-secondary: var(--dsw-alias-state-warn-tertiary);
+  --rc-success-primary: var(--dsw-alias-state-success-primary);
+  --rc-success-secondary: var(--dsw-alias-state-success-secondary);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover);
   --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
   --rc-font-xs: var(--dsw-font-xs-13, 13px);
   --rc-font-xxs: var(--dsw-font-xxs-12, 12px);

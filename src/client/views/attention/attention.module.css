@@ -9,24 +9,24 @@
 
 .attention {
   /* --rc-* local tokens → host --dsw-* aliases when present (fallbacks below). */
-  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
-  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
-  --rc-label-tertiary: var(--dsw-alias-label-tertiary, #8a919c);
-  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
-  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
-  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
-  --rc-border-l2: var(--dsw-alias-border-l2, #cfd3da);
-  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
-  --rc-error-secondary: var(--dsw-alias-state-error-secondary, #fdeeed);
-  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(17, 17, 17, 0.05));
-  --rc-badge-intervention: var(--dsw-alias-state-warning-primary, #b25e09);
-  --rc-badge-intervention-bg: var(--dsw-alias-state-warning-secondary, #fff3e6);
-  --rc-badge-blocker: var(--dsw-alias-state-error-primary, #d54941);
-  --rc-badge-blocker-bg: var(--dsw-alias-state-error-secondary, #fdeeed);
-  --rc-badge-event: var(--dsw-alias-interactive-primary, #1456f0);
-  --rc-badge-event-bg: var(--dsw-alias-interactive-secondary, #e8f0ff);
-  --rc-badge-action: var(--dsw-alias-label-tertiary, #8a919c);
-  --rc-badge-action-bg: var(--dsw-alias-bg-layer-2, #f5f6f8);
+  --rc-label-primary: var(--dsw-alias-label-primary);
+  --rc-label-secondary: var(--dsw-alias-label-secondary);
+  --rc-label-tertiary: var(--dsw-alias-label-tertiary);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2);
+  --rc-border-l1: var(--dsw-alias-border-l1);
+  --rc-border-l2: var(--dsw-alias-border-l2);
+  --rc-error-primary: var(--dsw-alias-state-error-primary);
+  --rc-error-secondary: var(--dsw-alias-state-error-secondary);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover);
+  --rc-badge-intervention: var(--dsw-alias-state-warn-primary);
+  --rc-badge-intervention-bg: var(--dsw-alias-state-warn-tertiary);
+  --rc-badge-blocker: var(--dsw-alias-state-error-primary);
+  --rc-badge-blocker-bg: var(--dsw-alias-state-error-secondary);
+  --rc-badge-event: var(--dsw-alias-state-business-primary);
+  --rc-badge-event-bg: var(--dsw-alias-state-business-tertiary);
+  --rc-badge-action: var(--dsw-alias-label-tertiary);
+  --rc-badge-action-bg: var(--dsw-alias-bg-layer-2);
   --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
   --rc-font-xs: var(--dsw-font-xs-13, 13px);
   --rc-font-xxs: var(--dsw-font-xxs-12, 12px);

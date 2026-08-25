@@ -92,30 +92,30 @@ export const GRAPH_BASE_CSS: string = [
   `
 /* PlanGraphView stylesheet (vendored) */
 .rc-pgv-root {
-  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
-  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
-  --rc-label-caption: var(--dsw-alias-label-caption, #9aa1ab);
-  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
-  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
-  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
-  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
-  --rc-warn-primary: var(--dsw-alias-state-warn-primary, #b7791f);
-  --rc-accent-primary: var(--dsw-alias-accent-primary, #2b5fd9);
+  --rc-label-primary: var(--dsw-alias-label-primary);
+  --rc-label-secondary: var(--dsw-alias-label-secondary);
+  --rc-label-caption: var(--dsw-alias-label-caption);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2);
+  --rc-border-l1: var(--dsw-alias-border-l1);
+  --rc-error-primary: var(--dsw-alias-state-error-primary);
+  --rc-warn-primary: var(--dsw-alias-state-warn-primary);
+  --rc-accent-primary: var(--dsw-alias-state-business-primary);
   --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
   --rc-font-xs: var(--dsw-font-xs-13, 13px);
   --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
   `,
   `
   /* edge palette — mirrored by the JS constants in PlanGraphView.rc-pgv-tsx */
-  --rc-edge-canonical: #4b5563;
+  --rc-edge-canonical: var(--dsw-alias-label-secondary);
   --rc-edge-fork-open: #7c5cff;
   --rc-edge-fork-stale: #b3a8d9;
   `,
   `
   /* kind accents (canonical node borders) */
-  --rc-kind-task: #3565d8;
-  --rc-kind-gate: #b7791f;
-  --rc-kind-milestone: #0c8a5f;
+  --rc-kind-task: var(--dsw-alias-state-business-primary);
+  --rc-kind-gate: var(--dsw-alias-state-warn-primary);
+  --rc-kind-milestone: var(--dsw-alias-state-success-primary);
   `,
   `
   /* fork ghost accent */
@@ -191,7 +191,7 @@ export const GRAPH_BASE_CSS: string = [
   height: 18px;
   border-radius: 4px;
   background: var(--rc-pf-accent);
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground);
   font-weight: 700;
   font-size: var(--rc-font-xxs);
 }
@@ -211,7 +211,7 @@ export const GRAPH_BASE_CSS: string = [
   `,
   `
 .rc-pgv-pfStatusStale {
-  background: rgba(183, 121, 31, 0.14);
+  background: var(--dsw-alias-state-warn-tertiary);
   color: var(--rc-warn-primary);
 }
   `,
@@ -250,7 +250,7 @@ export const GRAPH_BASE_CSS: string = [
 .rc-pgv-selectBtn {
   border: 1px solid var(--rc-accent-primary);
   background: var(--rc-accent-primary);
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground);
 }
   `,
   `
@@ -305,7 +305,7 @@ export const GRAPH_BASE_CSS: string = [
   padding: 8px 12px;
   border: 1px solid var(--rc-error-primary);
   border-radius: 8px;
-  background: rgba(213, 73, 65, 0.08);
+  background: var(--dsw-alias-interactive-bg-hover-danger);
   color: var(--rc-error-primary);
   font-size: var(--rc-font-xxs);
 }
@@ -398,7 +398,7 @@ export const GRAPH_BASE_CSS: string = [
   `
 .rc-pgv-nodeProposed .rc-pgv-kindTag {
   background: var(--rc-pf-accent);
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground);
 }
   `,
   `
@@ -418,7 +418,7 @@ export const GRAPH_BASE_CSS: string = [
   height: 16px;
   border-radius: 4px;
   background: var(--rc-pf-accent);
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground);
   font-weight: 700;
 }
   `,
@@ -429,25 +429,25 @@ export const GRAPH_BASE_CSS: string = [
 },
 /* TopologyGraphView stylesheet (vendored) */
 .rc-tgv-root {
-  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
-  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
-  --rc-label-caption: var(--dsw-alias-label-caption, #9aa1ab);
-  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
-  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f6f8);
-  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
-  --rc-accent-primary: var(--dsw-alias-accent-primary, #2b5fd9);
-  --rc-warn-primary: var(--dsw-alias-state-warn-primary, #b7791f);
+  --rc-label-primary: var(--dsw-alias-label-primary);
+  --rc-label-secondary: var(--dsw-alias-label-secondary);
+  --rc-label-caption: var(--dsw-alias-label-caption);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2);
+  --rc-border-l1: var(--dsw-alias-border-l1);
+  --rc-accent-primary: var(--dsw-alias-state-business-primary);
+  --rc-warn-primary: var(--dsw-alias-state-warn-primary);
   --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
   --rc-font-xs: var(--dsw-font-xs-13, 13px);
   --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
   `,
   `
   /* edge palette — mirrored by the JS constants in TopologyGraphView.rc-tgv-tsx */
-  --rc-edge-realized-fork: #3565d8;
-  --rc-edge-realized-merge: #0c8a5f;
-  --rc-edge-planned-fork: #7c9bd9;
-  --rc-edge-planned-merge: #63b398;
-  --rc-edge-dropped: #b8bdc7;
+  --rc-edge-realized-fork: var(--dsw-alias-state-business-primary);
+  --rc-edge-realized-merge: var(--dsw-alias-state-success-primary);
+  --rc-edge-planned-fork: var(--dsw-static-blue-400);
+  --rc-edge-planned-merge: var(--dsw-alias-state-success-secondary);
+  --rc-edge-dropped: var(--dsw-alias-border-l3);
   `,
   `
   display: flex;
@@ -533,10 +533,10 @@ export const GRAPH_BASE_CSS: string = [
   `
 .rc-tgv-errorBanner {
   padding: 8px 12px;
-  border: 1px solid var(--rc-error-primary, #d54941);
+  border: 1px solid var(--rc-error-primary);
   border-radius: 8px;
-  background: rgba(213, 73, 65, 0.08);
-  color: var(--rc-error-primary, #d54941);
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--rc-error-primary);
   font-size: var(--rc-font-xxs);
 }
   `,
@@ -613,8 +613,8 @@ export const GRAPH_BASE_CSS: string = [
   margin-top: 4px;
   padding: 0 6px;
   border-radius: 4px;
-  background: rgba(12, 138, 95, 0.12);
-  color: #0c8a5f;
+  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--dsw-alias-state-success-primary);
   font-size: 11px;
   font-weight: 600;
 }
@@ -628,7 +628,7 @@ export const GRAPH_BASE_CSS: string = [
   `,
   `
 .rc-tgv-wsNode_REALIZED {
-  border-color: #0c8a5f;
+  border-color: var(--dsw-alias-state-success-primary);
   opacity: 1;
 }
   `,
@@ -639,19 +639,19 @@ export const GRAPH_BASE_CSS: string = [
 },
 /* ConfirmDialog stylesheet (vendored) */
 .rc-cd-overlay {
-  --rc-label-primary: var(--dsw-alias-label-primary, #1f2329);
-  --rc-label-secondary: var(--dsw-alias-label-secondary, #5c6470);
-  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
-  --rc-border-l1: var(--dsw-alias-border-l1, #e5e6eb);
-  --rc-error-primary: var(--dsw-alias-state-error-primary, #d54941);
-  --rc-accent-primary: var(--dsw-alias-accent-primary, #2b5fd9);
+  --rc-label-primary: var(--dsw-alias-label-primary);
+  --rc-label-secondary: var(--dsw-alias-label-secondary);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1);
+  --rc-border-l1: var(--dsw-alias-border-l1);
+  --rc-error-primary: var(--dsw-alias-state-error-primary);
+  --rc-accent-primary: var(--dsw-alias-state-business-primary);
   --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
   --rc-font-xs: var(--dsw-font-xs-13, 13px);
   `,
   `
   position: fixed;
   inset: 0;
-  background: rgba(15, 18, 24, 0.4);
+  background: var(--dsw-alias-bg-mask-1);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -723,7 +723,7 @@ export const GRAPH_BASE_CSS: string = [
 .rc-cd-confirmBtn {
   border-color: var(--rc-accent-primary);
   background: var(--rc-accent-primary);
-  color: #fff;
+  color: var(--dsw-alias-label-primary-foreground);
 }
   `,
   `

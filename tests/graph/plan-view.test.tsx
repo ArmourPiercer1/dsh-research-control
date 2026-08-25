@@ -113,7 +113,7 @@ describe('AC/Gate P4: canonical and fork are visually indistinguishable-safe', (
     const { utils } = renderView()
     const canonicalEdge = utils.container.querySelector('[data-mock-edge="e:G-1->T-1"]') as HTMLElement
     const forkEdge = utils.container.querySelector('[data-mock-edge="pf:PF-1:T-1->PF-1#1"]') as HTMLElement
-    expect(canonicalEdge.getAttribute('stroke')).toBe('#4b5563')
+    expect(canonicalEdge.getAttribute('stroke')).toBe('var(--dsw-alias-label-secondary)')
     expect(canonicalEdge.getAttribute('stroke-dasharray')).toBe('')
     expect(canonicalEdge.getAttribute('data-edge-animated')).toBe('false')
     expect(canonicalEdge.getAttribute('data-edge-class')).toBe('rc-edge-canonical')

@@ -68,9 +68,9 @@ describe('§27.5 conventions: stroke by lifecycle, form by operation', () => {
     const { utils } = renderGraph()
     const realized = utils.container.querySelector('[data-mock-edge="TE-2:WS-1->WS-3"]') as HTMLElement
     const planned = utils.container.querySelector('[data-mock-edge="TE-1:WS-1->WS-2"]') as HTMLElement
-    expect(realized.getAttribute('stroke')).toBe('#0c8a5f')
+    expect(realized.getAttribute('stroke')).toBe('var(--dsw-alias-state-success-primary)')
     expect(realized.getAttribute('stroke-dasharray')).toBe('')
-    expect(planned.getAttribute('stroke')).toBe('#7c9bd9')
+    expect(planned.getAttribute('stroke')).toBe('var(--dsw-static-blue-400)')
     expect(planned.getAttribute('stroke-dasharray')).toBe('6 4')
   })
 
@@ -117,7 +117,7 @@ describe('§27.5: dropped hidden by default, history mode via the toggle', () =>
     expect(edges.length).toBe(4)
     const dropped = utils.container.querySelector('[data-mock-edge="TE-3:WS-1->WS-3"]') as HTMLElement
     expect(dropped.getAttribute('stroke-dasharray')).toBe('3 6')
-    expect(dropped.getAttribute('stroke')).toBe('#b8bdc7')
+    expect(dropped.getAttribute('stroke')).toBe('var(--dsw-alias-border-l3)')
     const after = screen.getByRole('button', { name: '隐藏已弃用' })
     expect(after.getAttribute('aria-pressed')).toBe('true')
     await user.click(after)

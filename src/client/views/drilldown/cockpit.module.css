@@ -13,8 +13,8 @@
   gap: 12px;
   padding: 12px;
   font-size: 13px;
-  color: #d8dee9;
-  background: #10141a;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
 }
 
 /* ---- page frame ---------------------------------------------------- */
@@ -35,13 +35,13 @@
 
 .pageMeta {
   margin: 0;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .backButton {
-  background: #1c2430;
-  color: #d8dee9;
-  border: 1px solid #2c3948;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 4px;
   padding: 2px 8px;
   cursor: pointer;
@@ -49,27 +49,27 @@
 }
 
 .backButton:hover {
-  background: #243040;
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .sectionTitle {
   margin: 12px 0 6px;
   font-size: 13px;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
   font-weight: 600;
 }
 
 .empty {
   margin: 4px 0;
-  color: #6c7683;
+  color: var(--dsw-alias-label-caption);
 }
 
 .faultNote {
   margin: 4px 0;
   padding: 4px 8px;
-  border: 1px solid #7a2f36;
-  background: #2a1518;
-  color: #e0a0a6;
+  border: 1px solid var(--dsw-alias-state-error-secondary);
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
   border-radius: 4px;
 }
 
@@ -81,8 +81,8 @@
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid #2c5a8a;
-  background: #12202f;
+  border: 1px solid var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-tertiary);
   border-radius: 6px;
 }
 
@@ -93,7 +93,7 @@
 /* ---- intervention board -------------------------------------------- */
 
 .ivBoard {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 8px 10px;
 }
@@ -108,7 +108,7 @@
 }
 
 .ivRow {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 6px 8px;
 }
@@ -120,7 +120,7 @@
 
 .ivMeta {
   margin: 2px 0;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .ivWsChips {
@@ -131,9 +131,9 @@
 }
 
 .wsChip {
-  background: #1c2430;
-  color: #8fb8e8;
-  border: 1px solid #2c3948;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-state-business-primary);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
   padding: 1px 8px;
   cursor: pointer;
@@ -141,7 +141,7 @@
 }
 
 .wsChip:hover {
-  background: #243040;
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .ivControls {
@@ -155,9 +155,9 @@
 .ivNote {
   flex: 1;
   min-width: 160px;
-  background: #0c1015;
-  color: #d8dee9;
-  border: 1px solid #2c3948;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 4px;
   padding: 3px 6px;
   font-size: 12px;
@@ -168,9 +168,9 @@
 .pfButtonSelect,
 .pfButtonDismiss,
 .restoreButton {
-  background: #1c2430;
-  color: #d8dee9;
-  border: 1px solid #2c3948;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 4px;
   padding: 3px 10px;
   cursor: pointer;
@@ -179,7 +179,7 @@
 
 .ivButtonClose,
 .pfButtonSelect {
-  border-color: #4a5a70;
+  border-color: var(--dsw-alias-border-l3);
 }
 
 .ivButton:hover,
@@ -187,7 +187,7 @@
 .pfButtonSelect:hover,
 .pfButtonDismiss:hover,
 .restoreButton:hover {
-  background: #243040;
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .ivButton:disabled,
@@ -202,7 +202,7 @@
 /* ---- planfork panel -------------------------------------------------- */
 
 .pfPanel {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 8px 10px;
 }
@@ -217,7 +217,7 @@
 }
 
 .pfRow {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 6px 8px;
 }
@@ -234,7 +234,7 @@
 }
 
 .pfMeta {
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
 
@@ -244,7 +244,7 @@
 
 .staleReason {
   margin: 2px 0;
-  color: #d8a04a;
+  color: var(--dsw-alias-state-warn-primary);
   font-size: 12px;
 }
 
@@ -257,9 +257,9 @@
 .checkpointHint {
   margin: 4px 0;
   padding: 6px 8px;
-  border: 1px solid #2c5a3a;
-  background: #10221a;
-  color: #9fd0ae;
+  border: 1px solid var(--dsw-alias-state-success-primary);
+  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--dsw-alias-state-success-primary);
   border-radius: 4px;
   font-size: 12px;
 }
@@ -267,13 +267,13 @@
 /* ---- git / checkpoint panel ------------------------------------------ */
 
 .gitPanel {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 8px 10px;
 }
 
 .contractPanel {
-  border-top: 1px dashed #232c38;
+  border-top: 1px dashed var(--dsw-alias-border-l1);
   padding-top: 6px;
 }
 
@@ -289,17 +289,17 @@
 }
 
 .contractVerdict[data-same='false'] {
-  color: #d8a04a;
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .contractVerdict[data-same='true'] {
-  color: #9fd0ae;
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .restoreResult {
   margin: 4px 0;
   font-size: 12px;
-  color: #9fd0ae;
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .versionList {
@@ -315,24 +315,24 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #1f2833;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 4px;
   padding: 3px 6px;
 }
 
 .versionOid {
   font-family: monospace;
-  color: #8fb8e8;
+  color: var(--dsw-alias-state-business-primary);
 }
 
 .versionSubject {
   flex: 1;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
 
 .versionDate {
-  color: #6c7683;
+  color: var(--dsw-alias-label-caption);
   font-size: 11px;
 }
 
@@ -377,14 +377,14 @@
 }
 
 .graphBox {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 6px;
   min-height: 220px;
 }
 
 .topologyBox {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 6px;
   min-height: 180px;
@@ -406,10 +406,10 @@
 }
 
 .objRow {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 6px 10px;
-  background: #141a22;
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .objStatement {
@@ -419,7 +419,7 @@
 .objMeta {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
   display: flex;
   gap: 6px;
   align-items: center;
@@ -427,18 +427,18 @@
 }
 
 .statusBadge[data-objective-status='ACTIVE'] {
-  color: #9fd0ae;
-  border-color: #2c5a3a;
+  color: var(--dsw-alias-state-success-primary);
+  border-color: var(--dsw-alias-state-success-primary);
 }
 
 .statusBadge[data-objective-status='ACHIEVED'] {
-  color: #8fb8e8;
-  border-color: #2c5a8a;
+  color: var(--dsw-alias-state-business-primary);
+  border-color: var(--dsw-alias-state-business-primary);
 }
 
 .statusBadge[data-objective-status='DROPPED'] {
-  color: #e0a0a6;
-  border-color: #7a2f36;
+  color: var(--dsw-alias-state-error-primary);
+  border-color: var(--dsw-alias-state-error-secondary);
 }
 
 .wsCardGrid {
@@ -453,16 +453,16 @@
   align-items: flex-start;
   gap: 4px;
   text-align: left;
-  background: #141a22;
-  color: #d8dee9;
-  border: 1px solid #232c38;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 8px 10px;
   cursor: pointer;
 }
 
 .wsCard:hover {
-  border-color: #3a4a5e;
+  border-color: var(--dsw-alias-border-l3);
 }
 
 .wsCardHead {
@@ -478,14 +478,14 @@
 
 .wsCardMeta {
   margin: 0;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
 
 /* ---- drill-down (claim / artifact / run / session) ---------------------- */
 
 .drilldown {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 8px 10px;
 }
@@ -499,7 +499,7 @@
 .groupTitle {
   margin: 8px 0 4px;
   font-size: 12px;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .card,
@@ -510,9 +510,9 @@
   gap: 3px;
   width: 100%;
   text-align: left;
-  background: #141a22;
-  color: #d8dee9;
-  border: 1px solid #232c38;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 8px 10px;
   cursor: pointer;
@@ -520,13 +520,13 @@
 }
 
 .card:hover {
-  border-color: #3a4a5e;
+  border-color: var(--dsw-alias-border-l3);
 }
 
 .cardSelected,
 .cardSelected:hover {
-  border-color: #4a90d9;
-  background: #152232;
+  border-color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-tertiary);
 }
 
 .cardHead {
@@ -547,22 +547,22 @@
 
 .cardMeta {
   margin: 0;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
 
 .typeBadge {
-  background: #1c2430;
-  border: 1px solid #2c3948;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 3px;
   padding: 0 6px;
   font-size: 11px;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .statusBadge {
-  background: #1c2430;
-  border: 1px solid #2c3948;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 3px;
   padding: 0 6px;
   font-size: 11px;
@@ -570,18 +570,18 @@
 
 .statusBadge[data-claim-status='RETRACTED'],
 .statusBadge[data-artifact-status='MISSING'] {
-  color: #e0a0a6;
-  border-color: #7a2f36;
+  color: var(--dsw-alias-state-error-primary);
+  border-color: var(--dsw-alias-state-error-secondary);
 }
 
 .statusBadge[data-pf-status='STALE'] {
-  color: #d8a04a;
-  border-color: #7a5a2f;
+  color: var(--dsw-alias-state-warn-primary);
+  border-color: var(--dsw-alias-state-warn-label);
 }
 
 .statusBadge[data-run-status='RUNNING'] {
-  color: #9fd0ae;
-  border-color: #2c5a3a;
+  color: var(--dsw-alias-state-success-primary);
+  border-color: var(--dsw-alias-state-success-primary);
 }
 
 /* ---- linked run panel ---------------------------------------------------- */
@@ -596,7 +596,7 @@
 }
 
 .runRow {
-  border: 1px solid #232c38;
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 6px 8px;
 }
@@ -609,21 +609,21 @@
 }
 
 .linkKinds {
-  color: #6c7683;
+  color: var(--dsw-alias-label-caption);
   font-size: 11px;
 }
 
 .runMeta {
   margin: 3px 0;
-  color: #9aa4b2;
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
 
 .sessionLink {
   align-self: flex-start;
-  background: #12202f;
-  color: #8fb8e8;
-  border: 1px solid #2c5a8a;
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+  border: 1px solid var(--dsw-alias-state-business-primary);
   border-radius: 4px;
   padding: 3px 10px;
   cursor: pointer;
@@ -631,11 +631,11 @@
 }
 
 .sessionLink:hover {
-  background: #182a3e;
+  background: var(--dsw-alias-interactive-bg-hover-accent);
 }
 
 .sessionAbsent {
   margin: 3px 0;
-  color: #6c7683;
+  color: var(--dsw-alias-label-caption);
   font-size: 12px;
 }

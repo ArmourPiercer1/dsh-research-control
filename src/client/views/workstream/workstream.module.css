@@ -16,16 +16,16 @@
 
 .page {
   /* Local token approximations (host light-theme neighbours). */
-  --rc-text: #1c2333;
-  --rc-text-muted: #5c6675;
-  --rc-surface: #ffffff;
-  --rc-surface-alt: #f4f6f9;
-  --rc-border: #d8dde5;
-  --rc-accent: #2f6bde;
-  --rc-accent-soft: #e9f0fc;
-  --rc-ok: #257a4e;
-  --rc-warn: #a06a12;
-  --rc-danger: #bd3f3f;
+  --rc-text: var(--dsw-alias-label-primary);
+  --rc-text-muted: var(--dsw-alias-label-secondary);
+  --rc-surface: var(--dsw-alias-bg-layer-1);
+  --rc-surface-alt: var(--dsw-alias-bg-base);
+  --rc-border: var(--dsw-alias-border-l2);
+  --rc-accent: var(--dsw-alias-state-business-primary);
+  --rc-accent-soft: var(--dsw-alias-state-business-tertiary);
+  --rc-ok: var(--dsw-alias-state-success-primary);
+  --rc-warn: var(--dsw-alias-state-warn-label);
+  --rc-danger: var(--dsw-alias-state-error-primary);
 
   box-sizing: border-box;
   color: var(--rc-text);
@@ -72,7 +72,7 @@
   padding: 8px 12px;
   border: 1px solid var(--rc-warn);
   border-radius: 6px;
-  background: #fbf6ec;
+  background: var(--dsw-alias-state-warn-tertiary);
   color: var(--rc-warn);
   font-size: 13px;
 }

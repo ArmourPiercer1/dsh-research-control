@@ -48,7 +48,7 @@ import { PLAN_GRAPH_STYLES as styles, ensureGraphStyles } from './graph-styles.j
  * Palette (mirrored by --rc-edge-* / --rc-kind-* in the CSS module)
  * -------------------------------------------------------------------- */
 
-const EDGE_CANONICAL = '#4b5563'
+const EDGE_CANONICAL = 'var(--dsw-alias-label-secondary)'
 const EDGE_FORK_OPEN = '#7c5cff'
 const EDGE_FORK_STALE = '#b3a8d9'
 

@@ -8,18 +8,18 @@
 
 .root {
   /* local token approximations (host tokens: bg surface, fg, accent, line, muted) */
-  --rc-bg: #ffffff;
-  --rc-fg: #1f2328;
-  --rc-muted: #59636e;
-  --rc-line: #d7dde3;
-  --rc-accent: #0b6bcb;
-  --rc-accent-soft: #e7f1fb;
-  --rc-danger: #b3261e;
-  --rc-danger-soft: #fdecea;
-  --rc-ok: #1a7f37;
-  --rc-ok-soft: #e6f4ea;
-  --rc-warn: #9a6700;
-  --rc-chip-bg: #eef1f4;
+  --rc-bg: var(--dsw-alias-bg-layer-1);
+  --rc-fg: var(--dsw-alias-label-primary);
+  --rc-muted: var(--dsw-alias-label-secondary);
+  --rc-line: var(--dsw-alias-border-l2);
+  --rc-accent: var(--dsw-alias-state-business-primary);
+  --rc-accent-soft: var(--dsw-alias-state-business-tertiary);
+  --rc-danger: var(--dsw-alias-state-error-primary);
+  --rc-danger-soft: var(--dsw-alias-interactive-bg-hover-danger);
+  --rc-ok: var(--dsw-alias-state-success-primary);
+  --rc-ok-soft: var(--dsw-alias-state-success-tertiary);
+  --rc-warn: var(--dsw-alias-state-warn-label);
+  --rc-chip-bg: var(--dsw-alias-bg-layer-2);
   --rc-radius: 6px;
 
   display: flex;
@@ -351,7 +351,7 @@
   border: 1px solid var(--rc-accent);
   border-radius: var(--rc-radius);
   background: var(--rc-accent);
-  color: #ffffff;
+  color: var(--dsw-alias-label-primary-foreground);
   font-size: 13px;
   cursor: pointer;
 }

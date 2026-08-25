@@ -92,7 +92,7 @@
 }
 
 .badgeTransient {
-  color: var(--rc-warning-primary);
+  color: var(--dsw-alias-state-warn-label);
   border-color: var(--rc-warning-secondary);
   background: var(--rc-warning-secondary);
 }
@@ -100,7 +100,7 @@
 .badgeRunning {
   color: var(--rc-success-primary);
   border-color: var(--rc-success-secondary);
-  background: var(--rc-success-secondary);
+  background: var(--dsw-alias-state-success-tertiary);
 }
 
 .badgeIdle {

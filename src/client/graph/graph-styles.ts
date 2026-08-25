@@ -212,7 +212,7 @@ export const GRAPH_BASE_CSS: string = [
   `
 .rc-pgv-pfStatusStale {
   background: var(--dsw-alias-state-warn-tertiary);
-  color: var(--rc-warn-primary);
+  color: var(--dsw-alias-state-warn-label);
 }
   `,
   `
@@ -599,7 +599,7 @@ export const GRAPH_BASE_CSS: string = [
   `,
   `
 .rc-tgv-wsMeta [data-open-pf] {
-  color: var(--rc-warn-primary);
+  color: var(--dsw-alias-state-warn-label);
 }
   `,
   `

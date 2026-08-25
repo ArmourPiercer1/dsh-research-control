@@ -244,7 +244,7 @@
 
 .staleReason {
   margin: 2px 0;
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-label);
   font-size: 12px;
 }
 
@@ -289,7 +289,7 @@
 }
 
 .contractVerdict[data-same='false'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-label);
 }
 
 .contractVerdict[data-same='true'] {
@@ -575,7 +575,7 @@
 }
 
 .statusBadge[data-pf-status='STALE'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-label);
   border-color: var(--dsw-alias-state-warn-label);
 }
 

@@ -39,6 +39,36 @@
  *    Interaction/ReportingItem/ScheduledEvent, Research Inbox) rides the
  *    wire as explicit `null` placeholder fields — NEVER fabricated values
  *    (the placeholder set is pinned by the strict schemas below).
+ *
+ * V2-T3.1 (design §12 / §12.1 — the contract layer of the research
+ * plane face; PURE CONTRACT, no host implementation logic — the
+ * `@Remote` method bodies, the service-port wiring, and the artifact
+ * registration land with T3.2):
+ *  - the 9 new plane RPCs of design §12 (getResearchPlaneState /
+ *    getHubOverview / getPortfolioInterventions / setHub / bindProject /
+ *    unbindProject / restoreProject / rescan / ackMissingReminder) are
+ *    added as `*Args`/`*Result` zod schemas + hand-written invocation
+ *    descriptors (`RESEARCH_PLANE_INVOCATIONS`), re-using the SAME
+ *    `descriptor()`/`argsParameter()` helpers and wire conventions as
+ *    the frozen 13. Every new method carries exactly ONE `args` json
+ *    parameter — including `getHubOverview`/`rescan`, whose request
+ *    object is the EMPTY strict object (the flat-parameter-face
+ *    convention, and the design's `{}` request shapes);
+ *  - the frozen 13 RESULT schemas are UNCHANGED (结果 schema 零改动).
+ *    Their 11 parameterized REQUEST schemas gain the OPTIONAL
+ *    `projectId` field (design §12.1 裁决 — the strict-schema
+ *    backward-compatible extension: an old caller that omits it parses
+ *    byte-identically). The two zero-arg queries (getDashboard /
+ *    getProject) have NO request object — they keep their frozen
+ *    zero-parameter wire face; §12.1 routing for them runs through the
+ *    omitted-id rule only (exactly one active project → it, otherwise a
+ *    clear error — `resolveProject`'s existing behavior);
+ *  - the `PLANE_*` named error family ({@link PlaneError} /
+ *    {@link PlaneErrorCode}) names every rejection branch of the new
+ *    face (the code rides in the message — the gateway folds business
+ *    errors to `{ ok: false, error: <message> }`, so the code in the
+ *    text is the machine-matchable carrier, the existing
+ *    `[${code}]`-in-message precedent).
  */
 
 import { z } from 'zod'
@@ -227,7 +257,20 @@ export const pingInvocation: InvocationDescriptorMirror = {
  * data is an explicit `null` placeholder (never fabricated).
  * ===================================================================== */
 
-/** The 13 frozen RPC method names (ARCHITECTURE.md §7.1, order preserved). */
+/**
+ * The 13 frozen RPC method names (ARCHITECTURE.md §7.1, order preserved).
+ *
+ * V2 §12.1 (实施期裁决): the 11 parameterized request schemas below gain
+ * the OPTIONAL `projectId` field (a strict-schema backward-compatible
+ * extension — a caller that omits it parses byte-identically, and the
+ * RESULT schemas of all 13 stay zero-touched). Resolution is the
+ * §12.1 rule (implemented by the discovery layer's `resolveProject`):
+ * explicit id → that project (absent / not active → a clear error);
+ * omitted → exactly one active project → it; omitted with several → a
+ * clear error listing the projects. The two zero-arg queries
+ * (getDashboard / getProject) have no request object and keep their
+ * frozen zero-parameter face (see the module header for the ruling).
+ */
 export const RESEARCH_RPC_METHODS = [
   'getDashboard',
   'getProject',
@@ -264,6 +307,20 @@ const idIntervention = z.string().regex(/^IV-[1-9][0-9]*$/)
 const idInteraction = z.string().regex(/^INT-[1-9][0-9]*$/)
 const idManagementAction = z.string().regex(/^MA-[1-9][0-9]*$/)
 const fullOid = z.string().regex(/^[0-9a-f]{40}$/)
+
+/**
+ * V2 project id (frozen `PRJ-[1-9][0-9]*` — the same pattern the T2.3
+ * registry kernel pins in `PROJECT_ID_PATTERN`; the §12.1 routing key
+ * and the plane-state project/missing entries).
+ */
+const idProject = z.string().regex(/^PRJ-[1-9][0-9]*$/)
+
+/**
+ * V2 workspace path (an absolute path — POSIX `/…`, Windows drive
+ * `C:\…` / `C:/…`, or UNC `\\…`; the T2.3 registry kernel mirrors the
+ * same `ABSOLUTE_PATH_PATTERN`: the registry stores exactly these).
+ */
+const absolutePath = z.string().regex(/^(?:[A-Za-z]:[\\/]|\\|\/)/)
 
 const attentionMode = z.enum(['FOCUS', 'NORMAL', 'BACKGROUND'])
 const wsLifecycle = z.enum(['PLANNED', 'REALIZED', 'DROPPED'])
@@ -550,11 +607,14 @@ export const ProjectSnapshotSchema = z
 
 export interface GetTopicArgs {
   readonly topicId: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const GetTopicArgsSchema = z
   .object({
     topicId: idTopic,
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -604,11 +664,14 @@ export const TopicSnapshotSchema = z
 
 export interface GetWorkstreamArgs {
   readonly workstreamId: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const GetWorkstreamArgsSchema = z
   .object({
     workstreamId: idWorkstream,
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -788,6 +851,8 @@ export interface QueryHistoryArgs {
   readonly beforeSeq?: number
   /** Page size in rows (caps the window at afterSeq + limit). */
   readonly limit?: number
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const QueryHistoryArgsSchema = z
@@ -797,6 +862,7 @@ export const QueryHistoryArgsSchema = z
     afterSeq: z.number().int().nonnegative().optional(),
     beforeSeq: z.number().int().positive().optional(),
     limit: z.number().int().positive().optional(),
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -878,12 +944,15 @@ export const QueryHistoryResultSchema = z
 export interface ReorderPlanArgs {
   readonly workstreamId: string
   readonly orderedItemIds: readonly string[]
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const ReorderPlanArgsSchema = z
   .object({
     workstreamId: idWorkstream,
     orderedItemIds: z.array(z.string().min(1)),
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -915,11 +984,14 @@ export const ReorderPlanResultSchema = z
 
 export interface SelectPlanForkArgs {
   readonly planForkId: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const SelectPlanForkArgsSchema = z
   .object({
     planForkId: idPlanFork,
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -966,11 +1038,14 @@ export const SelectPlanForkResultSchema = z
 
 export interface DismissPlanForkArgs {
   readonly planForkId: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const DismissPlanForkArgsSchema = z
   .object({
     planForkId: idPlanFork,
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -1004,6 +1079,8 @@ export interface UpdateInterventionStateArgs {
   readonly status: 'OPEN' | 'PENDING' | 'CLOSED'
   /** Only for `status: 'CLOSED'` (「关闭时用户填写」, DOMAIN_SCHEMA §9.2). */
   readonly resolutionNote?: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const UpdateInterventionStateArgsSchema = z
@@ -1011,6 +1088,7 @@ export const UpdateInterventionStateArgsSchema = z
     interventionId: idIntervention,
     status: ivStatus,
     resolutionNote: z.string().optional(),
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -1056,6 +1134,8 @@ export interface RegisterInteractionArgs {
   readonly participants?: readonly string[]
   readonly notes?: string
   readonly relatedWorkstreams?: readonly string[]
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const RegisterInteractionArgsSchema = z
@@ -1066,6 +1146,7 @@ export const RegisterInteractionArgsSchema = z
     participants: z.array(z.string().min(1)).optional(),
     notes: z.string().optional(),
     relatedWorkstreams: z.array(idWorkstream).optional(),
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -1109,11 +1190,14 @@ export const RegisterInteractionResultSchema = z
 export interface SaveResearchCheckpointArgs {
   /** The commit summary; the message is `research: <summary>` (§5). */
   readonly summary: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const SaveResearchCheckpointArgsSchema = z
   .object({
     summary: z.string().min(1),
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -1153,6 +1237,8 @@ export interface GetGitHistoryArgs {
   readonly maxCount?: number
   /** Skip the newest N versions (W6 pagination). */
   readonly skip?: number
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const GetGitHistoryArgsSchema = z
@@ -1161,6 +1247,7 @@ export const GetGitHistoryArgsSchema = z
     baseline: fullOid.optional(),
     maxCount: z.number().int().positive().max(1000).optional(),
     skip: z.number().int().nonnegative().optional(),
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -1229,12 +1316,15 @@ export interface RestoreDeclarativeFileArgs {
   readonly commitOid: string
   /** The file to restore (repo-root-relative, inside `.research/**`). */
   readonly path: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it; old callers stay compatible). */
+  readonly projectId?: string
 }
 
 export const RestoreDeclarativeFileArgsSchema = z
   .object({
     commitOid: fullOid,
     path: z.string().min(1),
+    projectId: idProject.optional(),
   })
   .strict()
 
@@ -1287,7 +1377,7 @@ function argsParameter(argsSymbol: string, schema: TypertSchemaLike): Invocation
   }
 }
 
-function descriptor(method: ResearchRpcMethod, parameters: readonly InvocationParameterMirror[], resultSymbol: string, resultSchema: TypertSchemaLike): InvocationDescriptorMirror {
+function descriptor(method: ResearchRpcMethod | ResearchPlaneRpcMethod, parameters: readonly InvocationParameterMirror[], resultSymbol: string, resultSchema: TypertSchemaLike): InvocationDescriptorMirror {
   return {
     id: `${RESEARCH_CONTROL_NAMESPACE}#${RESEARCH_CONTROL_NAMESPACE}/${method}`,
     service: RESEARCH_CONTROL_NAMESPACE,
@@ -1412,11 +1502,712 @@ export const RESEARCH_RPC_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
 ]
 
 /**
- * The FULL host-face invocation list (ping first — the WP-0.3 diagnostic
- * method stays the 14th — then the 13 §7.1 RPCs). Both artifact faces
- * (host `./typert`, client `./remote`) must expose exactly this set.
+ * The FULL invocation list of the FROZEN face (ping first — the WP-0.3
+ * diagnostic method stays the 14th — then the 13 §7.1 RPCs). This list is
+ * FROZEN: it names the V1 face exactly as ARCHITECTURE.md §7.1 froze it.
+ * V2-T3.2a: the artifact faces register the SUPERSET {@link
+ * REGISTERED_RESEARCH_INVOCATIONS} (frozen 14 + the 3 read-only plane
+ * RPCs) — the frozen 14 itself stays byte-identical.
  */
 export const ALL_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
   pingInvocation,
   ...RESEARCH_RPC_INVOCATIONS,
+]
+
+/* ===================================================================== *
+ * V2-T3.1 — the 9-RPC research plane face (design §12, 纯契约)
+ *
+ *   getResearchPlaneState · getHubOverview · getPortfolioInterventions
+ *   setHub · bindProject · unbindProject · restoreProject · rescan
+ *   ackMissingReminder
+ *
+ * Pure contract (this task): the zod schemas, the TS DTO mirrors, the
+ * PLANE_* error family, and the hand-written invocation descriptors.
+ * NO implementation logic — the `@Remote` method bodies, the service-
+ * port wiring (rpc-services.ts), the fs operation face, and the
+ * artifact-face registration (host `./typert` + client `./remote`)
+ * land with T3.2. Wire conventions are the SAME as the frozen 13:
+ * pure JSON DTOs, every object schema `zod .strict()`, epoch-ms time
+ * carriers, and — for every one of the 9 — exactly ONE `args` json
+ * parameter (the design's `{}` request shapes of getHubOverview /
+ * rescan are EMPTY strict objects; the flat parameter face is kept
+ * uniform instead of special-casing zero-param queries the frozen
+ * convention reserves for the two V1 no-arg methods).
+ * ===================================================================== */
+
+/** The 9 V2 plane RPC method names (design §12 table, order preserved). */
+export const RESEARCH_PLANE_RPC_METHODS = [
+  'getResearchPlaneState',
+  'getHubOverview',
+  'getPortfolioInterventions',
+  'setHub',
+  'bindProject',
+  'unbindProject',
+  'restoreProject',
+  'rescan',
+  'ackMissingReminder',
+] as const
+
+export type ResearchPlaneRpcMethod = (typeof RESEARCH_PLANE_RPC_METHODS)[number]
+
+/* -------------------------------------------------------------------- *
+ * The PLANE_* named error family (design §12 拒绝分支)
+ *
+ * The 9 plane RPCs reject through this closed code vocabulary (every
+ * rejection branch named by the design is a code, never a message-only
+ * throw). The gateway folds a host business error to
+ * `{ ok: false, error: <message> }` — the message text is the only wire
+ * carrier, so {@link PlaneError} embeds its code in the message (the
+ * existing `[${code}]`-in-message precedent) and the `code` field stays
+ * the structured read point host-side.
+ * -------------------------------------------------------------------- */
+
+/** The closed `PLANE_*` error-code vocabulary (one code per rejection branch). */
+export type PlaneErrorCode =
+  /** `setHub`: the plane already carries a hub at another workspace (design §5 引导卡「已有中枢」). */
+  | 'PLANE_HUB_EXISTS'
+  /** `setHub`: the target workspace already carries a `<hubDir>/` marker (it is itself a hub — 标记已存在). */
+  | 'PLANE_HUB_MARKER_EXISTS'
+  /** `setHub` / `bindProject` / `unbindProject`: the `wsPath` is not a registered DSH workspace. */
+  | 'PLANE_NOT_REGISTERED_WORKSPACE'
+  /** `bindProject`: the workspace already carries an ACTIVE registry entry (已是受管 — re-binding is refused, not a silent upsert). */
+  | 'PLANE_ALREADY_MANAGED'
+  /** `bindProject`: the target workspace is the hub workspace itself (中枢占用 — the hub is not a project). */
+  | 'PLANE_HUB_WORKSPACE'
+  /** `bindProject`: no `<treeDir>/` was discovered and `scaffold` is not `true` (nothing to register). */
+  | 'PLANE_TREE_MISSING'
+  /** `bindProject`: `scaffold` is `true` but a `<treeDir>/` already exists (the scaffold would clobber a live tree). */
+  | 'PLANE_TREE_EXISTS'
+  /** `unbindProject`: the workspace is not an active managed project (no entry / standalone / archived). */
+  | 'PLANE_NOT_MANAGED'
+  /** `restoreProject`: no ARCHIVED registry entry carries that project id (not a 解绑 tombstone). */
+  | 'PLANE_NOT_ARCHIVED'
+  /** `restoreProject`: the `<treeDir>.archived-<时间戳>` directory the entry was renamed to cannot be found on disk (目录找不回). */
+  | 'PLANE_ARCHIVED_DIR_MISSING'
+  /** `restoreProject`: the restore target `<treeDir>/` is already occupied (a live tree exists at the unbound path — 目标名被占). */
+  | 'PLANE_TARGET_NAME_TAKEN'
+  /** `ackMissingReminder`: the project id is not in the plane's MISSING set (nothing to defer — the dedup flag is for live MISSING entries only). */
+  | 'PLANE_NOT_MISSING'
+  /** `getResearchPlaneState`: the `sessionId` names no known session (the session segment is resolved from the host session registry). */
+  | 'PLANE_SESSION_UNKNOWN'
+
+/** The closed family as a list (pinned by the contract test — a dropped/renamed code fails the build). */
+export const PLANE_ERROR_CODES: readonly PlaneErrorCode[] = [
+  'PLANE_HUB_EXISTS',
+  'PLANE_HUB_MARKER_EXISTS',
+  'PLANE_NOT_REGISTERED_WORKSPACE',
+  'PLANE_ALREADY_MANAGED',
+  'PLANE_HUB_WORKSPACE',
+  'PLANE_TREE_MISSING',
+  'PLANE_TREE_EXISTS',
+  'PLANE_NOT_MANAGED',
+  'PLANE_NOT_ARCHIVED',
+  'PLANE_ARCHIVED_DIR_MISSING',
+  'PLANE_TARGET_NAME_TAKEN',
+  'PLANE_NOT_MISSING',
+  'PLANE_SESSION_UNKNOWN',
+]
+
+/**
+ * A plane-operation rejection (the design §12 拒绝分支). Thrown by the
+ * T3.2 implementation; the message is self-contained AND carries the
+ * code — it rides verbatim into the gateway's `{ ok: false, error }`
+ * fold, where the `PLANE_*` token is the client's machine-matchable
+ * rejection key (the client has no structured error channel).
+ */
+export class PlaneError extends Error {
+  readonly code: PlaneErrorCode
+
+  constructor(code: PlaneErrorCode, detail: string) {
+    super(`[research-control] ${code}: ${detail}`)
+    this.name = 'PlaneError'
+    this.code = code
+  }
+}
+
+/* -------------------------------------------------------------------- *
+ * Plane-state shared DTOs (the getResearchPlaneState / rescan core)
+ * -------------------------------------------------------------------- */
+
+/**
+ * One active plane project on the wire (MANAGED or STANDALONE — both
+ * carry a live tree; the §12.1 routable set). `displayName` is the
+ * registry entry's `displayName` (MANAGED) or the tree
+ * `project.yaml` title (STANDALONE — an unregistered tree has no
+ * registry entry to read it from).
+ */
+export interface PlaneProjectDto {
+  readonly projectId: string
+  readonly displayName: string
+  readonly kind: 'MANAGED' | 'STANDALONE'
+  readonly wsPath: string
+}
+
+export const PlaneProjectDtoSchema = z
+  .object({
+    projectId: idProject,
+    displayName: z.string(),
+    kind: z.enum(['MANAGED', 'STANDALONE']),
+    wsPath: absolutePath,
+  })
+  .strict()
+
+/**
+ * One MISSING registration on the wire (design §4: active entry whose
+ * tree was not discovered — 挂起，等待用户处置). `wsPath` is the entry's
+ * registered path (where the tree is expected); `deferred` is the
+ * 「推后处理」 runtime flag of THIS backend run (in-memory, never
+ * persisted — design §14).
+ */
+export interface PlaneMissingDto {
+  readonly projectId: string
+  readonly displayName: string
+  readonly wsPath: string
+  readonly deferred: boolean
+}
+
+export const PlaneMissingDtoSchema = z
+  .object({
+    projectId: idProject,
+    displayName: z.string(),
+    wsPath: absolutePath,
+    deferred: z.boolean(),
+  })
+  .strict()
+
+/**
+ * The plane state summary — design §4 step 6 汇总 as served on the
+ * wire: the hub, the configured directory names, the active projects,
+ * the MISSING set. This IS the `rescan` result, and the
+ * `getResearchPlaneState` result minus the caller-session segment
+ * (design §12: rescan 返回 plane 摘要 — 同 getResearchPlaneState 去掉
+ * session 段).
+ */
+export interface PlaneStateSummary {
+  readonly hub: { readonly path: string } | null
+  readonly dirNames: { readonly treeDir: string; readonly hubDir: string }
+  readonly projects: readonly PlaneProjectDto[]
+  readonly missing: readonly PlaneMissingDto[]
+}
+
+export const PlaneStateSummarySchema = z
+  .object({
+    hub: z
+      .object({ path: z.string().min(1) })
+      .strict()
+      .nullable(),
+    dirNames: z
+      .object({
+        treeDir: z.string().min(1),
+        hubDir: z.string().min(1),
+      })
+      .strict(),
+    projects: z.array(PlaneProjectDtoSchema),
+    missing: z.array(PlaneMissingDtoSchema),
+  })
+  .strict()
+
+/**
+ * The caller-session segment (design §5 角色解析与标签页分流 — the
+ * TAB-BODY role decision). `cwd` is the session's working directory
+ * (`null` ⟺ `role === 'NO_CWD'`); `hubTreeProjectId` is attached when
+ * `role === 'HUB'` — the project id of the hub workspace's OWN tree
+ * when it carries one (a hub that is also a project), `null` when the
+ * hub carries no tree — and omitted for every non-HUB session.
+ */
+export interface PlaneSessionDto {
+  readonly cwd: string | null
+  readonly role: 'HUB' | 'MANAGED' | 'STANDALONE' | 'UNREGISTERED' | 'NO_CWD'
+  readonly hubTreeProjectId?: string | null
+}
+
+export const PlaneSessionDtoSchema = z
+  .object({
+    cwd: z.string().nullable(),
+    role: z.enum(['HUB', 'MANAGED', 'STANDALONE', 'UNREGISTERED', 'NO_CWD']),
+    hubTreeProjectId: idProject.nullable().optional(),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * 1. getResearchPlaneState — plane state + caller-session role
+ *    (design §5 标签页分流与设置页①的唯一数据源; §12 row 1).
+ * -------------------------------------------------------------------- */
+
+export interface GetResearchPlaneStateArgs {
+  /**
+   * The calling session to resolve a `cwd`/role for (the client passes
+   * its own session id; the host reads the cwd from the session
+   * registry). Omitted → the result's `session` is `null` (the plane
+   * state without a caller — the 设置页① read).
+   */
+  readonly sessionId?: string
+}
+
+export const GetResearchPlaneStateArgsSchema = z
+  .object({
+    sessionId: z.string().min(1).optional(),
+  })
+  .strict()
+
+export interface GetResearchPlaneStateResult {
+  readonly hub: { readonly path: string } | null
+  readonly dirNames: { readonly treeDir: string; readonly hubDir: string }
+  readonly projects: readonly PlaneProjectDto[]
+  readonly missing: readonly PlaneMissingDto[]
+  /** `null` when `sessionId` was omitted (or names an unknown session — see {@link PlaneErrorCode} `PLANE_SESSION_UNKNOWN`; the T3.2 implementation decides the failure branch). */
+  readonly session: PlaneSessionDto | null
+}
+
+export const GetResearchPlaneStateResultSchema = z
+  .object({
+    hub: z
+      .object({ path: z.string().min(1) })
+      .strict()
+      .nullable(),
+    dirNames: z
+      .object({
+        treeDir: z.string().min(1),
+        hubDir: z.string().min(1),
+      })
+      .strict(),
+    projects: z.array(PlaneProjectDtoSchema),
+    missing: z.array(PlaneMissingDtoSchema),
+    session: PlaneSessionDtoSchema.nullable(),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * 2. getHubOverview — cross-project aggregation (design §7.1 总览 =
+ *    聚合条 + 项目卡墙; §12 row 2). The empty `{}` request is the
+ *    uniform single-`args`-parameter convention of the plane face.
+ * -------------------------------------------------------------------- */
+
+export interface GetHubOverviewArgs {}
+
+export const GetHubOverviewArgsSchema = z
+  .object({})
+  .strict()
+
+export interface HubOverviewResult {
+  /** 聚合条 (design §7.1): project count / open-intervention total / inbox total. */
+  readonly totals: {
+    readonly projects: number
+    readonly openInterventions: number
+    readonly inbox: number
+  }
+  /**
+   * The 「需关注」 row: ONLY the projects with open interventions
+   * (`openCount` is therefore positive — an empty row is an empty
+   * array, the host renders nothing for it, 无则整行不渲染).
+   * `oldestHours` = hours since the OLDEST open intervention of the
+   * project (the 「最旧 3 天」 display carrier).
+   */
+  readonly attention: readonly {
+    readonly projectId: string
+    readonly displayName: string
+    readonly openCount: number
+    readonly oldestHours: number
+  }[]
+  /** The card wall: one card per ACTIVE project (MANAGED + STANDALONE), all fields from existing data (零新增字段). */
+  readonly cards: readonly {
+    readonly projectId: string
+    readonly displayName: string
+    readonly title: string
+    readonly description: string | null
+    readonly attentionMode: 'FOCUS' | 'NORMAL' | 'BACKGROUND'
+    readonly targetDate: number | null
+    readonly openInterventions: number
+    readonly pendingInterventions: number
+    readonly topics: number
+    readonly inboxCount: number
+  }[]
+}
+
+export const HubOverviewResultSchema = z
+  .object({
+    totals: z
+      .object({
+        projects: z.number().int().nonnegative(),
+        openInterventions: z.number().int().nonnegative(),
+        inbox: z.number().int().nonnegative(),
+      })
+      .strict(),
+    attention: z
+      .array(
+        z
+          .object({
+            projectId: idProject,
+            displayName: z.string(),
+            /** Positive: an attention row without open interventions is never emitted (the host renders the row only when non-empty). */
+            openCount: z.number().int().positive(),
+            oldestHours: z.number().nonnegative(),
+          })
+          .strict(),
+      ),
+    cards: z
+      .array(
+        z
+          .object({
+            projectId: idProject,
+            displayName: z.string(),
+            title: z.string().min(1),
+            description: z.string().nullable(),
+            attentionMode,
+            targetDate: epochMs.nullable(),
+            openInterventions: z.number().int().nonnegative(),
+            pendingInterventions: z.number().int().nonnegative(),
+            topics: z.number().int().nonnegative(),
+            inboxCount: z.number().int().nonnegative(),
+          })
+          .strict(),
+      ),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * 3. getPortfolioInterventions — cross-project intervention list with
+ *    the projectId label (design §7.2 重要事件 + §12 row 3).
+ * -------------------------------------------------------------------- */
+
+export interface GetPortfolioInterventionsArgs {
+  /**
+   * Status filter; omitted → the design §7.2 default view (OPEN +
+   * PENDING — 待处理+待确认; CLOSED is folded away by default).
+   */
+  readonly status?: 'OPEN' | 'PENDING' | 'CLOSED'
+}
+
+export const GetPortfolioInterventionsArgsSchema = z
+  .object({
+    status: ivStatus.optional(),
+  })
+  .strict()
+
+/** One cross-project intervention (the InterventionDto fields + the project label, design §7.2 项目标签). */
+export interface PortfolioInterventionItemDto {
+  readonly projectId: string
+  readonly displayName: string
+  readonly id: string
+  readonly title: string
+  readonly origin: 'USER' | 'AGENT_REPORT' | 'AUTO_FLOODING' | 'AUTO_AUDIT'
+  readonly status: 'OPEN' | 'PENDING' | 'CLOSED'
+  readonly workstreamIds: readonly string[]
+  readonly createdAt: number
+}
+
+export const PortfolioInterventionItemDtoSchema = z
+  .object({
+    projectId: idProject,
+    displayName: z.string(),
+    id: idIntervention,
+    title: z.string().min(1),
+    origin: interventionOrigin,
+    status: ivStatus,
+    workstreamIds: z.array(idWorkstream),
+    createdAt: epochMs,
+  })
+  .strict()
+
+export interface GetPortfolioInterventionsResult {
+  readonly items: readonly PortfolioInterventionItemDto[]
+}
+
+export const GetPortfolioInterventionsResultSchema = z
+  .object({
+    items: z.array(PortfolioInterventionItemDtoSchema),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * 4. setHub — create the hub marker + an empty registry in a registered
+ *    workspace (design §8 设为中枢; §12 row 4).
+ * -------------------------------------------------------------------- */
+
+export interface SetHubArgs {
+  /** The workspace to turn into the hub (must be a registered DSH workspace, absolute path). */
+  readonly wsPath: string
+}
+
+export const SetHubArgsSchema = z
+  .object({
+    wsPath: absolutePath,
+  })
+  .strict()
+
+export interface SetHubResult {
+  /** The hub workspace path (= the requested `wsPath`, canonicalized). */
+  readonly hubPath: string
+  /** The created registry file: `<hubPath>/<hubDir>/registry.yaml`. */
+  readonly registryPath: string
+}
+
+export const SetHubResultSchema = z
+  .object({
+    hubPath: z.string().min(1),
+    registryPath: z.string().min(1),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * 5. bindProject — register a project in the hub (design §8 接入;
+ *    §12 row 5): scaffold option, display name, and the internal db
+ *    migration (an existing standalone db moves to the hub — Q9 推论 1,
+ *    never copied).
+ * -------------------------------------------------------------------- */
+
+export interface BindProjectArgs {
+  /** The workspace to register (must be a registered DSH workspace, absolute path). */
+  readonly wsPath: string
+  /** The registry entry's display name; omitted → the host default (the folder name, design §8 弹窗收集). */
+  readonly displayName?: string
+  /** `true` → scaffold a minimal tree when none exists; `false`/omitted → a discovered tree is REQUIRED (else `PLANE_TREE_MISSING`). A scaffold never clobbers an existing tree (else `PLANE_TREE_EXISTS`). */
+  readonly scaffold?: boolean
+}
+
+export const BindProjectArgsSchema = z
+  .object({
+    wsPath: absolutePath,
+    displayName: z.string().min(1).optional(),
+    scaffold: z.boolean().optional(),
+  })
+  .strict()
+
+export interface BindProjectResult {
+  readonly projectId: string
+  /**
+   * The registry file the entry was appended to. `null` when the plane
+   * has NO hub (design §8 接入（无中枢）: the standalone flow creates the
+   * tree and the db in `<treeDir>/state/` — there is no registry to
+   * append to; the plane state then shows the project as STANDALONE).
+   */
+  readonly registryPath: string | null
+  /** Whether an existing standalone db was MIGRATED into the hub (design §9 收编 — move, verify, then delete the source; never a copy). */
+  readonly dbMigrated: boolean
+}
+
+export const BindProjectResultSchema = z
+  .object({
+    projectId: idProject,
+    registryPath: z.string().min(1).nullable(),
+    dbMigrated: z.boolean(),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * 6. unbindProject — archive the entry + rename the tree away
+ *    (design §8 解除绑定; §12 row 6): the entry goes `archived`
+ *    (never deleted), `<treeDir>/` is renamed
+ *    `<treeDir>.archived-<时间戳>`, the hub db is kept.
+ * -------------------------------------------------------------------- */
+
+export interface UnbindProjectArgs {
+  /** The bound project's workspace (absolute path; the entry is located by path, the result names its id). */
+  readonly wsPath: string
+}
+
+export const UnbindProjectArgsSchema = z
+  .object({
+    wsPath: absolutePath,
+  })
+  .strict()
+
+export interface UnbindProjectResult {
+  readonly projectId: string
+  /** The absolute path of the RENAMED tree directory (`<treeDir>.archived-<时间戳>` — the symmetric restore target, design §7.4 「恢复登记」). */
+  readonly archivedDir: string
+}
+
+export const UnbindProjectResultSchema = z
+  .object({
+    projectId: idProject,
+    archivedDir: z.string().min(1),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * 7. restoreProject — revive an archived entry (design §7.4 「恢复登记」
+ *    + §8; §12 row 7): the entry goes `active`, the db re-attaches,
+ *    and the plugin renames `<treeDir>.archived-<时间戳>` BACK to
+ *    `<treeDir>/` (与解绑对称).
+ * -------------------------------------------------------------------- */
+
+export interface RestoreProjectArgs {
+  /** The archived entry's project id (a live project id is refused — restore is for 解绑 tombstones only). */
+  readonly projectId: string
+}
+
+export const RestoreProjectArgsSchema = z
+  .object({
+    projectId: idProject,
+  })
+  .strict()
+
+export interface RestoreProjectResult {
+  /** The project's workspace path (the entry's registered path, where the tree was renamed back). */
+  readonly wsPath: string
+}
+
+export const RestoreProjectResultSchema = z
+  .object({
+    wsPath: z.string().min(1),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * 8. rescan — re-run discovery & reconciliation (design §4 as an RPC:
+ *    the §7.5 two-phase settings-save transaction AND the 设置页
+ *    「重扫并连接」 share this; §12 row 8). Result = the plane summary
+ *    (the getResearchPlaneState result WITHOUT the session segment).
+ * -------------------------------------------------------------------- */
+
+export interface RescanArgs {}
+
+export const RescanArgsSchema = z
+  .object({})
+  .strict()
+
+/** The rescan result: the plane summary, verbatim (no session segment). */
+export type RescanResult = PlaneStateSummary
+
+export const RescanResultSchema = PlaneStateSummarySchema
+
+/* -------------------------------------------------------------------- *
+ * 9. ackMissingReminder — 「推后处理」 runtime flag set (design §4
+ *    MISSING 处置; §12 row 9): the dedup flag is in-memory for THIS
+ *    backend run (design §14 — a restart restores the reminder).
+ * -------------------------------------------------------------------- */
+
+export interface AckMissingReminderArgs {
+  /** The MISSING entry's project id (an id outside the MISSING set is refused with `PLANE_NOT_MISSING`). */
+  readonly projectId: string
+}
+
+export const AckMissingReminderArgsSchema = z
+  .object({
+    projectId: idProject,
+  })
+  .strict()
+
+export interface AckMissingReminderResult {
+  readonly acknowledged: true
+}
+
+export const AckMissingReminderResultSchema = z
+  .object({
+    acknowledged: z.literal(true),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * The 9 hand-written InvocationDescriptors (same conventions as the
+ * frozen 13: id grammar `<serviceKey>#<namespace>/<method>`, direct
+ * receiver, one `args` json parameter, strict codecs, no cancellation).
+ * -------------------------------------------------------------------- */
+
+export const getResearchPlaneStateInvocation: InvocationDescriptorMirror = descriptor(
+  'getResearchPlaneState',
+  [argsParameter('GetResearchPlaneStateArgs', GetResearchPlaneStateArgsSchema)],
+  'GetResearchPlaneStateResult',
+  GetResearchPlaneStateResultSchema,
+)
+
+export const getHubOverviewInvocation: InvocationDescriptorMirror = descriptor(
+  'getHubOverview',
+  [argsParameter('GetHubOverviewArgs', GetHubOverviewArgsSchema)],
+  'HubOverviewResult',
+  HubOverviewResultSchema,
+)
+
+export const getPortfolioInterventionsInvocation: InvocationDescriptorMirror = descriptor(
+  'getPortfolioInterventions',
+  [argsParameter('GetPortfolioInterventionsArgs', GetPortfolioInterventionsArgsSchema)],
+  'GetPortfolioInterventionsResult',
+  GetPortfolioInterventionsResultSchema,
+)
+
+export const setHubInvocation: InvocationDescriptorMirror = descriptor(
+  'setHub',
+  [argsParameter('SetHubArgs', SetHubArgsSchema)],
+  'SetHubResult',
+  SetHubResultSchema,
+)
+
+export const bindProjectInvocation: InvocationDescriptorMirror = descriptor(
+  'bindProject',
+  [argsParameter('BindProjectArgs', BindProjectArgsSchema)],
+  'BindProjectResult',
+  BindProjectResultSchema,
+)
+
+export const unbindProjectInvocation: InvocationDescriptorMirror = descriptor(
+  'unbindProject',
+  [argsParameter('UnbindProjectArgs', UnbindProjectArgsSchema)],
+  'UnbindProjectResult',
+  UnbindProjectResultSchema,
+)
+
+export const restoreProjectInvocation: InvocationDescriptorMirror = descriptor(
+  'restoreProject',
+  [argsParameter('RestoreProjectArgs', RestoreProjectArgsSchema)],
+  'RestoreProjectResult',
+  RestoreProjectResultSchema,
+)
+
+export const rescanInvocation: InvocationDescriptorMirror = descriptor(
+  'rescan',
+  [argsParameter('RescanArgs', RescanArgsSchema)],
+  'PlaneStateSummary',
+  RescanResultSchema,
+)
+
+export const ackMissingReminderInvocation: InvocationDescriptorMirror = descriptor(
+  'ackMissingReminder',
+  [argsParameter('AckMissingReminderArgs', AckMissingReminderArgsSchema)],
+  'AckMissingReminderResult',
+  AckMissingReminderResultSchema,
+)
+
+/**
+ * The 9 V2 plane invocation descriptors (order = the design §12 table).
+ * CONTRACT-ONLY in T3.1: both artifact faces gain these together with
+ * the `@Remote` method bodies in T3.2 (the WP-0.3 no-drift-by-
+ * construction rule then extends to the 23-endpoint face — the
+ * descriptors are the SAME shared objects on both faces).
+ */
+export const RESEARCH_PLANE_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
+  getResearchPlaneStateInvocation,
+  getHubOverviewInvocation,
+  getPortfolioInterventionsInvocation,
+  setHubInvocation,
+  bindProjectInvocation,
+  unbindProjectInvocation,
+  restoreProjectInvocation,
+  rescanInvocation,
+  ackMissingReminderInvocation,
+]
+
+/**
+ * V2-T3.2a — the REGISTERED invocation face of both artifact halves
+ * (host `./typert` + client `./remote`): the frozen 14 ({@link
+ * ALL_RESEARCH_INVOCATIONS}) + the 3 READ-ONLY plane RPCs (design §12
+ * rows 1-3) whose `@Remote` method bodies and artifact registration land
+ * this task. Both faces must expose EXACTLY this set (the WP-0.3
+ * no-drift-by-construction rule).
+ *
+ * Registration-face evidence (for the T6.3 README update): the frozen
+ * doc names 13 RPCs; design §12 adds 9 — the full V2 business face is
+ * 22 RPCs (23 with ping). T3.2a registers 13 + 3 = 16 business RPCs
+ * (17 with ping); the 6 change-family plane RPCs (setHub / bindProject /
+ * unbindProject / restoreProject / rescan / ackMissingReminder) stay
+ * contract-only — their descriptors above land in this face only with
+ * their implementation tasks (the @Remote bodies do not exist yet —
+ * registering a descriptor without its method would break the gateway
+ * dispatch).
+ */
+export const REGISTERED_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
+  ...ALL_RESEARCH_INVOCATIONS,
+  getResearchPlaneStateInvocation,
+  getHubOverviewInvocation,
+  getPortfolioInterventionsInvocation,
 ]

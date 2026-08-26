@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   RESEARCH_CONTROL_PACKAGE,
-  RESEARCH_RPC_INVOCATIONS,
+  REGISTERED_RESEARCH_INVOCATIONS,
   RESEARCH_RPC_METHODS,
 } from '../../src/shared/rpc-contracts.js'
 
@@ -26,9 +26,15 @@ const libDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'lib')
 const hostArtifact = join(libDir, 'typert.host.js')
 const clientArtifact = join(libDir, 'typert.remote-client.js')
 
-const METHODS = ['ping', ...RESEARCH_RPC_METHODS]
+const METHODS = [
+  'ping',
+  ...RESEARCH_RPC_METHODS,
+  'getResearchPlaneState',
+  'getHubOverview',
+  'getPortfolioInterventions',
+]
 
-describe('WP-4.1a build artifacts — the full 14-endpoint descriptor face', () => {
+describe('WP-4.1a build artifacts — the full 17-endpoint registered descriptor face (V2-T3.2a)', () => {
   it('the build artifacts exist (run `pnpm run build` before the suite)', () => {
     for (const p of [hostArtifact, clientArtifact]) {
       expect(existsSync(p), `missing ${p} — run \`pnpm run build\``).toBe(true)
@@ -62,7 +68,7 @@ describe('WP-4.1a build artifacts — the full 14-endpoint descriptor face', () 
     expect(t.face).toBe('host')
     expect(t.invocations.map((i) => i.method)).toEqual(METHODS)
     // Structural match against the src descriptors: id + arity per method.
-    for (const src of RESEARCH_RPC_INVOCATIONS) {
+    for (const src of REGISTERED_RESEARCH_INVOCATIONS) {
       const built = t.invocations.find((i) => i.method === src.method)
       expect(built, `built descriptor for ${src.method}`).toBeDefined()
       expect(built!.id).toBe(src.id)
@@ -72,13 +78,13 @@ describe('WP-4.1a build artifacts — the full 14-endpoint descriptor face', () 
       expect(built!.result.mode).toBe('strict')
       expect('_zod' in (built!.result.schema as object), `${src.method} result codec zod brand`).toBe(true)
     }
-    expect(t.schemas).toHaveLength(25)
+    expect(t.schemas).toHaveLength(31)
     const [service] = t.model.services
     expect(service.key).toBe('researchControl')
     expect(service.members.map((m) => m.name)).toEqual(METHODS)
   })
 
-  it('lib/typert.remote-client.js researchRemotes carries the same 14 descriptors', async () => {
+  it('lib/typert.remote-client.js researchRemotes carries the same 17 descriptors', async () => {
     const mod = (await import(clientArtifact)) as {
       default: {
         package: string
@@ -93,7 +99,7 @@ describe('WP-4.1a build artifacts — the full 14-endpoint descriptor face', () 
     const remotes = mod.default
     expect(remotes.package).toBe(RESEARCH_CONTROL_PACKAGE)
     expect(remotes.descriptors.map((d) => d.method)).toEqual(METHODS)
-    for (const src of RESEARCH_RPC_INVOCATIONS) {
+    for (const src of REGISTERED_RESEARCH_INVOCATIONS) {
       const built = remotes.descriptors.find((d) => d.method === src.method)
       expect(built, `built client descriptor for ${src.method}`).toBeDefined()
       expect(built!.id).toBe(src.id)

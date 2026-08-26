@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest'
 import { ResearchControlService } from '../../src/host/dsh-adapter/host/index.js'
 import {
   ALL_RESEARCH_INVOCATIONS,
+  REGISTERED_RESEARCH_INVOCATIONS,
   type ResearchRpcMethod,
 } from '../../src/shared/rpc-contracts.js'
 
@@ -51,7 +52,29 @@ describe('WP-4.1a RR-006 arity — descriptor parameter face == method signature
     ])
   })
 
-  for (const descriptor of ALL_RESEARCH_INVOCATIONS) {
+  it('V2-T3.2a: the REGISTERED face is the frozen 14 + the 3 read-only plane RPCs (in order)', () => {
+    expect(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method)).toEqual([
+      'ping',
+      'getDashboard',
+      'getProject',
+      'getTopic',
+      'getWorkstream',
+      'queryHistory',
+      'reorderPlan',
+      'selectPlanFork',
+      'dismissPlanFork',
+      'updateInterventionState',
+      'registerInteraction',
+      'saveResearchCheckpoint',
+      'getGitHistory',
+      'restoreDeclarativeFile',
+      'getResearchPlaneState',
+      'getHubOverview',
+      'getPortfolioInterventions',
+    ])
+  })
+
+  for (const descriptor of REGISTERED_RESEARCH_INVOCATIONS) {
     it(`descriptor parameter face == method signature arity: ${descriptor.method}`, () => {
       const fn = (svc as unknown as Record<string, unknown>)[descriptor.method]
       expect(typeof fn, `service method ${descriptor.method} must exist`).toBe('function')

@@ -2,6 +2,8 @@
  * V2-T4.1 — Research shell (角色分流 + 标签壳 — design §5/§6).
  * V2-T4.2 — 引导卡 two-state button logic (design §5 引导卡状态表) + the
  * 设为中枢 / 接入 flows (design §8 关键交互流程).
+ * V2-T4.3 — MISSING four-action modal (design §4 四选一弹窗 — see
+ * ./missing-modal.tsx for the pinned contract + the runtime dedup rule).
  *
  * The registered 研究 tab body, replacing the bare `ResearchCockpit` as the
  * slot component (the tab registration itself — id/order/label — is
@@ -39,6 +41,19 @@
  *  - NO_CWD       → 引导卡 收窄文案「本会话未关联工作区」, buttons disabled
  *                   (the disabled narrow variant — T4.2 keeps it inert).
  *
+ * MISSING modal (V2-T4.3, design §4 — 挂起，等待用户处置): orthogonal to
+ * the five branches — the plane state carries the MISSING set regardless
+ * of the session role. On the FIRST ready render whose `plane.missing`
+ * has at least one entry with `deferred === false` (the LIVE entries —
+ * the pinned client-visible dedup rule, ./missing-modal.tsx), the shell
+ * pops the 四选一 modal over whatever branch renders (恢复 → rescan /
+ * 重初始化 → bindProject / 移除登记 → unbindProject / 推后 →
+ * ackMissingReminder). Any successful action closes the modal and
+ * re-fetches the plane state; a re-fetch that still carries live
+ * (non-deferred) entries re-pops for THOSE entries — an acked entry is
+ * filtered out by its host-side `deferred: true` flag, so the second
+ * render in the same runtime never re-pops for it (the dedup gate).
+ *
  * The `session === null` outcome (the fetch was made without a resolvable
  * caller — the framework could not resolve a sessionId) is routed to the
  * NO_CWD narrowing: the same card without a caller workspace, not a
@@ -55,14 +70,21 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type {
+  AckMissingReminderArgs,
+  AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
   GetResearchPlaneStateResult,
   PlaneSessionDto,
+  RescanArgs,
+  RescanResult,
   SetHubArgs,
   SetHubResult,
+  UnbindProjectArgs,
+  UnbindProjectResult,
 } from '../../../shared/rpc-contracts.js'
 import { ResearchCockpit } from '../drilldown/cockpit.js'
+import { MissingModal } from './missing-modal.js'
 import styles from './shell.module.css'
 
 /**
@@ -103,6 +125,37 @@ export interface ResearchShellProps {
    * renders). Rejects on any failure (the card shows the error and stays).
    */
   readonly bindProject: (args: BindProjectArgs) => Promise<BindProjectResult>
+  /**
+   * The injected 恢复 mutation (design §4 MISSING 处置 → `rescan`, §12 row
+   * 8). The MISSING modal's 恢复 action re-runs discovery & reconciliation
+   * (the tree may have come back); on success the modal closes and the
+   * shell RE-FETCHES the plane state (a recovered tree flips the entry to
+   * MANAGED and it drops out of the MISSING set). Rejects on any failure
+   * (the modal shows the error and stays open).
+   */
+  readonly rescan: (args: RescanArgs) => Promise<RescanResult>
+  /**
+   * The injected 移除登记 mutation (design §4 MISSING 处置 → `unbindProject`,
+   * §12 row 6). The MISSING modal's 移除登记 action archives the registry
+   * entry (归档口径 — NEVER deleted; the entry goes `archived`, the hub db
+   * is kept). The wire takes the entry's registered `wsPath`. On success
+   * the modal closes and the shell re-fetches (the archived entry drops
+   * out of the MISSING set). Rejects on any failure (the modal shows the
+   * error and stays open).
+   */
+  readonly unbindProject: (args: UnbindProjectArgs) => Promise<UnbindProjectResult>
+  /**
+   * The injected 推后 mutation (design §4 MISSING 处置 → `ackMissingReminder`,
+   * §12 row 9). The MISSING modal's 推后 action sets the 「推后处理」
+   * RUNTIME DEDUP flag: the host adds the id to the in-memory
+   * `deferredReminders` set (never persisted — a backend restart restores
+   * the reminder, design §14). The entry stays in `missing` with its
+   * `deferred` flag flipped to `true`, so the re-fetch filters it out and
+   * the second render in the same runtime does NOT re-pop for it. On
+   * success the modal closes and the shell re-fetches. Rejects on any
+   * failure (the modal shows the error and stays open).
+   */
+  readonly ackMissingReminder: (args: AckMissingReminderArgs) => Promise<AckMissingReminderResult>
 }
 
 /** The shell's fetch lifecycle (the loading / failed / ready faces). */
@@ -138,6 +191,12 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
   // binding never leaks a stale closure into the effect.
   const loadRef = useRef(props.loadPlaneState)
   loadRef.current = props.loadPlaneState
+  // V2-T4.3 (design §4): the 四选一 modal's open state. The pop effect
+  // below opens it on the FIRST ready render carrying a live (non-deferred)
+  // missing entry; a successful action is the ONLY closer (onResolved —
+  // close + re-fetch; there is no plain dismiss, the entry is 挂起，等待
+  // 用户处置, and 推后 is the 「not now」 path).
+  const [missingOpen, setMissingOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -168,6 +227,21 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
       cancelled = true
     }
   }, [generation])
+
+  // V2-T4.3 (design §4): POP the four-action modal on the first ready
+  // render that carries a live missing entry — the pinned client-visible
+  // dedup rule: an entry is live while `deferred === false`; 推后 flips
+  // the flag on the host (runtime set, no rescan needed), so the
+  // post-ack re-fetch filters the entry out and the same runtime never
+  // re-pops for it. A re-fetch that still carries live entries (the user
+  // acted on a different entry) re-pops for THOSE (module header).
+  useEffect(() => {
+    if (phase === 'ready' && plane !== null && missingOpen === false) {
+      if (plane.missing.some((m) => m.deferred === false)) {
+        setMissingOpen(true)
+      }
+    }
+  }, [phase, plane, missingOpen])
 
   /**
    * The post-mutation RE-FETCH (T4.2): after setHub/bindProject succeeded,
@@ -217,20 +291,28 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
   const effective: PlaneSessionDto =
     session === null ? { cwd: null, role: 'NO_CWD' } : session
 
+  // V2-T4.3 (design §4): the LIVE missing entries — `deferred === false`
+  // (the pinned dedup rule; the modal module header documents the host
+  // contract behind the flag).
+  const liveMissing = plane.missing.filter((m) => m.deferred === false)
+
+  let branch: ReactElement
   switch (effective.role) {
     case 'HUB':
-      return <HubConsoleFrame />
+      branch = <HubConsoleFrame />
+      break
     case 'MANAGED':
     case 'STANDALONE':
       // Project-narrowed console (design §5: 同构收窄控制台). P5 reshapes
       // the cockpit per role; today it receives exactly what it needs.
-      return (
+      branch = (
         <div className={styles.shell} data-role={effective.role} data-cwd={effective.cwd ?? undefined}>
           <ResearchCockpit sessionId={props.sessionId} />
         </div>
       )
+      break
     case 'UNREGISTERED':
-      return (
+      branch = (
         <OnboardingCard
           wsPath={effective.cwd}
           hub={plane.hub}
@@ -240,9 +322,43 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           onApplied={refresh}
         />
       )
+      break
     case 'NO_CWD':
-      return <OnboardingCard narrowed wsPath={null} hub={plane.hub} dirNames={plane.dirNames} setHub={props.setHub} bindProject={props.bindProject} onApplied={refresh} />
+      branch = <OnboardingCard narrowed wsPath={null} hub={plane.hub} dirNames={plane.dirNames} setHub={props.setHub} bindProject={props.bindProject} onApplied={refresh} />
+      break
+    default: {
+      // Exhaustive pin: the §5 role union is closed — a new role without a
+      // branch is a type error here.
+      const exhaustive: never = effective.role
+      branch = exhaustive
+      break
+    }
   }
+
+  return (
+    <>
+      {branch}
+      {/* V2-T4.3: the 四选一 modal overlays whatever branch renders (the
+          MISSING set is plane-level, not session-role-level). It only
+          shows while at least one live entry remains — a re-fetch that
+          clears them unmounts it. */}
+      {missingOpen && liveMissing.length > 0 && (
+        <MissingModal
+          entries={liveMissing}
+          rescan={props.rescan}
+          bindProject={props.bindProject}
+          unbindProject={props.unbindProject}
+          ackMissingReminder={props.ackMissingReminder}
+          onResolved={() => {
+            // Success tail: close the modal AND re-fetch the plane state
+            // (the underlying branch re-renders over the fresh state).
+            setMissingOpen(false)
+            refresh()
+          }}
+        />
+      )}
+    </>
+  )
 }
 
 /**

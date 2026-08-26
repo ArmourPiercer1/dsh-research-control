@@ -66,9 +66,23 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
   // inert resolvers keep this file focused on the routing.
   const setHub = vi.fn(async () => ({ hubPath: '/workspace/unregistered', registryPath: '/workspace/unregistered/.research-control/registry.yaml' }))
   const bindProject = vi.fn(async () => ({ projectId: 'PRJ-9', registryPath: null, dbMigrated: false }))
+  // T4.3: the shell requires the three MISSING-modal mutation faces. The
+  // routing fixtures here carry NO missing entries (`missing: []`), so the
+  // modal never pops and the inert resolvers stay inert.
+  const rescan = vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [] }))
+  const unbindProject = vi.fn(async () => ({ projectId: 'PRJ-9', archivedDir: '/workspace/.research-control/archived/PRJ-9' }))
+  const ackMissingReminder = vi.fn(async () => ({ acknowledged: true }))
   render(
     <StrictMode>
-      <ResearchShell sessionId={sessionId} loadPlaneState={loadPlaneState} setHub={setHub} bindProject={bindProject} />
+      <ResearchShell
+        sessionId={sessionId}
+        loadPlaneState={loadPlaneState}
+        setHub={setHub}
+        bindProject={bindProject}
+        rescan={rescan}
+        unbindProject={unbindProject}
+        ackMissingReminder={ackMissingReminder}
+      />
     </StrictMode>,
   )
 }

@@ -18,11 +18,17 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
+  AckMissingReminderArgs,
+  AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
   GetResearchPlaneStateResult,
+  RescanArgs,
+  RescanResult,
   SetHubArgs,
   SetHubResult,
+  UnbindProjectArgs,
+  UnbindProjectResult,
 } from '../../shared/rpc-contracts.js'
 import { ResearchShell, type ResearchShellProps } from '../views/shell/index.js'
 import { researchRpc } from './remote/mount.js'
@@ -90,9 +96,12 @@ export type ResearchClientContext = Context & { slots: SlotService }
  * The injected face is the apply-world → view channel (client/AGENTS.md
  * rule 7 — plain data and callbacks only): it wraps the mounted
  * `researchRpc` facade's plane-state call and (V2-T4.2, design §8) the two
- * onboarding mutations — `setHub` (设为中枢) and `bindProject` (接入) —
- * and folds the carrier's `ok: false` branch into a plain rejection, so
- * the DSH-free view (views/ — INV-PERM-5) never sees a `RemoteResult`.
+ * onboarding mutations — `setHub` (设为中枢) and `bindProject` (接入) — and
+ * (V2-T4.3, design §4 MISSING 处置) the 四选一 modal's mutations — `rescan`
+ * (恢复), `unbindProject` (移除登记), and `ackMissingReminder` (推后, the
+ * runtime dedup flag) — and folds the carrier's `ok: false` branch into a
+ * plain rejection, so the DSH-free view (views/ — INV-PERM-5) never sees a
+ * `RemoteResult`.
  *
  * The registration rides the slot service's `inject` wrapper, so a late
  * slot declaration is tolerated and plugin unload removes the tab
@@ -109,7 +118,15 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
         label: () => '研究',
         inject: (
           sessionId: string,
-        ): Pick<ResearchShellProps, 'loadPlaneState' | 'setHub' | 'bindProject'> => ({
+        ): Pick<
+          ResearchShellProps,
+          | 'loadPlaneState'
+          | 'setHub'
+          | 'bindProject'
+          | 'rescan'
+          | 'unbindProject'
+          | 'ackMissingReminder'
+        > => ({
           loadPlaneState: async (): Promise<GetResearchPlaneStateResult> => {
             const result = await researchRpc.getResearchPlaneState({ sessionId })
             if (!result.ok) {
@@ -139,6 +156,40 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
             if (!result.ok) {
               throw new Error(
                 `research shell: bindProject failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-T4.3 (design §4 MISSING 处置): the 四选一 modal's 恢复 action —
+          // re-run discovery & reconciliation (the tree may have come back).
+          // The same face the 设置页 「重扫并连接」 shares (§12 row 8).
+          rescan: async (args: RescanArgs): Promise<RescanResult> => {
+            const result = await researchRpc.rescan(args)
+            if (!result.ok) {
+              throw new Error(`research shell: rescan failed — ${result.error.code}: ${result.error.message}`)
+            }
+            return result.value
+          },
+          // V2-T4.3: the modal's 移除登记 action (归档口径 — the registry
+          // entry goes `archived`, never deleted). The same face the 设置页
+          // 解绑 flow shares (§12 row 6).
+          unbindProject: async (args: UnbindProjectArgs): Promise<UnbindProjectResult> => {
+            const result = await researchRpc.unbindProject(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: unbindProject failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-T4.3: the modal's 推后 action — the 「推后处理」 runtime dedup
+          // flag set (in-memory for this backend run; a restart restores
+          // the reminder, design §14). §12 row 9.
+          ackMissingReminder: async (args: AckMissingReminderArgs): Promise<AckMissingReminderResult> => {
+            const result = await researchRpc.ackMissingReminder(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: ackMissingReminder failed — ${result.error.code}: ${result.error.message}`,
               )
             }
             return result.value

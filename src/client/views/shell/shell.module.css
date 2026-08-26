@@ -9,7 +9,12 @@
  * the host shell and standalone.
  */
 
-.shell {
+/* The .shell root AND the .missingModal overlay carry the local token
+   block: the 四选一 modal (V2-T4.3) renders as a SIBLING of the branch's
+   .shell div (it overlays whichever §5 branch is active), so the tokens
+   must resolve on the overlay subtree too. */
+.shell,
+.missingModal {
   /* --rc-* local tokens → host --dsw-* aliases when present (fallbacks below). */
   --rc-label-primary: var(--dsw-alias-label-primary, #1d1d1f);
   --rc-label-secondary: var(--dsw-alias-label-secondary, #55555a);
@@ -280,4 +285,72 @@
 .dialogCancel:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+/* -- V2-T4.3: the MISSING four-action modal (design §4 四选一弹窗 — the   *
+   * dialogOverlay/dialogPanel base is reused; the per-entry card below) -- */
+
+.missingEntry {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.missingName {
+  margin: 0;
+  font-weight: 600;
+  color: var(--rc-label-primary);
+}
+
+.missingMeta {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+  word-break: break-all;
+}
+
+.missingMeta code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.missingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.missingAction {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l2);
+}
+
+.missingAction:hover:enabled {
+  background: var(--rc-interactive-hover);
+}
+
+.missingAction:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* The post-action fault row (design §4: 显示错误, 弹窗保留 — the entry is
+   still 挂起). */
+.missingError {
+  margin: 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+  max-width: 70ch;
+  word-break: break-word;
 }

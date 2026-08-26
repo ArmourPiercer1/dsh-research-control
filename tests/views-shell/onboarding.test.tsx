@@ -102,6 +102,12 @@ function renderOnboarding(
   }
   const setHub = vi.fn(opts.setHubImpl ?? (async () => SET_HUB_OK))
   const bindProject = vi.fn(opts.bindImpl ?? (async () => BIND_OK))
+  // T4.3: the shell requires the three MISSING-modal mutation faces. The
+  // onboarding fixtures carry NO missing entries (`missing: []`), so the
+  // modal never pops and the inert resolvers stay inert.
+  const rescan = vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [] }))
+  const unbindProject = vi.fn(async () => ({ projectId: 'PRJ-9', archivedDir: '/workspace/.research-control/archived/PRJ-9' }))
+  const ackMissingReminder = vi.fn(async () => ({ acknowledged: true }))
   render(
     <StrictMode>
       <ResearchShell
@@ -109,6 +115,9 @@ function renderOnboarding(
         loadPlaneState={load as ResearchShellProps['loadPlaneState']}
         setHub={setHub as ResearchShellProps['setHub']}
         bindProject={bindProject as ResearchShellProps['bindProject']}
+        rescan={rescan as ResearchShellProps['rescan']}
+        unbindProject={unbindProject as ResearchShellProps['unbindProject']}
+        ackMissingReminder={ackMissingReminder as ResearchShellProps['ackMissingReminder']}
       />
     </StrictMode>,
   )

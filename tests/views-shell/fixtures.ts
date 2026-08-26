@@ -10,6 +10,7 @@
 import {
   GetResearchPlaneStateResultSchema,
   type GetResearchPlaneStateResult,
+  type PlaneMissingDto,
   type PlaneProjectDto,
 } from '../../src/shared/rpc-contracts.js'
 
@@ -154,4 +155,114 @@ export const MANAGED_RESULT_AT_UNREGISTERED: GetResearchPlaneStateResult = wireR
     },
   ],
   session: { cwd: UNREGISTERED_PATH, role: 'MANAGED' },
+})
+
+/* ---------------------------------------------------------------------- *
+ * V2-T4.3 — MISSING four-action modal fixtures (design §4 四选一弹窗).
+ *
+ * The MISSING set is PLANE-level (the modal is orthogonal to the session
+ * role — the fixtures below ride a HUB session so the modal overlays the
+ * hub console). The `deferred` flag is the pinned dedup carrier: `false`
+ * = LIVE (the modal lists it); `true` = 推后-acked this backend run (the
+ * modal MUST NOT list it — the runtime dedup gate).
+ * -------------------------------------------------------------------- */
+
+/** The registered path of the live missing entry (where the tree is expected). */
+export const MISSING_WS_PATH = '/workspace/proj-3'
+
+/** A LIVE missing entry — `deferred === false` (the modal lists it). */
+export const MISSING_ENTRY: PlaneMissingDto = {
+  projectId: 'PRJ-3',
+  displayName: '缺失树项目',
+  wsPath: MISSING_WS_PATH,
+  deferred: false,
+}
+
+/** A 推后-acked missing entry — `deferred === true` (the modal must NOT list it). */
+export const DEFERRED_ENTRY: PlaneMissingDto = {
+  projectId: 'PRJ-4',
+  displayName: '已推后项目',
+  wsPath: '/workspace/proj-4',
+  deferred: true,
+}
+
+/** The acked twin of MISSING_ENTRY (same id, `deferred` flipped — the host's runtime flag). */
+export const MISSING_ENTRY_ACKED: PlaneMissingDto = { ...MISSING_ENTRY, deferred: true }
+
+/**
+ * First render: the plane carries a LIVE missing entry (PRJ-3) + an
+ * already-deferred one (PRJ-4) — the modal pops listing PRJ-3 ONLY.
+ */
+export const MISSING_RESULT: GetResearchPlaneStateResult = wireResult({
+  ...PLANE,
+  missing: [MISSING_ENTRY, DEFERRED_ENTRY],
+  session: { cwd: HUB_PATH, role: 'HUB' },
+})
+
+/**
+ * The post-推后 re-fetch: PRJ-3 stays in `missing` with its `deferred`
+ * flag flipped to `true` (the host does NOT drop it — the read port
+ * projects `deferred: deferredReminders.has(id)`); no live entries remain
+ * → the second render must NOT re-pop.
+ */
+export const MISSING_ACKED_RESULT: GetResearchPlaneStateResult = wireResult({
+  ...PLANE,
+  missing: [MISSING_ENTRY_ACKED, DEFERRED_ENTRY],
+  session: { cwd: HUB_PATH, role: 'HUB' },
+})
+
+/**
+ * The post-恢复/重初始化/移除登记 re-fetch: the entry left the MISSING set
+ * entirely (recovered → MANAGED / scaffolded → MANAGED / archived →
+ * tombstone) → the modal stays closed.
+ */
+export const MISSING_CLEARED_RESULT: GetResearchPlaneStateResult = wireResult({
+  ...PLANE,
+  missing: [],
+  session: { cwd: HUB_PATH, role: 'HUB' },
+})
+
+/**
+ * The multi-entry case: TWO live entries (the user acted on one — the
+ * re-fetch still carries the other → the modal re-pops for it ONLY).
+ */
+export const MISSING_TWO_ENTRIES: PlaneMissingDto[] = [
+  MISSING_ENTRY,
+  {
+    projectId: 'PRJ-5',
+    displayName: '另一个缺失项目',
+    wsPath: '/workspace/proj-5',
+    deferred: false,
+  },
+]
+
+export const MISSING_TWO_RESULT: GetResearchPlaneStateResult = wireResult({
+  ...PLANE,
+  missing: MISSING_TWO_ENTRIES,
+  session: { cwd: HUB_PATH, role: 'HUB' },
+})
+
+/** The post-ack re-fetch of the multi-entry case: only PRJ-5 stays live. */
+export const MISSING_TWO_ACKED_FIRST_RESULT: GetResearchPlaneStateResult = wireResult({
+  ...PLANE,
+  missing: [
+    MISSING_ENTRY_ACKED,
+    {
+      projectId: 'PRJ-5',
+      displayName: '另一个缺失项目',
+      wsPath: '/workspace/proj-5',
+      deferred: false,
+    },
+  ],
+  session: { cwd: HUB_PATH, role: 'HUB' },
+})
+
+/**
+ * The role-independence case: the SAME missing set over an UNREGISTERED
+ * session (the modal is plane-level — it pops over the 引导卡 too).
+ */
+export const MISSING_RESULT_AT_UNREGISTERED: GetResearchPlaneStateResult = wireResult({
+  ...PLANE,
+  missing: [MISSING_ENTRY, DEFERRED_ENTRY],
+  session: { cwd: UNREGISTERED_PATH, role: 'UNREGISTERED' },
 })

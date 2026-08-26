@@ -206,3 +206,112 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
     ).rejects.toThrow(/PLANE_TREE_EXISTS/)
   })
 })
+
+describe('registerResearchUI — the T4.3 MISSING-modal mutation faces (design §4)', () => {
+  interface MissingModalFaces {
+    readonly rescan: (args: Record<string, never>) => Promise<unknown>
+    readonly unbindProject: (args: { wsPath: string }) => Promise<unknown>
+    readonly ackMissingReminder: (args: { projectId: string }) => Promise<unknown>
+  }
+
+  it('rescan forwards the strict empty request verbatim and resolves the wire summary', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MissingModalFaces
+
+    const result = (await face.rescan({})) as { missing: unknown[] }
+    expect(stub.callsTo('rescan')).toHaveLength(1)
+    expect(stub.callsTo('rescan')[0].args).toEqual({})
+    // The wire summary passes through unchanged (the stub default is a
+    // wire-valid PlaneStateSummary).
+    expect(result.missing).toEqual([])
+  })
+
+  it('unbindProject forwards the registered wsPath verbatim (移除登记 — 归档口径)', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MissingModalFaces
+
+    const result = (await face.unbindProject({ wsPath: '/workspace/proj-3' })) as { archivedDir: string }
+    expect(stub.callsTo('unbindProject')).toHaveLength(1)
+    expect(stub.callsTo('unbindProject')[0].args).toEqual({ wsPath: '/workspace/proj-3' })
+    expect(result.archivedDir).toBeTruthy()
+  })
+
+  it('ackMissingReminder forwards the projectId verbatim (推后 — the runtime dedup flag set)', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MissingModalFaces
+
+    const result = (await face.ackMissingReminder({ projectId: 'PRJ-3' })) as { acknowledged: boolean }
+    expect(stub.callsTo('ackMissingReminder')).toHaveLength(1)
+    expect(stub.callsTo('ackMissingReminder')[0].args).toEqual({ projectId: 'PRJ-3' })
+    expect(result.acknowledged).toBe(true)
+  })
+
+  it('folds a rescan business fault (the §4 step-3 fail-loud: MULTIPLE_HUBS) into a plain rejection carrying the code', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('rescan', {
+      ok: false,
+      error: {
+        code: 'MULTIPLE_HUBS',
+        message: '2 registered workspaces carry a .research-control management hub — the research control plane refuses to start',
+        details: {},
+      },
+    })
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MissingModalFaces
+
+    await expect(face.rescan({})).rejects.toThrow(/MULTIPLE_HUBS/)
+  })
+
+  it('folds an ackMissingReminder business fault (PLANE_NOT_MISSING) into a plain rejection carrying the code', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('ackMissingReminder', {
+      ok: false,
+      error: {
+        code: 'PLANE_NOT_MISSING',
+        message: "project PRJ-9 is not in the plane's MISSING set — the 「推后处理」 flag is for live MISSING entries only",
+        details: {},
+      },
+    })
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MissingModalFaces
+
+    await expect(face.ackMissingReminder({ projectId: 'PRJ-9' })).rejects.toThrow(/PLANE_NOT_MISSING/)
+  })
+
+  it('folds an unbindProject business fault (PLANE_NOT_MANAGED) into a plain rejection carrying the code', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('unbindProject', {
+      ok: false,
+      error: {
+        code: 'PLANE_NOT_MANAGED',
+        message: 'the workspace /workspace/proj-3 is not an active managed project: no tree was discovered at /workspace/proj-3',
+        details: {},
+      },
+    })
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MissingModalFaces
+
+    await expect(face.unbindProject({ wsPath: '/workspace/proj-3' })).rejects.toThrow(/PLANE_NOT_MANAGED/)
+  })
+})

@@ -336,7 +336,7 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
   if (!existsSync(researchRoot) || !statSync(researchRoot).isDirectory()) {
     throw new HostWiringError(
       'WIRING_INPUT',
-      `${researchRoot} is not a directory — the workspace carries no .research tree`,
+      `${researchRoot} is not a directory — the workspace carries no ${researchDir} tree`,
     )
   }
 

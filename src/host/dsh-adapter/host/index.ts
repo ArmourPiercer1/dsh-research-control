@@ -1303,6 +1303,12 @@ export class ResearchControlService extends TypertRemoteService {
           schemaRoot,
           projectId: project.projectId,
           dataDir,
+          // T2.1 §7.5 (V2-T6.1-r1): the per-project wiring must locate the
+          // tree under the CONFIGURED name — without it the wiring defaults
+          // to `.research` and a renamed tree (the settings save's whole
+          // point) fails the WIRING_INPUT guard on the next re-init
+          // (rescan / restart) even though discovery found the tree.
+          researchDir: dirNames.treeDir,
           adapter,
           launcherAdapter,
           workspaceRoots: workspaces.map((w) => w.path),

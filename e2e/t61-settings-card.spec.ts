@@ -36,7 +36,13 @@
 
 import { test, expect } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { dismissOnboardingModals, gotoApp } from './helpers.js'
+import { gotoApp } from './helpers.js'
+
+// The spec walks the HOST's settings surfaces (the sidebar 设置 trigger, the
+// dialog nav, the 插件配置 tab) — the host copy is i18n (en/zh), so the
+// documented zh path is pinned to the zh locale for THIS spec only (spec-
+// level context option; the other acceptance specs keep the default).
+test.use({ locale: 'zh-CN' })
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3180'
 
@@ -86,39 +92,64 @@ function serverLog(): string {
   }
 }
 
-/** The rescan-completed log lines (`[research-control][plane][rescan-completed] {…}`). */
+/**
+ * The rescan-completed log blocks (`[research-control][plane][rescan-completed] {…}`)
+ * as complete strings — the plane prints its JSON PRETTY-PRINTED across
+ * several lines (the `projects: N` / `missing: N` fields ride on their own
+ * lines), so each block spans from the marker line to its closing `}`.
+ */
 function rescanLogLines(): string[] {
-  return serverLog()
-    .split('\n')
-    .filter((line) => line.includes('[research-control][plane][rescan-completed]'))
+  const blocks: string[] = []
+  let current: string[] | null = null
+  for (const line of serverLog().split('\n')) {
+    if (line.includes('[research-control][plane][rescan-completed]')) {
+      current = [line]
+    } else if (current !== null) {
+      current.push(line)
+      if (line.trim() === '}') {
+        blocks.push(current.join('\n'))
+        current = null
+      }
+    }
+  }
+  return blocks
 }
 
 /** One plane `rescan` over the wire (the same /api carrier the client rides). */
+interface WireRescanValue {
+  hub: { path: string } | null
+  /** The directory names the rescan discovered under (the configured settings). */
+  dirNames: { treeDir: string; hubDir: string }
+  projects: readonly { projectId: string; displayName: string; kind: string; wsPath: string }[]
+  missing: readonly { projectId: string; wsPath: string }[]
+}
+
 async function wireRescan(rpcId: string): Promise<{
   ok: boolean
   code?: string
-  value?: {
-    hub: { path: string } | null
-    projects: readonly { projectId: string; wsPath: string; kind: string }[]
-    missing: readonly { projectId: string; wsPath: string }[]
-  }
+  message?: string
+  value?: WireRescanValue
 }> {
   const res = await fetch(new URL('/api/researchControl/rescan', BASE_URL), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    // The typert gateway unwraps `payload.args` as the args object, then
+    // matches its FIELDS against the descriptor's parameter names — the
+    // rescan's single parameter is NAMED `args` (itself an object), so
+    // the wire form is the nested `{ args: { args: {} } }` (flat
+    // `{ args: {} }` → "args fields do not match the descriptor:
+    // missing \"args\"", surfaced as code `internal`).
     body: JSON.stringify({
       type: 'client-request',
       rpcId,
       method: 'researchControl/rescan',
-      payload: { args: {} },
+      payload: { args: { args: {} } },
     }),
   })
   const body = (await res.json()) as {
-    result:
-      | { ok: true; value: { hub: { path: string } | null; projects: readonly { projectId: string; wsPath: string; kind: string }[]; missing: readonly { projectId: string; wsPath: string }[] } }
-      | { ok: false; error: { code: string; message: string } }
+    result: { ok: true; value: WireRescanValue } | { ok: false; error: { code: string; message: string } }
   }
-  if (!body.result.ok) return { ok: false, code: body.result.error.code }
+  if (!body.result.ok) return { ok: false, code: body.result.error.code, message: body.result.error.message }
   return { ok: true, value: body.result.value }
 }
 
@@ -126,11 +157,21 @@ test('V2-T6.1 设置插件卡片 — live 4-case rehearsal (cases 1 → 4 → 2 
   // The REAL user path: app root → the sidebar 设置 trigger → the settings
   // dialog → the 插件 nav → the 插件配置 tab → the research card.
   await gotoApp(page, BASE_URL)
+  // The helper's onboarding dismissal is en-only ('Configure later'); under
+  // the pinned zh context the no-key button reads 稍后配置 — dismiss both.
+  for (const label of ['Configure later', '稍后配置']) {
+    const later = page.getByRole('button', { name: label, exact: true })
+    if ((await later.count()) > 0) {
+      await later.first().click()
+      await page.waitForTimeout(1200)
+      break
+    }
+  }
   await page.getByRole('button', { name: '设置', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '设置' })
   await dialog.waitFor({ timeout: 30_000 })
-  await dialog.getByRole('button', { name: '插件' }).click()
-  const configurableTab = dialog.getByRole('tab', { name: '插件配置' })
+  await dialog.getByRole('button', { name: '插件', exact: true }).click()
+  const configurableTab = dialog.getByRole('tab', { name: '插件配置', exact: true })
   await configurableTab.waitFor({ timeout: 30_000 })
   await configurableTab.click()
 
@@ -164,10 +205,18 @@ test('V2-T6.1 设置插件卡片 — live 4-case rehearsal (cases 1 → 4 → 2 
 
   /* ---------------- CASE 4 — 保存后重扫生效 ---------------- */
   const plane = await wireRescan('t61-case4')
-  expect(plane.ok, `the wire rescan failed: ${plane.code}`).toBe(true)
+  expect(plane.ok, `the wire rescan failed: ${plane.code} ${plane.message}`).toBe(true)
   expect(plane.value?.hub, 'the hub must survive the rename').not.toBeNull()
+  // The rename took effect in the LIVE discovery: the rescan reports the
+  // tree found under the CONFIGURED name (dirNames) — one MANAGED project,
+  // nothing missing (wsPath is the WORKSPACE path; the tree rides under it
+  // at the configured dirNames.treeDir).
+  expect(plane.value?.dirNames.treeDir).toBe('.research-x')
+  expect(plane.value?.dirNames.hubDir).toBe('.research-control')
   expect(plane.value?.projects).toHaveLength(1)
-  expect(plane.value?.projects[0]?.wsPath.endsWith('.research-x')).toBe(true)
+  expect(plane.value?.projects[0]?.projectId).toBe('PRJ-1')
+  expect(plane.value?.projects[0]?.kind).toBe('MANAGED')
+  expect(plane.value?.projects[0]?.wsPath.endsWith('/proj-1')).toBe(true)
   expect(plane.value?.missing).toHaveLength(0)
 
   /* ---------------- CASE 2 — 改名失联回退 ---------------- */
@@ -177,7 +226,9 @@ test('V2-T6.1 设置插件卡片 — live 4-case rehearsal (cases 1 → 4 → 2 
   const warning = card.getByTestId(WARNING_BANNER)
   await expect(warning).toBeVisible({ timeout: 60_000 })
   await expect(warning).toContainText(EXACT_WARNING)
-  await expect(warning).toContainText('.research-x') // the lost tree is named
+  // The lost tree is named by its WORKSPACE path (the card renders
+  // 项目树已失联：<workspace path> — discovery reports entries by ws path).
+  await expect(warning).toContainText(`${FIXTURE_DIR.pathname}proj-1`)
   // The UI ends on the pre-save values (BOTH fields).
   await expect(treeInput).toHaveValue('.research-x')
   await expect(hubInput).toHaveValue('.research-control')

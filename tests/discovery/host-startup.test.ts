@@ -23,6 +23,12 @@
  *   - MISSING          (1 hub + 2 entries, 1 tree)   → one wiring + one
  *                                                     MISSING warn (displayName +
  *                                                     path + 等待用户处置)
+ *   - RENAMED          (tree on disk under a
+ *     configured name, settings present)             → init succeeds: the
+ *                                                     per-project wiring uses
+ *                                                     the CONFIGURED treeDir
+ *                                                     (V2-T6.1-r1 regression —
+ *                                                     the r1 fix's pin)
  *   - dual hub         (2 hubs)                      → fiber FAILED:
  *                                                     DiscoverError MULTIPLE_HUBS
  *                                                     (all hub paths listed)
@@ -38,7 +44,15 @@
  * routing branches there too. No cordis App is started (the host-mount
  * convention) — the ctx double is the assembly seam.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  renameSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
@@ -140,7 +154,16 @@ interface HostHarness {
   readonly workspaces: readonly string[]
 }
 
-function mountHost(workspaces: readonly string[]): HostHarness {
+/**
+ * The optional host settings section the ctx double reports for the
+ * research namespace — `undefined` keeps the settings-ABSENT path
+ * (one warn + defaults) exactly as the matrix below exercises it.
+ */
+interface MountHostOptions {
+  readonly settings?: { projectTreeDir: string; hubDir: string }
+}
+
+function mountHost(workspaces: readonly string[], options: MountHostOptions = {}): HostHarness {
   const effectBodies: Array<() => unknown> = []
   const toolNames: string[] = []
   const ctx = {
@@ -154,8 +177,18 @@ function mountHost(workspaces: readonly string[]): HostHarness {
     // Optional-service face: settings / commands / agents all absent —
     // the settings-absent path (one warn + defaults) and the
     // no-command-registry path (null + loud warn) both run, as on a
-    // minimal deployment.
-    get: (_name: string): unknown => undefined,
+    // minimal deployment. When `options.settings` IS given, the
+    // settings face reports that section for the research namespace
+    // (T2.1 §7.5 — the V2-T6.1-r1 regression test: the per-project
+    // wiring must honor the CONFIGURED treeDir).
+    get: (name: string): unknown =>
+      name === 'settings' && options.settings !== undefined
+        ? {
+            register: (_ns: string, _schema: unknown): void => {},
+            get: (ns: string) =>
+              ns === 'dsh-research-control' ? options.settings : undefined,
+          }
+        : undefined,
     sessions: { list: (): [] => [] },
     events: {
       on: (_name: string, _handler: unknown): (() => void) => () => {},
@@ -547,4 +580,48 @@ describe('probeWorkspaces (the §4 step-2 disk seam)', () => {
     })
     expect(probed[0]).toMatchObject({ hasTreeDir: false })
   })
+
+  it('renamed tree under a CONFIGURED name (settings present): init wires the configured treeDir — V2-T6.1-r1 regression', async () => {
+    // The settings save's whole point (T2.1 §7.5): the operator renamed
+    // the tree on disk (.research → my-tree) and saved the new name. The
+    // NEXT re-init (a rescan, or a restart) must wire the project under
+    // the CONFIGURED name. Pre-r1 the createHostWiring call dropped the
+    // researchDir option, so the wiring probed the .research default and
+    // failed WIRING_INPUT even though discovery had found the tree —
+    // the two-phase save always rolled back. Discovery and the settings
+    // plumbing were correct all along; this pins the wiring half.
+    const home = freshDshHome()
+    const wsA = makeProjectWs('PRJ-1')
+    renameSync(join(wsA, DEFAULT_PROJECT_TREE_DIR), join(wsA, 'my-tree'))
+    const hub = makeHubWs([
+      {
+        id: 'PRJ-1',
+        path: wsA,
+        displayName: '机器人视觉定位系统',
+        status: 'active',
+        boundAt: 1770000000000,
+        archivedAt: null,
+      },
+    ])
+    const h = mountHost([hub, wsA], {
+      settings: { projectTreeDir: 'my-tree', hubDir: DEFAULT_HUB_DIR },
+    })
+    try {
+      await initPlane(h)
+      expectToolsRegistered(h)
+      expect(logLines().some((l) => l.includes(`research hub discovered at ${hub}`))).toBe(true)
+      expect(warnLines().filter((l) => l.includes('standalone research tree at'))).toHaveLength(0)
+      expect(warnLines().filter((l) => l.includes('MISSING registered project'))).toHaveLength(0)
+      // The managed db follows the hub under the (default) hubDir.
+      expect(
+        existsSync(join(hub, DEFAULT_HUB_DIR, 'projects', 'PRJ-1', 'research.sqlite')),
+      ).toBe(true)
+      // Byte-compat: the frozen RPC face routes to the sole project.
+      const project = await h.svc.getProject()
+      expect(project.project.id).toBe('PRJ-1')
+      expect(project.project.title).toBe('机器人视觉定位系统')
+    } finally {
+      disposeFiber(h)
+    }
+  }, 30_000)
 })

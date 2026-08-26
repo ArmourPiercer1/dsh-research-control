@@ -21647,7 +21647,7 @@ function createHostWiring(options) {
 	if (typeof researchDir !== "string" || researchDir.length === 0 || researchDir.includes("/")) throw new HostWiringError("WIRING_INPUT", `researchDir must be a bare directory name (got ${JSON.stringify(researchDir)})`);
 	if (!/^PRJ-\d+$/.test(options.projectId)) throw new HostWiringError("WIRING_INPUT", `projectId must be a well-formed PRJ-<n> id (got ${JSON.stringify(options.projectId)})`);
 	const researchRoot = join(repoRoot, researchDir);
-	if (!existsSync(researchRoot) || !statSync(researchRoot).isDirectory()) throw new HostWiringError("WIRING_INPUT", `${researchRoot} is not a directory — the workspace carries no .research tree`);
+	if (!existsSync(researchRoot) || !statSync(researchRoot).isDirectory()) throw new HostWiringError("WIRING_INPUT", `${researchRoot} is not a directory — the workspace carries no ${researchDir} tree`);
 	const reader = new FsReader();
 	const workstreamList = [];
 	const liveWorkstreams = /* @__PURE__ */ new Map();

@@ -1,7 +1,9 @@
 /**
  * 验收运行配置 — 复用插件仓 e2e 设施，锚定 3180 测试实例（rc.2 checkout）。
- * 与 playwright.config.ts 同纪律：spec 不起停服务（生命周期由编排持有），
- * 区别仅在 baseURL 默认值与 testMatch 多含 probe.spec.ts（兼容性读数）。
+ * 与 playwright.config.ts 同纪律：spec 不起停服务（生命周期由编排持有）。
+ * T6.2（V2 全量验收）：V1 时代 spec（probe / smoke.* / tc-e2e / tc-dsh-010）
+ * 已归档至 ./v1-archived/，两份配置均不再匹配该目录（testIgnore 显式排除）；
+ * 现行验收集 = V2 spec 族（t42 + t51..t54 + t61）。
  */
 import { defineConfig } from '@playwright/test'
 
@@ -9,7 +11,10 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3180'
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /(?:smoke\..+|tc-e2e\.spec|tc-dsh-010\.spec|t42-onboarding-hub\.spec|t51-overview-drill\.spec|t52-attention-migration\.spec|t53-investigator\.spec|t54-settings-unbind\.spec|t61-settings-card\.spec|probe\.spec)\.ts$/,
+  testMatch: /(?:t42-onboarding-hub\.spec|t51-overview-drill\.spec|t52-attention-migration\.spec|t53-investigator\.spec|t54-settings-unbind\.spec|t61-settings-card\.spec)\.ts$/,
+  // Archived V1 specs never run from either config, no matter how testMatch
+  // evolves: the archive directory is excluded outright.
+  testIgnore: /v1-archived\//,
   timeout: 180_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,

@@ -40,7 +40,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, expect } from '@playwright/test'
 
-import { ensureSessionOpen, gotoApp, researchTab } from './helpers.js'
+import { ensureSessionOpen, gotoApp, researchTab } from '../helpers.js'
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3199'
 const REPO = process.env.E2E_REPO ?? ''

@@ -57,14 +57,19 @@ export function formatEpochDate(epochMs: number): string {
 
 /**
  * 「最旧 N 天/小时」 display carrier for the 需关注 row (the contract's
- * `oldestHours` is hours since the project's OLDEST open intervention):
- * ≥ 24h → whole days (floor — 「最旧 3 天」), below → the hour count.
+ * `oldestHours` is hours since the project's OLDEST open intervention, as a
+ * FLOAT): ≥ 24h → whole days (floor — 「最旧 3 天」); ≥ 1h → whole hours
+ * (floor — 「最旧 5 小时」); < 1h → 「最旧 <1 小时」. The raw float never
+ * reaches the UI (acceptance T6.2 discovery).
  */
 export function formatOldestAge(hours: number): string {
   if (hours >= 24) {
     return `最旧 ${String(Math.floor(hours / 24))} 天`
   }
-  return `最旧 ${String(hours)} 小时`
+  if (hours < 1) {
+    return '最旧 <1 小时'
+  }
+  return `最旧 ${String(Math.floor(hours))} 小时`
 }
 
 /**

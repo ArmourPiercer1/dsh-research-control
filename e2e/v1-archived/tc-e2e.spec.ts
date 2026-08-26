@@ -49,7 +49,7 @@ import {
   ensureSessionOpen,
   gotoApp,
   researchTab,
-} from './helpers'
+} from '../helpers'
 
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3199'
 /** The smoke workspace (E2E_REPO — e2e-run.sh exports it). */

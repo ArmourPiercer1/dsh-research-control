@@ -190,10 +190,15 @@ describe('HubOverviewPage — 加载生命周期', () => {
 })
 
 describe('formatters', () => {
-  it('formatOldestAge: ≥24h → whole days (floor), below → the hour count', () => {
+  it('formatOldestAge: ≥24h → whole days (floor), ≥1h → whole hours (floor), <1h → <1 小时', () => {
     expect(formatOldestAge(70)).toBe('最旧 2 天')
     expect(formatOldestAge(24)).toBe('最旧 1 天')
     expect(formatOldestAge(5)).toBe('最旧 5 小时')
+    expect(formatOldestAge(5.7)).toBe('最旧 5 小时')
+    // the acceptance T6.2 discovery: a fresh intervention (a float far below
+    // 1h) must not leak the raw float into the UI
+    expect(formatOldestAge(0.0067794444444444445)).toBe('最旧 <1 小时')
+    expect(formatOldestAge(0)).toBe('最旧 <1 小时')
   })
 
   it('formatEpochDate: the YYYY-MM-DD shape (TZ-stable form)', () => {

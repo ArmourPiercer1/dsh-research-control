@@ -102,6 +102,12 @@ test('T4.2: fresh workspace — onboarding card → 设为中枢 → 中枢控�
   for (const label of ['总览', '重要事件', '调查员', '设置']) {
     await expect(hubNav.getByRole('button', { name: label })).toBeVisible()
   }
-  // 引导卡不再渲染（分支已翻转为中枢控制台）。
-  await expect(card).toHaveCount(0)
+  // 无中枢态的独立引导卡不再渲染（分支已翻转为中枢控制台）。
+  // T5.1（design §7.1 空中枢）：总览在卡墙位置复用同一张引导卡
+  // 「登记第一个研究项目」，§5 状态表 hub !== null 行：「设为中枢」置灰
+  // + 原因文案「已存在中枢」，「接入」可用（同一 T4.2 bind 流）。
+  await expect(page.getByRole('heading', { name: '登记第一个研究项目' })).toBeVisible()
+  await expect(setHubButton).toBeDisabled()
+  await expect(page.getByText('已存在中枢')).toBeVisible()
+  await expect(bindButton).toBeEnabled()
 })

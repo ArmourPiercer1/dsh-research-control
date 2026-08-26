@@ -167,3 +167,117 @@
   border: 1px dashed var(--rc-border-l2);
   border-radius: 8px;
 }
+
+/* The 设为中枢 button + its §5 状态表 reason copy (有中枢 → 置灰 + 已存在中枢). */
+.onboardActionGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.onboardReason {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-tertiary);
+}
+
+/* The post-mutation error row (design §8: 显示错误, 卡片保留). */
+.onboardError {
+  margin: 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+  max-width: 60ch;
+  word-break: break-word;
+}
+
+/* -- onboarding dialogs (card-local overlays — the views layer is        *
+   * DSH-free, so no host dialog service; cancel closes without an RPC) -- */
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialogPanel {
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  padding: 18px 20px;
+  width: min(420px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 15px;
+  color: var(--rc-label-primary);
+}
+
+.dialogCopy {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  max-width: 52ch;
+}
+
+.dialogCopy code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--rc-font-xxs);
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.dialogField {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.dialogInput {
+  font: inherit;
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.dialogCancel,
+.dialogConfirm {
+  font: inherit;
+  border-radius: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+
+.dialogCancel {
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l2);
+}
+
+.dialogConfirm {
+  color: #ffffff;
+  background: var(--rc-accent-primary);
+  border: 1px solid var(--rc-accent-primary);
+}
+
+.dialogConfirm:disabled,
+.dialogCancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

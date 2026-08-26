@@ -17,7 +17,13 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { GetResearchPlaneStateResult } from '../../shared/rpc-contracts.js'
+import type {
+  BindProjectArgs,
+  BindProjectResult,
+  GetResearchPlaneStateResult,
+  SetHubArgs,
+  SetHubResult,
+} from '../../shared/rpc-contracts.js'
 import { ResearchShell, type ResearchShellProps } from '../views/shell/index.js'
 import { researchRpc } from './remote/mount.js'
 
@@ -83,9 +89,10 @@ export type ResearchClientContext = Context & { slots: SlotService }
  *
  * The injected face is the apply-world → view channel (client/AGENTS.md
  * rule 7 — plain data and callbacks only): it wraps the mounted
- * `researchRpc` facade's plane-state call and folds the carrier's
- * `ok: false` branch into a plain rejection, so the DSH-free view (views/
- * — INV-PERM-5) never sees a `RemoteResult`.
+ * `researchRpc` facade's plane-state call and (V2-T4.2, design §8) the two
+ * onboarding mutations — `setHub` (设为中枢) and `bindProject` (接入) —
+ * and folds the carrier's `ok: false` branch into a plain rejection, so
+ * the DSH-free view (views/ — INV-PERM-5) never sees a `RemoteResult`.
  *
  * The registration rides the slot service's `inject` wrapper, so a late
  * slot declaration is tolerated and plugin unload removes the tab
@@ -100,7 +107,9 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
         id: 'research',
         order: 20,
         label: () => '研究',
-        inject: (sessionId: string): Pick<ResearchShellProps, 'loadPlaneState'> => ({
+        inject: (
+          sessionId: string,
+        ): Pick<ResearchShellProps, 'loadPlaneState' | 'setHub' | 'bindProject'> => ({
           loadPlaneState: async (): Promise<GetResearchPlaneStateResult> => {
             const result = await researchRpc.getResearchPlaneState({ sessionId })
             if (!result.ok) {
@@ -108,6 +117,28 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
               // failure face (重试) responds; the view stays DSH-free.
               throw new Error(
                 `research shell: plane-state fetch failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-T4.2 (design §8 设为中枢): the 引导卡 confirm flow. Same fold
+          // as loadPlaneState — the card shows the error message and stays
+          // on rejection (the card stays, the user can retry).
+          setHub: async (args: SetHubArgs): Promise<SetHubResult> => {
+            const result = await researchRpc.setHub(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: setHub failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-T4.2 (design §8 接入): the 引导卡 displayName flow.
+          bindProject: async (args: BindProjectArgs): Promise<BindProjectResult> => {
+            const result = await researchRpc.bindProject(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: bindProject failed — ${result.error.code}: ${result.error.message}`,
               )
             }
             return result.value

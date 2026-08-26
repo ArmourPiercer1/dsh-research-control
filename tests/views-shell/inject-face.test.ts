@@ -136,3 +136,73 @@ describe('registerResearchUI — the injected plane-state fetch face', () => {
     await expect(face.loadPlaneState()).rejects.toThrow(/PLANE_SESSION_UNKNOWN/)
   })
 })
+
+describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)', () => {
+  interface MutationFaces {
+    readonly setHub: (args: { wsPath: string }) => Promise<unknown>
+    readonly bindProject: (args: { wsPath: string; displayName?: string; scaffold?: boolean }) => Promise<unknown>
+  }
+
+  it('setHub forwards the args verbatim and resolves the wire result (success path)', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MutationFaces
+
+    const result = (await face.setHub({ wsPath: '/workspace/unregistered' })) as { hubPath: string }
+    expect(stub.callsTo('setHub')).toHaveLength(1)
+    expect(stub.callsTo('setHub')[0].args).toEqual({ wsPath: '/workspace/unregistered' })
+    // The wire result passes through unchanged (the stub default is a
+    // wire-valid SetHubResult at the requested path).
+    expect(result.hubPath).toBeTruthy()
+  })
+
+  it('bindProject forwards the args verbatim and resolves the wire result (success path)', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MutationFaces
+
+    const args = { wsPath: '/workspace/unregistered', displayName: 'unregistered', scaffold: true }
+    const result = (await face.bindProject(args)) as { projectId: string }
+    expect(stub.callsTo('bindProject')).toHaveLength(1)
+    expect(stub.callsTo('bindProject')[0].args).toEqual(args)
+    expect(result.projectId).toBeTruthy()
+  })
+
+  it('folds a setHub business fault (ok:false) into a plain rejection carrying the error code', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('setHub', {
+      ok: false,
+      error: { code: 'PLANE_HUB_EXISTS', message: 'a hub already exists at /workspace/hub', details: {} },
+    })
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MutationFaces
+
+    await expect(face.setHub({ wsPath: '/workspace/unregistered' })).rejects.toThrow(/PLANE_HUB_EXISTS/)
+  })
+
+  it('folds a bindProject business fault (ok:false) into a plain rejection carrying the error code', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('bindProject', {
+      ok: false,
+      error: { code: 'PLANE_TREE_EXISTS', message: 'a research tree already exists at /workspace/unregistered/.research', details: {} },
+    })
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MutationFaces
+
+    await expect(
+      face.bindProject({ wsPath: '/workspace/unregistered', displayName: 'unregistered', scaffold: true }),
+    ).rejects.toThrow(/PLANE_TREE_EXISTS/)
+  })
+})

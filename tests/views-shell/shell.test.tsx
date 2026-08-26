@@ -60,9 +60,15 @@ const SET_HUB_BUTTON = '将此工作区设为研究管理中枢'
 const BIND_BUTTON = '将此工作区接入研究管理系统'
 
 function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessionId?: string): void {
+  // T4.2: the shell requires the two onboarding mutation faces. The
+  // branch-routing cases here never trigger them (NO_CWD disables the
+  // buttons; the onboarding flows are covered in onboarding.test.tsx), so
+  // inert resolvers keep this file focused on the routing.
+  const setHub = vi.fn(async () => ({ hubPath: '/workspace/unregistered', registryPath: '/workspace/unregistered/.research-control/registry.yaml' }))
+  const bindProject = vi.fn(async () => ({ projectId: 'PRJ-9', registryPath: null, dbMigrated: false }))
   render(
     <StrictMode>
-      <ResearchShell sessionId={sessionId} loadPlaneState={loadPlaneState} />
+      <ResearchShell sessionId={sessionId} loadPlaneState={loadPlaneState} setHub={setHub} bindProject={bindProject} />
     </StrictMode>,
   )
 }
@@ -186,15 +192,17 @@ describe('ResearchShell — 5 角色分支', () => {
     expect(document.querySelector('[data-role="STANDALONE"]')).toBeTruthy()
   })
 
-  it('UNREGISTERED: renders the 引导卡 skeleton with the two §5 placeholder buttons', async () => {
+  it('UNREGISTERED: renders the 引导卡 with the §5 状态表 button states (T4.2)', async () => {
     renderShell(vi.fn().mockResolvedValue(UNREGISTERED_RESULT), 'sess-unregistered')
 
     expect(await screen.findByRole('region', { name: '研究管理系统引导' })).toBeTruthy()
     expect(document.querySelector('[data-onboarding-variant="unregistered"]')).toBeTruthy()
     expect(screen.getByText('接入研究管理系统')).toBeTruthy()
-    // The §5-named buttons render as placeholders (T4.2 fills the two-state
-    // logic); this task renders them enabled-but-inert.
-    expect((screen.getByRole('button', { name: SET_HUB_BUTTON }) as HTMLButtonElement).disabled).toBe(false)
+    // T4.2 (design §5 状态表 — the fixture plane carries a hub, the 「有中枢」
+    // row): 「设为中枢」 is DISABLED with the reason copy 已存在中枢;
+    // 「接入」 stays enabled (the normal registration flow).
+    expect((screen.getByRole('button', { name: SET_HUB_BUTTON }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText('已存在中枢')).toBeTruthy()
     expect((screen.getByRole('button', { name: BIND_BUTTON }) as HTMLButtonElement).disabled).toBe(false)
   })
 

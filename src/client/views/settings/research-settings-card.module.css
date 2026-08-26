@@ -1,0 +1,218 @@
+/**
+ * The DSH 设置 plugin card styles (V2-T6.1 — design §7.5).
+ *
+ * CSS Modules + CSS custom properties, the SAME token convention as
+ * shell/settings-page.module.css: local `--rc-*` variables approximate the
+ * host token system (DSH_ADAPTER §6: host tokens are `--dsw-*`); each
+ * resolves to the matching `--dsw-alias-*` when the host theme provides
+ * it and falls back to a neutral value otherwise. Contrast discipline:
+ * every MEANINGFUL text (values, errors, status) sits on
+ * label-primary/label-secondary — never the low-contrast tertiary band.
+ *
+ * The card root carries its OWN token block: the card renders inside the
+ * HOST's settings dialog (the keyed slot `settings.plugin.item`), OUTSIDE
+ * this plugin's shell root, so the tokens cannot be inherited from it.
+ */
+
+.card {
+  --rc-label-primary: var(--dsw-alias-label-primary, #1d1d1f);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #55555a);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f5f7);
+  --rc-border-l1: var(--dsw-alias-border-l1, #d9d9de);
+  --rc-border-l2: var(--dsw-alias-border-l2, #c8c8ce);
+  --rc-accent-primary: var(--dsw-alias-interactive-bg-primary, #0a84ff);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #ff3b30);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 460px;
+}
+
+.card *,
+.card *::before,
+.card *::after {
+  box-sizing: border-box;
+}
+
+.title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--rc-label-primary);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notice {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-secondary);
+}
+
+/* -- fields ----------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-size: var(--rc-font-xs);
+  font-weight: 500;
+  color: var(--rc-label-primary);
+}
+
+.fieldRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-1);
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+}
+
+.input:focus {
+  outline: 2px solid var(--rc-accent-primary);
+  outline-offset: -1px;
+  border-color: var(--rc-accent-primary);
+}
+
+.input:disabled {
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+}
+
+.resetButton {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-accent-primary);
+  cursor: pointer;
+}
+
+.resetButton:hover:not(:disabled) {
+  background: var(--rc-interactive-hover);
+}
+
+.resetButton:disabled {
+  color: var(--rc-label-secondary);
+  cursor: default;
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.fieldError {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-error-primary);
+}
+
+/* -- actions + status lines ------------------------------------------- */
+
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.saveButton {
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--rc-accent-primary);
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  font-weight: 500;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.saveButton:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.saveButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.savedLine {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.faultLine {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-error-primary);
+}
+
+/* -- the §7.5 missing-rollback warning --------------------------------- */
+
+.missingBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--rc-error-primary);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-2);
+}
+
+.missingHeadline {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  color: var(--rc-error-primary);
+}
+
+.missingLine {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-primary);
+  word-break: break-all;
+}
+
+.missingNote {
+  margin: 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}

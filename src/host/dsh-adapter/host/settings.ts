@@ -71,40 +71,49 @@
  * Pure core ({@link validateDirName} / {@link resolveResearchDirNames})
  * is separated from the thin ctx wiring ({@link
  * registerResearchSettings} / {@link getResearchDirNames}) so the
- * resolution logic is unit-testable without a cordis context.
+ * resolution logic is unit-testable without a cordis context. V2-T6.1
+ * moved the dependency-free half — the frozen §7.5 field table
+ * (namespace + defaults), the directory-name rule, and the §7.5
+ * save-transaction types — into `src/shared/research-settings.ts` so the
+ * CLIENT half (the DSH 设置 plugin card) runs the SAME pure rule; this
+ * file re-exports that frozen face unchanged (host semantics and the
+ * host test imports are untouched).
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
+import {
+  DEFAULT_HUB_DIR,
+  DEFAULT_PROJECT_TREE_DIR,
+  MAX_DIR_NAME_LENGTH,
+  RESEARCH_SETTINGS_NAMESPACE,
+  validateDirName,
+  type ResearchSettingsSection,
+} from '../../../shared/research-settings.js'
 
 /* ------------------------------------------------------------------ *
  * Constants + schema (frozen §7.5 field table)
  * ------------------------------------------------------------------ */
 
 /**
- * The DSH user-settings namespace owned by this plugin (frozen §7.5 —
- * 「按设置域 namespace 配对」; the host's `settingsNamespace()` brands
- * exactly this string pattern, the plugin keeps it as a plain string
- * because it does not devDep on `@deepseek-ai/dsh-settings`).
+ * Frozen §7.5 field table — re-exported from the shared pure core
+ * (V2-T6.1: the client card consumes the same constants; the host keeps
+ * this file as the frozen export face — the host tests and the discovery
+ * layer import from here exactly as before).
  */
-export const RESEARCH_SETTINGS_NAMESPACE = 'dsh-research-control'
-
-/** Default project data directory name (frozen §3.1/Q4: `.research`). */
-export const DEFAULT_PROJECT_TREE_DIR = '.research'
-
-/** Default management-center directory name (frozen §3.1/Q4: `.research-control`). */
-export const DEFAULT_HUB_DIR = '.research-control'
-
-/** Maximum directory-name length (frozen §7.5 校验: 长度 ≤ 64). */
-export const MAX_DIR_NAME_LENGTH = 64
-
-/** Resolved research settings section (the schema's output shape). */
-export interface ResearchSettings {
-  /** The project data directory name (a single path segment). */
-  readonly projectTreeDir: string
-  /** The management-center directory name (a single path segment). */
-  readonly hubDir: string
+export {
+  RESEARCH_SETTINGS_NAMESPACE,
+  DEFAULT_PROJECT_TREE_DIR,
+  DEFAULT_HUB_DIR,
+  MAX_DIR_NAME_LENGTH,
+  validateDirName,
 }
+
+/**
+ * Resolved research settings section (the schema's output shape) — the
+ * shared section type, re-exported under the host's frozen name.
+ */
+export type ResearchSettings = ResearchSettingsSection
 
 /**
  * The namespace schema registered with the host settings service
@@ -130,25 +139,12 @@ export const RESEARCH_SETTINGS_SCHEMA: s<ResearchSettings> = s.object({
  * ------------------------------------------------------------------ */
 
 /**
- * Validate one configurable directory name against the frozen §7.5
- * rule: a SINGLE path segment, leading dot allowed (`.research`),
- * `/` forbidden, the literal names `.`/`..` forbidden, non-empty,
- * length ≤ {@link MAX_DIR_NAME_LENGTH}.
- *
- * @param value - the candidate directory name.
- * @returns `null` when valid, else a human-readable violation phrase
- *  (the read path falls back to the default and warns with it; the
- *  §7.5 save transaction pre-checks the same way before writing).
+ * The frozen §7.5 directory-name rule lives in the shared pure core
+ * (V2-T6.1 — `src/shared/research-settings.ts`: the client card runs
+ * the SAME rule for its inline validation). It is re-exported above
+ * under this file's frozen name, so the read path below and the host
+ * tests consume it exactly as before — no host semantics moved.
  */
-export function validateDirName(value: string): string | null {
-  if (value.length === 0) return 'must not be empty'
-  if (value.length > MAX_DIR_NAME_LENGTH) {
-    return `must be at most ${MAX_DIR_NAME_LENGTH} characters (got ${value.length})`
-  }
-  if (value.includes('/')) return 'must be a single path segment (no "/")'
-  if (value === '.' || value === '..') return 'must not be "." or ".."'
-  return null
-}
 
 /* ------------------------------------------------------------------ *
  * Structural host faces + the pure resolution core

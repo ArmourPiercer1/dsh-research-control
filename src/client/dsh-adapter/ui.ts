@@ -47,6 +47,7 @@ import { createCommandAnalysisDataProvider } from './remote/analysis-channel.js'
 import { ResearchShell, type ResearchShellProps } from '../views/shell/index.js'
 import { investigateIntervention } from './remote/investigate.js'
 import { researchRpc } from './remote/mount.js'
+import { registerResearchSettingsCard } from './settings-card.js'
 
 /**
  * Conversation view slot key — the primary Research UI landing point
@@ -57,20 +58,41 @@ export const CONVERSATION_VIEW_SLOT = 'conversation.view'
 
 /**
  * Minimal mirror of the host slot register options. The host option set is
- * `{name, children?, store?, inject?, id?, order?, label?, locale?}`; only
- * the fields this spike passes are mirrored. Phase 4 extends the mirror
- * (`children`/`store`/`locale`) when the cockpit registers more seats.
+ * `{name, children?, store?, inject?, id?, order?, label?, locale?, key?,
+ * priority?, registrant?}` (per kind: list entries take `id`/`order`/
+ * `label`, keyed entries take `key`/`priority`); only the fields this
+ * plugin passes are mirrored. Phase 4 finalizes the mirror against the
+ * real `SlotMap`/`register` contract and extends it
+ * (`children`/`store`/`locale`) when the cockpit registers more seats —
+ * the `key` field was pulled in early by V2-T6.1 (the DSH 设置 plugin card
+ * registers into the KEYED slot `settings.plugin.item` under the
+ * settings-namespace key — the standard third-party entry, design §7.5).
  */
 export interface SlotRegisterOptions {
   /** Slot key the contribution registers into (must be declared upstream). */
   readonly name: string
-  /** Contribution id within the slot (the tab id). */
-  readonly id: string
+  /**
+   * Contribution id within a LIST slot (the tab id). List entries only —
+   * keyed entries carry `key` instead.
+   */
+  readonly id?: string
+  /**
+   * The literal entry key of a KEYED slot: the host
+   * `settings.plugin.item` contract keys cards by the settings namespace
+   * the card edits (slot-contract.ts of `dsh-client-ui-settings-plugins`).
+   * Keyed entries only.
+   */
+  readonly key?: string
   /** Ordering weight among the slot's list contributions. */
   readonly order?: number
   /** Registration-time label thunk (re-read per render to follow locale). */
   readonly label?: () => string
-  /** Inject face: per-session plain data handed to the component as props. */
+  /**
+   * Inject face: plain data handed to the component as props, built at
+   * declaration time and bound per entry. Called with the slot scope's
+   * inject parameters — the framework `sessionId` for session-scoped
+   * slots, no arguments for `root`-scope slots (host `InjectParams`).
+   */
   readonly inject?: (sessionId: string) => unknown
 }
 
@@ -126,7 +148,17 @@ export type ResearchClientContext = Context & { slots: SlotService }
  * The registration rides the slot service's `inject` wrapper, so a late
  * slot declaration is tolerated and plugin unload removes the tab
  * (ui-trajectory precedent, same call shape).
- * @param ctx - client context with the injected slots service.
+ *
+ * V2-T6.1 (design §7.5): the SAME surface also registers the DSH 设置
+ * plugin card — the keyed slot `settings.plugin.item` under the
+ * namespace key `dsh-research-control` (the host half of §7.5 already
+ * serves that namespace; the two pair on it). That registration lives in
+ * `./settings-card.tsx` (`registerResearchSettingsCard`) so each seat
+ * keeps one file; this function remains the ONE registration surface
+ * called by the bundle entry's `apply`.
+ * @param ctx - client context with the injected slots service (the
+ *  settings card additionally reads the optional `settingsScope` service
+ *  through the context's optional-service face).
  */
 export function registerResearchUI(ctx: ResearchClientContext): void {
   ctx.slots.inject(CONVERSATION_VIEW_SLOT, () =>
@@ -314,4 +346,9 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
       ResearchShell,
     ),
   )
+  // V2-T6.1 (design §7.5): the DSH 设置 plugin card — the keyed slot
+  // `settings.plugin.item` under the namespace key `dsh-research-control`
+  // (paired with the host half's namespace registration). One warn + no
+  // card when the client exposes no settingsScope service.
+  registerResearchSettingsCard(ctx)
 }

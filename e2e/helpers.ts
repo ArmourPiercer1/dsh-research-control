@@ -22,11 +22,19 @@ export function researchTab(page: Page): ReturnType<Page['getByRole']> {
 }
 
 /**
- * Dismiss the first-run modal if present (API-key prompt → "Configure later").
- * Idempotent: the smoke home stores no credentials, so the modal reappears on
- * every fresh page load; an established home without it simply passes through.
+ * Dismiss the first-run modals if present. Idempotent — an established home
+ * without them simply passes through:
+ *  - the product welcome notice dialog "Internal Testing Notice" (shown
+ *    while the home has no acknowledged ui-onboarding.welcomeNoticeVersion,
+ *    e.g. a brand-new DSH_HOME) → "Continue";
+ *  - the API-key onboarding modal → "Configure later" (the no-key path).
  */
 export async function dismissOnboardingModals(page: Page): Promise<void> {
+  const notice = page.getByRole('dialog', { name: 'Internal Testing Notice' })
+  if ((await notice.count()) > 0) {
+    await notice.getByRole('button', { name: 'Continue' }).click()
+    await page.waitForTimeout(1200)
+  }
   const later = page.getByRole('button', { name: 'Configure later' })
   if (await later.count() > 0) {
     await later.first().click()
@@ -42,18 +50,30 @@ export async function gotoApp(page: Page, baseURL: string): Promise<void> {
 }
 
 /**
- * Ensure one non-blank session exists with the given prompt title, and open it
+ * Ensure one non-blank session with the given title exists, and open it
  * (so the conversation header + view ring render — the ring is hidden while a
- * session is blank, by host design). Creates the session via the real GUI
- * flow (New Session → composer → Send) when no row with that title exists.
- * The prompt turn fails with MISSING_CREDENTIAL (no API key in the smoke
- * home) — harmless: the accepted prompt already flips the session
- * blank→non-blank and reveals the view ring.
+ * session is blank, by host design).
+ *
+ * Session rows render only under their workspace group row, and the group
+ * starts collapsed on a fresh home (ProjectRowItem: the row's onClick is the
+ * group toggle) — so when the row is absent and `workspace` is given, expand
+ * that group first and retry the lookup before any create fallback.
+ *
+ * The create fallback (New Session → composer → Send) requires an LLM provider
+ * in the host home; on a keyless home the Send button stays disabled, so
+ * callers there must supply a pre-seeded session + its workspace instead.
  */
-export async function ensureSessionOpen(page: Page, title: string): Promise<void> {
+export async function ensureSessionOpen(page: Page, title: string, workspace?: string): Promise<void> {
   const list = page.locator('[aria-label="Sessions"]')
   await expect(list).toBeVisible({ timeout: 30_000 })
   const row = list.getByText(title, { exact: true })
+  if ((await row.count()) === 0 && workspace !== undefined) {
+    const group = list.getByRole('treeitem', { name: workspace }).first()
+    if ((await group.getAttribute('aria-expanded').catch(() => null)) !== 'true') {
+      await group.click()
+      await page.waitForTimeout(1000)
+    }
+  }
   if ((await row.count()) === 0) {
     await page
       .locator('button[aria-label="New session"]', { hasText: 'New Session' })

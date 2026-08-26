@@ -55,7 +55,7 @@
 2. **清单核查**：`tar tzf` 全量条目——
    - 必须在（发布面完整）：`package.json`、`README.md`、`cordis.patch.yml`、`SNAPSHOT.md`、`lib/` 六个命名产物 + `client.js.map` + `rpc-contracts-*.js/.d.ts` 哈希双件、`schema/` ≥23 条目（含 common + 三个加载子目录锚点）、8 份根文档、`src/host/index.ts` + `src/client/index.tsx`（`./src/*` 面）；
    - 必须不在（开发私有零泄漏）：`node_modules/`、`tests/`、`e2e/`、`scripts/`、`test-results/`、`playwright-report/`、`.pnpm-store/`、`.npm-cache-tmp/`、`.git`、`*.tgz`、`*.tsbuildinfo`、`tsconfig.json`、`tsdown.config.ts`、`vitest.config.ts`、`pnpm-workspace.yaml`、`.gitignore`；
-3. **解包冒烟**：解到临时目录，symlink 仓库 `node_modules` + 自链 `node_modules/dsh-research-control`（让裸说明符走 `exports` 映射），node 实 import：`.` default-export 必须是 service 类（`ResearchControlService`）、`./typert` 的 `TYPERT.invocations` 必须 14 条（13 RPC + ping）、`./remote` contribution 必须 `{package, descriptors}`。失败时保留临时树路径供检查。
+3. **解包冒烟**：解到临时目录，symlink 仓库 `node_modules` + 自链 `node_modules/dsh-research-control`（让裸说明符走 `exports` 映射），node 实 import：`.` default-export 必须是 service 类（`ResearchControlService`）、`./typert` 的 `TYPERT.invocations` 必须 23 条（22 RPC = 13 冻结 V1 + 9 plane 增量 + ping）、`./remote` contribution 必须 `{package, descriptors}`。失败时保留临时树路径供检查。
 
 ## 5. 标准发布顺序
 

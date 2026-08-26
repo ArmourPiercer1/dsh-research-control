@@ -1,22 +1,22 @@
 # dsh-research-control
 
-> DSH Research Control Plane V1 — DeepSeek Harness 的科研工作流 Cockpit 插件。
+> DSH Research Control Plane V2 — DeepSeek Harness 的科研工作流 Cockpit 插件（平面模型：管理中枢 + 受管/单工作区项目；V2 使用指南见工作区根 `README.md` 及 `docs/design/V2_RESEARCH_PLANE_DESIGN.md`）。
 
-Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic / Workstream** 组织研究，用 **History / Current / Future** 分离过去、现在与未来；用 immutable **Agent PlanFork** 保护用户对计划的最终控制权；用 **Intervention** 平面管理稀缺的人类注意力；并把科学判断留给人和科研 Agent。插件面向 DSH **0.1.0-rc.8** 构建（peer 精确 pin + 自持 `minDshVersion` fail-loud 版本门，无宿主兼容承诺）。
+Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic / Workstream** 组织研究，用 **History / Current / Future** 分离过去、现在与未来；用 immutable **Agent PlanFork** 保护用户对计划的最终控制权；用 **Intervention** 平面管理稀缺的人类注意力；并把科学判断留给人和科研 Agent。插件面向 DSH **0.1.1-rc.2** 构建（peer 精确 pin + 自持 `minDshVersion` fail-loud 版本门，无宿主兼容承诺）。
 
 运行时面：
 
-- **Host service `ctx.researchControl`** — 13 个一元 RPC（`researchControl.*`，纯 JSON DTO）+ 启动完整性检查（DB/树/Git/一致性四检查，在 `[Service.init]` 实例化服务之前的 integrity gate 运行：不可恢复损坏 fail-loud 阻断启动、fiber 到不了 ACTIVE；可恢复损坏 loud 告警 + 自动处置（启动对账自动收敛）；部分损坏的 `.research` 树由 gate 分类为 §10 只读表面（暴露 `readSurface: 'readonly'` 旗、唯一树写路径 honor 它）——但 V1 的 WIRING_TREE 步保持「任何 load 错误即启动失败」从严策略，**部分坏树在 V1 仍 fail-loud 拒绝启动**（无一键「只读降级模式」，见「已知局限」）；Git 冲突/缺失拒绝 managed mode 与 checkpoint）；
+- **Host service `ctx.researchControl`** — 22 个一元 RPC（`researchControl.*`，纯 JSON DTO：13 条冻结 V1 只增不改（请求增可选 `projectId` 多项目路由）+ 9 条 V2 plane 增量）+ 启动完整性检查（DB/树/Git/一致性四检查，在 `[Service.init]` 实例化服务之前的 integrity gate 运行：不可恢复损坏 fail-loud 阻断启动、fiber 到不了 ACTIVE；可恢复损坏 loud 告警 + 自动处置（启动对账自动收敛）；部分损坏的 `.research` 树由 gate 分类为 §10 只读表面（暴露 `readSurface: 'readonly'` 旗、唯一树写路径 honor 它）——但 V1 的 WIRING_TREE 步保持「任何 load 错误即启动失败」从严策略，**部分坏树在 V1 仍 fail-loud 拒绝启动**（无一键「只读降级模式」，见「已知局限」）；Git 冲突/缺失拒绝 managed mode 与 checkpoint）；
 - **11 个 `research_*` agent 工具**（ARCHITECTURE §7.2：7 可写 + 4 只读；权限矩阵内置）；
-- **Web UI** — `conversation.view` 整 tab（Cockpit 三区 + Plan/Topology 图 + History 时间线 + Drill-down）+ `shell.overlay`；
+- **Web UI** — `conversation.view` 整 tab（V2：中枢控制台四页 总览/重要事件/调查员/设置 + 收窄项目视图 + 引导卡；项目视图内保留 Cockpit 三区 + Plan/Topology 图 + History 时间线 + Drill-down）+ `shell.overlay`；
 - **只读 Investigator** — 从 Intervention 一键启动独立只读会话（专用 preset + `/permission read-only`，INV-PERM-3 三层保障）；
-- **持久化** — `node:sqlite` operational store（`$DSH_HOME/research-control/<project-id>/research.sqlite`，WAL + 单调 `user_version`）+ 对 `.research/` 声明式树与 Git 的谨慎消费（checkpoint 仅提交 `.research/**`）。
+- **持久化** — `node:sqlite` operational store（V2 布局：受管项目 `<hubDir>/projects/<project-id>/research.sqlite`、单工作区 `<treeDir>/state/research.sqlite`，库随项目走一次只有一份；WAL + 单调 `user_version`；旧路径 `$DSH_HOME/research-control/<id>/` 退役、仅日志提示）+ 对 `.research/` 声明式树与 Git 的谨慎消费（checkpoint 仅提交 `.research/**`）。
 
 ---
 
 ## 安装
 
-前置：`dsh` CLI（DeepSeek Harness `0.1.0-rc.8`）与 Node `^22.19.0 || >=24`。
+前置：`dsh` CLI（DeepSeek Harness `0.1.1-rc.2`）与 Node `^22.19.0 || >=24`。
 
 ### 方式一：tarball（推荐 — 不需要任何构建许可）
 
@@ -55,7 +55,7 @@ dsh --profile web --dump-config    # 组合树中出现 id: research-control 行
 
 ### 数据与冻结契约快照
 
-- 运行数据：`$DSH_HOME/research-control/<project-id>/research.sqlite`（插件自有数据区；启动完整性检查在打开前做 `quick_check` + `user_version` 门）。
+- 运行数据（V2 布局，库随项目走）：受管项目 `<hubDir>/projects/<project-id>/research.sqlite`（中枢目录，默认 `.research-control`）/ 单工作区项目 `<treeDir>/state/research.sqlite`；目录名可经 DSH 设置插件卡片改名；旧路径 `$DSH_HOME/research-control/<id>/` 退役（启动期发现仅日志提示搬运建议）。启动完整性检查在打开前做 `quick_check` + `user_version` 门。
 - 冻结契约：发布包含**内容一致的只读快照**（SI-001 发布期半边）——包根 `schema/`（JSON Schema 2020-12，23 文件）+ 8 份工程文档 + 逐文件 sha256 的 `SNAPSHOT.md` 清单（文件权限 0444/0555）。正本唯一留在研究工作区根；快照不是正源。Host service 自包内 `lib/` 向上一级解析 `<pkg>/schema`；特殊部署可用 `DSH_RESEARCH_SCHEMA_ROOT` 覆盖（不合法即 fail-loud）。
 
 ---
@@ -83,7 +83,7 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 | [HISTORY_EVENT_CATALOG.md](HISTORY_EVENT_CATALOG.md) | 事件信封 + 20 事件 payload、双时序回放、emitter 矩阵 |
 | [PLAN_FORK_SPEC.md](PLAN_FORK_SPEC.md) | PlanFork closure/blob 基准、SELECT 物化、stale、flooding |
 | [GIT_INTEGRATION.md](GIT_INTEGRATION.md) | W1–W13 Git 白名单、checkpoint 流程、实测行为 |
-| [DSH_ADAPTER.md](DSH_ADAPTER.md) | DSH 0.1.0-rc.8 API 逐项映射、打包 runbook、U1–U9 消解 |
+| [DSH_ADAPTER.md](DSH_ADAPTER.md) | DSH API 逐项映射（冻结 V1 文档；宿主 0.1.1-rc.2 下实证兼容）、打包 runbook、U1–U9 消解 |
 | [TEST_MATRIX.md](TEST_MATRIX.md) | 7 套件 ~111 用例、INV→TC→AC 三层追溯 |
 | [schema/](schema/README.md) | 机器可读契约（JSON Schema 2020-12；23 文件） |
 
@@ -144,8 +144,8 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 ## 已知局限与延后工作
 
 - **9/11 工具 handler 为桩** — 注册面（name/description/parameters/output 契约）完整且被测试冻结，但 `research_fact_record` / `research_claim_record` / `research_artifact_register` / `research_intervention_create` / `research_next_action_create` / `research_context_get` / `research_plan_get` / `research_history_query` / `research_contract_read` 的调用返回 `TOOL_NOT_IMPLEMENTED`（`detail.plannedService` 指明目标服务）；对应 service 层多数已存在（WP-1.3/2.3/2.4/5.1/5.2），缺的是工具 handler → service 的接线 WP。模型体验上 = 「工具可见、调用即得结构化未实现错误」。
-- **未公开发布** — `0.0.0` + `private: true`，未上 npm 公共注册表，license 未定；当前分发面 = 本地 tarball（`pnpm pack`）或 git checkout（需 allowBuilds）。
-- **宿主无兼容承诺** — DSH 为 pre-release（「rename or repackage freely」）；本包以 peer 精确 pin `0.1.0-rc.8` + 自持 `minDshVersion` fail-loud 门 + TC-DSH-008 compatibility smoke 承接升级风险，不提供跨宿主版本兼容。
+- **未公开发布** — `0.1.0` + `private: true`，未上 npm 公共注册表，license 未定；当前分发面 = 本地 tarball（`pnpm pack`）或 git checkout（需 allowBuilds）。
+- **宿主无兼容承诺** — DSH 为 pre-release（「rename or repackage freely」）；本包以 peer 精确 pin `0.1.1-rc.2` + 自持 `minDshVersion` fail-loud 门（默认下限 `0.1.0-rc.8`）+ TC-DSH-008 compatibility smoke 承接升级风险，不提供跨宿主版本兼容。
 - **e2e 证据面** — 全绿证据基于隔离 smoke home（独立 DSH_HOME + 独立端口 + `--reset` 种子重置），非真实用户 profile 的长期运行；宿主侧长时行为（WAL checkpoint、profile 多 bundle 组合漂移）未覆盖。
 - **快照无自动新鲜度门** — `SNAPSHOT.md` 记录构建时 sha256，但没有机制在「工作区根冻结面变更」后自动重打包；发布流程须重跑 `pnpm run build && pnpm run pack:verify`（重跑即重算快照并逐文件断言内容一致）。
 - **启动完整性检查的 V1 边界** — 四检查已接入生产（`[Service.init]` integrity gate，先于服务实例化；不可恢复损坏 fail-loud 阻断 ACTIVE，可恢复损坏 loud 告警 + 启动对账自动收敛，Git 冲突/缺失拒绝 managed mode 与 checkpoint）；但 **部分损坏的 `.research` 树在 V1 仍 fail-loud 拒绝启动**（wiring 的 WIRING_TREE 步保持「任何 load 错误即启动失败」的从严策略，被测试冻结）——ARCHITECTURE §10 行的「部分坏 → 只读可用面」降级语义已由 WP-8.1 分类器定义 + 测试 + e2e 实机证据（integrity gate 已暴露 `readSurface` 旗并在唯一树写路径 honor 它），V1 采纳该降级表面需放宽 WIRING_TREE 步，属后续 WP（G8 裁决书 host-integrator S2 的可选半边）。

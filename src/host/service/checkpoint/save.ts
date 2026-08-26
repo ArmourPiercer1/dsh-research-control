@@ -39,31 +39,34 @@
 import {
   CHECKPOINT_MESSAGE_PREFIX,
   commitResearch,
+  DEFAULT_RESEARCH_TREE_SCOPE,
   detectConflictState,
   detectRepo,
   GitCommandError,
   GitConflictStateError,
   GitInputError,
+  isWithinCommitScopeFor,
   revParseHead,
-  RESEARCH_PATHSPEC,
-  RESEARCH_STATE_EXCLUDE_SPEC,
-  isWithinCommitScope,
+  scopeFor,
   stageResearch,
   status,
   type GitStatus,
+  type ResearchTreeScope,
 } from '../../git/index.js'
 import { NotARepoError, StagedPreservationError } from './errors.js'
 import type { StructuredLogger } from './logger.js'
 import type { SaveCheckpointOptions, SaveCheckpointResult } from './types.js'
 
 /**
- * 提交面判定 (repo-root-relative): `.research/**` 减去 `state/` 状态区
+ * 提交面判定 (repo-root-relative): `<treeDir>/**` 减去 `state/` 状态区
  * (V2-T2.4, design §3.3 — state/ 在 checkpoint 提交白名单之外: 独立模式
  * 的库目录是运行态数据, 永不入 commit). 与 W9/W10 pathspec 的提交范围
  * 一致, changedFiles / leftover 检查 / 「无关 staged」断言全部用同一口径.
+ * V2 T3.2b: the scope is the CALL's tree (opts.treeDir; default the
+ * frozen `.research` face).
  */
-function isResearchPath(p: string): boolean {
-  return isWithinCommitScope(p)
+function isResearchPath(scope: ResearchTreeScope, p: string): boolean {
+  return isWithinCommitScopeFor(scope, p)
 }
 
 /** 人类可读的 status 条目描述 (断言快照用). */
@@ -83,12 +86,19 @@ function describeEntry(e: { kind: string; x: string; y: string; path: string; or
  * 纯函数 (供单测直接驱动违例路径); 不抛 git, 只抛 service 断言错误。
  */
 export function assertUnrelatedStagedPreserved(before: GitStatus, after: GitStatus): void {
+  // The frozen DEFAULT scope face (the V1 `.research` commit scope — the
+  // pure-function test surface, byte-identical to the pre-V2 behavior).
+  assertStagedPreservationFor(DEFAULT_RESEARCH_TREE_SCOPE, before, after)
+}
+
+/** The scope-aware core (V2 T3.2b: the call's tree scope). */
+function assertStagedPreservationFor(scope: ResearchTreeScope, before: GitStatus, after: GitStatus): void {
   const foreignStagedBefore = before.entries
-    .filter((e) => !isResearchPath(e.path))
+    .filter((e) => !isResearchPath(scope, e.path))
     .filter((e) => e.x !== '.')
     .map((e) => ({ kind: e.kind, x: e.x, y: e.y, path: e.path }))
   const afterByPath = new Map(
-    after.entries.filter((e) => !isResearchPath(e.path)).map((e) => [e.path, e] as const),
+    after.entries.filter((e) => !isResearchPath(scope, e.path)).map((e) => [e.path, e] as const),
   )
   const violations: string[] = []
   for (const b of foreignStagedBefore) {
@@ -119,6 +129,7 @@ export function assertUnrelatedStagedPreserved(before: GitStatus, after: GitStat
  */
 export async function saveResearchCheckpoint(root: string, opts: SaveCheckpointOptions): Promise<SaveCheckpointResult> {
   const logger = opts.logger
+  const scope = scopeFor(opts)
 
   // ── 输入校验 (先于任何 I/O): §5 commit message 格式 research: <摘要> ──
   if (typeof opts.summary !== 'string' || opts.summary.length === 0) {
@@ -162,7 +173,7 @@ export async function saveResearchCheckpoint(root: string, opts: SaveCheckpointO
       'detached HEAD: checkpoint commit will land on a detached HEAD and may be lost (GIT_INTEGRATION §5)',
     )
   }
-  const researchEntries = st.entries.filter((e) => isResearchPath(e.path))
+  const researchEntries = st.entries.filter((e) => isResearchPath(scope, e.path))
   const changedFiles = [...new Set(researchEntries.map((e) => e.path))].sort()
   logger.info('save.status', {
     changedFiles,
@@ -177,7 +188,7 @@ export async function saveResearchCheckpoint(root: string, opts: SaveCheckpointO
 
   // ── §5 步骤 3: W9 只暂存 .research 路径 (V2: 排除 state/ 状态区) ──
   await stageResearch(root, opts)
-  logger.info('save.stage', { pathspec: RESEARCH_PATHSPEC, exclude: RESEARCH_STATE_EXCLUDE_SPEC })
+  logger.info('save.stage', { pathspec: scope.pathspec, exclude: scope.stateExcludeSpec })
 
   // ── §5 步骤 4: W10 pathspec 限定提交 (不含用户其他 staged changes, §5.2) ──
   const message = `${CHECKPOINT_MESSAGE_PREFIX}${opts.summary}`
@@ -210,8 +221,8 @@ export async function saveResearchCheckpoint(root: string, opts: SaveCheckpointO
 
   // ── service 层断言: 无关 staged 不被吞且保持 staged (§5.2, TC-GIT-002) ──
   const stAfter = await status(root, { ...opts, includeBranch: true })
-  assertUnrelatedStagedPreserved(st, stAfter)
-  const leftover = stAfter.entries.filter((e) => isResearchPath(e.path))
+  assertStagedPreservationFor(scope, st, stAfter)
+  const leftover = stAfter.entries.filter((e) => isResearchPath(scope, e.path))
   if (leftover.length > 0) {
     // 异常: .research/** 在 add 之后又出现新变更 (并发写入)。不 unstage 任何
     // 内容 (INV: 从不 unstage), 只明确警告交用户处理。

@@ -59,3 +59,35 @@ export function readProjectId(researchRoot: string): string {
   }
   return id
 }
+
+/**
+ * V2-T3.2a — read the Project `title` from the SAME `project.yaml` with a
+ * LENIENT verdict (the discovery probe's display-name need: a STANDALONE
+ * plane project has no registry entry, so its wire `displayName` is the
+ * tree's `title` — design §12 `PlaneProjectDto`).
+ *
+ * Unlike {@link readProjectId} this NEVER throws: a tree whose title is
+ * missing/unusable already fails loud in the full tree load (the wiring's
+ * own step — `title` is a required minLength-1 field of the frozen
+ * project schema), so the probe only needs an honest `null` fallback for
+ * the degenerate case (unreadable file / absent key / non-string).
+ */
+export function readProjectTitle(researchRoot: string): string | null {
+  const absPath = join(researchRoot, 'project.yaml')
+  let text: string
+  try {
+    text = readFileSync(absPath, 'utf8')
+  } catch {
+    return null
+  }
+  try {
+    const doc = parseDocument(text)
+    if (doc.errors.length > 0 || doc.contents === null || !(doc.contents instanceof YAMLMap)) {
+      return null
+    }
+    const title: unknown = doc.contents.get('title')
+    return typeof title === 'string' && title.length > 0 ? title : null
+  } catch {
+    return null
+  }
+}

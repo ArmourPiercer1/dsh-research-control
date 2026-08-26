@@ -63,6 +63,20 @@
  * (decode first → `requireRpc(decoded.projectId)` — the 11 parameterized
  * RPCs route on the optional `projectId`; the two zero-arg queries keep
  * their frozen wire face and route through the omitted-id rule).
+ * V2-T3.2b (design §12 rows 4-6/8/9 — the plane-level mutation face):
+ * `setHub` / `bindProject` / `unbindProject` / `restoreProject` /
+ * `rescan` / `ackMissingReminder` join the service as THIN `@Remote`
+ * bodies that forward to the PLANE-LEVEL
+ * `ResearchPlaneMutationServices` port (plane-mutation-services.ts —
+ * the mutation sibling of the read port: ONE instance for the whole
+ * plane, composed here in `[Service.init]` over the SAME live fields;
+ * tests inject a stub through the optional 5th constructor argument).
+ * PLANE-LEVEL — NOT project-routed (the §12.1 resolution does not
+ * apply): callable on the EMPTY plane too (that is the onboarding path,
+ * design §8 设为中枢/接入). Every successful mutation re-runs
+ * `#initResearchPlane` through the port's re-init hook (the
+ * `#reinitResearchPlane` here), so the NEXT RPC call sees the fresh
+ * plane state.
  * WP-3.6 (RR-011 ledger — the host service wiring): `[Service.init]` now
  * COMPLETES the dependency graph over the registered research workspace:
  * `createHostWiring` (src/host/service/wiring — store → registry → tree →
@@ -141,6 +155,8 @@ import {
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
+  AckMissingReminderArgsSchema,
+  BindProjectArgsSchema,
   DismissPlanForkArgsSchema,
   GetGitHistoryArgsSchema,
   GetHubOverviewArgsSchema,
@@ -150,11 +166,19 @@ import {
   GetWorkstreamArgsSchema,
   QueryHistoryArgsSchema,
   ReorderPlanArgsSchema,
+  RescanArgsSchema,
   RestoreDeclarativeFileArgsSchema,
+  RestoreProjectArgsSchema,
   SaveResearchCheckpointArgsSchema,
   SelectPlanForkArgsSchema,
+  SetHubArgsSchema,
+  UnbindProjectArgsSchema,
   UpdateInterventionStateArgsSchema,
   RegisterInteractionArgsSchema,
+  type AckMissingReminderArgs,
+  type AckMissingReminderResult,
+  type BindProjectArgs,
+  type BindProjectResult,
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
@@ -176,13 +200,21 @@ import {
   type ReorderPlanResult,
   type RegisterInteractionArgs,
   type RegisterInteractionResult,
+  type RescanArgs,
+  type RescanResult,
   type RestoreDeclarativeFileArgs,
   type RestoreDeclarativeFileResult,
+  type RestoreProjectArgs,
+  type RestoreProjectResult,
   type SaveResearchCheckpointArgs,
   type SaveResearchCheckpointResult,
   type SelectPlanForkArgs,
   type SelectPlanForkResult,
+  type SetHubArgs,
+  type SetHubResult,
   type TopicSnapshot,
+  type UnbindProjectArgs,
+  type UnbindProjectResult,
   type UpdateInterventionStateArgs,
   type UpdateInterventionStateResult,
   type WorkstreamSnapshot,
@@ -195,6 +227,10 @@ import {
   ProductionResearchPlaneServices,
   type ResearchPlaneServices,
 } from './plane-read-services.js'
+import {
+  ProductionResearchPlaneMutationServices,
+  type ResearchPlaneMutationServices,
+} from './plane-mutation-services.js'
 import { HostSessionAdapter, type SessionHostContext } from '../session.js'
 import {
   assertMinDshVersion,
@@ -415,6 +451,24 @@ export class ResearchControlService extends TypertRemoteService {
   private planeServices: ResearchPlaneServices | undefined
 
   /**
+   * V2-T3.2b (design §12 rows 4-6/8/9): the PLANE-LEVEL MUTATION RPC port
+   * (setHub / bindProject / unbindProject / restoreProject / rescan /
+   * ackMissingReminder) — the mutation sibling of {@link planeServices}:
+   * ONE instance for the whole plane, PLANE-LEVEL (NOT project-routed —
+   * callable on the EMPTY plane too: that is the onboarding path, design
+   * §8 设为中枢/接入). Composed in `[Service.init]` next to the read port
+   * over the SAME live fields (plane / projectWirings), with its
+   * re-init hook wired to `#reinitResearchPlane` — every successful
+   * mutation re-runs the §4 discovery + per-project rewiring and the NEXT
+   * RPC call reads the fresh state (plane-mutation-services.ts); tests
+   * inject a stub through the optional 5th constructor argument (the
+   * T3.2a seam extended). `undefined` only before init —
+   * `requirePlaneMutationServices` fails loud (the same spike-mode guard
+   * shape). Same proxy rule as {@link plane} (TS `private`, not `#`).
+   */
+  private planeMutationServices: ResearchPlaneMutationServices | undefined
+
+  /**
    * WP-4.1a / V2-T2.2: the RPC service port the 13 `@Remote` methods
    * forward to. V2-T2.2: the PRODUCTION ports live in
    * {@link projectRpcs} (one per plane project — the §12.1 routing map,
@@ -429,9 +483,12 @@ export class ResearchControlService extends TypertRemoteService {
    * proxy (`ctx.get(serviceKey)` → `Reflect.apply(method, proxy, args)`),
    * and V8 refuses ANY `#`-member access from a Proxy receiver ("Receiver
    * must be an instance of class …"). `rpc`/`plane`/`projectRpcs` +
-   * `requireRpc` are the only members on the `@Remote` call chain; the
-   * rest of the class keeps true `#` privacy (its paths run with the
-   * real instance receiver).
+   * `requireRpc` (the frozen 13), `planeServices` +
+   * `requirePlaneServices` (the 3 plane reads, V2-T3.2a) and
+   * `planeMutationServices` + `requirePlaneMutationServices` (the 6
+   * plane mutations, V2-T3.2b) are the members on the `@Remote` call
+   * chain; the rest of the class keeps true `#` privacy (its paths run
+   * with the real instance receiver).
    */
   private rpc: ResearchRpcServices | undefined
 
@@ -448,17 +505,24 @@ export class ResearchControlService extends TypertRemoteService {
    *  read-only port (the 3 design §12 rows 1-3 methods; production
    *  fibers pass nothing — `[Service.init]` composes the production
    *  implementation over the discovered plane + the wirings map).
+   * @param planeMutationServices - V2-T3.2b test seam: a stub for the
+   *  PLANE-LEVEL MUTATION port (the 6 design §12 rows 4-6/8/9 methods;
+   *  production fibers pass nothing — `[Service.init]` composes the
+   *  production implementation with its re-init hook over the SAME live
+   *  plane fields as the read port).
    */
   constructor(
     ctx: Context,
     config: Config,
     rpcServices?: ResearchRpcServices,
     planeServices?: ResearchPlaneServices,
+    planeMutationServices?: ResearchPlaneMutationServices,
   ) {
     super(ctx, 'researchControl')
     this.#config = config
     this.rpc = rpcServices
     this.planeServices = planeServices
+    this.planeMutationServices = planeMutationServices
     // Cordis 管不到的资源 teardown 占位：SQLite 连接、file watcher（后续 WP）。
     // 注册本身即逆 effect：fiber 卸载时随注册自动回滚（DSH_ADAPTER §4 要点 2）。
     ctx.effect(() => () => {
@@ -597,6 +661,41 @@ export class ResearchControlService extends TypertRemoteService {
       sessions: adapter,
       declarativeDir: join(schemaRoot, 'declarative'),
     })
+    // V2-T3.2b (design §12 rows 4-6/8/9): the PLANE-LEVEL MUTATION port —
+    // the mutation sibling of the read port above: one instance for the
+    // whole plane, composed in EVERY mode (the empty plane included — the
+    // mutations are the ONBOARDING path: setHub creates the hub on an
+    // empty plane, bindProject registers the first project). The same
+    // live-field getters as the read port (a re-init swaps the state in
+    // place; no re-composition). `reinitPlane` is the module header's
+    // post-mutation hook: the FULL `#initResearchPlane` re-run (§4
+    // discovery + per-project rewiring), so the NEXT RPC call sees the
+    // fresh plane state. `sealStandaloneDb` closes the project's TWO
+    // connection owners — the wiring AND the RPC service port (see the
+    // seam below) — BEFORE the db file moves (the P2 leftover ordering).
+    this.planeMutationServices = new ProductionResearchPlaneMutationServices({
+      getPlane: () => this.plane,
+      listWorkspacePaths: (): readonly string[] =>
+        (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry.list().map((w) => w.path),
+      dirNames: () => getResearchDirNames(this.ctx),
+      reinitPlane: (): void | Promise<void> => this.#reinitResearchPlane(adapter, schemaRoot),
+      sealStandaloneDb: (projectId: string): void => {
+        // A project's live sqlite connections have TWO owners: its
+        // HostWiring (the store + the second connections) and its RPC
+        // service port (the user-surface second connection). Closing
+        // EITHER alone leaves the other connection live — and the LAST
+        // connection to close the WAL file is what runs the final
+        // checkpoint and removes the -wal/-shm sidecars. A live survivor
+        // across `migrateDb`'s rename keeps un-checkpointed pages in the
+        // stale (source-dir) -wal, so the post-migration re-init gate
+        // reads a page absent from the moved file and fails with a
+        // "disk I/O error". Close both (idempotent; the RPC port first —
+        // the same order as the fiber-death disposer below). A project
+        // without a wiring/rpc entry has no live connection to seal.
+        this.projectRpcs?.get(projectId)?.close?.()
+        this.projectWirings?.get(projectId)?.close()
+      },
+    })
     if (plane.wirings.size > 0) {
       // ONE disposer for the whole graph (DSH_ADAPTER §9: `[Service.init]`
       // open, `ctx.effect` close — the storage-sqlite register/close
@@ -614,6 +713,7 @@ export class ResearchControlService extends TypertRemoteService {
           this.projectWirings = undefined
           this.plane = undefined
           this.planeServices = undefined
+          this.planeMutationServices = undefined
           this.#wiring = undefined
         }
       })
@@ -813,6 +913,81 @@ export class ResearchControlService extends TypertRemoteService {
     )
   }
 
+  /* ---------------------------------------------------------------- *
+   * V2-T3.2b: the plane-level mutation face (design §12 rows 4-6/8/9)
+   *
+   * The 6 plane mutations are PLANE-LEVEL — NOT project-routed (the
+   * §12.1 resolution does not apply: they act on the hub / the whole
+   * plane, not on one project): every body is THIN (zod decode →
+   * forward to the plane-mutation port, red line unchanged). The EMPTY
+   * plane is callable too — that IS the onboarding path (design §8
+   * 设为中枢 / 接入: setHub on an empty plane, then bindProject). A
+   * successful mutation re-runs `#initResearchPlane` through the port's
+   * re-init hook, so the NEXT RPC call sees the fresh plane state.
+   * ---------------------------------------------------------------- */
+
+  @Remote('setHub')
+  async setHub(args: unknown): Promise<SetHubResult> {
+    return await this.requirePlaneMutationServices().setHub(
+      SetHubArgsSchema.parse(args) satisfies SetHubArgs,
+    )
+  }
+
+  @Remote('bindProject')
+  async bindProject(args: unknown): Promise<BindProjectResult> {
+    return await this.requirePlaneMutationServices().bindProject(
+      BindProjectArgsSchema.parse(args) satisfies BindProjectArgs,
+    )
+  }
+
+  @Remote('unbindProject')
+  async unbindProject(args: unknown): Promise<UnbindProjectResult> {
+    return await this.requirePlaneMutationServices().unbindProject(
+      UnbindProjectArgsSchema.parse(args) satisfies UnbindProjectArgs,
+    )
+  }
+
+  @Remote('restoreProject')
+  async restoreProject(args: unknown): Promise<RestoreProjectResult> {
+    return await this.requirePlaneMutationServices().restoreProject(
+      RestoreProjectArgsSchema.parse(args) satisfies RestoreProjectArgs,
+    )
+  }
+
+  @Remote('rescan')
+  async rescan(args: unknown): Promise<RescanResult> {
+    return await this.requirePlaneMutationServices().rescan(
+      RescanArgsSchema.parse(args) satisfies RescanArgs,
+    )
+  }
+
+  @Remote('ackMissingReminder')
+  async ackMissingReminder(args: unknown): Promise<AckMissingReminderResult> {
+    return await this.requirePlaneMutationServices().ackMissingReminder(
+      AckMissingReminderArgsSchema.parse(args) satisfies AckMissingReminderArgs,
+    )
+  }
+
+  /**
+   * The plane-mutation port guard (V2-T3.2b — the mutation twin of
+   * {@link requirePlaneServices}): a constructor-injected stub (TESTS
+   * only) always wins; pre-init (plane not discovered yet) fails loud
+   * (the gateway carries the message as an `ok: false` failure; `ping`
+   * still serves). The mutation port is composed in EVERY init mode
+   * (the empty plane included — it is the onboarding face), so a
+   * non-undefined field always has a usable target once init has run.
+   */
+  private requirePlaneMutationServices(): ResearchPlaneMutationServices {
+    const stub = this.planeMutationServices
+    if (stub === undefined) {
+      throw new Error(
+        'the research control plane is not initialized (spike mode) — the plane mutation RPCs ' +
+          'require [Service.init] (the discovered plane state); ping stays available',
+      )
+    }
+    return stub
+  }
+
   /**
    * The plane-read port guard (V2-T3.2a — the plane-level twin of
    * {@link requireRpc}): a constructor-injected stub (TESTS only) always
@@ -885,6 +1060,51 @@ export class ResearchControlService extends TypertRemoteService {
   /* ---------------------------------------------------------------- *
    * WP-3.6: the research plane (host service wiring)
    * ---------------------------------------------------------------- */
+
+  /**
+   * The plane-mutation RE-INIT hook (V2-T3.2b — the module header's
+   * 「the re-init hook」 of plane-mutation-services.ts, composed on the
+   * port's `reinitPlane` option in `[Service.init]`): re-runs the FULL
+   * {@link #initResearchPlane} — §4 discovery AND the per-project
+   * rewiring — and swaps the fresh state IN PLACE, so the NEXT RPC call
+   * (any of the 22) reads the fresh `plane` / `projectWirings` /
+   * `projectRpcs` fields (the read port's lazy getters see them too —
+   * no re-composition, the T3.2a comment's contract).
+   *
+   * Ordering (the reinitPlane contract — 「on throw the previous state
+   * is left in place and the throw rejects the mutation」): the FRESH
+   * plane is composed FIRST — `#initResearchPlane` builds brand-new
+   * wirings/rpcs maps without touching the current ones, so a throw
+   * (e.g. the operator created a second hub on disk between the
+   * mutation's commit and its re-init) rejects the mutation with the
+   * previous plane fully in place (the mutation's disk state is already
+   * committed; the stale state is repairable by a later rescan). Only
+   * after success are the previous plane's resources torn down — RPC
+   * ports before store connections, the fiber-unmount order (every
+   * `close()` is idempotent) — and the fields swapped.
+   *
+   * Known boundary (the T3.x tool-face decision, design §13): the 11
+   * agent tools register ONCE in `[Service.init]` and capture their
+   * data-face closures from that wiring; a re-init that replaces the
+   * sole wiring (e.g. a rescan on a single-project plane) leaves the
+   * registered tool closures on the closed old wiring while
+   * `#runResearchTool` resolves the actor against the NEW `#wiring`
+   * (fail-loud at use time, no silent data path). Tool re-registration
+   * is a T3.x scope, like the tools' multi-project face.
+   */
+  async #reinitResearchPlane(adapter: HostSessionAdapter, schemaRoot: string): Promise<void> {
+    const fresh = this.#initResearchPlane(adapter, schemaRoot)
+    if (this.projectRpcs !== undefined) {
+      for (const service of this.projectRpcs.values()) service.close?.()
+    }
+    if (this.projectWirings !== undefined) {
+      for (const wiring of this.projectWirings.values()) wiring.close()
+    }
+    this.plane = fresh.plane
+    this.projectRpcs = fresh.rpcs
+    this.projectWirings = fresh.wirings
+    this.#wiring = fresh.wirings.size === 1 ? [...fresh.wirings.values()][0]! : undefined
+  }
 
   /**
    * Build the research plane (V2-T2.2 — design §4 全文 + §13 row 1):
@@ -999,9 +1219,10 @@ export class ResearchControlService extends TypertRemoteService {
       )
     }
     if (planeState.projects.length === 0 && planeState.missing.length === 0) {
-      // The empty plane (the V1 spike mode in the multi-project
-      // vocabulary, spirit of the old 「no registered workspace carries a
-      // .research tree」 warn): ping stays, everything else stays loud.
+      // The empty plane (design §6 引导卡 state): no project to serve.
+      // The 9 plane RPCs still answer (the 引导卡 data source); the
+      // tools are NOT registered (single-project planes only) and the
+      // 13 per-project RPCs fail loud until a project exists.
       // The wording must not lie: when a hub WAS discovered (with an
       // empty registry) the hub-discovered log line above already
       // recorded it — say the registry is empty, not that no hub exists.
@@ -1014,10 +1235,11 @@ export class ResearchControlService extends TypertRemoteService {
           ? 'bind a project or create a hub through the settings plane'
           : 'register a project through the settings plane'
       console.warn(
-        `[research-control] ${situation} — the research control plane stays in spike ` +
-          `mode (ping only); the tools and the 13 RPCs are NOT registered (${remedy}); the ` +
-          `3 read-only plane RPCs still serve the empty plane state (the design §6 ` +
-          `引导卡 data source — the 研究 tab renders its boot state from it)`,
+        `[research-control] ${situation} — the plane has no project: the tools are ` +
+          `NOT registered (single-project planes only) and the 13 per-project RPCs ` +
+          `fail loud until a project exists (${remedy}); the 9 plane RPCs still serve ` +
+          `the empty plane state (the design §6 引导卡 data source — the 研究 tab ` +
+          `renders its boot state from it)`,
       )
     }
     for (const project of planeState.projects) {

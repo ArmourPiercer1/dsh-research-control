@@ -2157,7 +2157,7 @@ export const restoreProjectInvocation: InvocationDescriptorMirror = descriptor(
 export const rescanInvocation: InvocationDescriptorMirror = descriptor(
   'rescan',
   [argsParameter('RescanArgs', RescanArgsSchema)],
-  'PlaneStateSummary',
+  'RescanResult',
   RescanResultSchema,
 )
 
@@ -2198,16 +2198,22 @@ export const RESEARCH_PLANE_INVOCATIONS: readonly InvocationDescriptorMirror[] =
  * Registration-face evidence (for the T6.3 README update): the frozen
  * doc names 13 RPCs; design §12 adds 9 — the full V2 business face is
  * 22 RPCs (23 with ping). T3.2a registers 13 + 3 = 16 business RPCs
- * (17 with ping); the 6 change-family plane RPCs (setHub / bindProject /
- * unbindProject / restoreProject / rescan / ackMissingReminder) stay
- * contract-only — their descriptors above land in this face only with
- * their implementation tasks (the @Remote bodies do not exist yet —
- * registering a descriptor without its method would break the gateway
- * dispatch).
+ * (17 with ping); T3.2b registers the 6 change-family plane RPCs
+ * (setHub / bindProject / unbindProject / restoreProject / rescan /
+ * ackMissingReminder) — the FULL V2 business face, 22 RPCs (23 with
+ * ping) — the descriptors above land in this face with their @Remote
+ * bodies (registering a descriptor without its method would break the
+ * gateway dispatch).
  */
 export const REGISTERED_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
   ...ALL_RESEARCH_INVOCATIONS,
   getResearchPlaneStateInvocation,
   getHubOverviewInvocation,
   getPortfolioInterventionsInvocation,
+  setHubInvocation,
+  bindProjectInvocation,
+  unbindProjectInvocation,
+  restoreProjectInvocation,
+  rescanInvocation,
+  ackMissingReminderInvocation,
 ]

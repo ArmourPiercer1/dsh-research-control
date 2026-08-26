@@ -22,9 +22,11 @@
  * only assembly faults reject). V2-T3.2a: the map gains the 3 read-only
  * plane endpoints (design §12 rows 1-3 — same conventions: one `args`
  * json parameter, `RemoteResult<T>`; `getHubOverview`'s request is the
- * EMPTY strict object). `descriptors` is the SAME object set as
- * `TYPERT.invocations` on the host face (the shared
- * `REGISTERED_RESEARCH_INVOCATIONS` — no drift by construction).
+ * EMPTY strict object). V2-T3.2b: the map gains the 6 change-family
+ * plane endpoints (design §12 rows 4-6/8/9 — same conventions: PLANE-
+ * LEVEL, not project-routed, callable on the empty plane). `descriptors`
+ * is the SAME object set as `TYPERT.invocations` on the host face (the
+ * shared `REGISTERED_RESEARCH_INVOCATIONS` — no drift by construction).
  *
  * This file is client-dsh-adapter territory: it may import
  * `@deepseek-ai/*` (INV-PERM-5 exempt set).
@@ -35,6 +37,10 @@ import type {
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
 import {
+  AckMissingReminderArgs,
+  AckMissingReminderResult,
+  BindProjectArgs,
+  BindProjectResult,
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
@@ -58,13 +64,21 @@ import {
   ReorderPlanResult,
   RegisterInteractionArgs,
   RegisterInteractionResult,
+  RescanArgs,
+  RescanResult,
   RestoreDeclarativeFileArgs,
   RestoreDeclarativeFileResult,
+  RestoreProjectArgs,
+  RestoreProjectResult,
   SaveResearchCheckpointArgs,
   SaveResearchCheckpointResult,
+  SetHubArgs,
+  SetHubResult,
   SelectPlanForkArgs,
   SelectPlanForkResult,
   TopicSnapshot,
+  UnbindProjectArgs,
+  UnbindProjectResult,
   UpdateInterventionStateArgs,
   UpdateInterventionStateResult,
   WorkstreamSnapshot,
@@ -104,6 +118,23 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/getPortfolioInterventions': (
       args: GetPortfolioInterventionsArgs,
     ) => Promise<RemoteResult<GetPortfolioInterventionsResult>>
+    // V2-T3.2b: the 6 change-family plane RPCs (design §12 rows 4-6/8/9).
+    'researchControl/setHub': (
+      args: SetHubArgs,
+    ) => Promise<RemoteResult<SetHubResult>>
+    'researchControl/bindProject': (
+      args: BindProjectArgs,
+    ) => Promise<RemoteResult<BindProjectResult>>
+    'researchControl/unbindProject': (
+      args: UnbindProjectArgs,
+    ) => Promise<RemoteResult<UnbindProjectResult>>
+    'researchControl/restoreProject': (
+      args: RestoreProjectArgs,
+    ) => Promise<RemoteResult<RestoreProjectResult>>
+    'researchControl/rescan': (args: RescanArgs) => Promise<RemoteResult<RescanResult>>
+    'researchControl/ackMissingReminder': (
+      args: AckMissingReminderArgs,
+    ) => Promise<RemoteResult<AckMissingReminderResult>>
   }
 
   interface TypertRemoteNamespaceMap {
@@ -113,7 +144,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   /**
    * Mounted namespace methods for `researchControl` (generator-named
    * interface). WP-4.1a: ping (WP-0.3 diagnostic) + the 13 §7.1 RPCs;
-   * V2-T3.2a: + the 3 read-only plane RPCs (design §12 rows 1-3).
+   * V2-T3.2a: + the 3 read-only plane RPCs (design §12 rows 1-3);
+   * V2-T3.2b: + the 6 change-family plane RPCs (design §12 rows 4-6/8/9).
    */
   interface TypertRemoteNamespace$726573656172636f6e74726f6c {
     ping: () => Promise<RemoteResult<PingResult>>
@@ -146,6 +178,15 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     getPortfolioInterventions: (
       args: GetPortfolioInterventionsArgs,
     ) => Promise<RemoteResult<GetPortfolioInterventionsResult>>
+    // V2-T3.2b: the 6 change-family plane RPCs (design §12 rows 4-6/8/9).
+    setHub: (args: SetHubArgs) => Promise<RemoteResult<SetHubResult>>
+    bindProject: (args: BindProjectArgs) => Promise<RemoteResult<BindProjectResult>>
+    unbindProject: (args: UnbindProjectArgs) => Promise<RemoteResult<UnbindProjectResult>>
+    restoreProject: (args: RestoreProjectArgs) => Promise<RemoteResult<RestoreProjectResult>>
+    rescan: (args: RescanArgs) => Promise<RemoteResult<RescanResult>>
+    ackMissingReminder: (
+      args: AckMissingReminderArgs,
+    ) => Promise<RemoteResult<AckMissingReminderResult>>
   }
 }
 
@@ -153,8 +194,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
  * The research contribution: the client half of the `./typert` manifest.
  * `descriptors` is the SAME object set as `TYPERT.invocations` on the
  * host face (the shared `REGISTERED_RESEARCH_INVOCATIONS` — ping + the
- * 13 WP-4.1a descriptors + the 3 read-only plane descriptors, V2-T3.2a),
- * strict codecs included.
+ * 13 WP-4.1a descriptors + the 3 read-only plane descriptors, V2-T3.2a
+ * + the 6 change-family plane descriptors, V2-T3.2b — the 23-endpoint
+ * face), strict codecs included.
  */
 export const researchRemotes: TypertRemoteContribution = {
   package: RESEARCH_CONTROL_PACKAGE,

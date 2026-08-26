@@ -265,9 +265,10 @@ describe('WP-0.3 ping RPC spike', () => {
     const methods = remoteMethods(svc)
     expect(methods[0]).toEqual({ method: 'ping', invocation: { kind: 'direct' } })
     // V2-T3.2a: the registered face is ping + the 13 §7.1 RPCs + the 3
-    // read-only plane RPCs (design §12 rows 1-3) — the exhaustive 17-
-    // method equality is pinned in tests/rpc-face/.
-    expect(methods).toHaveLength(17)
+    // read-only plane RPCs (design §12 rows 1-3); V2-T3.2b: + the 6
+    // change-family plane RPCs (design §12 rows 4-6/8/9) — the exhaustive
+    // 23-method equality is pinned in tests/rpc-face/.
+    expect(methods).toHaveLength(23)
     // Same key as the wire namespace (DSH_ADAPTER §5 step 1).
     expect(svc.typertRemote.serviceKey).toBe('researchControl')
     expect(svc.typertRemote.namespace).toBe('researchControl')
@@ -371,9 +372,10 @@ describe('WP-0.3 ping RPC spike', () => {
 
   it('③ client descriptors and manifest invocations are the same strict contract', () => {
     // V2-T3.2a: the contribution grew to ping + the 13 §7.1 RPCs + the 3
-    // read-only plane RPCs; the exhaustive 17-descriptor equality is
+    // read-only plane RPCs; V2-T3.2b: + the 6 change-family plane RPCs
+    // (design §12 rows 4-6/8/9); the exhaustive 23-descriptor equality is
     // pinned in tests/rpc-face/.
-    expect(researchRemotes.descriptors).toHaveLength(17)
+    expect(researchRemotes.descriptors).toHaveLength(23)
     // Both faces re-export the shared descriptor object — no drift by construction.
     expect(researchRemotes.descriptors[0]).toBe(pingInvocation)
     expect(TYPERT.invocations[0]).toBe(pingInvocation)

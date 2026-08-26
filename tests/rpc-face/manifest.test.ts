@@ -1,7 +1,9 @@
 /**
  * WP-4.1a — manifest validation for the FULL registered face (V2-T3.2a:
- * the 17-endpoint face — ping + the 13 §7.1 RPCs + the 3 read-only plane
- * RPCs of design §12 rows 1-3), extending the WP-0.3 rpc-spike test form:
+ * the 3 read-only plane RPCs of design §12 rows 1-3; V2-T3.2b: the 6
+ * change-family plane RPCs of design §12 rows 4-6/8/9 — the 23-endpoint
+ * face — ping + the 13 §7.1 RPCs + the 9 plane RPCs), extending the WP-0.3
+ * rpc-spike test form:
  *  - the mirrored loader `validateTypertManifest` (rc.8 semantics, ported
  *    to tests/rpc-face/loader-validation.ts) passes on TYPERT;
  *  - the host manifest's invocations/schemas/members describe the whole
@@ -20,6 +22,10 @@ import { describe, expect, it } from 'vitest'
 import { TYPERT } from '../../src/host/dsh-adapter/host/typert.artifact.js'
 import { researchRemotes } from '../../src/client/dsh-adapter/remote/contribution.js'
 import {
+  AckMissingReminderArgsSchema,
+  AckMissingReminderResultSchema,
+  BindProjectArgsSchema,
+  BindProjectResultSchema,
   DashboardSnapshotSchema,
   DismissPlanForkArgsSchema,
   DismissPlanForkResultSchema,
@@ -45,13 +51,21 @@ import {
   ReorderPlanResultSchema,
   RegisterInteractionArgsSchema,
   RegisterInteractionResultSchema,
+  RescanArgsSchema,
+  RescanResultSchema,
   RestoreDeclarativeFileArgsSchema,
   RestoreDeclarativeFileResultSchema,
+  RestoreProjectArgsSchema,
+  RestoreProjectResultSchema,
   SaveResearchCheckpointArgsSchema,
   SaveResearchCheckpointResultSchema,
+  SetHubArgsSchema,
+  SetHubResultSchema,
   SelectPlanForkArgsSchema,
   SelectPlanForkResultSchema,
   TopicSnapshotSchema,
+  UnbindProjectArgsSchema,
+  UnbindProjectResultSchema,
   UpdateInterventionStateArgsSchema,
   UpdateInterventionStateResultSchema,
   WorkstreamSnapshotSchema,
@@ -73,16 +87,23 @@ import {
   WORKSTREAM_FIXTURE,
 } from './fixtures.js'
 import {
+  ACK_MISSING_REMINDER_FIXTURE,
+  BIND_PROJECT_FIXTURE,
   HUB_OVERVIEW_FIXTURE,
   PLANE_STATE_FIXTURE,
   PORTFOLIO_INTERVENTIONS_FIXTURE,
+  RESCAN_FIXTURE,
+  RESTORE_PROJECT_FIXTURE,
+  SET_HUB_FIXTURE,
+  UNBIND_PROJECT_FIXTURE,
 } from './plane-fixtures.js'
 import { validateTypertManifest } from './loader-validation.js'
 
 const pingFixture = { ok: true, service: 'researchControl', time: 1755000000000 }
 
-/** The 17 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs
- *  appended after the frozen 14), each with its wire-valid result fixture. */
+/** The 23 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
+ *  V2-T3.2b: the 6 change-family plane RPCs appended after the frozen 14),
+ *  each with its wire-valid result fixture. */
 const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = [
   { method: 'ping', resultFixture: pingFixture },
   { method: 'getDashboard', resultFixture: DASHBOARD_FIXTURE },
@@ -101,10 +122,16 @@ const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = 
   { method: 'getResearchPlaneState', resultFixture: PLANE_STATE_FIXTURE },
   { method: 'getHubOverview', resultFixture: HUB_OVERVIEW_FIXTURE },
   { method: 'getPortfolioInterventions', resultFixture: PORTFOLIO_INTERVENTIONS_FIXTURE },
+  { method: 'setHub', resultFixture: SET_HUB_FIXTURE },
+  { method: 'bindProject', resultFixture: BIND_PROJECT_FIXTURE },
+  { method: 'unbindProject', resultFixture: UNBIND_PROJECT_FIXTURE },
+  { method: 'restoreProject', resultFixture: RESTORE_PROJECT_FIXTURE },
+  { method: 'rescan', resultFixture: RESCAN_FIXTURE },
+  { method: 'ackMissingReminder', resultFixture: ACK_MISSING_REMINDER_FIXTURE },
 ]
 
-/** The args-schema identity table (14 parameterized RPCs: the frozen 11
- *  + the 3 read-only plane RPCs — every one carries a strict args object). */
+/** The args-schema identity table (20 parameterized RPCs: the frozen 11
+ *  + the 9 plane RPCs — every one carries a strict args object). */
 const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getTopic: GetTopicArgsSchema,
   getWorkstream: GetWorkstreamArgsSchema,
@@ -120,6 +147,12 @@ const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getResearchPlaneState: GetResearchPlaneStateArgsSchema,
   getHubOverview: GetHubOverviewArgsSchema,
   getPortfolioInterventions: GetPortfolioInterventionsArgsSchema,
+  setHub: SetHubArgsSchema,
+  bindProject: BindProjectArgsSchema,
+  unbindProject: UnbindProjectArgsSchema,
+  restoreProject: RestoreProjectArgsSchema,
+  rescan: RescanArgsSchema,
+  ackMissingReminder: AckMissingReminderArgsSchema,
 }
 
 /** Narrow a descriptor codec to its strict arm. */
@@ -128,19 +161,25 @@ function strictCodec(codec: TypertCodec): Extract<TypertCodec, { mode: 'strict' 
   return codec
 }
 
-describe('WP-4.1a manifest — the full 17-endpoint registered face (V2-T3.2a)', () => {
+describe('WP-4.1a manifest — the full 23-endpoint registered face (V2-T3.2a + V2-T3.2b)', () => {
   it('TYPERT passes the mirrored loader validation (validateTypertManifest semantics)', () => {
     expect(() => validateTypertManifest(RESEARCH_CONTROL_PACKAGE, TYPERT)).not.toThrow()
   })
 
-  it('TYPERT.invocations is exactly the frozen 14 + the 3 read-only plane RPCs, in order', () => {
-    expect(TYPERT.invocations).toHaveLength(17)
+  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs, in order', () => {
+    expect(TYPERT.invocations).toHaveLength(23)
     expect(TYPERT.invocations.map((i) => i.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,
       'getResearchPlaneState',
       'getHubOverview',
       'getPortfolioInterventions',
+      'setHub',
+      'bindProject',
+      'unbindProject',
+      'restoreProject',
+      'rescan',
+      'ackMissingReminder',
     ])
     // The host manifest re-exports the SHARED descriptors (identity):
     // index 0 is the shared ping descriptor, indices 1..13 are the shared
@@ -197,6 +236,12 @@ describe('WP-4.1a manifest — the full 17-endpoint registered face (V2-T3.2a)',
       getResearchPlaneState: GetResearchPlaneStateResultSchema,
       getHubOverview: HubOverviewResultSchema,
       getPortfolioInterventions: GetPortfolioInterventionsResultSchema,
+      setHub: SetHubResultSchema,
+      bindProject: BindProjectResultSchema,
+      unbindProject: UnbindProjectResultSchema,
+      restoreProject: RestoreProjectResultSchema,
+      rescan: RescanResultSchema,
+      ackMissingReminder: AckMissingReminderResultSchema,
     }
     for (const { method, resultFixture } of endpointFixtures) {
       const invocation = (TYPERT.invocations as readonly InvocationDescriptorMirror[]).find(
@@ -215,10 +260,10 @@ describe('WP-4.1a manifest — the full 17-endpoint registered face (V2-T3.2a)',
     }
   })
 
-  it('TYPERT.schemas covers the full contract: ping + 14 args + 16 results, live zod instances, unique names', () => {
+  it('TYPERT.schemas covers the full contract: ping + 20 args + 22 results, live zod instances, unique names', () => {
     const names = TYPERT.schemas.map((s) => s.name)
-    expect(names).toHaveLength(31)
-    expect(new Set(names).size).toBe(31)
+    expect(names).toHaveLength(43)
+    expect(new Set(names).size).toBe(43)
     for (const s of TYPERT.schemas) {
       expect('_zod' in (s.schema as object), `${s.name} must be a live zod v4 instance`).toBe(true)
     }
@@ -239,12 +284,18 @@ describe('WP-4.1a manifest — the full 17-endpoint registered face (V2-T3.2a)',
       'GetResearchPlaneStateArgs', 'GetResearchPlaneStateResult',
       'GetHubOverviewArgs', 'HubOverviewResult',
       'GetPortfolioInterventionsArgs', 'GetPortfolioInterventionsResult',
+      'SetHubArgs', 'SetHubResult',
+      'BindProjectArgs', 'BindProjectResult',
+      'UnbindProjectArgs', 'UnbindProjectResult',
+      'RestoreProjectArgs', 'RestoreProjectResult',
+      'RescanArgs', 'RescanResult',
+      'AckMissingReminderArgs', 'AckMissingReminderResult',
     ]) {
       expect(names, `missing schema entry ${expected}`).toContain(expected)
     }
   })
 
-  it('the model carries the full 17-member service face', () => {
+  it('the model carries the full 23-member service face', () => {
     const [service] = TYPERT.model.services
     expect(TYPERT.model.events).toEqual([])
     expect(TYPERT.model.objects).toEqual([])
@@ -256,6 +307,12 @@ describe('WP-4.1a manifest — the full 17-endpoint registered face (V2-T3.2a)',
       'getResearchPlaneState',
       'getHubOverview',
       'getPortfolioInterventions',
+      'setHub',
+      'bindProject',
+      'unbindProject',
+      'restoreProject',
+      'rescan',
+      'ackMissingReminder',
     ])
     for (const member of service.members) {
       expect(member.kind).toBe('method')
@@ -264,12 +321,16 @@ describe('WP-4.1a manifest — the full 17-endpoint registered face (V2-T3.2a)',
     expect(service.types.map((t) => t.name)).toContain('PingResult')
     expect(service.types.map((t) => t.name)).toContain('WorkstreamSnapshot')
     expect(service.types.map((t) => t.name)).toContain('HubOverviewResult')
+    expect(service.types.map((t) => t.name)).toContain('SetHubResult')
+    expect(service.types.map((t) => t.name)).toContain('BindProjectResult')
+    expect(service.types.map((t) => t.name)).toContain('RescanResult')
+    expect(service.types.map((t) => t.name)).toContain('AckMissingReminderResult')
   })
 
-  it('③ the client contribution exports the SAME 17 strict descriptor objects (no drift)', () => {
+  it('③ the client contribution exports the SAME 23 strict descriptor objects (no drift)', () => {
     expect(researchRemotes.package).toBe(RESEARCH_CONTROL_PACKAGE)
-    expect(researchRemotes.descriptors).toHaveLength(17)
-    for (let i = 0; i < 17; i += 1) {
+    expect(researchRemotes.descriptors).toHaveLength(23)
+    for (let i = 0; i < 23; i += 1) {
       expect(researchRemotes.descriptors[i], `descriptor ${i} identity`).toBe(TYPERT.invocations[i])
     }
     // And the first (ping) remains the WP-0.3 shared object.

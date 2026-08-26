@@ -1260,26 +1260,256 @@ var GitInputError = class extends GitError {
 *  1. 类型面: index.ts exports only the named operations below — there is no
 *     generic run/exec/spawn export (statically asserted by
 *     tests/git/inv-git-static.test.ts);
-*  2. 运行时: runner.ts calls {@link assertWhitelisted} before every spawn and
-*     throws GitWhitelistViolationError for any argv that does not match one
-*     of these exact shapes (INV-GIT-7).
+*  2. 运行时: runner.ts calls the scope-bound `assertWhitelisted` before
+*     every spawn and throws GitWhitelistViolationError for any argv that
+*     does not match one of these exact shapes (INV-GIT-7).
 *
 * argv shapes are relative to the repo root; the transport layer prepends
 * `-C <root>` (工作目录强制 -C root, never `cwd:`).
+*
+* V2 (design §3.1 Q4: the tree directory name is CONFIGURABLE through the
+* DSH settings plane, 「发现逻辑只认配置后的名字」) — the W9/W10 commit
+* pathspecs (and the W8 restore scope) are NO LONGER a hardcoded `.research`
+* literal: the WHITELIST CONSTRUCTOR is parameterized over the tree
+* directory name ({@link buildResearchTreeScope} / {@link
+* buildWhitelistRows}), and every git call carries the configured name
+* through {@link GitOptions.treeDir} (absent = the frozen default
+* `.research`). At the default the argv is BYTE-IDENTICAL to the V1
+* frozen shapes (tests/git pin that: zero changes pass), and the
+* checkpoint flow under a renamed tree commits exactly the renamed
+* directory (tests/git/t32-git-scope.test.ts).
 */
-/** W9/W10 pathspec and W8 restore scope (INV-GIT-3 / §6). */
-const RESEARCH_PATHSPEC = ".research/";
-/**
-* The git pathspec-magic token that removes the state/ sub-directory
-* from the W9/W10 commit scope (design §3.3: 「`state/` 子目录在
-* checkpoint 提交白名单之外」 — the plugin's own `git add` / `git
-* commit` shapes carry it, so a runtime database can never be staged or
-* committed by a checkpoint, regardless of git's default "add the whole
-* directory" behavior).
-*/
-const RESEARCH_STATE_EXCLUDE_SPEC = ":(exclude).research/state/";
-/** W6 log 格式串 — 冻结建议 (§3 说明): OID、作者时间、标题, 单元分隔符 \x1f. */
+/** The frozen DEFAULT tree directory name (the V1 literal, the settings
+*  domain's own default — T2.1 `DEFAULT_PROJECT_TREE_DIR`). */
+const DEFAULT_TREE_DIR = ".research";
+/** W6 log 格式串 — 冻结建议 (§3 说明): OID、作者时间、标题, 单元分隔符 \x1f.
+*  声明必须先于模块级 {@link DEFAULT_RESEARCH_TREE_SCOPE} 求值(W6 行在
+*  导入期构造时引用它)。 */
 const LOG_FORMAT_ARG = "--format=%H%x1f%aI%x1f%s";
+/**
+* V2 (design §3.3): the STANDALONE state sub-directory — the runtime
+* database area (`<treeDir>/state/research.sqlite`). 状态区，不入声明树
+* 语义: it is OUTSIDE the checkpoint commit scope (the W9/W10 pathspec
+* excludes it explicitly, see {@link ResearchTreeScope.stateExcludeSpec}).
+*/
+const RESEARCH_STATE_EXCLUDE_SUFFIX = ":(exclude)";
+/**
+* Build the W1–W13 whitelist rows for ONE tree directory name — the
+* parameterized constructor (V2 T3.2b: the W9/W10 pathspecs + the W8
+* restore scope are generated from `treeDir`; the other 10 rows are
+* name-independent and byte-identical across scopes).
+*
+* @throws {GitInputError} when `treeDir` is not a bare directory name.
+*/
+function buildWhitelistRows(treeDir) {
+	assertTreeDir(treeDir);
+	const pathspec = `${treeDir}/`;
+	const statePathspec = `${treeDir}/state/`;
+	const stateExcludeSpec = `${RESEARCH_STATE_EXCLUDE_SUFFIX}${statePathspec}`;
+	const isUnderResearch = (p) => p === pathspec || p.startsWith(pathspec);
+	return [
+		{
+			id: "W1",
+			operation: "仓库检测",
+			trigger: "auto",
+			argv: ["rev-parse", "--show-toplevel"],
+			match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "--show-toplevel")
+		},
+		{
+			id: "W2",
+			operation: "git dir 定位",
+			trigger: "auto",
+			argv: ["rev-parse", "--git-dir"],
+			match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "--git-dir")
+		},
+		{
+			id: "W3",
+			operation: "blob OID 计算",
+			trigger: "auto",
+			argv: [
+				"hash-object",
+				"--",
+				"<path>"
+			],
+			match: (a) => a.length === 3 && is(a, 0, "hash-object") && is(a, 1, "--") && isPathArg(a[2])
+		},
+		{
+			id: "W4",
+			operation: "工作区状态",
+			trigger: "auto",
+			argv: [
+				"status",
+				"--porcelain=v2",
+				"[--branch]"
+			],
+			match: (a) => is(a, 0, "status") && is(a, 1, "--porcelain=v2") && (a.length === 2 || a.length === 3 && is(a, 2, "--branch"))
+		},
+		{
+			id: "W5",
+			operation: "变更清单",
+			trigger: "auto",
+			argv: [
+				"diff",
+				"--name-status",
+				"[<baseline-oid>]"
+			],
+			match: (a) => is(a, 0, "diff") && is(a, 1, "--name-status") && (a.length === 2 || a.length === 3 && OID_RE$1.test(a[2]))
+		},
+		{
+			id: "W6",
+			operation: "文件历史",
+			trigger: "user",
+			argv: [
+				"log",
+				LOG_FORMAT_ARG,
+				"[-n <count>]",
+				"[--skip <n>]",
+				"--",
+				"<path>"
+			],
+			match: (a) => {
+				if (!is(a, 0, "log") || !is(a, 1, "--format=%H%x1f%aI%x1f%s")) return false;
+				let i = 2;
+				if (is(a, i, "-n")) {
+					if (!DIGITS_RE.test(a[i + 1] ?? "")) return false;
+					i += 2;
+				}
+				if (is(a, i, "--skip")) {
+					if (!DIGITS_RE.test(a[i + 1] ?? "")) return false;
+					i += 2;
+				}
+				return is(a, i, "--") && i + 2 === a.length && isPathArg(a[i + 1]);
+			}
+		},
+		{
+			id: "W7",
+			operation: "历史版本内容",
+			trigger: "user",
+			argv: ["show", "<commit-oid>:<path>"],
+			match: (a) => {
+				if (a.length !== 2 || !is(a, 0, "show")) return false;
+				const ref = a[1];
+				const i = ref.indexOf(":");
+				return i > 0 && OID_RE$1.test(ref.slice(0, i)) && isPathArg(ref.slice(i + 1));
+			}
+		},
+		{
+			id: "W8",
+			operation: "恢复文件",
+			trigger: "user",
+			argv: [
+				"restore",
+				"--source=<commit-oid>",
+				"--",
+				`${treeDir}/<path>`
+			],
+			match: (a) => a.length === 4 && is(a, 0, "restore") && typeof a[1] === "string" && a[1].startsWith("--source=") && OID_RE$1.test(a[1].slice(9)) && is(a, 2, "--") && isPathArg(a[3]) && isUnderResearch(a[3])
+		},
+		{
+			id: "W9",
+			operation: "暂存",
+			trigger: "user",
+			argv: [
+				"add",
+				"--",
+				pathspec,
+				stateExcludeSpec
+			],
+			match: (a) => a.length === 4 && is(a, 0, "add") && is(a, 1, "--") && is(a, 2, pathspec) && is(a, 3, stateExcludeSpec)
+		},
+		{
+			id: "W10",
+			operation: "检查点提交",
+			trigger: "user",
+			argv: [
+				"commit",
+				"-m",
+				"<research: summary>",
+				"--",
+				pathspec,
+				stateExcludeSpec
+			],
+			match: (a) => a.length === 6 && is(a, 0, "commit") && is(a, 1, "-m") && typeof a[2] === "string" && a[2].length > 0 && !a[2].includes("\0") && is(a, 3, "--") && is(a, 4, pathspec) && is(a, 5, stateExcludeSpec)
+		},
+		{
+			id: "W11",
+			operation: "取提交 OID",
+			trigger: "user",
+			argv: ["rev-parse", "HEAD"],
+			match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "HEAD")
+		},
+		{
+			id: "W12",
+			operation: "显式初始化",
+			trigger: "user",
+			argv: ["init"],
+			match: (a) => a.length === 1 && is(a, 0, "init")
+		},
+		{
+			id: "W13",
+			operation: "枚举 tracked 文件",
+			trigger: "auto",
+			argv: [
+				"ls-files",
+				"--",
+				"<pathspec>"
+			],
+			match: (a) => a.length === 3 && is(a, 0, "ls-files") && is(a, 1, "--") && isPathArg(a[2])
+		}
+	];
+}
+/**
+* Build the full research-tree scope for one tree directory name (module
+* doc): the derived pathspecs + the rows + the bound predicates/validator.
+*
+* @throws {GitInputError} when `treeDir` is not a bare directory name
+*  (a settings value that survived T2.1's validation must never reach
+*  this boundary malformed — fail loud anyway).
+*/
+function buildResearchTreeScope(treeDir) {
+	const rows = buildWhitelistRows(treeDir);
+	const pathspec = `${treeDir}/`;
+	const statePathspec = `${treeDir}/state/`;
+	return {
+		treeDir,
+		pathspec,
+		statePathspec,
+		stateExcludeSpec: `${RESEARCH_STATE_EXCLUDE_SUFFIX}${statePathspec}`,
+		rows,
+		assertWhitelisted: (argv) => {
+			for (const row of rows) if (row.match(argv)) return row;
+			throw new GitWhitelistViolationError([...argv]);
+		},
+		isWithinCommitScope: (p) => {
+			if (typeof p !== "string") return false;
+			if (!p.startsWith(pathspec)) return false;
+			if (p.startsWith(statePathspec)) return false;
+			return true;
+		},
+		isUnderResearch: (p) => p === pathspec || p.startsWith(pathspec)
+	};
+}
+/** The V1 default research-tree scope (`.research`), byte-identical argv. */
+const DEFAULT_RESEARCH_TREE_SCOPE = buildResearchTreeScope(DEFAULT_TREE_DIR);
+/**
+* Resolve the scope of one git call from its options: an explicit
+* `opts.treeDir` (the production plane's configured name — T3.2b) builds
+* that scope; absent → the frozen default.
+*/
+function scopeFor(opts) {
+	const treeDir = opts?.treeDir;
+	if (treeDir === void 0 || treeDir === null) return DEFAULT_RESEARCH_TREE_SCOPE;
+	return buildResearchTreeScope(treeDir);
+}
+/**
+* W9/W10 pathspec and W8 restore scope (INV-GIT-3 / §6) — the DEFAULT
+* scope's pathspec (the frozen V1 constant; the parameterized face is
+* {@link buildResearchTreeScope}).
+*/
+const RESEARCH_PATHSPEC = DEFAULT_RESEARCH_TREE_SCOPE.pathspec;
+DEFAULT_RESEARCH_TREE_SCOPE.statePathspec;
+DEFAULT_RESEARCH_TREE_SCOPE.stateExcludeSpec;
+DEFAULT_RESEARCH_TREE_SCOPE.rows;
 /**
 * Full 40-hex commit OID. Short OIDs and refs (HEAD, main, HEAD~1) are
 * deliberately rejected: the whitelist is exact, and every commit value the
@@ -1295,169 +1525,15 @@ const DIGITS_RE = /^[0-9]+$/;
 function isPathArg(p) {
 	return p.length > 0 && p !== ".." && !p.startsWith("../") && !p.startsWith("/") && !p.startsWith("-") && !p.includes("\0");
 }
-/** W8 scope: restore 仅 .research/** (§6「.research/ 目录外的路径不允许通过本插件 restore」). */
-function isUnderResearch(p) {
-	return p === ".research/" || p.startsWith(".research/");
-}
 const is = (a, i, v) => a[i] === v;
-const WHITELIST_ROWS = [
-	{
-		id: "W1",
-		operation: "仓库检测",
-		trigger: "auto",
-		argv: ["rev-parse", "--show-toplevel"],
-		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "--show-toplevel")
-	},
-	{
-		id: "W2",
-		operation: "git dir 定位",
-		trigger: "auto",
-		argv: ["rev-parse", "--git-dir"],
-		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "--git-dir")
-	},
-	{
-		id: "W3",
-		operation: "blob OID 计算",
-		trigger: "auto",
-		argv: [
-			"hash-object",
-			"--",
-			"<path>"
-		],
-		match: (a) => a.length === 3 && is(a, 0, "hash-object") && is(a, 1, "--") && isPathArg(a[2])
-	},
-	{
-		id: "W4",
-		operation: "工作区状态",
-		trigger: "auto",
-		argv: [
-			"status",
-			"--porcelain=v2",
-			"[--branch]"
-		],
-		match: (a) => is(a, 0, "status") && is(a, 1, "--porcelain=v2") && (a.length === 2 || a.length === 3 && is(a, 2, "--branch"))
-	},
-	{
-		id: "W5",
-		operation: "变更清单",
-		trigger: "auto",
-		argv: [
-			"diff",
-			"--name-status",
-			"[<baseline-oid>]"
-		],
-		match: (a) => is(a, 0, "diff") && is(a, 1, "--name-status") && (a.length === 2 || a.length === 3 && OID_RE$1.test(a[2]))
-	},
-	{
-		id: "W6",
-		operation: "文件历史",
-		trigger: "user",
-		argv: [
-			"log",
-			LOG_FORMAT_ARG,
-			"[-n <count>]",
-			"[--skip <n>]",
-			"--",
-			"<path>"
-		],
-		match: (a) => {
-			if (!is(a, 0, "log") || !is(a, 1, "--format=%H%x1f%aI%x1f%s")) return false;
-			let i = 2;
-			if (is(a, i, "-n")) {
-				if (!DIGITS_RE.test(a[i + 1] ?? "")) return false;
-				i += 2;
-			}
-			if (is(a, i, "--skip")) {
-				if (!DIGITS_RE.test(a[i + 1] ?? "")) return false;
-				i += 2;
-			}
-			return is(a, i, "--") && i + 2 === a.length && isPathArg(a[i + 1]);
-		}
-	},
-	{
-		id: "W7",
-		operation: "历史版本内容",
-		trigger: "user",
-		argv: ["show", "<commit-oid>:<path>"],
-		match: (a) => {
-			if (a.length !== 2 || !is(a, 0, "show")) return false;
-			const ref = a[1];
-			const i = ref.indexOf(":");
-			return i > 0 && OID_RE$1.test(ref.slice(0, i)) && isPathArg(ref.slice(i + 1));
-		}
-	},
-	{
-		id: "W8",
-		operation: "恢复文件",
-		trigger: "user",
-		argv: [
-			"restore",
-			"--source=<commit-oid>",
-			"--",
-			".research/<path>"
-		],
-		match: (a) => a.length === 4 && is(a, 0, "restore") && typeof a[1] === "string" && a[1].startsWith("--source=") && OID_RE$1.test(a[1].slice(9)) && is(a, 2, "--") && isPathArg(a[3]) && isUnderResearch(a[3])
-	},
-	{
-		id: "W9",
-		operation: "暂存",
-		trigger: "user",
-		argv: [
-			"add",
-			"--",
-			RESEARCH_PATHSPEC,
-			RESEARCH_STATE_EXCLUDE_SPEC
-		],
-		match: (a) => a.length === 4 && is(a, 0, "add") && is(a, 1, "--") && is(a, 2, ".research/") && is(a, 3, ":(exclude).research/state/")
-	},
-	{
-		id: "W10",
-		operation: "检查点提交",
-		trigger: "user",
-		argv: [
-			"commit",
-			"-m",
-			"<research: summary>",
-			"--",
-			RESEARCH_PATHSPEC,
-			RESEARCH_STATE_EXCLUDE_SPEC
-		],
-		match: (a) => a.length === 6 && is(a, 0, "commit") && is(a, 1, "-m") && typeof a[2] === "string" && a[2].length > 0 && !a[2].includes("\0") && is(a, 3, "--") && is(a, 4, ".research/") && is(a, 5, ":(exclude).research/state/")
-	},
-	{
-		id: "W11",
-		operation: "取提交 OID",
-		trigger: "user",
-		argv: ["rev-parse", "HEAD"],
-		match: (a) => a.length === 2 && is(a, 0, "rev-parse") && is(a, 1, "HEAD")
-	},
-	{
-		id: "W12",
-		operation: "显式初始化",
-		trigger: "user",
-		argv: ["init"],
-		match: (a) => a.length === 1 && is(a, 0, "init")
-	},
-	{
-		id: "W13",
-		operation: "枚举 tracked 文件",
-		trigger: "auto",
-		argv: [
-			"ls-files",
-			"--",
-			"<pathspec>"
-		],
-		match: (a) => a.length === 3 && is(a, 0, "ls-files") && is(a, 1, "--") && isPathArg(a[2])
-	}
-];
 /**
-* 运行时护栏 (INV-GIT-7): argv must match exactly one whitelist row;
-* anything else throws GitWhitelistViolationError before a process is
-* spawned. Returns the matched row for observability.
+* Validate a tree directory name (the settings `treeDir` rule, the git
+* layer's own boundary — T2.1's `validateDirName` already guards the
+* settings write; this re-checks at the argv-generation boundary so a
+* malformed value can never shape a pathspec, fail loud).
 */
-function assertWhitelisted(argv) {
-	for (const row of WHITELIST_ROWS) if (row.match(argv)) return row;
-	throw new GitWhitelistViolationError([...argv]);
+function assertTreeDir(treeDir) {
+	if (typeof treeDir !== "string" || treeDir.length === 0 || treeDir === "." || treeDir === ".." || treeDir.includes("/")) throw new GitInputError(`the research tree directory name must be a bare segment (got ${JSON.stringify(treeDir ?? null)}) — a malformed name must never shape the W8/W9/W10 pathspecs (GIT_INTEGRATION §3)`);
 }
 //#endregion
 //#region src/host/git/runner.ts
@@ -1615,11 +1691,14 @@ function killProcessGroup(child) {
 }
 /**
 * The checked path: validate argv against the W1–W13 whitelist (INV-GIT-7
-* 运行时面), resolve the executable (fail loud), then spawn with the
-* §1.9 guards. Every operation in operations.ts goes through here.
+* 运行时面 — through the CALL's tree scope: `opts.treeDir`'s rows, or the
+* frozen default scope when absent — V2 T3.2b: the W9/W10 pathspecs are
+* generated from the configured tree name), resolve the executable (fail
+* loud), then spawn with the §1.9 guards. Every operation in operations.ts
+* goes through here.
 */
 async function runGit(root, argv, opts) {
-	assertWhitelisted(argv);
+	scopeFor(opts).assertWhitelisted(argv);
 	return await spawnGitProcess(resolveGitExecutable(opts?.gitExecutable), root, argv, {
 		timeoutMs: opts?.timeoutMs ?? 1e4,
 		maxOutputBytes: opts?.maxOutputBytes ?? 1048576
@@ -14128,7 +14207,7 @@ function joinPathspec(wsRel, p) {
 }
 /** `.research/` 域判定 (路径恰为目录记法或其内). */
 function inResearch(p) {
-	return p === ".research/" || p.startsWith(".research/");
+	return p === RESEARCH_PATHSPEC || p.startsWith(RESEARCH_PATHSPEC);
 }
 const GLOB_CHARS_RE = /[*?\[]/;
 /**
@@ -21993,6 +22072,7 @@ function createHostWiring(options) {
 		const wiring = {
 			repoRoot,
 			researchRoot,
+			researchDir,
 			projectId: options.projectId,
 			dataDir,
 			store,

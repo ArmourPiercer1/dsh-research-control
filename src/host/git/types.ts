@@ -32,6 +32,17 @@ export interface GitOptions {
    * failure throws GitMissingError (响亮报错; §2 / §9「git 可执行缺失」).
    */
   gitExecutable?: string
+  /**
+   * V2 T3.2b (design §3.1 Q4): the configured research-tree directory name
+   * (the settings plane's `treeDir`, default `.research`). When present,
+   * the W8/W9/W10 pathspecs of THIS call are generated from it (the
+   * whitelist constructor is parameterized — whitelist.ts
+   * `buildResearchTreeScope`); absent → the frozen V1 default shapes,
+   * byte-identical. The production checkpoint/restore/diff face passes the
+   * plane's configured name; every pre-V2 caller (and the tests/git suite)
+   * omits it.
+   */
+  treeDir?: string
 }
 
 /** GIT_INTEGRATION §1 rule 9: 「所有 Git 调用带超时（默认 10s，可配）」. */

@@ -52,7 +52,7 @@ describe('WP-4.1a RR-006 arity — descriptor parameter face == method signature
     ])
   })
 
-  it('V2-T3.2a: the REGISTERED face is the frozen 14 + the 3 read-only plane RPCs (in order)', () => {
+  it('V2-T3.2b: the REGISTERED face is the frozen 14 + all 9 plane RPCs (in order)', () => {
     expect(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method)).toEqual([
       'ping',
       'getDashboard',
@@ -71,6 +71,12 @@ describe('WP-4.1a RR-006 arity — descriptor parameter face == method signature
       'getResearchPlaneState',
       'getHubOverview',
       'getPortfolioInterventions',
+      'setHub',
+      'bindProject',
+      'unbindProject',
+      'restoreProject',
+      'rescan',
+      'ackMissingReminder',
     ])
   })
 

@@ -13,7 +13,7 @@ import { existsSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { GitCommandError, GitInputError, GitScopeViolationError } from './errors.js'
 import { runGit } from './runner.js'
-import { LOG_FORMAT_ARG, RESEARCH_PATHSPEC, RESEARCH_STATE_EXCLUDE_SPEC } from './whitelist.js'
+import { LOG_FORMAT_ARG, scopeFor } from './whitelist.js'
 import type {
   DiffEntry,
   FileLogEntry,
@@ -305,8 +305,9 @@ export async function showFile(
 /**
  * W8 (§6, **用户**显式触发): `git restore --source=<commit> -- <path>`.
  *
- * 边界: 仅 `.research/**` (§6「.research/ 目录外的路径不允许通过本插件
- * restore」) — 越界抛 GitScopeViolationError, 在到达 transport 之前拒绝。
+ * 边界: 仅 `<treeDir>/**` (default `.research/**`; §6「.research/ 目录外的
+ * 路径不允许通过本插件 restore」) — 越界抛 GitScopeViolationError, 在到达
+ * transport 之前拒绝 (V2 T3.2b: the scope is the CALL's — `opts.treeDir`).
  * 恢复产生新的 working copy 状态, 不修改旧 commit、不产生新 commit
  * (INV-GIT-5; 提交与否由用户随后决定).
  */
@@ -316,7 +317,8 @@ export async function restoreFile(
   filePath: string,
   opts?: GitOptions,
 ): Promise<void> {
-  if (!filePath.startsWith(RESEARCH_PATHSPEC)) {
+  const scope = scopeFor(opts)
+  if (!filePath.startsWith(scope.pathspec)) {
     throw new GitScopeViolationError(filePath)
   }
   const c = assertOid(commit, 'restoreFile')
@@ -329,13 +331,16 @@ export async function restoreFile(
 // ─────────────────────────── W9 暂存 ───────────────────────────
 
 /**
- * W9 (checkpoint 第一步, **用户**): `git add -- .research/
- * ':(exclude).research/state/'` — pathspec 由白名单固定, 其他 pathspec
- * 不可达 (INV-GIT-3 路径隔离). V2 (design §3.3): 排除项 = state/ 状态区
+ * W9 (checkpoint 第一步, **用户**): `git add -- <treeDir>/
+ * ':(exclude)<treeDir>/state/'` — pathspec 由白名单固定 (V2 T3.2b:
+ * generated from the CALL's tree scope, `opts.treeDir`, default the
+ * frozen `.research` shapes byte-identical), 其他 pathspec 不可达
+ * (INV-GIT-3 路径隔离). V2 (design §3.3): 排除项 = state/ 状态区
  * (独立模式库目录, checkpoint 提交白名单之外, 永不入 commit).
  */
 export async function stageResearch(root: string, opts?: GitOptions): Promise<void> {
-  const argv = ['add', '--', RESEARCH_PATHSPEC, RESEARCH_STATE_EXCLUDE_SPEC]
+  const scope = scopeFor(opts)
+  const argv = ['add', '--', scope.pathspec, scope.stateExcludeSpec]
   const res = await runGit(root, argv, opts)
   if (res.exitCode !== 0) commandFailed(root, argv, res)
 }
@@ -343,8 +348,9 @@ export async function stageResearch(root: string, opts?: GitOptions): Promise<vo
 // ─────────────────────────── W10 检查点提交 ───────────────────────────
 
 /**
- * W10 (checkpoint 第二步, **用户**): `git commit -m <msg> -- .research/
- * ':(exclude).research/state/'` — pathspec 限定提交范围 (§5). 实测语义
+ * W10 (checkpoint 第二步, **用户**): `git commit -m <msg> -- <treeDir>/
+ * ':(exclude)<treeDir>/state/'` — pathspec 限定提交范围 (§5; V2 T3.2b:
+ * the scope's pathspecs, default = the frozen `.research` argv). 实测语义
  * (§5.2, 2026-08-21, TC-GIT-002 固化): 无关 staged 变更未进入 commit 且
  * 事后仍保持 staged. V2 (design §3.3): 排除项与 W9 一致 — state/ 状态区
  * 永不入 commit (提交白名单之外的子目录).
@@ -362,7 +368,8 @@ export async function commitResearch(root: string, message: string, opts?: GitOp
       `commitResearch: commit message must start with ${JSON.stringify(CHECKPOINT_MESSAGE_PREFIX)} (GIT_INTEGRATION §5), got: ${JSON.stringify(message.slice(0, 40))}`,
     )
   }
-  const argv = ['commit', '-m', message, '--', RESEARCH_PATHSPEC, RESEARCH_STATE_EXCLUDE_SPEC]
+  const scope = scopeFor(opts)
+  const argv = ['commit', '-m', message, '--', scope.pathspec, scope.stateExcludeSpec]
   const res = await runGit(root, argv, opts)
   if (res.exitCode !== 0) commandFailed(root, argv, res)
 }

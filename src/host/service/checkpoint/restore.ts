@@ -40,9 +40,10 @@ import {
   GitInputError,
   GitScopeViolationError,
   logFile,
-  RESEARCH_PATHSPEC,
   restoreFile,
+  scopeFor,
   showFile,
+  type ResearchTreeScope,
 } from '../../git/index.js'
 import { loadResearchTree, type ResearchLoadError } from '../../domain/loader/index.js'
 import {
@@ -53,15 +54,17 @@ import {
 } from './errors.js'
 import { FsResearchReader } from './fs-reader.js'
 import type { StructuredLogger } from './logger.js'
-import { FULL_OID_RE, RESEARCH_DIR, type RestoreOptions, type RestoreResult } from './types.js'
+import { FULL_OID_RE, type RestoreOptions, type RestoreResult } from './types.js'
 
 /**
- * §6 边界: 仅 `.research/**` 可经本插件 restore (repo-root-relative).
- * 检查顺序与 git 层 restoreFile 一致 (scope 先, 形状后): 越界 (含 `..`
- * 逃逸 / 绝对路径) → GIT_SCOPE; `.research/` 内但形状非法 (NUL 等) → GIT_INPUT。
+ * §6 边界: 仅 `<treeDir>/**` (default `.research/**`) 可经本插件 restore
+ * (repo-root-relative). 检查顺序与 git 层 restoreFile 一致 (scope 先,
+ * 形状后): 越界 (含 `..` 逃逸 / 绝对路径) → GIT_SCOPE; 树内但形状非法
+ * (NUL 等) → GIT_INPUT. V2 T3.2b: the scope is the CALL's tree
+ * (opts.treeDir; default `.research`).
  */
-function assertResearchPath(p: string, op: string): string {
-  if (typeof p !== 'string' || !p.startsWith(RESEARCH_PATHSPEC)) {
+function assertResearchPath(scope: ResearchTreeScope, p: string, op: string): string {
+  if (typeof p !== 'string' || !p.startsWith(scope.pathspec)) {
     throw new GitScopeViolationError(String(p))
   }
   if (p === '..' || p.startsWith('../') || p.startsWith('/') || p.includes('\0')) {
@@ -93,6 +96,7 @@ export async function restoreResearchFile(
   opts: RestoreOptions,
 ): Promise<RestoreResult> {
   const logger = opts.logger
+  const scope = scopeFor(opts)
 
   // ── 输入校验 (先于任何 I/O) ──
   if (typeof commitOid !== 'string' || !FULL_OID_RE.test(commitOid)) {
@@ -101,7 +105,7 @@ export async function restoreResearchFile(
       `restoreResearchFile: expected a full 40-hex commit OID, got: ${String(commitOid).slice(0, 40)}`,
     )
   }
-  const path = assertResearchPath(filePath, 'restoreResearchFile')
+  const path = assertResearchPath(scope, filePath, 'restoreResearchFile')
   logger.info('restore.start', { root, commitOid, path })
 
   // ── 仓库检测 (W1, §2) ──
@@ -112,9 +116,9 @@ export async function restoreResearchFile(
   }
   logger.info('restore.repo-detected', { root, repoRoot: det.repoRoot })
 
-  const researchRoot = join(root, RESEARCH_DIR)
+  const researchRoot = join(root, scope.treeDir)
   const reader = new FsResearchReader(researchRoot)
-  const relInResearch = path.slice(RESEARCH_PATHSPEC.length)
+  const relInResearch = path.slice(scope.pathspec.length)
   const abs = join(researchRoot, relInResearch)
 
   // ── W6 log 定位: commit 必须在该文件的历史中 (§6 查看流程第一步) ──

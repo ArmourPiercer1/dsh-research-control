@@ -1,7 +1,8 @@
 /**
  * WP-4.1a — build-artifact verification: the built `lib/typert.host.js`
- * and `lib/typert.remote-client.js` must carry the FULL 14-endpoint
- * descriptor face (all 13 §7.1 RPCs + ping).
+ * and `lib/typert.remote-client.js` must carry the FULL 23-endpoint
+ * descriptor face (all 13 §7.1 RPCs + ping + the 9 plane RPCs of
+ * design §12 — 3 read-only, V2-T3.2a; 6 change-family, V2-T3.2b).
  *
  * `lib/` is a build product (gitignored): run `pnpm run build` before the
  * test suite (the standard four-piece order: tsc → lint → build → test).
@@ -32,16 +33,22 @@ const METHODS = [
   'getResearchPlaneState',
   'getHubOverview',
   'getPortfolioInterventions',
+  'setHub',
+  'bindProject',
+  'unbindProject',
+  'restoreProject',
+  'rescan',
+  'ackMissingReminder',
 ]
 
-describe('WP-4.1a build artifacts — the full 17-endpoint registered descriptor face (V2-T3.2a)', () => {
+describe('WP-4.1a build artifacts — the full 23-endpoint registered descriptor face (V2-T3.2a + V2-T3.2b)', () => {
   it('the build artifacts exist (run `pnpm run build` before the suite)', () => {
     for (const p of [hostArtifact, clientArtifact]) {
       expect(existsSync(p), `missing ${p} — run \`pnpm run build\``).toBe(true)
     }
   })
 
-  it('lib/typert.host.js TYPERT carries all 13 RPC descriptors + ping', async () => {
+  it('lib/typert.host.js TYPERT carries the full 23 descriptors (13 §7.1 + ping + 9 plane)', async () => {
     const mod = (await import(hostArtifact)) as {
       TYPERT: {
         package: string
@@ -78,13 +85,13 @@ describe('WP-4.1a build artifacts — the full 17-endpoint registered descriptor
       expect(built!.result.mode).toBe('strict')
       expect('_zod' in (built!.result.schema as object), `${src.method} result codec zod brand`).toBe(true)
     }
-    expect(t.schemas).toHaveLength(31)
+    expect(t.schemas).toHaveLength(43)
     const [service] = t.model.services
     expect(service.key).toBe('researchControl')
     expect(service.members.map((m) => m.name)).toEqual(METHODS)
   })
 
-  it('lib/typert.remote-client.js researchRemotes carries the same 17 descriptors', async () => {
+  it('lib/typert.remote-client.js researchRemotes carries the same 23 descriptors', async () => {
     const mod = (await import(clientArtifact)) as {
       default: {
         package: string

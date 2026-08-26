@@ -19,8 +19,11 @@
  * WP-0.3 rule extended from ping to the whole face). V2-T3.2a: the
  * registered face is the 17-member model (ping + the 13 §7.1 RPCs + the
  * 3 read-only plane RPCs of design §12 rows 1-3 — the shared
- * `REGISTERED_RESEARCH_INVOCATIONS`; the 6 change-family plane RPCs stay
- * contract-only until their @Remote bodies land in T3.2b+).
+ * `REGISTERED_RESEARCH_INVOCATIONS`). V2-T3.2b: the registered face is
+ * the FULL 23-member V2 business model — the 6 change-family plane RPCs
+ * (setHub / bindProject / unbindProject / restoreProject / rescan /
+ * ackMissingReminder, design §12 rows 4-6/8/9) join with their @Remote
+ * bodies (T3.2b).
  *
  * Type note: the whole-manifest type is the LOCAL `TypertContributionMirror`
  * (registry package stale/uninstallable) — 以 loader 运行时校验为准. The
@@ -35,6 +38,10 @@
 
 import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol'
 import {
+  AckMissingReminderArgsSchema,
+  AckMissingReminderResultSchema,
+  BindProjectArgsSchema,
+  BindProjectResultSchema,
   DashboardSnapshotSchema,
   DismissPlanForkArgsSchema,
   DismissPlanForkResultSchema,
@@ -58,13 +65,21 @@ import {
   ReorderPlanResultSchema,
   RegisterInteractionArgsSchema,
   RegisterInteractionResultSchema,
+  RescanArgsSchema,
+  RescanResultSchema,
   RestoreDeclarativeFileArgsSchema,
   RestoreDeclarativeFileResultSchema,
+  RestoreProjectArgsSchema,
+  RestoreProjectResultSchema,
   SaveResearchCheckpointArgsSchema,
   SaveResearchCheckpointResultSchema,
   SelectPlanForkArgsSchema,
   SelectPlanForkResultSchema,
+  SetHubArgsSchema,
+  SetHubResultSchema,
   TopicSnapshotSchema,
+  UnbindProjectArgsSchema,
+  UnbindProjectResultSchema,
   UpdateInterventionStateArgsSchema,
   UpdateInterventionStateResultSchema,
   WorkstreamSnapshotSchema,
@@ -84,11 +99,12 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
 
 /**
  * Every wire schema the face uses, as a live zod v4 instance (the loader
- * requires the `_zod` brand on each `TYPERT.schemas` entry). 31 entries:
+ * requires the `_zod` brand on each `TYPERT.schemas` entry). 43 entries:
  * ping's result + the 13 RPCs' args/results (the two zero-arg queries
  * carry no args schema) + the 3 read-only plane RPCs' args/results
- * (V2-T3.2a — the 6 change-family plane RPCs' schemas join this list with
- * their implementation tasks).
+ * (V2-T3.2a) + the 6 change-family plane RPCs' args/results (V2-T3.2b —
+ * design §12 rows 4-6/8/9; `RescanResult` rides the shared
+ * `PlaneStateSummary` schema, the rescan's result alias).
  */
 const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'PingResult', schema: PingResultSchema },
@@ -123,6 +139,19 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'HubOverviewResult', schema: HubOverviewResultSchema },
   { name: 'GetPortfolioInterventionsArgs', schema: GetPortfolioInterventionsArgsSchema },
   { name: 'GetPortfolioInterventionsResult', schema: GetPortfolioInterventionsResultSchema },
+  // V2-T3.2b: the 6 change-family plane RPCs (design §12 rows 4-6/8/9).
+  { name: 'SetHubArgs', schema: SetHubArgsSchema },
+  { name: 'SetHubResult', schema: SetHubResultSchema },
+  { name: 'BindProjectArgs', schema: BindProjectArgsSchema },
+  { name: 'BindProjectResult', schema: BindProjectResultSchema },
+  { name: 'UnbindProjectArgs', schema: UnbindProjectArgsSchema },
+  { name: 'UnbindProjectResult', schema: UnbindProjectResultSchema },
+  { name: 'RestoreProjectArgs', schema: RestoreProjectArgsSchema },
+  { name: 'RestoreProjectResult', schema: RestoreProjectResultSchema },
+  { name: 'RescanArgs', schema: RescanArgsSchema },
+  { name: 'RescanResult', schema: RescanResultSchema },
+  { name: 'AckMissingReminderArgs', schema: AckMissingReminderArgsSchema },
+  { name: 'AckMissingReminderResult', schema: AckMissingReminderResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -131,8 +160,8 @@ export const TYPERT: TypertHostManifest = {
   schemas: ALL_SCHEMAS,
   // The SAME descriptor objects the client `./remote` contribution exports
   // (ping first — the 14th diagnostic method — then the 13 §7.1 RPCs —
-  // then the 3 read-only plane RPCs, V2-T3.2a). The 6 change-family plane
-  // RPCs stay contract-only until their @Remote bodies land (T3.2b+).
+  // then the 3 read-only plane RPCs, V2-T3.2a — then the 6 change-family
+  // plane RPCs, V2-T3.2b: the full 23-endpoint registered face, design §12).
   invocations: REGISTERED_RESEARCH_INVOCATIONS,
   model: {
     services: [
@@ -142,11 +171,12 @@ export const TYPERT: TypertHostManifest = {
         description:
           'Research Control Plane host service (WP-4.1a: the 13-RPC client face of ' +
           'ARCHITECTURE §7.1 + the WP-0.3 ping diagnostic; V2-T3.2a: the 3 read-only ' +
-          'plane RPCs of design §12 rows 1-3 — the 17-endpoint registered face).',
+          'plane RPCs of design §12 rows 1-3; V2-T3.2b: the 6 change-family plane ' +
+          'RPCs of design §12 rows 4-6/8/9 — the 23-endpoint registered face).',
         tags: [],
-        // FULL member list (brief: members 全量) — all 17 @Remote methods
-        // (ping + the 13 frozen RPCs + the 3 read-only plane RPCs; the 6
-        // change-family plane RPCs join with their implementation tasks).
+        // FULL member list (brief: members 全量) — all 23 @Remote methods
+        // (ping + the 13 frozen RPCs + the 3 read-only plane RPCs + the 6
+        // change-family plane RPCs, design §12).
         members: [
           {
             name: 'ping',
@@ -253,6 +283,45 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'Cross-project intervention list, projectId-labeled, 状态过滤 (design §7.2).',
           },
+          // V2-T3.2b: the 6 change-family plane RPCs (design §12 rows 4-6/8/9).
+          // PLANE-LEVEL — not project-routed; callable on the EMPTY plane too
+          // (that is the onboarding path, design §8).
+          {
+            name: 'setHub',
+            signature: 'setHub(args: SetHubArgs): Promise<SetHubResult>',
+            kind: 'method',
+            summary: 'Plane-level: mark a registered workspace as the hub (design §8 设为中枢).',
+          },
+          {
+            name: 'bindProject',
+            signature: 'bindProject(args: BindProjectArgs): Promise<BindProjectResult>',
+            kind: 'method',
+            summary: 'Plane-level: bind (接入) a standalone workspace into the plane; migrates a standalone db (design §8/§9).',
+          },
+          {
+            name: 'unbindProject',
+            signature: 'unbindProject(args: UnbindProjectArgs): Promise<UnbindProjectResult>',
+            kind: 'method',
+            summary: 'Plane-level: unbind (解除绑定) a project; archives its tree for later restore (design §8).',
+          },
+          {
+            name: 'restoreProject',
+            signature: 'restoreProject(args: RestoreProjectArgs): Promise<RestoreProjectResult>',
+            kind: 'method',
+            summary: 'Plane-level: restore (恢复登记) an archived project back into the plane (design §8).',
+          },
+          {
+            name: 'rescan',
+            signature: 'rescan(args: RescanArgs): Promise<RescanResult>',
+            kind: 'method',
+            summary: 'Plane-level: re-run discovery (重新扫描) and return the fresh plane state (design §4/§7.1).',
+          },
+          {
+            name: 'ackMissingReminder',
+            signature: 'ackMissingReminder(args: AckMissingReminderArgs): Promise<AckMissingReminderResult>',
+            kind: 'method',
+            summary: 'Plane-level: acknowledge a MISSING-project reminder (design §4/§7.1).',
+          },
         ],
         types: [
           {
@@ -340,6 +409,32 @@ export const TYPERT: TypertHostManifest = {
             name: 'GetPortfolioInterventionsResult',
             declaration:
               'interface GetPortfolioInterventionsResult { readonly items: { projectId; displayName; id; title; origin; status; workstreamIds; createdAt }[] }',
+          },
+          // V2-T3.2b: the 6 change-family plane RPC result types (design §12 rows 4-6/8/9).
+          {
+            name: 'SetHubResult',
+            declaration: 'interface SetHubResult { readonly hubPath; readonly registryPath }',
+          },
+          {
+            name: 'BindProjectResult',
+            declaration: 'interface BindProjectResult { readonly projectId; readonly registryPath: string | null; readonly dbMigrated: boolean }',
+          },
+          {
+            name: 'UnbindProjectResult',
+            declaration: 'interface UnbindProjectResult { readonly projectId; readonly archivedDir }',
+          },
+          {
+            name: 'RestoreProjectResult',
+            declaration: 'interface RestoreProjectResult { readonly wsPath }',
+          },
+          {
+            name: 'RescanResult',
+            declaration:
+              'interface RescanResult { readonly hub: { path } | null; readonly dirNames: { treeDir; hubDir }; readonly projects: PlaneProjectDto[]; readonly missing: PlaneMissingDto[] }',
+          },
+          {
+            name: 'AckMissingReminderResult',
+            declaration: 'interface AckMissingReminderResult { readonly acknowledged: true }',
           },
         ],
       },

@@ -184,6 +184,11 @@ export interface HostWiringStartup {
 export interface HostWiring {
   readonly repoRoot: string
   readonly researchRoot: string
+  /** The tree directory name the wiring was built over (the configured
+   *  `researchDir`, default `.research` — V2 T3.2b: the dsh-adapter
+   *  passes T2.1's `getResearchDirNames().treeDir`; the RPC face reads
+   *  it back to parameterize the W8/W9/W10 git pathspecs). */
+  readonly researchDir: string
   readonly projectId: string
   /** The data directory holding `research.sqlite` (DSH_ADAPTER §9). */
   readonly dataDir: string
@@ -1005,6 +1010,7 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     const wiring: HostWiring = {
       repoRoot,
       researchRoot,
+      researchDir,
       projectId: options.projectId,
       dataDir,
       store,

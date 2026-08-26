@@ -35,7 +35,7 @@
 import { GitCommandError, GitInputError } from './errors.js'
 import { assertNoConflictState, detectConflictState } from './conflict.js'
 import { commitResearch, revParseHead, stageResearch, status } from './operations.js'
-import { isWithinCommitScope } from './whitelist.js'
+import { isWithinCommitScopeFor, scopeFor } from './whitelist.js'
 import type { CheckpointResult, GitOptions } from './types.js'
 
 /**
@@ -73,11 +73,14 @@ export async function saveCheckpoint(
       'detached HEAD: checkpoint commit will land on a detached HEAD and may be lost (GIT_INTEGRATION §5)',
     )
   }
-  // V2 (design §3.3): commit scope = .research/** minus the state/ sub-directory
+  // V2 (design §3.3): commit scope = <treeDir>/** minus the state/ sub-directory
   // (the runtime database area is outside the checkpoint commit whitelist) —
-  // the same scope W9/W10's pathspec stages/commits, so a state/-only change
-  // short-circuits here as 「无可提交内容」 instead of staging nothing.
-  const researchEntries = st.entries.filter((e) => isWithinCommitScope(e.path))
+  // the same scope W9/W10's pathspec stages/commits (V2 T3.2b: the CALL's
+  // tree scope, `opts.treeDir`, default the frozen `.research` face), so a
+  // state/-only change short-circuits here as 「无可提交内容」 instead of
+  // staging nothing.
+  const scope = scopeFor(opts)
+  const researchEntries = st.entries.filter((e) => isWithinCommitScopeFor(scope, e.path))
   if (researchEntries.length === 0) {
     // 「无可提交内容」(成功, 不报错)
     return { committed: false, shortCircuited: true, commitOid: null, warnings }

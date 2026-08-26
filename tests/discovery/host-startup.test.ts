@@ -433,16 +433,17 @@ describe('host-side startup matrix (V2-T2.2 — [Service.init] over the §4 stat
     }
   }, 30_000)
 
-  it('empty plane (no tree, no hub — plain workspaces only): the V1 spike mode as a plane shape — no tools, one empty-plane warn, RPCs fail loud', async () => {
+  it('empty plane (no tree, no hub — plain workspaces only): the design §6 引导卡 state — no tools, one empty-plane warn, per-project RPCs fail loud', async () => {
     freshDshHome()
     const plain = makePlainWs()
     const h = mountHost([plain])
     try {
       await initPlane(h)
       expect(h.toolNames).toHaveLength(0)
-      const emptyWarns = warnLines().filter((l) => l.includes('stays in spike mode (ping only)'))
+      const emptyWarns = warnLines().filter((l) => l.includes('the plane has no project'))
       expect(emptyWarns).toHaveLength(1)
-      expect(emptyWarns[0]).toContain('the tools and the 13 RPCs are NOT registered')
+      expect(emptyWarns[0]).toContain('the tools are NOT registered (single-project planes only)')
+      expect(emptyWarns[0]).toContain('the 9 plane RPCs still serve')
       await expect(h.svc.getProject()).rejects.toThrow(/not initialized \(spike mode\)/)
       await expect(h.svc.ping()).resolves.toMatchObject({ ok: true, service: 'researchControl' })
     } finally {

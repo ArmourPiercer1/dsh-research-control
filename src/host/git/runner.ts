@@ -23,7 +23,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { accessSync, constants, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { GitCommandError, GitMissingError, GitTimeoutError } from './errors.js'
-import { assertWhitelisted } from './whitelist.js'
+import { scopeFor } from './whitelist.js'
 import {
   DEFAULT_GIT_MAX_OUTPUT_BYTES,
   DEFAULT_GIT_TIMEOUT_MS,
@@ -204,11 +204,14 @@ function killProcessGroup(child: ChildProcess): void {
 
 /**
  * The checked path: validate argv against the W1–W13 whitelist (INV-GIT-7
- * 运行时面), resolve the executable (fail loud), then spawn with the
- * §1.9 guards. Every operation in operations.ts goes through here.
+ * 运行时面 — through the CALL's tree scope: `opts.treeDir`'s rows, or the
+ * frozen default scope when absent — V2 T3.2b: the W9/W10 pathspecs are
+ * generated from the configured tree name), resolve the executable (fail
+ * loud), then spawn with the §1.9 guards. Every operation in operations.ts
+ * goes through here.
  */
 export async function runGit(root: string, argv: readonly string[], opts?: GitOptions): Promise<GitRunResult> {
-  assertWhitelisted(argv)
+  scopeFor(opts).assertWhitelisted(argv)
   const executable = resolveGitExecutable(opts?.gitExecutable)
   const res = await spawnGitProcess(executable, root, argv, {
     timeoutMs: opts?.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,

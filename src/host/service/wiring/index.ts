@@ -80,7 +80,7 @@ export {
 } from './realize-store.js'
 export { adaptDatabaseSync } from './db-adapter.js'
 export { gitBlobOid, makeContentHashCapturer } from './content-hash-capture.js'
-export { readProjectId } from './project-id.js'
+export { readProjectId, readProjectTitle } from './project-id.js'
 export {
   runStartupIntegrityGate,
   type StartupIntegrityGate,

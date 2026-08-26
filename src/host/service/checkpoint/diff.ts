@@ -34,22 +34,23 @@ import {
   GitInputError,
   GitScopeViolationError,
   logFile,
-  RESEARCH_PATHSPEC,
+  scopeFor,
   showFile,
+  type ResearchTreeScope,
 } from '../../git/index.js'
 import { NotARepoError } from './errors.js'
 import { FsResearchReader } from './fs-reader.js'
 import type { StructuredLogger } from './logger.js'
 import {
   FULL_OID_RE,
-  RESEARCH_DIR,
   type DiffHistoryOptions,
   type DiffHistoryResult,
 } from './types.js'
 
-/** 检查顺序与 restore 一致 (scope 先, 形状后): 越界 → GIT_SCOPE; 形状非法 → GIT_INPUT. */
-function assertResearchPath(p: string): string {
-  if (typeof p !== 'string' || !p.startsWith(RESEARCH_PATHSPEC)) {
+/** 检查顺序与 restore 一致 (scope 先, 形状后): 越界 → GIT_SCOPE; 形状非法 → GIT_INPUT.
+ *  V2 T3.2b: the scope is the CALL's tree (opts.treeDir; default `.research`). */
+function assertResearchPath(scope: ResearchTreeScope, p: string): string {
+  if (typeof p !== 'string' || !p.startsWith(scope.pathspec)) {
     throw new GitScopeViolationError(String(p))
   }
   if (p === '..' || p.startsWith('../') || p.startsWith('/') || p.includes('\0')) {
@@ -68,9 +69,10 @@ function assertResearchPath(p: string): string {
  */
 export async function diffHistory(root: string, opts: DiffHistoryOptions): Promise<DiffHistoryResult> {
   const logger = opts.logger
+  const scope = scopeFor(opts)
 
   // ── 输入校验 (先于任何 I/O) ──
-  const path = opts.path === undefined ? undefined : assertResearchPath(opts.path)
+  const path = opts.path === undefined ? undefined : assertResearchPath(scope, opts.path)
   if (opts.baseline !== undefined && (typeof opts.baseline !== 'string' || !FULL_OID_RE.test(opts.baseline))) {
     logger.error('diff.input', { reason: 'bad-baseline', baseline: String(opts.baseline) })
     throw new GitInputError(
@@ -88,7 +90,7 @@ export async function diffHistory(root: string, opts: DiffHistoryOptions): Promi
   logger.info('diff.repo-detected', { root, repoRoot: det.repoRoot })
 
   // ── W6 版本列表 (新→旧; 分页 §9) ──
-  const target = path ?? RESEARCH_DIR
+  const target = path ?? scope.treeDir
   const versions = await logFile(root, target, {
     ...opts,
     maxCount: opts.maxCount,
@@ -101,7 +103,7 @@ export async function diffHistory(root: string, opts: DiffHistoryOptions): Promi
   // ── W5 文件级差异摘要: 基线版本 ↔ 当前 working tree, 限 .research/** ──
   if (opts.baseline !== undefined) {
     const all = await diffNameStatus(root, opts.baseline, opts)
-    const inScope = all.filter((e) => e.path.startsWith(RESEARCH_PATHSPEC))
+    const inScope = all.filter((e) => e.path.startsWith(scope.pathspec))
     result.fileDiff = inScope
     result.baseline = opts.baseline
     logger.info('diff.file-diff', {
@@ -113,9 +115,9 @@ export async function diffHistory(root: string, opts: DiffHistoryOptions): Promi
 
   // ── W7 单文件两版本内容判定 (path + baseline 同时给出时) ──
   if (path !== undefined && opts.baseline !== undefined) {
-    const researchRoot = join(root, RESEARCH_DIR)
+    const researchRoot = join(root, scope.treeDir)
     const reader = new FsResearchReader(researchRoot)
-    const relInResearch = path.slice(RESEARCH_PATHSPEC.length)
+    const relInResearch = path.slice(scope.pathspec.length)
     const abs = join(researchRoot, relInResearch)
     if (existsSync(abs) && statSync(abs).isDirectory()) {
       result.pathContent = null

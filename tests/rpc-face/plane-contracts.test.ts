@@ -177,7 +177,7 @@ const planeResultSymbols: Readonly<Record<string, string>> = {
   bindProject: 'BindProjectResult',
   unbindProject: 'UnbindProjectResult',
   restoreProject: 'RestoreProjectResult',
-  rescan: 'PlaneStateSummary',
+  rescan: 'RescanResult',
   ackMissingReminder: 'AckMissingReminderResult',
 }
 
@@ -256,28 +256,27 @@ describe('V2-T3.1 descriptor mirror consistency — the 9 plane descriptors', ()
     }
   })
 
-  it('V2-T3.2a: the REGISTERED face is the frozen 14 + the 3 READ-ONLY plane RPCs (the 6 change-family RPCs stay contract-only)', () => {
-    expect(REGISTERED_RESEARCH_INVOCATIONS).toHaveLength(17)
+  it('V2-T3.2b: the REGISTERED face is the frozen 14 + all 9 plane RPCs (the 6 change-family RPCs registered with their @Remote bodies)', () => {
+    expect(REGISTERED_RESEARCH_INVOCATIONS).toHaveLength(23)
     expect(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,
       'getResearchPlaneState',
       'getHubOverview',
       'getPortfolioInterventions',
-    ])
-    // The 6 change-family plane RPCs are NOT registered yet (their @Remote
-    // bodies do not exist — a descriptor without its method would break
-    // gateway dispatch; they join the face with their implementation tasks).
-    const registered = new Set(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method))
-    for (const name of [
       'setHub',
       'bindProject',
       'unbindProject',
       'restoreProject',
       'rescan',
       'ackMissingReminder',
-    ]) {
-      expect(registered.has(name), `change-family ${name} must stay contract-only in T3.2a`).toBe(false)
+    ])
+    // The 6 change-family plane RPCs ARE registered now: each descriptor
+    // pairs with a live @Remote body in the host service (design §12),
+    // so the full 9-RPC plane face is dispatchable.
+    const registered = new Set(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method))
+    for (const name of RESEARCH_PLANE_RPC_METHODS) {
+      expect(registered.has(name), `plane method ${name} must be registered`).toBe(true)
     }
   })
 })

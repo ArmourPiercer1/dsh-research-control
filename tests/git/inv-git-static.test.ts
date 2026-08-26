@@ -2,7 +2,8 @@
  * WP-1.2 — 静态不变量 (TEST_MATRIX §2.3 INV-GIT-* 映射表):
  *
  *  - INV-GIT-2 (无自动 commit 路径 — 类型面断言不存在隐式 commit):
- *    导出集合恰为 13 个 W 操作 + 2 个组合原语 + 2 个数据工具 + 8 个错误类;
+ *    导出集合恰为 13 个 W 操作 + 2 个组合原语 + 2 个数据工具 + 8 个错误类
+ *    (+ V2 T3.2b: 2 个 tree-scope 附加工具, 纯解析/断言, 无 git 能力);
  *    唯一 commit 能力是 W10 (commitResearch, pathspec 固定 .research/);
  *    行为面 (读操作零 commit) 由 TC-GIT-001 补充。
  *  - INV-GIT-6 (git 层源码无 shell 拼接 — spawn 全 argv 数组):
@@ -43,6 +44,9 @@ const OPERATION_NAMES = [
 const COMPOSITE_NAMES = ['detectConflictState', 'saveCheckpoint'] as const
 /** 纯数据工具 (无 git 能力). */
 const UTILITY_NAMES = ['isWithinCommitScope', 'parsePorcelainV2', 'unquotePath'] as const
+/** V2 T3.2b (design §3.1 Q4 树目录可配置): tree-scope 附加面 — 纯
+ *  解析/断言工具, 不增加任何 git 能力 (W1–W13 集合与默认 argv 不变). */
+const V2_SCOPE_NAMES = ['isWithinCommitScopeFor', 'scopeFor'] as const
 /** 错误类 (类型化错误, 非能力). */
 const ERROR_NAMES = [
   'GitError',
@@ -76,8 +80,8 @@ function gitSourceFiles(): string[] {
 }
 
 describe('INV-GIT-7: 白名单外命令不可达 (类型面)', () => {
-  it('index 函数导出集合恰好 = 13 W 操作 + 2 组合原语 + 2 数据工具 + 8 错误类', () => {
-    const expected = [...OPERATION_NAMES, ...COMPOSITE_NAMES, ...UTILITY_NAMES, ...ERROR_NAMES].sort()
+  it('index 函数导出集合恰好 = 13 W 操作 + 2 组合原语 + 2 数据工具 + 2 V2 scope 工具 + 8 错误类', () => {
+    const expected = [...OPERATION_NAMES, ...COMPOSITE_NAMES, ...UTILITY_NAMES, ...V2_SCOPE_NAMES, ...ERROR_NAMES].sort()
     expect(functionExports()).toEqual(expected)
     // 无通用执行面: 任何 run/exec/spawn/shell/裸 commit/add 导出都不存在
     for (const bad of ['run', 'runGit', 'exec', 'spawn', 'shell', 'commit', 'add', 'git', 'execute']) {
@@ -190,9 +194,11 @@ describe('INV-GIT-2: 无自动 commit 路径 (类型面)', () => {
     // 类型面: 含 "commit" 的导出函数 — commitResearch (W10 具名操作, 唯一
     // commit 能力) + isWithinCommitScope (T2.4 提交面谓词, 纯判定函数,
     // 无 git 能力 — 名称含 commit 是因为它判定的正是 W9/W10 的提交范围)
+    // + isWithinCommitScopeFor (V2 T3.2b 同族谓词: 可配置 treeDir 版).
     expect(functionExports().filter((n) => /commit/i.test(n)).sort()).toEqual([
       'commitResearch',
       'isWithinCommitScope',
+      'isWithinCommitScopeFor',
     ])
   })
 

@@ -34,6 +34,8 @@ import type {
   PortfolioInterventionItemDto,
   RescanArgs,
   RescanResult,
+  RestoreProjectArgs,
+  RestoreProjectResult,
   SetHubArgs,
   SetHubResult,
   UnbindProjectArgs,
@@ -147,6 +149,7 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
           | 'bindProject'
           | 'rescan'
           | 'unbindProject'
+          | 'restoreProject'
           | 'ackMissingReminder'
           | 'readInvestigatorTransient'
           | 'loadAnalysisRecords'
@@ -215,6 +218,21 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
             if (!result.ok) {
               throw new Error(
                 `research shell: unbindProject failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-T5.4 (design §7.4 ③, §12 row 7): the 登记册 恢复登记 action —
+          // the host re-activates the archived entry, renames
+          // `<treeDir>.archived-<ts>` back, and re-validates (the 代劳
+          // rename, symmetric with the unbind). Same fold as unbindProject
+          // — the book's fault line responds on rejection; the view stays
+          // DSH-free.
+          restoreProject: async (args: RestoreProjectArgs): Promise<RestoreProjectResult> => {
+            const result = await researchRpc.restoreProject(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: restoreProject failed — ${result.error.code}: ${result.error.message}`,
               )
             }
             return result.value

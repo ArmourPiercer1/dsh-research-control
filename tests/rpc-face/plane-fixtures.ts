@@ -27,7 +27,21 @@ const HUB_PATH = '/home/u/hub'
 const WS1 = '/home/u/ws1'
 const WS2 = '/home/u/ws2'
 const WS3 = '/home/u/ws3'
+const WS4 = '/home/u/ws4'
 const REGISTRY_PATH = `${HUB_PATH}/.research-control/registry.yaml`
+
+/**
+ * The registry book of PLANE_STATE_FIXTURE (the §7.4 ③ source, V2-T5.4):
+ * PRJ-1 ACTIVE (managed), PRJ-3 ACTIVE (tree missing — also in `missing`),
+ * PRJ-4 ARCHIVED (the 解绑 tombstone the 恢复登记 action acts on).
+ * PRJ-2 (STANDALONE) is intentionally ABSENT — a standalone tree carries
+ * no registry entry.
+ */
+const BOOK_FIXTURE = [
+  { id: 'PRJ-1', path: WS1, displayName: '机器人视觉定位系统', status: 'active', boundAt: T, archivedAt: null },
+  { id: 'PRJ-3', path: WS3, displayName: 'Lost project', status: 'active', boundAt: T, archivedAt: null },
+  { id: 'PRJ-4', path: WS4, displayName: 'Archived project', status: 'archived', boundAt: T, archivedAt: T + 500 },
+] as const
 
 /** A full plane: hub + one MANAGED + one STANDALONE + one MISSING, caller in the hub. */
 export const PLANE_STATE_FIXTURE: GetResearchPlaneStateResult = {
@@ -38,6 +52,7 @@ export const PLANE_STATE_FIXTURE: GetResearchPlaneStateResult = {
     { projectId: 'PRJ-2', displayName: 'Project Two', kind: 'STANDALONE', wsPath: WS2 },
   ],
   missing: [{ projectId: 'PRJ-3', displayName: 'Lost project', wsPath: WS3, deferred: false }],
+  registry: BOOK_FIXTURE,
   session: { cwd: HUB_PATH, role: 'HUB', hubTreeProjectId: null },
 }
 
@@ -48,6 +63,10 @@ export const PLANE_STATE_HUB_TREE_FIXTURE: GetResearchPlaneStateResult = {
     { projectId: 'PRJ-1', displayName: '机器人视觉定位系统', kind: 'MANAGED', wsPath: WS1 },
     { projectId: 'PRJ-9', displayName: 'Hub project', kind: 'MANAGED', wsPath: HUB_PATH },
   ],
+  registry: [
+    ...BOOK_FIXTURE,
+    { id: 'PRJ-9', path: HUB_PATH, displayName: 'Hub project', status: 'active', boundAt: T, archivedAt: null },
+  ],
   session: { cwd: HUB_PATH, role: 'HUB', hubTreeProjectId: 'PRJ-9' },
 }
 
@@ -57,6 +76,7 @@ export const PLANE_STATE_EMPTY_FIXTURE: GetResearchPlaneStateResult = {
   dirNames: { treeDir: '.research', hubDir: '.research-control' },
   projects: [],
   missing: [],
+  registry: [],
   session: null,
 }
 
@@ -166,6 +186,7 @@ export const RESCAN_FIXTURE: RescanResult = {
     { projectId: 'PRJ-2', displayName: 'Project Two', kind: 'STANDALONE', wsPath: WS2 },
   ],
   missing: [{ projectId: 'PRJ-3', displayName: 'Lost project', wsPath: WS3, deferred: true }],
+  registry: BOOK_FIXTURE,
 }
 
 /** ackMissingReminder: the runtime dedup flag set. */

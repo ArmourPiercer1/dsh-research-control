@@ -262,6 +262,67 @@ describe('discoverPlane — hub 1 (registry reconciliation, §4 step 5)', () => 
 })
 
 /* ------------------------------------------------------------------ *
+ * The `registry` book segment (V2-T5.4 — design §7.4 ③ 登记册 source):
+ * the FULL registry (ACTIVE + ARCHIVED, declaration order), retained
+ * even where `projects` / `missing` (ACTIVE-only derived views) drop it.
+ * ------------------------------------------------------------------ */
+
+describe('discoverPlane — registry book segment (V2-T5.4)', () => {
+  it('no hub → the book is empty (there is no registry to read)', () => {
+    const state = discoverPlane([ws(WS_A, { tree: true, treeId: 'PRJ-1' })], DIRS, null)
+    expect(state.registry).toEqual([])
+  })
+
+  it('hub with an empty registry → the book is empty (hub set, no entries)', () => {
+    const state = discoverPlane([ws(WS_HUB, { hub: true })], DIRS, registryText([]))
+    expect(state.hub).toEqual({ path: WS_HUB })
+    expect(state.registry).toEqual([])
+  })
+
+  it('the book carries ACTIVE + ARCHIVED entries in declaration order (archived is retained)', () => {
+    const active = entry('PRJ-1', WS_A)
+    const archived = entry('PRJ-2', WS_B, { status: 'archived', archivedAt: 1770000999000 })
+    const state = discoverPlane(
+      [ws(WS_HUB, { hub: true }), ws(WS_A, { tree: true, treeId: 'PRJ-1' })],
+      DIRS,
+      registryText([active, archived]),
+    )
+    // Declaration order is preserved (PRJ-1 first, then PRJ-2).
+    expect(state.registry.map((e) => e.id)).toEqual(['PRJ-1', 'PRJ-2'])
+    // The archived entry rides the book with its status + archivedAt intact.
+    expect(state.registry[1]).toMatchObject({ id: 'PRJ-2', status: 'archived', archivedAt: 1770000999000 })
+    // The active entry rides as active with archivedAt null.
+    expect(state.registry[0]).toMatchObject({ id: 'PRJ-1', status: 'active', archivedAt: null })
+  })
+
+  it('an archived entry (no tree) never lands in `projects` / `missing` (tombstone is book-only)', () => {
+    const archived = entry('PRJ-1', WS_A, { status: 'archived', archivedAt: 1770000999000 })
+    const state = discoverPlane(
+      [ws(WS_HUB, { hub: true })],
+      DIRS,
+      registryText([archived]),
+    )
+    expect(state.registry).toHaveLength(1)
+    expect(state.registry[0]).toMatchObject({ id: 'PRJ-1', status: 'archived' })
+    expect(state.projects).toEqual([])
+    expect(state.missing).toEqual([])
+  })
+
+  it('a tree rediscovered at an ARCHIVED entry path is STANDALONE (the tombstone claims nothing)', () => {
+    const archived = entry('PRJ-1', WS_A, { status: 'archived', archivedAt: 1770000999000 })
+    const state = discoverPlane(
+      [ws(WS_HUB, { hub: true }), ws(WS_A, { tree: true, treeId: 'PRJ-1' })],
+      DIRS,
+      registryText([archived]),
+    )
+    expect(state.registry[0]).toMatchObject({ id: 'PRJ-1', status: 'archived' })
+    expect(state.projects).toHaveLength(1)
+    expect(state.projects[0]).toMatchObject({ projectId: 'PRJ-1', kind: 'STANDALONE', entry: null })
+    expect(state.missing).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ *
  * Fail-loud points (TC-DSH-008 — the plane refuses to start)
  * ------------------------------------------------------------------ */
 
@@ -388,7 +449,7 @@ function stateWithProjects(
   projects: readonly PlaneProject[],
   missing: readonly RegistryEntry[] = [],
 ): Parameters<typeof resolveProject>[0] {
-  return { hub: null, projects, missing, deferredReminders: new Set() }
+  return { hub: null, projects, missing, registry: [], deferredReminders: new Set() }
 }
 
 function planeProject(id: string, kind: PlaneProject['kind']): PlaneProject {

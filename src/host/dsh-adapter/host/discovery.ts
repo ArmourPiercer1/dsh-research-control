@@ -227,6 +227,16 @@ export interface PlaneState {
    */
   readonly missing: readonly RegistryEntry[]
   /**
+   * The FULL registry book — EVERY `registry.yaml` entry, ACTIVE and
+   * ARCHIVED, in declaration order (design §7.4 ③ 登记册, HUB-only
+   * settings section; the wire projection's `registry` segment source).
+   * `[]` when no hub was discovered (there is no registry to read).
+   * Unlike `projects` / `missing` — which are derived views of the
+   * ACTIVE set — this retains archived entries, whose only live action
+   * is the 恢复登记 restore (host rename-back + re-activation).
+   */
+  readonly registry: readonly RegistryEntry[]
+  /**
    * The 「推后处理」 runtime reminder-dedup flags (§4 MISSING 处置): the
    * entry ids whose startup reminder was deferred for THIS backend run
    * (design §14: an in-memory flag, NEVER persisted — a restart
@@ -422,6 +432,7 @@ export function discoverPlane(
     hub,
     projects,
     missing,
+    registry: entries,
     deferredReminders: new Set(),
   }
 }

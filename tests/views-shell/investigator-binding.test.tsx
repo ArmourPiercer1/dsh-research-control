@@ -86,8 +86,9 @@ function renderHubShell(onInvestigate: (item: PortfolioInterventionItemDto, ques
         )}
         setHub={vi.fn(async () => ({ hubPath: '/workspace/unregistered', registryPath: '/workspace/unregistered/.research-control/registry.yaml' }))}
         bindProject={vi.fn(async () => ({ projectId: 'PRJ-9', registryPath: null, dbMigrated: false }))}
-        rescan={vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [] }))}
+        rescan={vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [], registry: [] }))}
         unbindProject={vi.fn(async () => ({ projectId: 'PRJ-9', archivedDir: '/workspace/.research-control/archived/PRJ-9' }))}
+        restoreProject={vi.fn(async () => ({ wsPath: '/workspace/PRJ-9' }))}
         ackMissingReminder={vi.fn(async () => ({ acknowledged: true }))}
       />
     </StrictMode>,

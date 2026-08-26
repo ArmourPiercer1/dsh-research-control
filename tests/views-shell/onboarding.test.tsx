@@ -109,8 +109,9 @@ function renderOnboarding(
   // T4.3: the shell requires the three MISSING-modal mutation faces. The
   // onboarding fixtures carry NO missing entries (`missing: []`), so the
   // modal never pops and the inert resolvers stay inert.
-  const rescan = vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [] }))
+  const rescan = vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [], registry: [] }))
   const unbindProject = vi.fn(async () => ({ projectId: 'PRJ-9', archivedDir: '/workspace/.research-control/archived/PRJ-9' }))
+  const restoreProject = vi.fn(async () => ({ wsPath: '/workspace/PRJ-9' }))
   const ackMissingReminder = vi.fn(async () => ({ acknowledged: true }))
   // T5.1: the shell requires the HUB 总览 fetch face. The onboarding cases
   // never reach the HUB overview (the UNREGISTERED/NO_CWD card branch
@@ -141,6 +142,7 @@ function renderOnboarding(
         bindProject={bindProject as ResearchShellProps['bindProject']}
         rescan={rescan as ResearchShellProps['rescan']}
         unbindProject={unbindProject as ResearchShellProps['unbindProject']}
+        restoreProject={restoreProject as ResearchShellProps['restoreProject']}
         ackMissingReminder={ackMissingReminder as ResearchShellProps['ackMissingReminder']}
       />
     </StrictMode>,

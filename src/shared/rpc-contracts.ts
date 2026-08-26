@@ -1676,18 +1676,57 @@ export const PlaneMissingDtoSchema = z
   .strict()
 
 /**
+ * One row of the hub's `registry.yaml` as served on the wire — the
+ * 登记册 (design §7.4 section ③, HUB-only) data source. This is the
+ * FULL registry: ACTIVE entries (the `projects` / `missing` segments
+ * above are derived views of the active set) AND ARCHIVED ones, in
+ * declaration order, so the book can render 已归档 rows with their
+ * restore entry point (恢复登记).
+ *
+ * Invariants (mirroring the host's `RegistryEntry` domain type):
+ * `status === 'archived'` ⟺ `archivedAt !== null`; an active entry
+ * always carries `archivedAt: null`. `boundAt` is always present (the
+ * moment the entry was first registered); `archivedAt` is the epoch-ms
+ * timestamp the 解绑 commit stamped — the same timestamp that suffixes
+ * the renamed `<treeDir>.archived-<ts>` directory the 恢复登记 step
+ * renames back.
+ */
+export interface RegistryEntryDto {
+  readonly id: string
+  readonly path: string
+  readonly displayName: string
+  readonly status: 'active' | 'archived'
+  readonly boundAt: number
+  readonly archivedAt: number | null
+}
+
+export const RegistryEntryDtoSchema = z
+  .object({
+    id: idProject,
+    path: absolutePath,
+    displayName: z.string(),
+    status: z.enum(['active', 'archived']),
+    boundAt: epochMs,
+    archivedAt: epochMs.nullable(),
+  })
+  .strict()
+
+/**
  * The plane state summary — design §4 step 6 汇总 as served on the
  * wire: the hub, the configured directory names, the active projects,
- * the MISSING set. This IS the `rescan` result, and the
- * `getResearchPlaneState` result minus the caller-session segment
- * (design §12: rescan 返回 plane 摘要 — 同 getResearchPlaneState 去掉
- * session 段).
+ * the MISSING set, and the full registry book (ACTIVE + ARCHIVED,
+ * declaration order — design §7.4 ③; `[]` when no hub is set). This
+ * IS the `rescan` result, and the `getResearchPlaneState` result
+ * minus the caller-session segment (design §12: rescan 返回 plane
+ * 摘要 — 同 getResearchPlaneState 去掉 session 段).
  */
 export interface PlaneStateSummary {
   readonly hub: { readonly path: string } | null
   readonly dirNames: { readonly treeDir: string; readonly hubDir: string }
   readonly projects: readonly PlaneProjectDto[]
   readonly missing: readonly PlaneMissingDto[]
+  /** Every registry.yaml entry, ACTIVE + ARCHIVED, declaration order; `[]` when no hub. */
+  readonly registry: readonly RegistryEntryDto[]
 }
 
 export const PlaneStateSummarySchema = z
@@ -1704,6 +1743,7 @@ export const PlaneStateSummarySchema = z
       .strict(),
     projects: z.array(PlaneProjectDtoSchema),
     missing: z.array(PlaneMissingDtoSchema),
+    registry: z.array(RegistryEntryDtoSchema),
   })
   .strict()
 
@@ -1755,6 +1795,8 @@ export interface GetResearchPlaneStateResult {
   readonly dirNames: { readonly treeDir: string; readonly hubDir: string }
   readonly projects: readonly PlaneProjectDto[]
   readonly missing: readonly PlaneMissingDto[]
+  /** Every registry.yaml entry, ACTIVE + ARCHIVED, declaration order; `[]` when no hub. */
+  readonly registry: readonly RegistryEntryDto[]
   /** `null` when `sessionId` was omitted (or names an unknown session — see {@link PlaneErrorCode} `PLANE_SESSION_UNKNOWN`; the T3.2 implementation decides the failure branch). */
   readonly session: PlaneSessionDto | null
 }
@@ -1773,6 +1815,7 @@ export const GetResearchPlaneStateResultSchema = z
       .strict(),
     projects: z.array(PlaneProjectDtoSchema),
     missing: z.array(PlaneMissingDtoSchema),
+    registry: z.array(RegistryEntryDtoSchema),
     session: PlaneSessionDtoSchema.nullable(),
   })
   .strict()

@@ -1,0 +1,414 @@
+/**
+ * 设置 page styles (V2-T5.4 — design §7.4 四段式管理面).
+ *
+ * CSS Modules + CSS custom properties, the SAME token convention as
+ * shell.module.css: local `--rc-*` variables approximate the host token
+ * system (DSH_ADAPTER §6: host tokens are `--dsw-*`); each resolves to the
+ * matching `--dsw-alias-*` when the host theme provides it and falls back
+ * to a neutral value otherwise. Contrast discipline: every MEANINGFUL
+ * text (status, paths, values) sits on label-primary/label-secondary —
+ * never the low-contrast tertiary band; the tertiary band is reserved for
+ * non-meaningful chrome only (and is not used here at all).
+ */
+
+/* The .settings root carries the local token block (the 接入/解除绑定
+   dialogs render INSIDE the root, so the tokens resolve on their
+   subtree by inheritance — unlike the shell's sibling modal, which
+   needs its own scoped root). */
+.settings {
+  --rc-label-primary: var(--dsw-alias-label-primary, #1d1d1f);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #55555a);
+  --rc-label-tertiary: var(--dsw-alias-label-tertiary, #77777d);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f5f7);
+  --rc-border-l1: var(--dsw-alias-border-l1, #d9d9de);
+  --rc-border-l2: var(--dsw-alias-border-l2, #c8c8ce);
+  --rc-accent-primary: var(--dsw-alias-interactive-bg-primary, #0a84ff);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #ff3b30);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 120px;
+}
+
+/* -- the four 段 (design §7.4) ------------------------------------------ */
+
+.section {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--rc-label-primary);
+}
+
+/* -- ① 当前状态 (the label/value state list) ----------------------------- */
+
+.stateList {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stateRow {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.stateLabel {
+  flex: 0 0 110px;
+  color: var(--rc-label-secondary);
+}
+
+.stateValue {
+  margin: 0;
+  color: var(--rc-label-primary);
+  word-break: break-all;
+}
+
+.pathValue,
+.locationPath,
+.bookPath {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--rc-font-xxs);
+}
+
+.pathValue {
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* -- ② 操作 (the per-role action list) ----------------------------------- */
+
+.actionList {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.stateNote {
+  margin: 0;
+  color: var(--rc-label-secondary);
+}
+
+.actionButton {
+  font: inherit;
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  padding: 5px 16px;
+  cursor: pointer;
+}
+
+.actionButton:hover:enabled {
+  background: var(--rc-interactive-hover);
+}
+
+.actionButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* The 解除绑定 confirm trigger — the destructive accent (the dialog's
+   confirm button carries the same weight). */
+.actionDanger {
+  color: var(--rc-error-primary);
+  border-color: var(--rc-border-l2);
+}
+
+/* -- ③ 项目登记册 (the book rows) ---------------------------------------- */
+
+.bookList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bookRow {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bookRow > span,
+.bookRow > code {
+  display: inline;
+}
+
+.bookId {
+  font-weight: 600;
+  color: var(--rc-label-primary);
+  margin-right: 8px;
+}
+
+.bookName {
+  color: var(--rc-label-primary);
+  margin-right: 10px;
+}
+
+.bookPath {
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 0 4px;
+  word-break: break-all;
+}
+
+/* The 登记于/归档于 meta line — MEANINGFUL (the entry's lifecycle stamps)
+   on label-secondary, never the tertiary band. */
+.bookMeta {
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+.statusChip {
+  display: inline-block;
+  margin-left: 8px;
+  border-radius: 10px;
+  padding: 1px 10px;
+  font-size: var(--rc-font-xxs);
+  border: 1px solid var(--rc-border-l2);
+}
+
+/* The status chip is MEANINGFUL text — primary/secondary/error, never
+   the tertiary band (the task's contrast pin). */
+.status_normal {
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+}
+
+.status_missing {
+  color: var(--rc-error-primary);
+  background: var(--rc-bg-layer-2);
+}
+
+.status_archived {
+  color: var(--rc-label-secondary);
+  background: var(--rc-bg-layer-2);
+}
+
+.bookActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.bookAction {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l2);
+}
+
+.bookAction:hover:enabled {
+  background: var(--rc-interactive-hover);
+}
+
+.bookAction:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.bookActionDanger {
+  color: var(--rc-error-primary);
+}
+
+/* The 树缺失 row's 恢复指引 expansion (the standing remedy text — no RPC). */
+.guideText {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--rc-border-l2);
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+  word-break: break-all;
+}
+
+.guideText code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* -- ④ 数据位置 (the read-only location rows) ---------------------------- */
+
+.locationList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.locationRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.locationLabel {
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+.locationPath {
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 1px 6px;
+  word-break: break-all;
+}
+
+/* -- the page fault line (the last mutation's rejection) ------------------ */
+
+.faultLine {
+  margin: 0;
+  color: var(--rc-error-primary);
+  word-break: break-word;
+}
+
+/* -- the 接入 / 解除绑定 dialogs (the card-local overlay pattern — the    *
+   * views layer is DSH-free, so no host dialog service; cancel is inert) -- */
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialogPanel {
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  padding: 18px 20px;
+  width: min(460px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 15px;
+  color: var(--rc-label-primary);
+}
+
+.dialogCopy {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  max-width: 56ch;
+}
+
+.dialogCopy code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--rc-font-xxs);
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* The 解除绑定 三件事 list (design §7.4: 确认弹窗明写三件事). */
+.dialogThreeItems {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--rc-label-primary);
+}
+
+.dialogThreeItem {
+  margin: 0;
+}
+
+.dialogThreeItem code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--rc-font-xxs);
+  background: var(--rc-bg-layer-2);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.dialogField {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.dialogInput {
+  font: inherit;
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialogCancel,
+.dialogConfirm {
+  font: inherit;
+  border-radius: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+
+.dialogCancel {
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l2);
+}
+
+.dialogConfirm {
+  color: var(--rc-bg-layer-1);
+  background: var(--rc-accent-primary);
+  border: 1px solid var(--rc-accent-primary);
+}
+
+.dialogConfirm:disabled,
+.dialogCancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

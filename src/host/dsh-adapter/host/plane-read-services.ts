@@ -55,6 +55,7 @@ import {
   type PlaneSessionDto,
   type PlaneStateSummary,
   type PortfolioInterventionItemDto,
+  type RegistryEntryDto,
 } from '../../../shared/rpc-contracts.js'
 import type { DshSessionAdapter } from '../../../shared/host-adapter-ports.js'
 import type { PlaneProject, PlaneState } from './discovery.js'
@@ -141,10 +142,13 @@ export function planeProjectDisplayName(project: PlaneProject): string {
  * The §4 step-6 plane summary as served on the wire (the
  * getResearchPlaneState core — and, verbatim, the `rescan` result shape
  * of T3.2b): the hub, the configured directory names, the active
- * projects (MANAGED + STANDALONE, discovery order), and the MISSING set
+ * projects (MANAGED + STANDALONE, discovery order), the MISSING set
  * with the 「推后处理」 runtime `deferred` flag filtered from
  * `PlaneState.deferredReminders` (design §14: in-memory, per backend
- * run — a restart restores the reminder, by design).
+ * run — a restart restores the reminder, by design), and the full
+ * registry book (ACTIVE + ARCHIVED, declaration order — the §7.4 ③
+ * 登记册 source; 1:1 with the domain `RegistryEntry` — the wire Dto
+ * mirrors every field).
  */
 export function projectPlaneSummary(plane: PlaneState, dirNames: ResearchDirNames): PlaneStateSummary {
   const projects: PlaneProjectDto[] = plane.projects.map((p) => ({
@@ -152,6 +156,14 @@ export function projectPlaneSummary(plane: PlaneState, dirNames: ResearchDirName
     displayName: planeProjectDisplayName(p),
     kind: p.kind,
     wsPath: p.wsPath,
+  }))
+  const registry: RegistryEntryDto[] = plane.registry.map((entry) => ({
+    id: entry.id,
+    path: entry.path,
+    displayName: entry.displayName,
+    status: entry.status,
+    boundAt: entry.boundAt,
+    archivedAt: entry.archivedAt,
   }))
   return {
     hub: plane.hub,
@@ -163,6 +175,7 @@ export function projectPlaneSummary(plane: PlaneState, dirNames: ResearchDirName
       wsPath: entry.path,
       deferred: plane.deferredReminders.has(entry.id),
     })),
+    registry,
   }
 }
 

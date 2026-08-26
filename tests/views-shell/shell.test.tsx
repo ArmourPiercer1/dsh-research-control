@@ -83,8 +83,9 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
   // T4.3: the shell requires the three MISSING-modal mutation faces. The
   // routing fixtures here carry NO missing entries (`missing: []`), so the
   // modal never pops and the inert resolvers stay inert.
-  const rescan = vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [] }))
+  const rescan = vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [], registry: [] }))
   const unbindProject = vi.fn(async () => ({ projectId: 'PRJ-9', archivedDir: '/workspace/.research-control/archived/PRJ-9' }))
+  const restoreProject = vi.fn(async () => ({ wsPath: '/workspace/PRJ-9' }))
   const ackMissingReminder = vi.fn(async (_args: AckMissingReminderArgs): Promise<AckMissingReminderResult> => ({ acknowledged: true }))
   // T5.1: the shell requires the HUB 总览 fetch face. The HUB branch calls
   // it (the stub resolves the single-project wire fixture — the 聚合条 +
@@ -142,6 +143,7 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
         bindProject={bindProject}
         rescan={rescan}
         unbindProject={unbindProject}
+        restoreProject={restoreProject}
         ackMissingReminder={ackMissingReminder}
       />
     </StrictMode>,
@@ -264,7 +266,7 @@ describe('ResearchShell — 5 角色分支', () => {
     expect(await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')).toBeTruthy()
   })
 
-  it('HUB: the nav switches the active entry — 重要事件 = the real stream, 设置 = placeholder', async () => {
+  it('HUB: the nav switches the active entry — 重要事件 = the real stream, 设置 = 四段式管理面', async () => {
     renderShell(vi.fn().mockResolvedValue(HUB_RESULT), 'sess-hub')
     await screen.findByRole('button', { name: '总览' })
 
@@ -275,9 +277,23 @@ describe('ResearchShell — 5 角色分支', () => {
     expect(document.querySelector('[data-page="attention"]')).toBeTruthy()
     expect(await screen.findByText('当前没有需要处理的事件')).toBeTruthy()
 
+    // T5.4: 设置 is the 四段式管理面 (design §7.4). The HUB role sees ALL
+    // four sections (①②③④ — the 登记册 included).
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(document.querySelector('[data-page="settings"]')).toBeTruthy()
-    expect(screen.getByText('设置 页建设中')).toBeTruthy()
+    expect(document.querySelector('[data-settings-page]')).toBeTruthy()
+    // ① 当前状态: the HUB role label.
+    expect(await screen.findByText('① 当前状态')).toBeTruthy()
+    // ② 操作: 重扫并连接 (no 接入 — the hub already has projects).
+    expect(screen.getByText('② 操作')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重扫并连接' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '解除绑定' })).toBeNull()
+    // ③ 项目登记册 (HUB only): the PRJ-1 book row, 正常.
+    expect(screen.getByText('③ 项目登记册')).toBeTruthy()
+    expect(document.querySelector('[data-book-row][data-book-id="PRJ-1"][data-book-status="normal"]')).toBeTruthy()
+    // ④ 数据位置 (the read-only location rows).
+    expect(screen.getByText('④ 数据位置')).toBeTruthy()
+    expect(document.querySelectorAll('[data-location-row]').length).toBeGreaterThan(0)
   })
 
   it('MANAGED: 同构收窄控制台 — 总览 = the project console as ROOT (no aggregate strip, no back)', async () => {
@@ -339,5 +355,22 @@ describe('ResearchShell — 5 角色分支', () => {
     expect(await screen.findByRole('region', { name: '研究管理系统引导' })).toBeTruthy()
     expect(screen.getByText('本会话未关联工作区')).toBeTruthy()
     expect((screen.getByRole('button', { name: SET_HUB_BUTTON }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('T5.4: UNREGISTERED / NO_CWD sessions never reach the console frame — the 设置 entry is absent (the 引导卡 is their face)', async () => {
+    // design §5: the 引导卡 branches render NO ConsoleFrame at all — the
+    // 4-entry nav (incl. 设置) exists only for HUB / MANAGED / STANDALONE.
+    renderShell(vi.fn().mockResolvedValue(UNREGISTERED_RESULT), 'sess-unregistered')
+    expect(await screen.findByRole('region', { name: '研究管理系统引导' })).toBeTruthy()
+    expect(document.querySelector('[data-role]')).toBeNull()
+    expect(screen.queryByRole('button', { name: '设置' })).toBeNull()
+    expect(document.querySelector('[data-settings-page]')).toBeNull()
+    cleanup()
+
+    renderShell(vi.fn().mockResolvedValue(NO_CWD_RESULT), 'sess-no-cwd')
+    expect(await screen.findByRole('region', { name: '研究管理系统引导' })).toBeTruthy()
+    expect(document.querySelector('[data-role]')).toBeNull()
+    expect(screen.queryByRole('button', { name: '设置' })).toBeNull()
+    expect(document.querySelector('[data-settings-page]')).toBeNull()
   })
 })

@@ -106,6 +106,7 @@ function renderMissing(
         dirNames: { treeDir: '.research', hubDir: '.research-control' },
         projects: [],
         missing: [],
+        registry: [],
       })),
   )
   const bindProject = vi.fn(
@@ -114,6 +115,7 @@ function renderMissing(
   const unbindProject = vi.fn(
     impls.unbindImpl ?? (async () => ({ projectId: 'PRJ-3', archivedDir: `${MISSING_WS_PATH}/.research.archived-1770000000000` })),
   )
+  const restoreProject = vi.fn(async () => ({ wsPath: MISSING_WS_PATH }))
   const ackMissingReminder = vi.fn(impls.ackImpl ?? (async () => ({ acknowledged: true })))
   // T5.1: the shell requires the HUB 总览 fetch face (the modal rides a
   // HUB session, so the HUB branch renders the overview under the modal —
@@ -144,6 +146,7 @@ function renderMissing(
         bindProject={bindProject as ResearchShellProps['bindProject']}
         rescan={rescan as ResearchShellProps['rescan']}
         unbindProject={unbindProject as ResearchShellProps['unbindProject']}
+        restoreProject={restoreProject as ResearchShellProps['restoreProject']}
         ackMissingReminder={ackMissingReminder as ResearchShellProps['ackMissingReminder']}
       />
     </StrictMode>,

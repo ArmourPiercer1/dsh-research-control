@@ -355,3 +355,42 @@ describe('registerResearchUI — the T4.3 MISSING-modal mutation faces (design �
     await expect(face.unbindProject({ wsPath: '/workspace/proj-3' })).rejects.toThrow(/PLANE_NOT_MANAGED/)
   })
 })
+
+describe('registerResearchUI — the T5.4 登记册 恢复登记 face (design §12 row 7)', () => {
+  interface RestoreFace {
+    readonly restoreProject: (args: { projectId: string }) => Promise<unknown>
+  }
+
+  it('forwards the archived entry id verbatim and resolves the wire result (the restored wsPath)', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-hub') as RestoreFace
+
+    const result = (await face.restoreProject({ projectId: 'PRJ-6' })) as { wsPath: string }
+    expect(stub.callsTo('restoreProject')).toHaveLength(1)
+    expect(stub.callsTo('restoreProject')[0].args).toEqual({ projectId: 'PRJ-6' })
+    expect(result.wsPath).toBeTruthy()
+  })
+
+  it('folds a 恢复登记 business fault (the host guard: PLANE_ARCHIVED_DIR_MISSING) into a plain rejection carrying the code', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('restoreProject', {
+      ok: false,
+      error: {
+        code: 'PLANE_ARCHIVED_DIR_MISSING',
+        message: 'the archived directory .research.archived-1770000999000 was not found at the entry path — restore it first',
+        details: {},
+      },
+    })
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-hub') as RestoreFace
+
+    await expect(face.restoreProject({ projectId: 'PRJ-6' })).rejects.toThrow(/PLANE_ARCHIVED_DIR_MISSING/)
+  })
+})

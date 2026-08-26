@@ -31,7 +31,9 @@
  *                   bar transient + 溯源链 record list; a successful
  *                   一键调查 anywhere in the console BINDS the launched
  *                   session here and jumps the frame to this entry);
- *                   设置 stays a 页建设中 placeholder until T5.4;
+ *                   设置 = the 四段式管理面 (V2-T5.4, design §7.4 —
+ *                   ①当前状态 ②操作 ③项目登记册 ④数据位置; the 登记册
+ *                   is HUB-only — see ./settings-page.tsx);
  *  - MANAGED /    → 同构收窄控制台 (V2-T5.1): the SAME 4-entry frame,
  *    STANDALONE     总览 = the EXISTING project page (brief + 目标 +
  *                   topic list) AS ROOT — no aggregate strip, no back
@@ -106,6 +108,8 @@ import type {
   PortfolioInterventionItemDto,
   RescanArgs,
   RescanResult,
+  RestoreProjectArgs,
+  RestoreProjectResult,
   SetHubArgs,
   SetHubResult,
   UnbindProjectArgs,
@@ -119,6 +123,7 @@ import { InterventionStreamPage } from './intervention-stream.js'
 import { MissingModal } from './missing-modal.js'
 import { OnboardingCard } from './onboarding-card.js'
 import { ProjectConsole } from './project-console.js'
+import { SettingsPage } from './settings-page.js'
 import styles from './shell.module.css'
 
 /**
@@ -219,6 +224,18 @@ export interface ResearchShellProps {
    * error and stays open).
    */
   readonly unbindProject: (args: UnbindProjectArgs) => Promise<UnbindProjectResult>
+  /**
+   * The injected 恢复登记 mutation (V2-T5.4, design §7.4 ③ →
+   * `restoreProject`, §12 row 7): the 登记册 book's 已归档 row action. The
+   * host renames `<treeDir>.archived-<archivedAt>` BACK to `<treeDir>`,
+   * re-activates the registry entry (status active, archivedAt null), and
+   * re-validates via re-init (a MANAGED classification is required —
+   * otherwise the host rejects and the book shows the fault line). The
+   * wire takes ONLY the `projectId` (the archived entry's id). On success
+   * the book re-fetches (the row flips 已归档 → 正常). Rejects on any
+   * failure (the book shows the error and keeps the row).
+   */
+  readonly restoreProject: (args: RestoreProjectArgs) => Promise<RestoreProjectResult>
   /**
    * The injected 推后 mutation (design §4 MISSING 处置 → `ackMissingReminder`,
    * §12 row 9). The MISSING modal's 推后 action sets the 「推后处理」
@@ -405,14 +422,21 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
    * the card calls this and the shell re-runs the plane-state fetch (the
    * loading face shows while it is in flight; the resolved result then
    * flips the branch — e.g. UNREGISTERED → HUB, design §8 平面状态刷新).
+   *
+   * `keepNav` (V2-T5.4): the HUB 设置 book actions (重验 / 恢复登记 /
+   * 移除登记) re-fetch WITHOUT leaving the 设置 entry — the role cannot
+   * flip under a HUB book action (the book mutates other projects, never
+   * the hub itself), so the lifted nav entry stays where the user is.
+   * The default (nav → 总览, drill → wall) stays for every role-flipping
+   * mutation (the card flows, 解除绑定, 接入).
    */
-  const refresh = useCallback(() => {
+  const refresh = useCallback((options?: { keepNav?: boolean }) => {
     // A re-fetch may change the plane under a stale HUB drill target —
     // the drill resets to the card wall (V2-T5.1). The lifted nav entry
     // resets to 总览 for the same reason (the role may have flipped under
-    // a stale entry — V2-T5.2).
+    // a stale entry — V2-T5.2), unless keepNav pins the console entry.
     setHubDrillProjectId(null)
-    setNavEntry('overview')
+    if (options?.keepNav !== true) setNavEntry('overview')
     setPhase('loading')
     setGeneration((g) => g + 1)
   }, [])
@@ -525,12 +549,30 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           saveRecord={props.saveAnalysisRecord}
         />
       )
+      // V2-T5.4 (design §7.4) — 设置 = 四段式管理面 (HUB: the FULL ①②③④,
+      // the 登记册 included). The book actions re-fetch with `keepNav` —
+      // the HUB role cannot flip under a book action, so the user stays
+      // on the 设置 entry while the book re-renders over the fresh state.
+      const settings = (
+        <SettingsPage
+          role="HUB"
+          cwd={effective.cwd}
+          plane={plane}
+          rescan={props.rescan}
+          bindProject={props.bindProject}
+          setHub={props.setHub}
+          unbindProject={props.unbindProject}
+          restoreProject={props.restoreProject}
+          onApplied={() => refresh({ keepNav: true })}
+        />
+      )
       branch = (
         <ConsoleFrame
           role="HUB"
           overview={overview}
           attention={attention}
           investigator={investigator}
+          settings={settings}
           active={navEntry}
           onActivate={(id) => {
             setNavEntry(id)
@@ -588,6 +630,26 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           saveRecord={props.saveAnalysisRecord}
         />
       )
+      // V2-T5.4 (design §7.4) — 设置 收窄版 for the project roles: ①②④,
+      // NO 登记册 (the book is HUB-only, the §5 状态表 row). The plain
+      // refresh (NO keepNav): 解除绑定 flips MANAGED → UNREGISTERED (the
+      // 引导卡 face), 接入 flips STANDALONE → MANAGED and lands on 总览
+      // (design §8 接入: 「进入项目视图」), 设为中枢 flips STANDALONE →
+      // HUB (the 中枢控制台 frame) — all role flips, the nav-reset is the
+      // documented rule.
+      const settings = (
+        <SettingsPage
+          role={effective.role}
+          cwd={effective.cwd}
+          plane={plane}
+          rescan={props.rescan}
+          bindProject={props.bindProject}
+          setHub={props.setHub}
+          unbindProject={props.unbindProject}
+          restoreProject={props.restoreProject}
+          onApplied={refresh}
+        />
+      )
       branch = (
         <ConsoleFrame
           role={effective.role}
@@ -595,6 +657,7 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           overview={<ProjectConsole />}
           attention={attention}
           investigator={investigator}
+          settings={settings}
           active={navEntry}
           onActivate={setNavEntry}
         />
@@ -658,7 +721,9 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
  * itself AS ROOT); 重要事件 is the pure intervention stream (V2-T5.2,
  * design §7.2 — portfolio for HUB, 限本项目 for the project roles);
  * 调查员 is the repositioned V1 investigator (V2-T5.3, design §7.3).
- * 设置 stays a 页建设中 placeholder until T5.4. The active
+ * 设置 is the 四段式管理面 (V2-T5.4, design §7.4 — ①②③④; the ③ 登记册
+ * section is HUB-only inside the page, the 收窄版 ①②④ for the project
+ * roles). The active
  * entry is LIFTED to the shell (V2-T5.2): the 重要事件 page's 空态 light
  * action (「去看工作流进展」) jumps the frame back to 总览, which the
  * frame can only do when the shell owns the state (V2-T5.3: a successful
@@ -675,6 +740,10 @@ interface ConsoleFrameProps {
   readonly attention: ReactElement
   /** The 调查员 page body (V2-T5.3 — all three console roles). */
   readonly investigator: ReactElement
+  /** The 设置 page body (V2-T5.4 — all three console roles; the ③ 登记册
+   *  section is HUB-only INSIDE the page — the 收窄版 ①②④ for the
+   *  project roles is the page's own role matrix, not the frame's). */
+  readonly settings: ReactElement
   /** The active first-level entry (owned by the shell). */
   readonly active: HubEntryId
   /** Fired on every nav-tab click with the target entry (the shell
@@ -682,7 +751,7 @@ interface ConsoleFrameProps {
   readonly onActivate: (id: HubEntryId) => void
 }
 
-function ConsoleFrame({ role, cwd, overview, attention, investigator, active, onActivate }: ConsoleFrameProps): ReactElement {
+function ConsoleFrame({ role, cwd, overview, attention, investigator, settings, active, onActivate }: ConsoleFrameProps): ReactElement {
   const activeLabel = HUB_ENTRIES.find((e) => e.id === active)?.label ?? '总览'
   return (
     <div className={styles.shell} data-role={role} data-cwd={cwd}>
@@ -709,7 +778,7 @@ function ConsoleFrame({ role, cwd, overview, attention, investigator, active, on
             ? attention
             : active === 'investigator'
               ? investigator
-              : <p className={styles.placeholder}>{activeLabel} 页建设中</p>}
+              : settings}
       </section>
     </div>
   )

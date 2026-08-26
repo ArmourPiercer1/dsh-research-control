@@ -12,6 +12,7 @@ import {
   type GetResearchPlaneStateResult,
   type PlaneMissingDto,
   type PlaneProjectDto,
+  type RegistryEntryDto,
 } from '../../src/shared/rpc-contracts.js'
 
 export const HUB_PATH = '/workspace/hub'
@@ -34,11 +35,22 @@ const STANDALONE_PROJECT: PlaneProjectDto = {
   wsPath: STANDALONE_PATH,
 }
 
+/** The registry book row for the MANAGED project (ACTIVE — the book's 正常 case). */
+export const REGISTRY_ENTRY_PRJ1: RegistryEntryDto = {
+  id: 'PRJ-1',
+  path: MANAGED_PATH,
+  displayName: '机器人视觉定位',
+  status: 'active',
+  boundAt: 1755000000000,
+  archivedAt: null,
+}
+
 const PLANE = {
   hub: { path: HUB_PATH },
   dirNames: { treeDir: '.research', hubDir: '.research-control' },
   projects: [MANAGED_PROJECT, STANDALONE_PROJECT],
   missing: [],
+  registry: [REGISTRY_ENTRY_PRJ1],
 } as const
 
 /** Re-parse a fixture through the strict wire schema (wire-validity pin). */
@@ -97,6 +109,7 @@ const NOHUB_PLANE = {
   dirNames: { treeDir: '.research', hubDir: '.research-control' },
   projects: [] as readonly PlaneProjectDto[],
   missing: [],
+  registry: [],
 } as const
 
 /** role === 'UNREGISTERED' on a NO-HUB plane — the §5 状态表 「无中枢」 row (both buttons enabled). */
@@ -114,6 +127,7 @@ export const HUB_RESULT_AT_UNREGISTERED: GetResearchPlaneStateResult = wireResul
   dirNames: { treeDir: '.research', hubDir: '.research-control' },
   projects: [],
   missing: [],
+  registry: [],
   session: { cwd: UNREGISTERED_PATH, role: 'HUB', hubTreeProjectId: null },
 })
 
@@ -134,6 +148,7 @@ export const STANDALONE_RESULT_AT_UNREGISTERED: GetResearchPlaneStateResult = wi
     },
   ],
   missing: [],
+  registry: [],
   session: { cwd: UNREGISTERED_PATH, role: 'STANDALONE' },
 })
 
@@ -189,6 +204,68 @@ export const DEFERRED_ENTRY: PlaneMissingDto = {
 /** The acked twin of MISSING_ENTRY (same id, `deferred` flipped — the host's runtime flag). */
 export const MISSING_ENTRY_ACKED: PlaneMissingDto = { ...MISSING_ENTRY, deferred: true }
 
+/* ---------------------------------------------------------------------- *
+ * V2-T5.4 — 登记册 (settings book) registry-entry constants (design §7.4 ③).
+ *
+ * The `registry` segment carries the FULL book (ACTIVE + ARCHIVED,
+ * declaration order). The entry constants below mirror the MISSING
+ * entries above (the book flags an ACTIVE entry as ⚠树缺失 when it also
+ * rides the `missing` segment) and add the ARCHIVED row the 恢复登记
+ * action acts on. (Module-level constants must precede the fixtures that
+ * reference them — the TDZ discipline of this file.)
+ * ---------------------------------------------------------------------- */
+
+/** The book row for the live missing entry PRJ-3 (ACTIVE — flagged ⚠树缺失 by cross-reference with `missing`). */
+export const REGISTRY_ENTRY_PRJ3: RegistryEntryDto = {
+  id: 'PRJ-3',
+  path: MISSING_WS_PATH,
+  displayName: '缺失树项目',
+  status: 'active',
+  boundAt: 1755000000000,
+  archivedAt: null,
+}
+
+/** The book row for the deferred missing entry PRJ-4 (ACTIVE — also flagged ⚠树缺失). */
+export const REGISTRY_ENTRY_PRJ4: RegistryEntryDto = {
+  id: 'PRJ-4',
+  path: '/workspace/proj-4',
+  displayName: '已推后项目',
+  status: 'active',
+  boundAt: 1755000000000,
+  archivedAt: null,
+}
+
+/** The book row for the second live missing entry (the multi-entry case). */
+export const REGISTRY_ENTRY_PRJ5: RegistryEntryDto = {
+  id: 'PRJ-5',
+  path: '/workspace/proj-5',
+  displayName: '另一个缺失项目',
+  status: 'active',
+  boundAt: 1755000000000,
+  archivedAt: null,
+}
+
+/**
+ * The book's ARCHIVED row: an unbound project — `status: 'archived'`
+ * with the `archivedAt` the 解绑 commit stamped (the 恢复登记 restore
+ * target — the host renames `<treeDir>.archived-<archivedAt>` back).
+ */
+export const REGISTRY_ENTRY_PRJ6_ARCHIVED: RegistryEntryDto = {
+  id: 'PRJ-6',
+  path: '/workspace/proj-6',
+  displayName: '已解绑项目',
+  status: 'archived',
+  boundAt: 1755000000000,
+  archivedAt: 1755000900000,
+}
+
+/** The book rows of the MISSING fixtures (PRJ-1 live + the missing entries — declaration order). */
+export const MISSING_REGISTRY_ROWS: readonly RegistryEntryDto[] = [
+  REGISTRY_ENTRY_PRJ1,
+  REGISTRY_ENTRY_PRJ3,
+  REGISTRY_ENTRY_PRJ4,
+]
+
 /**
  * First render: the plane carries a LIVE missing entry (PRJ-3) + an
  * already-deferred one (PRJ-4) — the modal pops listing PRJ-3 ONLY.
@@ -196,6 +273,7 @@ export const MISSING_ENTRY_ACKED: PlaneMissingDto = { ...MISSING_ENTRY, deferred
 export const MISSING_RESULT: GetResearchPlaneStateResult = wireResult({
   ...PLANE,
   missing: [MISSING_ENTRY, DEFERRED_ENTRY],
+  registry: MISSING_REGISTRY_ROWS,
   session: { cwd: HUB_PATH, role: 'HUB' },
 })
 
@@ -265,4 +343,15 @@ export const MISSING_RESULT_AT_UNREGISTERED: GetResearchPlaneStateResult = wireR
   ...PLANE,
   missing: [MISSING_ENTRY, DEFERRED_ENTRY],
   session: { cwd: UNREGISTERED_PATH, role: 'UNREGISTERED' },
+})
+
+/**
+ * The book-with-archived case (T5.4 恢复登记): the HUB plane whose
+ * registry book carries an ARCHIVED entry (PRJ-6) alongside the live
+ * entries — the 已归档 row the restore action acts on.
+ */
+export const HUB_RESULT_WITH_ARCHIVED: GetResearchPlaneStateResult = wireResult({
+  ...PLANE,
+  registry: [REGISTRY_ENTRY_PRJ1, REGISTRY_ENTRY_PRJ6_ARCHIVED],
+  session: { cwd: HUB_PATH, role: 'HUB', hubTreeProjectId: null },
 })

@@ -427,9 +427,11 @@ interface PlaneNegativeCase {
 
 // Pre-built result negatives (key removals need destructuring, not literals).
 const { hub: _hubOmitted, ...PLANE_STATE_NO_HUB } = PLANE_STATE_FIXTURE
+const { registry: _registryOmitted, ...PLANE_STATE_NO_REGISTRY } = PLANE_STATE_FIXTURE
 const { cards: _cardsOmitted, ...HUB_OVERVIEW_NO_CARDS } = HUB_OVERVIEW_FIXTURE
 const { items: _itemsOmitted, ...PORTFOLIO_NO_ITEMS } = PORTFOLIO_INTERVENTIONS_FIXTURE
 const { projects: _projectsOmitted, ...RESCAN_NO_PROJECTS } = RESCAN_FIXTURE
+const { registry: _rescanRegistryOmitted, ...RESCAN_NO_REGISTRY } = RESCAN_FIXTURE
 const PORTFOLIO_ITEM_NO_PROJECT = (() => {
   const { projectId: _drop, ...rest } = PORTFOLIO_INTERVENTIONS_FIXTURE.items[0]!
   return { ...PORTFOLIO_INTERVENTIONS_FIXTURE, items: [rest] }
@@ -442,6 +444,7 @@ const negativeCases: readonly PlaneNegativeCase[] = [
   { method: 'getResearchPlaneState', face: 'args', kind: 'type', bad: 'not-an-object', named: /object/ },
   { method: 'getResearchPlaneState', face: 'args', kind: 'extra', bad: { sessionId: 's', surprise: 1 }, named: /surprise/ },
   { method: 'getResearchPlaneState', face: 'result', kind: 'missing', bad: PLANE_STATE_NO_HUB, named: /hub/ },
+  { method: 'getResearchPlaneState', face: 'result', kind: 'missing', bad: PLANE_STATE_NO_REGISTRY, named: /registry/ },
   { method: 'getResearchPlaneState', face: 'result', kind: 'extra', bad: { ...PLANE_STATE_FIXTURE, surprise: 1 }, named: /surprise/ },
   {
     method: 'getResearchPlaneState',
@@ -456,6 +459,29 @@ const negativeCases: readonly PlaneNegativeCase[] = [
     kind: 'type',
     bad: { ...PLANE_STATE_FIXTURE, missing: [{ ...PLANE_STATE_FIXTURE.missing[0]!, deferred: 'yes' }] },
     named: /deferred/,
+  },
+  {
+    method: 'getResearchPlaneState',
+    face: 'result',
+    kind: 'type',
+    bad: {
+      ...PLANE_STATE_FIXTURE,
+      registry: [{ ...PLANE_STATE_FIXTURE.registry[0]!, status: 'dormant' }],
+    },
+    named: /status|active|archived/,
+  },
+  {
+    method: 'getResearchPlaneState',
+    face: 'result',
+    kind: 'type',
+    bad: {
+      ...PLANE_STATE_FIXTURE,
+      registry: [
+        ...PLANE_STATE_FIXTURE.registry.slice(0, 1),
+        { ...PLANE_STATE_FIXTURE.registry[1]!, archivedAt: 'yesterday' },
+      ],
+    },
+    named: /archivedAt/,
   },
   {
     method: 'getResearchPlaneState',
@@ -545,6 +571,7 @@ const negativeCases: readonly PlaneNegativeCase[] = [
   { method: 'rescan', face: 'args', kind: 'extra', bad: { surprise: 1 }, named: /surprise/ },
   { method: 'rescan', face: 'args', kind: 'type', bad: 'not-an-object', named: /object/ },
   { method: 'rescan', face: 'result', kind: 'missing', bad: RESCAN_NO_PROJECTS, named: /projects/ },
+  { method: 'rescan', face: 'result', kind: 'missing', bad: RESCAN_NO_REGISTRY, named: /registry/ },
   { method: 'rescan', face: 'result', kind: 'extra', bad: { ...RESCAN_FIXTURE, surprise: 1 }, named: /surprise/ },
   {
     method: 'rescan',

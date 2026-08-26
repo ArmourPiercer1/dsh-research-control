@@ -237,6 +237,7 @@ function planeState(over: Partial<PlaneState> = {}): PlaneState {
     hub: null,
     projects: [],
     missing: [],
+    registry: [],
     deferredReminders: new Set<string>(),
     ...over,
   }
@@ -333,6 +334,38 @@ describe('projectPlaneSummary + planeProjectDisplayName (pure)', () => {
     expect(summary.projects).toEqual([])
     expect(summary.hub).toBeNull()
     expect(summary.dirNames).toEqual({ treeDir: '.research', hubDir: '.research-control' })
+  })
+
+  it('the registry projection is 1:1 with the book (ACTIVE + ARCHIVED, declaration order — V2-T5.4)', () => {
+    const active = entry('PRJ-1', '/workspaces/p1', 'P1 name')
+    const archived: RegistryEntry = {
+      id: 'PRJ-2',
+      path: '/workspaces/p2',
+      displayName: 'P2 name',
+      status: 'archived',
+      boundAt: T,
+      archivedAt: T + 999,
+    }
+    const plane = planeState({ hub: { path: '/workspaces/hub' }, registry: [active, archived] })
+    const summary = projectPlaneSummary(plane, { treeDir: '.research', hubDir: '.research-control' })
+    expect(summary.registry).toEqual([
+      {
+        id: 'PRJ-1',
+        path: '/workspaces/p1',
+        displayName: 'P1 name',
+        status: 'active',
+        boundAt: T,
+        archivedAt: null,
+      },
+      {
+        id: 'PRJ-2',
+        path: '/workspaces/p2',
+        displayName: 'P2 name',
+        status: 'archived',
+        boundAt: T,
+        archivedAt: T + 999,
+      },
+    ])
   })
 
   it('the wire displayName: the entry name (MANAGED) / the tree title (STANDALONE)', () => {

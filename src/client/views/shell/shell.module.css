@@ -121,11 +121,6 @@
   min-height: 160px;
 }
 
-.placeholder {
-  margin: 0;
-  color: var(--rc-label-tertiary);
-}
-
 /* -- 引导卡 (onboarding card) -------------------------------------------- */
 
 .onboardTitle {

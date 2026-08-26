@@ -61,6 +61,16 @@ const PLANE_STATE_RESULT: GetResearchPlaneStateResult = {
     { projectId: 'PRJ-1', displayName: '机器人视觉定位', kind: 'MANAGED', wsPath: PROJ_PATH },
   ],
   missing: [],
+  registry: [
+    {
+      id: 'PRJ-1',
+      path: PROJ_PATH,
+      displayName: '机器人视觉定位',
+      status: 'active',
+      boundAt: 1755000000000,
+      archivedAt: null,
+    },
+  ],
   session: { cwd: PROJ_PATH, role: 'MANAGED' },
 }
 const HUB_OVERVIEW_RESULT: HubOverviewResult = {
@@ -88,6 +98,7 @@ const RESCAN_RESULT: RescanResult = {
   dirNames: { treeDir: '.research', hubDir: '.research-control' },
   projects: [],
   missing: [],
+  registry: [],
 }
 const ACK_RESULT: AckMissingReminderResult = { acknowledged: true }
 

@@ -49,6 +49,7 @@ import {
   type RemoteContext,
 } from '../../src/client/dsh-adapter/remote/mount.js'
 import { ResearchShell, type ResearchShellProps } from '../../src/client/views/shell/index.js'
+import type { AnalysisRecordDto, InvestigatorTransientDto } from '../../src/shared/analysis-command.js'
 import type {
   AckMissingReminderArgs,
   AckMissingReminderResult,
@@ -103,6 +104,28 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
     resolutionNote: null,
   }))
   const onInvestigate = vi.fn(async (): Promise<string> => '调查已启动')
+  // T5.3: the 调查员 page faces (the repositioned V1 analysis channel).
+  // The routing fixtures never navigate to the 调查员 page, so inert
+  // resolvers keep this file focused on the frame routing.
+  const readInvestigatorTransient = vi.fn(
+    async (sid: string): Promise<InvestigatorTransientDto> => ({
+      sessionId: sid,
+      session: null,
+      pointer: null,
+      run: null,
+    }),
+  )
+  const loadAnalysisRecords = vi.fn(async (): Promise<readonly AnalysisRecordDto[]> => [])
+  const saveAnalysisRecord = vi.fn(
+    async (): Promise<AnalysisRecordDto> => ({
+      id: 'AN-1',
+      sourceRef: { kind: 'INTERVENTION', id: 'IV-1' },
+      investigatorRunId: null,
+      dshSessionId: null,
+      content: 'stub 结论',
+      createdAt: 1_700_000_000_000,
+    }),
+  )
   render(
     <StrictMode>
       <ResearchShell
@@ -112,6 +135,9 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
         loadPortfolioInterventions={loadPortfolioInterventions}
         updateInterventionState={updateInterventionState}
         onInvestigate={onInvestigate}
+        readInvestigatorTransient={readInvestigatorTransient}
+        loadAnalysisRecords={loadAnalysisRecords}
+        saveAnalysisRecord={saveAnalysisRecord}
         setHub={setHub}
         bindProject={bindProject}
         rescan={rescan}

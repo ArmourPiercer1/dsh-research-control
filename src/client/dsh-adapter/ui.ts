@@ -18,6 +18,11 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
+  AnalysisRecordDto,
+  InvestigatorTransientDto,
+  SaveAnalysisRecordArgs,
+} from '../../shared/analysis-command.js'
+import type {
   AckMissingReminderArgs,
   AckMissingReminderResult,
   BindProjectArgs,
@@ -36,6 +41,7 @@ import type {
   UpdateInterventionStateArgs,
   UpdateInterventionStateResult,
 } from '../../shared/rpc-contracts.js'
+import { createCommandAnalysisDataProvider } from './remote/analysis-channel.js'
 import { ResearchShell, type ResearchShellProps } from '../views/shell/index.js'
 import { investigateIntervention } from './remote/investigate.js'
 import { researchRpc } from './remote/mount.js'
@@ -107,9 +113,13 @@ export type ResearchClientContext = Context & { slots: SlotService }
  * design §8) the two onboarding mutations — `setHub` (设为中枢) and
  * `bindProject` (接入) — and (V2-T4.3, design §4 MISSING 处置) the 四选一
  * modal's mutations — `rescan` (恢复), `unbindProject` (移除登记), and
- * `ackMissingReminder` (推后, the runtime dedup flag) — and folds the
- * carrier's `ok: false` branch into a plain rejection, so the DSH-free
- * view (views/ — INV-PERM-5) never sees a `RemoteResult`.
+ * `ackMissingReminder` (推后, the runtime dedup flag) — and (V2-T5.3,
+ * design §7.3) the 调查员 page's analysis data face — the V1-accepted
+ * channel REPOSITIONED: `readInvestigatorTransient` / `loadAnalysisRecords`
+ * / `saveAnalysisRecord` ride the plugin-owned host commands over the DSH
+ * `commands/execute` gateway (zero new RPCs) and reject on any failure,
+ * so the DSH-free view (views/ — INV-PERM-5) never sees a `RemoteResult`
+ * or a channel outcome shape.
  *
  * The registration rides the slot service's `inject` wrapper, so a late
  * slot declaration is tolerated and plugin unload removes the tab
@@ -138,6 +148,9 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
           | 'rescan'
           | 'unbindProject'
           | 'ackMissingReminder'
+          | 'readInvestigatorTransient'
+          | 'loadAnalysisRecords'
+          | 'saveAnalysisRecord'
         > => ({
           loadPlaneState: async (): Promise<GetResearchPlaneStateResult> => {
             const result = await researchRpc.getResearchPlaneState({ sessionId })
@@ -262,6 +275,22 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
             }
             return outcome.message
           },
+          // V2-T5.3 (design §7.3) — the 调查员 page's analysis data face:
+          // the V1-accepted channel REPOSITIONED (plugin-owned host
+          // commands over the DSH built-in `commands/execute` gateway —
+          // ZERO new RPCs, the 13-frozen list untouched). The commands
+          // execute in the CURRENT host session (the inject closure's
+          // framework sessionId — read fresh per command, the V1
+          // cockpit's ref pattern), and the host resolves the plane's
+          // single-project wiring; a multi-project plane has no command
+          // binding and the faces reject — the page's 数据面不可用 fault
+          // line answers (fail-loud, never a silent empty list).
+          readInvestigatorTransient: (targetSessionId: string): Promise<InvestigatorTransientDto> =>
+            createCommandAnalysisDataProvider(() => sessionId).readTransient(targetSessionId),
+          loadAnalysisRecords: (): Promise<readonly AnalysisRecordDto[]> =>
+            createCommandAnalysisDataProvider(() => sessionId).listAnalysisRecords(),
+          saveAnalysisRecord: (args: SaveAnalysisRecordArgs): Promise<AnalysisRecordDto> =>
+            createCommandAnalysisDataProvider(() => sessionId).saveAnalysisRecord(args),
         }),
       },
       ResearchShell,

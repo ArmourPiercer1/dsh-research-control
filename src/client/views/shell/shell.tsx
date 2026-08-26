@@ -25,8 +25,13 @@
  *                   (back = 返回总览 to the wall); 重要事件 = the pure
  *                   intervention stream (V2-T5.2, design §7.2 — portfolio
  *                   view for HUB, 限本项目 client-side filter for the
- *                   project roles); 调查员 / 设置 stay 页建设中
- *                   placeholders until T5.3 / T5.4;
+ *                   project roles); 调查员 = the repositioned V1
+ *                   investigator (V2-T5.3, design §7.3 — 调查管理 +
+ *                   分析记录: resident 只读引导条 + 绑定来源行 + status-
+ *                   bar transient + 溯源链 record list; a successful
+ *                   一键调查 anywhere in the console BINDS the launched
+ *                   session here and jumps the frame to this entry);
+ *                   设置 stays a 页建设中 placeholder until T5.4;
  *  - MANAGED /    → 同构收窄控制台 (V2-T5.1): the SAME 4-entry frame,
  *    STANDALONE     总览 = the EXISTING project page (brief + 目标 +
  *                   topic list) AS ROOT — no aggregate strip, no back
@@ -82,6 +87,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type {
+  AnalysisRecordDto,
+  AnalysisTypedRef,
+  InvestigatorTransientDto,
+  SaveAnalysisRecordArgs,
+} from '../../../shared/analysis-command.js'
+import { parseInvestigationSessionId } from '../../../shared/investigation-command.js'
+import type {
   AckMissingReminderArgs,
   AckMissingReminderResult,
   BindProjectArgs,
@@ -102,6 +114,7 @@ import type {
   UpdateInterventionStateResult,
 } from '../../../shared/rpc-contracts.js'
 import { HubOverviewPage } from './hub-overview.js'
+import { InvestigatorPage, type InvestigatorBinding } from './investigator-page.js'
 import { InterventionStreamPage } from './intervention-stream.js'
 import { MissingModal } from './missing-modal.js'
 import { OnboardingCard } from './onboarding-card.js'
@@ -218,6 +231,29 @@ export interface ResearchShellProps {
    * failure (the modal shows the error and stays open).
    */
   readonly ackMissingReminder: (args: AckMissingReminderArgs) => Promise<AckMissingReminderResult>
+  /**
+   * The injected transient-snapshot read (V2-T5.3, design §7.3 — the V1
+   * investigator channel repositioned: plugin-owned host command
+   * `/research-transient-read` over the DSH `commands/execute` gateway —
+   * ZERO new RPCs). Resolves the DTO; rejects on any failure (the page's
+   * status-bar fault line responds).
+   */
+  readonly readInvestigatorTransient: (targetSessionId: string) => Promise<InvestigatorTransientDto>
+  /**
+   * The injected saved-record list (the V1 channel's `/research-analysis-
+   * list` — host truth, createdAt ASC). Resolves the DTO list; rejects on
+   * any failure (the page's records fault line responds — the fail-loud
+   * 「数据面不可用」 face, e.g. a multi-project plane with no command
+   * binding).
+   */
+  readonly loadAnalysisRecords: () => Promise<readonly AnalysisRecordDto[]>
+  /**
+   * The injected user-explicit save (the V1 channel's `/research-analysis-
+   * save` — the host 用户门 is INV-PERM-3; the ONLY caller is the page's
+   * 保存对话框 确认). Resolves the saved DTO; rejects on any failure (the
+   * dialog stays open with the fault).
+   */
+  readonly saveAnalysisRecord: (args: SaveAnalysisRecordArgs) => Promise<AnalysisRecordDto>
 }
 
 /** The shell's fetch lifecycle (the loading / failed / ready faces). */
@@ -270,6 +306,54 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
   // re-fetch — the same rule as the drill target (the plane may have
   // changed under a stale entry).
   const [navEntry, setNavEntry] = useState<HubEntryId>('overview')
+  // V2-T5.3 (design §7.3): the 调查员 page's binding — the launched
+  // investigator session + the intervention that launched it. CLIENT-
+  // OWNED UI state (the V1 cockpit kept the launched session in per-mount
+  // state too — same semantics, new home); there is NO wire for it. It is
+  // WRITTEN only by a successful 一键调查 (the wrapper below parses the
+  // launched session id from the V1 channel's success text — the shared
+  // single-source parser, no client guessing) and CLEARED by 解绑 or a
+  // record-chain session re-bind. Deliberately NOT reset on plane re-
+  // fetch: the binding is a pointer to a LIVE host session, not a plane
+  // fact — a re-fetch cannot invalidate it (the page's transient face
+  // answers the disposed case with the honest 「不在 live 列表」 label).
+  const [investigatorBinding, setInvestigatorBinding] = useState<InvestigatorBinding | null>(null)
+  // The 一键调查 wrapper (all console roles): the V1 channel face, plus
+  // the V2-T5.3 binding capture — on success the shell (1) binds the
+  // launched session to the launching intervention and (2) jumps the
+  // frame to the 调查员 entry (the V1 cockpit's auto-navigation after a
+  // launch, repositioned). The face STILL resolves the success text
+  // unchanged — the 重要事件 row renders exactly as before.
+  const investigateWithBinding = (item: PortfolioInterventionItemDto, question: string): Promise<string> =>
+    props
+      .onInvestigate(item, question)
+      .then((text) => {
+        const launched = parseInvestigationSessionId(text)
+        if (launched !== null) {
+          setInvestigatorBinding({ sessionId: launched, interventionId: item.id, interventionTitle: item.title })
+          setNavEntry('investigator')
+        }
+        return text
+      })
+  // The 调查员 page's navigation callbacks (all console roles): the 反链
+  // (binding row + the record-chain intervention link) jumps to 重要事件;
+  // 解绑 clears the binding (no RPC — client state); a record-chain
+  // session link re-binds the page (the record's sourceRef rides along as
+  // the new origin when it is an intervention — the title is unknown on
+  // this path, id only).
+  const onOpenIntervention = (): void => {
+    setNavEntry('attention')
+  }
+  const onUnbindInvestigator = (): void => {
+    setInvestigatorBinding(null)
+  }
+  const onBindInvestigatorSession = (sessionId: string, sourceRef?: AnalysisTypedRef): void => {
+    setInvestigatorBinding({
+      sessionId,
+      interventionId: sourceRef !== undefined && sourceRef.kind === 'INTERVENTION' ? sourceRef.id : null,
+      interventionTitle: null,
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -415,7 +499,7 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           scopeProjectId={null}
           loadPortfolioInterventions={props.loadPortfolioInterventions}
           updateInterventionState={props.updateInterventionState}
-          onInvestigate={props.onInvestigate}
+          onInvestigate={investigateWithBinding}
           onOpenProject={(projectId) => {
             setHubDrillProjectId(projectId)
             setNavEntry('overview')
@@ -423,11 +507,30 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           onGoToWorkstreams={() => setNavEntry('overview')}
         />
       )
+      // V2-T5.3 (design §7.3, A 案) — 调查员 = 调查管理 + 分析记录: the
+      // resident 只读引导条 (the §7.3 portfolio/neutral framing), the 绑定
+      // 来源行 (the client-lifted binding + the intervention 反链 + 解绑),
+      // the 瞬态面板 collapsed into the status bar (run status + 转录
+      // 指引), the record list (溯源链 + 对象类型过滤). The data face is
+      // the V1 channel (zero new RPCs — see the injected faces).
+      const investigator = (
+        <InvestigatorPage
+          role="HUB"
+          binding={investigatorBinding}
+          onUnbind={onUnbindInvestigator}
+          onOpenIntervention={onOpenIntervention}
+          onBindSession={onBindInvestigatorSession}
+          readTransient={props.readInvestigatorTransient}
+          loadRecords={props.loadAnalysisRecords}
+          saveRecord={props.saveAnalysisRecord}
+        />
+      )
       branch = (
         <ConsoleFrame
           role="HUB"
           overview={overview}
           attention={attention}
+          investigator={investigator}
           active={navEntry}
           onActivate={(id) => {
             setNavEntry(id)
@@ -465,16 +568,33 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
             scopeProjectId={scopeProject.projectId}
             loadPortfolioInterventions={props.loadPortfolioInterventions}
             updateInterventionState={props.updateInterventionState}
-            onInvestigate={props.onInvestigate}
+            onInvestigate={investigateWithBinding}
             onGoToWorkstreams={() => setNavEntry('overview')}
           />
         )
+      // V2-T5.3 (design §7.3) — 调查员 for the project roles: the SAME
+      // page, PROJECT-SCOPED like the V1 investigator (the data face is
+      // the plane's single-project wiring, the §7.3 project framing on the
+      // 只读引导条).
+      const investigator = (
+        <InvestigatorPage
+          role={effective.role}
+          binding={investigatorBinding}
+          onUnbind={onUnbindInvestigator}
+          onOpenIntervention={onOpenIntervention}
+          onBindSession={onBindInvestigatorSession}
+          readTransient={props.readInvestigatorTransient}
+          loadRecords={props.loadAnalysisRecords}
+          saveRecord={props.saveAnalysisRecord}
+        />
+      )
       branch = (
         <ConsoleFrame
           role={effective.role}
           cwd={effective.cwd ?? undefined}
           overview={<ProjectConsole />}
           attention={attention}
+          investigator={investigator}
           active={navEntry}
           onActivate={setNavEntry}
         />
@@ -536,11 +656,13 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
  * 总览 is the role-specific page body (HUB: 聚合条 + 卡墙 with the 钻取链
  * into the project console; MANAGED/STANDALONE: the project console
  * itself AS ROOT); 重要事件 is the pure intervention stream (V2-T5.2,
- * design §7.2 — portfolio for HUB, 限本项目 for the project roles).
- * 调查员 / 设置 stay 页建设中 placeholders until T5.3 / T5.4. The active
+ * design §7.2 — portfolio for HUB, 限本项目 for the project roles);
+ * 调查员 is the repositioned V1 investigator (V2-T5.3, design §7.3).
+ * 设置 stays a 页建设中 placeholder until T5.4. The active
  * entry is LIFTED to the shell (V2-T5.2): the 重要事件 page's 空态 light
  * action (「去看工作流进展」) jumps the frame back to 总览, which the
- * frame can only do when the shell owns the state. The frame, the nav,
+ * frame can only do when the shell owns the state (V2-T5.3: a successful
+ * 一键调查 jumps it to the 调查员 entry the same way). The frame, the nav,
  * and the 4 entries MUST render from this task on.
  */
 interface ConsoleFrameProps {
@@ -551,6 +673,8 @@ interface ConsoleFrameProps {
   readonly overview: ReactElement
   /** The 重要事件 page body (V2-T5.2 — all three console roles). */
   readonly attention: ReactElement
+  /** The 调查员 page body (V2-T5.3 — all three console roles). */
+  readonly investigator: ReactElement
   /** The active first-level entry (owned by the shell). */
   readonly active: HubEntryId
   /** Fired on every nav-tab click with the target entry (the shell
@@ -558,7 +682,7 @@ interface ConsoleFrameProps {
   readonly onActivate: (id: HubEntryId) => void
 }
 
-function ConsoleFrame({ role, cwd, overview, attention, active, onActivate }: ConsoleFrameProps): ReactElement {
+function ConsoleFrame({ role, cwd, overview, attention, investigator, active, onActivate }: ConsoleFrameProps): ReactElement {
   const activeLabel = HUB_ENTRIES.find((e) => e.id === active)?.label ?? '总览'
   return (
     <div className={styles.shell} data-role={role} data-cwd={cwd}>
@@ -579,7 +703,13 @@ function ConsoleFrame({ role, cwd, overview, attention, active, onActivate }: Co
         </nav>
       </header>
       <section className={styles.pageBody} data-page={active} aria-label={`${activeLabel}页`}>
-        {active === 'overview' ? overview : active === 'attention' ? attention : <p className={styles.placeholder}>{activeLabel} 页建设中</p>}
+        {active === 'overview'
+          ? overview
+          : active === 'attention'
+            ? attention
+            : active === 'investigator'
+              ? investigator
+              : <p className={styles.placeholder}>{activeLabel} 页建设中</p>}
       </section>
     </div>
   )

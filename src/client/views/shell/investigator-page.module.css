@@ -1,0 +1,317 @@
+/**
+ * V2-T5.3 — 调查员页重定位 styles (design §7.3 — 只读引导条 + 绑定来源行
+ * + 瞬态面板收缩状态条 + 溯源链记录列表).
+ *
+ * CSS Modules + the local `--rc-*` → host `--dsw-alias-*` token convention
+ * (DSH_ADAPTER §6), same as the shell/other view packages: meaningful
+ * text stays on the label-primary/secondary band (the T1.2 contrast
+ * gate — the label-tertiary band never carries meaning); the 引导条
+ * 提示色 uses the state-business tokens, status dots use the dedicated
+ * state tokens (running = business, finished = success, failed = error,
+ * idle/cancelled = neutral secondary), faults use state-error-primary —
+ * no literal colors for meaning anywhere.
+ */
+
+.page {
+  --rc-label-primary: var(--dsw-alias-label-primary, #1d1d1f);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #55555a);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f5f7);
+  --rc-border-l1: var(--dsw-alias-border-l1, #d9d9de);
+  --rc-border-l2: var(--dsw-alias-border-l2, #c8c8ce);
+  --rc-accent-primary: var(--dsw-alias-interactive-bg-primary, #0a84ff);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #ff3b30);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --rc-business-primary: var(--dsw-alias-state-business-primary, #0a84ff);
+  --rc-business-tertiary: var(--dsw-alias-state-business-tertiary, rgba(10, 132, 255, 0.12));
+  --rc-success-primary: var(--dsw-alias-state-success-primary, #30d158);
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── 只读引导条 (design §7.3 — 常驻一行, 宿主提示色) ───────────────── */
+
+.guideBar {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--rc-business-primary);
+  background: var(--rc-business-tertiary);
+  border-radius: 0 6px 6px 0;
+}
+
+.guideIcon {
+  color: var(--rc-business-primary);
+  font-size: var(--rc-font-xxs);
+}
+
+.guideText {
+  color: var(--rc-label-primary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* ── 绑定来源行 (design §7.3 — 会话 + 干预反链 + 解绑) ─────────────── */
+
+.bindingRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-2);
+  font-size: var(--rc-font-xxs);
+}
+
+.bindingLabel {
+  color: var(--rc-label-secondary);
+}
+
+.bindingSession {
+  color: var(--rc-label-primary);
+  font-family: var(--rc-font-family);
+}
+
+.bindingLink,
+.chainLink,
+.unbindButton,
+.filterItem,
+.filterActive,
+.saveButton {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.bindingLink,
+.chainLink {
+  color: var(--rc-accent-primary);
+  background: none;
+  border: none;
+  padding: 0 2px;
+}
+
+.bindingLink:hover,
+.chainLink:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.unbindButton {
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+}
+
+.unbindButton:hover {
+  background: var(--rc-interactive-hover);
+}
+
+/* The honest 未绑定 face (meaningful empty copy → secondary band). */
+.unboundLine {
+  margin: 0;
+  padding: 4px 2px;
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* ── 瞬态面板收缩 = 状态条 (design §7.3 — 状态 + 转录指引) ─────────── */
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 6px;
+  font-size: var(--rc-font-xxs);
+}
+
+.statusPending,
+.statusLine {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+.faultLine {
+  margin: 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+}
+
+.statusDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Status colors via the dedicated STATE tokens (the dot is decorative;
+   the label text carries the meaning on the label-primary band). */
+.dotRunning {
+  background: var(--rc-business-primary);
+}
+
+.dotFinished {
+  background: var(--rc-success-primary);
+}
+
+.dotFailed {
+  background: var(--rc-error-primary);
+}
+
+.dotIdle {
+  background: var(--rc-label-secondary);
+}
+
+.statusLabel {
+  color: var(--rc-label-primary);
+}
+
+.producedChip {
+  color: var(--rc-label-secondary);
+}
+
+/* 转录指引 (guiding copy → secondary band, never tertiary). */
+.transcriptHint {
+  color: var(--rc-label-secondary);
+}
+
+.saveButton {
+  margin-left: auto;
+  padding: 3px 12px;
+  border: 1px solid var(--rc-accent-primary);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-accent-primary);
+}
+
+.saveButton:hover {
+  background: var(--rc-interactive-hover);
+}
+
+/* 保存成功 chip (the V1 container chip, success token). */
+.savedChip {
+  margin: 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--rc-success-primary);
+  background: var(--rc-bg-layer-2);
+  border-radius: 0 6px 6px 0;
+  color: var(--rc-label-primary);
+  font-size: var(--rc-font-xxs);
+}
+
+.itemId {
+  color: var(--rc-label-primary);
+}
+
+/* ── 记录列表 (design §7.3 — 溯源链 + 对象类型过滤段) ─────────────── */
+
+.recordsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recordsHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.recordsTitle {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  color: var(--rc-label-primary);
+}
+
+.filterSegments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.filterItem,
+.filterActive {
+  padding: 2px 10px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+}
+
+.filterActive {
+  border-color: var(--rc-accent-primary);
+  color: var(--rc-label-primary);
+}
+
+.filterItem:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.recordList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recordItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-2);
+}
+
+.recordId {
+  color: var(--rc-label-primary);
+  font-weight: 600;
+}
+
+/* The content preview (meaningful → secondary band; the full content is
+   the title tooltip, the transcript stays in the host session UI). */
+.recordPreview {
+  color: var(--rc-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The provenance chain (record ← sourceRef ← investigator session). */
+.provenanceChain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--rc-label-secondary);
+}
+
+.chainText {
+  color: var(--rc-label-secondary);
+}
+
+.recordTime {
+  margin-left: auto;
+  color: var(--rc-label-secondary);
+}

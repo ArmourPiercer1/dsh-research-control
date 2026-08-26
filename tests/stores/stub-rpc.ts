@@ -29,6 +29,25 @@ import type {
   SaveResearchCheckpointResult,
   GetGitHistoryResult,
   RestoreDeclarativeFileResult,
+  // V2-T4.1: the 9 plane methods join the facade surface.
+  GetResearchPlaneStateArgs,
+  GetResearchPlaneStateResult,
+  GetHubOverviewArgs,
+  HubOverviewResult,
+  GetPortfolioInterventionsArgs,
+  GetPortfolioInterventionsResult,
+  SetHubArgs,
+  SetHubResult,
+  BindProjectArgs,
+  BindProjectResult,
+  UnbindProjectArgs,
+  UnbindProjectResult,
+  RestoreProjectArgs,
+  RestoreProjectResult,
+  RescanArgs,
+  RescanResult,
+  AckMissingReminderArgs,
+  AckMissingReminderResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -118,6 +137,51 @@ const DEFAULTS: Record<string, () => unknown> = {
   saveResearchCheckpoint: () => ({ ok: true, value: CHECKPOINT_FIXTURE }),
   getGitHistory: () => ({ ok: true, value: GIT_HISTORY_FIXTURE }),
   restoreDeclarativeFile: () => ({ ok: true, value: RESTORE_FIXTURE }),
+  // V2-T4.1: wire-valid minimal defaults for the 9 plane methods (the
+  // store suite never exercises them by default — they exist so the stub
+  // structurally satisfies the 23-method `ResearchRpcFacade` face).
+  getResearchPlaneState: () => ({
+    ok: true,
+    value: {
+      hub: null,
+      dirNames: { treeDir: '.research', hubDir: '.research-control' },
+      projects: [],
+      missing: [],
+      session: { cwd: '/workspace/stub', role: 'STANDALONE' },
+    },
+  }),
+  getHubOverview: () => ({
+    ok: true,
+    value: { totals: { projects: 0, openInterventions: 0, inbox: 0 }, attention: [], cards: [] },
+  }),
+  getPortfolioInterventions: () => ({ ok: true, value: { items: [] } }),
+  setHub: () => ({
+    ok: true,
+    value: { hubPath: '/workspace/hub', registryPath: '/workspace/hub/.research-control/registry.yaml' },
+  }),
+  bindProject: () => ({
+    ok: true,
+    value: {
+      projectId: 'PRJ-1',
+      registryPath: '/workspace/hub/.research-control/registry.yaml',
+      dbMigrated: false,
+    },
+  }),
+  unbindProject: () => ({
+    ok: true,
+    value: { projectId: 'PRJ-1', archivedDir: '/workspace/hub/.research-control/archived/PRJ-1' },
+  }),
+  restoreProject: () => ({ ok: true, value: { wsPath: '/workspace/PRJ-1' } }),
+  rescan: () => ({
+    ok: true,
+    value: {
+      hub: null,
+      dirNames: { treeDir: '.research', hubDir: '.research-control' },
+      projects: [],
+      missing: [],
+    },
+  }),
+  ackMissingReminder: () => ({ ok: true, value: { acknowledged: true } }),
 }
 
 /**
@@ -163,6 +227,23 @@ export function makeStubRpc(): StubRpc {
       deliverArgs<RemoteResult<GetGitHistoryResult>>('getGitHistory', args),
     restoreDeclarativeFile: async (args: RestoreDeclarativeFileArgs) =>
       deliverArgs<RemoteResult<RestoreDeclarativeFileResult>>('restoreDeclarativeFile', args),
+    // V2-T4.1: the 9 plane methods (the 23-method face).
+    getResearchPlaneState: async (args: GetResearchPlaneStateArgs) =>
+      deliverArgs<RemoteResult<GetResearchPlaneStateResult>>('getResearchPlaneState', args),
+    getHubOverview: async (args: GetHubOverviewArgs) =>
+      deliverArgs<RemoteResult<HubOverviewResult>>('getHubOverview', args),
+    getPortfolioInterventions: async (args: GetPortfolioInterventionsArgs) =>
+      deliverArgs<RemoteResult<GetPortfolioInterventionsResult>>('getPortfolioInterventions', args),
+    setHub: async (args: SetHubArgs) => deliverArgs<RemoteResult<SetHubResult>>('setHub', args),
+    bindProject: async (args: BindProjectArgs) =>
+      deliverArgs<RemoteResult<BindProjectResult>>('bindProject', args),
+    unbindProject: async (args: UnbindProjectArgs) =>
+      deliverArgs<RemoteResult<UnbindProjectResult>>('unbindProject', args),
+    restoreProject: async (args: RestoreProjectArgs) =>
+      deliverArgs<RemoteResult<RestoreProjectResult>>('restoreProject', args),
+    rescan: async (args: RescanArgs) => deliverArgs<RemoteResult<RescanResult>>('rescan', args),
+    ackMissingReminder: async (args: AckMissingReminderArgs) =>
+      deliverArgs<RemoteResult<AckMissingReminderResult>>('ackMissingReminder', args),
   }
 
   return {

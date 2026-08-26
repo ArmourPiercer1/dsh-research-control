@@ -207,6 +207,17 @@ export function makeHistoryFacade(log: readonly HistoryEventDto[]): HistoryFacad
       saveResearchCheckpoint: notUsed('saveResearchCheckpoint'),
       getGitHistory: notUsed('getGitHistory'),
       restoreDeclarativeFile: notUsed('restoreDeclarativeFile'),
+      // V2-T4.1: the 9 plane methods join the facade surface (same
+      // must-not-be-called contract — the history view never calls them).
+      getResearchPlaneState: notUsed('getResearchPlaneState'),
+      getHubOverview: notUsed('getHubOverview'),
+      getPortfolioInterventions: notUsed('getPortfolioInterventions'),
+      setHub: notUsed('setHub'),
+      bindProject: notUsed('bindProject'),
+      unbindProject: notUsed('unbindProject'),
+      restoreProject: notUsed('restoreProject'),
+      rescan: notUsed('rescan'),
+      ackMissingReminder: notUsed('ackMissingReminder'),
     } as ResearchRpcFacade,
     calls,
     nextControlled: () => {
@@ -245,6 +256,17 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     saveResearchCheckpoint: notUsed('saveResearchCheckpoint'),
     getGitHistory: notUsed('getGitHistory'),
     restoreDeclarativeFile: notUsed('restoreDeclarativeFile'),
+    // V2-T4.1: the 9 plane methods join the facade surface (same
+    // must-not-be-called contract).
+    getResearchPlaneState: notUsed('getResearchPlaneState'),
+    getHubOverview: notUsed('getHubOverview'),
+    getPortfolioInterventions: notUsed('getPortfolioInterventions'),
+    setHub: notUsed('setHub'),
+    bindProject: notUsed('bindProject'),
+    unbindProject: notUsed('unbindProject'),
+    restoreProject: notUsed('restoreProject'),
+    rescan: notUsed('rescan'),
+    ackMissingReminder: notUsed('ackMissingReminder'),
   } as ResearchRpcFacade
 }
 

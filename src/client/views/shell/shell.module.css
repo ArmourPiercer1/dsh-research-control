@@ -1,0 +1,169 @@
+/**
+ * Research shell styles (V2-T4.1 — role routing + tab shell).
+ *
+ * CSS Modules + CSS custom properties, same token convention as the other
+ * view packages: local `--rc-*` variables approximate the host token system
+ * (DSH_ADAPTER §6: host tokens are `--dsw-*`); each resolves to the
+ * matching `--dsw-alias-*` when the host theme provides it and falls back
+ * to a neutral value otherwise, so the shell renders sensibly both inside
+ * the host shell and standalone.
+ */
+
+.shell {
+  /* --rc-* local tokens → host --dsw-* aliases when present (fallbacks below). */
+  --rc-label-primary: var(--dsw-alias-label-primary, #1d1d1f);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #55555a);
+  --rc-label-tertiary: var(--dsw-alias-label-tertiary, #77777d);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f5f7);
+  --rc-border-l1: var(--dsw-alias-border-l1, #d9d9de);
+  --rc-border-l2: var(--dsw-alias-border-l2, #c8c8ce);
+  --rc-accent-primary: var(--dsw-alias-interactive-bg-primary, #0a84ff);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #ff3b30);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  min-height: 120px;
+}
+
+/* -- loading / failure faces -------------------------------------------- */
+
+.statusLine {
+  margin: 0;
+  color: var(--rc-label-secondary);
+}
+
+.faultLine {
+  margin: 0;
+  color: var(--rc-error-primary);
+}
+
+.retryButton {
+  align-self: flex-start;
+  font: inherit;
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  padding: 4px 14px;
+  cursor: pointer;
+}
+
+.retryButton:hover {
+  background: var(--rc-interactive-hover);
+}
+
+/* -- HUB console frame ---------------------------------------------------- */
+
+.hubHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hubTitle {
+  margin: 0;
+  font-size: 18px;
+  color: var(--rc-label-primary);
+}
+
+.nav {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.navItem,
+.navActive {
+  font: inherit;
+  color: var(--rc-label-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.navItem:hover {
+  background: var(--rc-interactive-hover);
+  color: var(--rc-label-primary);
+}
+
+.navActive {
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-2);
+  border-color: var(--rc-border-l1);
+  font-weight: 600;
+}
+
+.pageBody {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-2);
+  padding: 16px;
+  min-height: 160px;
+}
+
+.placeholder {
+  margin: 0;
+  color: var(--rc-label-tertiary);
+}
+
+/* -- 引导卡 (onboarding card) -------------------------------------------- */
+
+.onboardTitle {
+  margin: 0;
+  font-size: 16px;
+  color: var(--rc-label-primary);
+}
+
+.onboardCopy {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  max-width: 52ch;
+}
+
+.onboardActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.onboardButton {
+  font: inherit;
+  color: #ffffff;
+  background: var(--rc-accent-primary);
+  border: 1px solid var(--rc-accent-primary);
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.onboardButton:hover:enabled {
+  background: var(--rc-interactive-hover);
+}
+
+.onboardButton:disabled {
+  color: var(--rc-label-tertiary);
+  background: var(--rc-bg-layer-2);
+  border-color: var(--rc-border-l1);
+  cursor: not-allowed;
+}
+
+/* NO_CWD narrowing: the same card, muted (buttons disabled). */
+.onboardNarrow {
+  border: 1px dashed var(--rc-border-l2);
+  border-radius: 8px;
+}

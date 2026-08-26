@@ -17,7 +17,9 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { ResearchCockpit } from '../views/drilldown/cockpit.js'
+import type { GetResearchPlaneStateResult } from '../../shared/rpc-contracts.js'
+import { ResearchShell, type ResearchShellProps } from '../views/shell/index.js'
+import { researchRpc } from './remote/mount.js'
 
 /**
  * Conversation view slot key — the primary Research UI landing point
@@ -69,11 +71,21 @@ export type ResearchClientContext = Context & { slots: SlotService }
 /**
  * Register the Research tab on the `conversation.view` slot.
  *
- * WP-4.6: the tab body is now the Research Cockpit (the Phase 4 page
- * stack — §27.1 Home dashboard / §27.3 Topic / §27.4 Workstream +
- * History + the §26 drill-down sections). The cockpit creates its own
- * `createResearchStore()` per mount, so no inject data is required (the
- * spike's ping placeholder is retired with the spike view).
+ * V2-T4.1 (design §5/§6): the tab body is the RESEARCH SHELL — on mount
+ * it fetches `getResearchPlaneState` (the injected face below carries the
+ * framework sessionId; the host resolves cwd → role from the session
+ * registry) and routes the tab body to one of the five §5 branches
+ * (HUB console frame / project-narrowed cockpit / 引导卡 / NO_CWD
+ * narrowing). The tab registration ITSELF is unchanged — always visible,
+ * same id/order/label. The shell's MANAGED/STANDALONE branch renders the
+ * V1 cockpit (P5 reshapes it); the cockpit creates its own
+ * `createResearchStore()` per mount.
+ *
+ * The injected face is the apply-world → view channel (client/AGENTS.md
+ * rule 7 — plain data and callbacks only): it wraps the mounted
+ * `researchRpc` facade's plane-state call and folds the carrier's
+ * `ok: false` branch into a plain rejection, so the DSH-free view (views/
+ * — INV-PERM-5) never sees a `RemoteResult`.
  *
  * The registration rides the slot service's `inject` wrapper, so a late
  * slot declaration is tolerated and plugin unload removes the tab
@@ -88,8 +100,21 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
         id: 'research',
         order: 20,
         label: () => '研究',
+        inject: (sessionId: string): Pick<ResearchShellProps, 'loadPlaneState'> => ({
+          loadPlaneState: async (): Promise<GetResearchPlaneStateResult> => {
+            const result = await researchRpc.getResearchPlaneState({ sessionId })
+            if (!result.ok) {
+              // Business fault folded into a plain rejection — the shell's
+              // failure face (重试) responds; the view stays DSH-free.
+              throw new Error(
+                `research shell: plane-state fetch failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+        }),
       },
-      ResearchCockpit,
+      ResearchShell,
     ),
   )
 }

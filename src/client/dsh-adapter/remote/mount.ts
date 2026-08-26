@@ -31,13 +31,23 @@ import type {
   TypertRemoteNamespaceMap,
 } from '@deepseek-ai/dsh-typert-protocol'
 import type {
+  AckMissingReminderArgs,
+  AckMissingReminderResult,
+  BindProjectArgs,
+  BindProjectResult,
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
   GetGitHistoryArgs,
   GetGitHistoryResult,
+  GetHubOverviewArgs,
+  GetPortfolioInterventionsArgs,
+  GetPortfolioInterventionsResult,
+  GetResearchPlaneStateArgs,
+  GetResearchPlaneStateResult,
   GetTopicArgs,
   GetWorkstreamArgs,
+  HubOverviewResult,
   PingResult,
   ProjectSnapshot,
   QueryHistoryArgs,
@@ -46,13 +56,21 @@ import type {
   ReorderPlanResult,
   RegisterInteractionArgs,
   RegisterInteractionResult,
+  RescanArgs,
+  RescanResult,
   RestoreDeclarativeFileArgs,
   RestoreDeclarativeFileResult,
+  RestoreProjectArgs,
+  RestoreProjectResult,
   SaveResearchCheckpointArgs,
   SaveResearchCheckpointResult,
   SelectPlanForkArgs,
   SelectPlanForkResult,
+  SetHubArgs,
+  SetHubResult,
   TopicSnapshot,
+  UnbindProjectArgs,
+  UnbindProjectResult,
   UpdateInterventionStateArgs,
   UpdateInterventionStateResult,
   WorkstreamSnapshot,
@@ -143,7 +161,9 @@ function requireNamespace(): TypertRemoteNamespaceMap['researchControl'] {
  * such descriptors (arity check in client/src/client/index.ts `invoke()`;
  * the generator emits `signal?: AbortSignal` only when cancellation is
  * declared). WP-4.1a: ping + the 13 §7.1 RPCs (WP-4.1b builds the
- * createXXXStore factories on top of this facade).
+ * createXXXStore factories on top of this facade). V2-T4.1: + the 9 plane
+ * RPCs (design §12 rows 1-6/8/9 — the V2 tab shell drives row 1, the P5
+ * pages the rest; same conventions, PLANE-LEVEL, not per-project).
  */
 export const researchRpc = {
   async ping(): Promise<RemoteResult<PingResult>> {
@@ -195,5 +215,40 @@ export const researchRpc = {
     args: RestoreDeclarativeFileArgs,
   ): Promise<RemoteResult<RestoreDeclarativeFileResult>> {
     return requireNamespace().restoreDeclarativeFile(args)
+  },
+  // V2-T4.1: the 9 plane RPCs (design §12 rows 1-6/8/9) join the facade —
+  // the 23-endpoint face matches the contribution's descriptor set exactly.
+  async getResearchPlaneState(
+    args: GetResearchPlaneStateArgs,
+  ): Promise<RemoteResult<GetResearchPlaneStateResult>> {
+    return requireNamespace().getResearchPlaneState(args)
+  },
+  async getHubOverview(args: GetHubOverviewArgs): Promise<RemoteResult<HubOverviewResult>> {
+    return requireNamespace().getHubOverview(args)
+  },
+  async getPortfolioInterventions(
+    args: GetPortfolioInterventionsArgs,
+  ): Promise<RemoteResult<GetPortfolioInterventionsResult>> {
+    return requireNamespace().getPortfolioInterventions(args)
+  },
+  async setHub(args: SetHubArgs): Promise<RemoteResult<SetHubResult>> {
+    return requireNamespace().setHub(args)
+  },
+  async bindProject(args: BindProjectArgs): Promise<RemoteResult<BindProjectResult>> {
+    return requireNamespace().bindProject(args)
+  },
+  async unbindProject(args: UnbindProjectArgs): Promise<RemoteResult<UnbindProjectResult>> {
+    return requireNamespace().unbindProject(args)
+  },
+  async restoreProject(args: RestoreProjectArgs): Promise<RemoteResult<RestoreProjectResult>> {
+    return requireNamespace().restoreProject(args)
+  },
+  async rescan(args: RescanArgs): Promise<RemoteResult<RescanResult>> {
+    return requireNamespace().rescan(args)
+  },
+  async ackMissingReminder(
+    args: AckMissingReminderArgs,
+  ): Promise<RemoteResult<AckMissingReminderResult>> {
+    return requireNamespace().ackMissingReminder(args)
   },
 }

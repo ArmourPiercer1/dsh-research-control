@@ -47,7 +47,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../graph/xyflow-mock.js'
 
 import { ResearchShell, type ResearchShellProps } from '../../src/client/views/shell/index.js'
-import type { GetResearchPlaneStateResult } from '../../src/shared/rpc-contracts.js'
+import type { GetResearchPlaneStateResult, HubOverviewResult } from '../../src/shared/rpc-contracts.js'
+import { HUB_OVERVIEW_RESULT } from '../views-overview/fixtures.js'
 import {
   MISSING_ACKED_RESULT,
   MISSING_CLEARED_RESULT,
@@ -114,11 +115,16 @@ function renderMissing(
     impls.unbindImpl ?? (async () => ({ projectId: 'PRJ-3', archivedDir: `${MISSING_WS_PATH}/.research.archived-1770000000000` })),
   )
   const ackMissingReminder = vi.fn(impls.ackImpl ?? (async () => ({ acknowledged: true })))
+  // T5.1: the shell requires the HUB 总览 fetch face (the modal rides a
+  // HUB session, so the HUB branch renders the overview under the modal —
+  // the inert resolver resolves the single-project wire fixture).
+  const loadHubOverview = vi.fn(async (): Promise<HubOverviewResult> => HUB_OVERVIEW_RESULT)
   render(
     <StrictMode>
       <ResearchShell
         sessionId="sess-hub"
         loadPlaneState={load as ResearchShellProps['loadPlaneState']}
+        loadHubOverview={loadHubOverview}
         setHub={vi.fn(async () => ({ hubPath: '/workspace/hub', registryPath: '/workspace/hub/.research-control/registry.yaml' }))}
         bindProject={bindProject as ResearchShellProps['bindProject']}
         rescan={rescan as ResearchShellProps['rescan']}

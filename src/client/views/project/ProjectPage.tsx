@@ -37,8 +37,9 @@ export interface ProjectPageProps {
   readonly store: ResearchStore
   /** Drill-down: topic view (the cockpit's page navigation). */
   readonly onOpenTopic: (topicId: string) => void
-  /** Back to the home dashboard. */
-  readonly onBack: () => void
+  /** Back to the home dashboard. V2-T5.1 root-mode (project as overview
+   * root, e.g. MANAGED/STANDALONE 总览) omits it — no back affordance. */
+  readonly onBack?: () => void
 }
 
 /**

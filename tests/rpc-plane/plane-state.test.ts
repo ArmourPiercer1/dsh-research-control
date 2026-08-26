@@ -23,6 +23,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import {
   projectPlaneSummary,
@@ -202,9 +203,9 @@ describe('getResearchPlaneState — the §5 role segment (REAL init + fake sessi
     try {
       await initPlane(h)
       // Unknown key (strict) …
-      await expect(h.svc.getResearchPlaneState({ sessionId: 'sess-1', surprise: 1 } as unknown)).rejects.toThrow()
+      await expect(h.svc.getResearchPlaneState({ sessionId: 'sess-1', surprise: 1 } as unknown)).rejects.toThrow(z.ZodError)
       // … and a wrong-typed sessionId.
-      await expect(h.svc.getResearchPlaneState({ sessionId: 42 } as unknown)).rejects.toThrow()
+      await expect(h.svc.getResearchPlaneState({ sessionId: 42 } as unknown)).rejects.toThrow(z.ZodError)
     } finally {
       disposeFiber(h)
     }

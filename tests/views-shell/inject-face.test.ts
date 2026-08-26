@@ -137,6 +137,46 @@ describe('registerResearchUI — the injected plane-state fetch face', () => {
   })
 })
 
+describe('registerResearchUI — the T5.1 HUB 总览 fetch face (design §12 row 2)', () => {
+  it('calls getHubOverview with the empty {} request and resolves the wire result', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+
+    const face = options.inject!('sess-hub') as {
+      loadHubOverview: () => Promise<{ totals: { readonly projects: number } }>
+    }
+    expect(typeof face.loadHubOverview).toBe('function')
+
+    const result = await face.loadHubOverview()
+    // The uniform single-`args`-parameter convention: the overview request
+    // is the empty object (the face carries no session identity — the
+    // host aggregates the whole registry).
+    expect(stub.callsTo('getHubOverview')).toHaveLength(1)
+    expect(stub.callsTo('getHubOverview')[0]?.args).toEqual({})
+    // The wire result passes through unchanged (the stub default is a
+    // wire-valid overview — the empty-hub projection).
+    expect(result.totals.projects).toBe(0)
+  })
+
+  it('folds a business fault (ok:false) into a plain rejection carrying the error code', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('getHubOverview', {
+      ok: false,
+      error: { code: 'PLANE_NOT_MANAGED', message: 'the overview requires a hub', details: {} },
+    })
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+
+    const face = options.inject!('sess-9') as { loadHubOverview: () => Promise<unknown> }
+    await expect(face.loadHubOverview()).rejects.toThrow(/PLANE_NOT_MANAGED/)
+  })
+})
+
 describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)', () => {
   interface MutationFaces {
     readonly setHub: (args: { wsPath: string }) => Promise<unknown>

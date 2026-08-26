@@ -8,14 +8,19 @@
  * `GetResearchPlaneStateResultSchema` in ./fixtures.ts, so a fixture that
  * drifts from the wire contract fails the suite.
  *
- * Gate coverage (plan §P4 T4.1: 5 角色 × 加载中/失败重试):
+ * Gate coverage (plan §P4 T4.1: 5 角色 × 加载中/失败重试; V2-T5.1 adds the
+ * 总览 page assertions):
  *  - HUB           → 中枢控制台 frame: nav + the 4 first-level entries
  *                    总览/重要事件/调查员/设置 (design §6 fixed naming) +
- *                    the placeholder page body (P5 fills it);
- *  - MANAGED       → the V1 cockpit stays wired as the project view (the
- *                    real cockpit + real store over the stub facade — the
- *                    plugin's own mount seam, a plain fake ctx, NOT cordis);
- *  - STANDALONE    → same cockpit branch (data-role distinguishes);
+ *                    总览 = 聚合条 + 项目卡墙 (the `loadHubOverview` stub
+ *                    resolves the single-project wire fixture; the
+ *                    whole-card click drills into the project view, back =
+ *                    返回总览 to the wall);
+ *  - MANAGED       → 同构收窄控制台: the SAME 4-entry frame, 总览 = the
+ *                    project console as ROOT (the real store over the stub
+ *                    facade — the plugin's own mount seam, a plain fake
+ *                    ctx, NOT cordis; no aggregate strip, no back);
+ *  - STANDALONE    → same narrowed console branch (data-role distinguishes);
  *  - UNREGISTERED  → 引导卡 skeleton: visually distinct card, the two §5
  *                    button names render as placeholders;
  *  - NO_CWD        → 引导卡 收窄文案「本会话未关联工作区」, buttons disabled;
@@ -44,8 +49,14 @@ import {
   type RemoteContext,
 } from '../../src/client/dsh-adapter/remote/mount.js'
 import { ResearchShell, type ResearchShellProps } from '../../src/client/views/shell/index.js'
-import type { GetResearchPlaneStateResult } from '../../src/shared/rpc-contracts.js'
+import type {
+  AckMissingReminderArgs,
+  AckMissingReminderResult,
+  GetResearchPlaneStateResult,
+  HubOverviewResult,
+} from '../../src/shared/rpc-contracts.js'
 import { makeStubRpc, type StubRpc } from '../stores/stub-rpc.js'
+import { HUB_OVERVIEW_RESULT } from '../views-overview/fixtures.js'
 import {
   HUB_RESULT,
   MANAGED_RESULT,
@@ -71,12 +82,17 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
   // modal never pops and the inert resolvers stay inert.
   const rescan = vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [] }))
   const unbindProject = vi.fn(async () => ({ projectId: 'PRJ-9', archivedDir: '/workspace/.research-control/archived/PRJ-9' }))
-  const ackMissingReminder = vi.fn(async () => ({ acknowledged: true }))
+  const ackMissingReminder = vi.fn(async (_args: AckMissingReminderArgs): Promise<AckMissingReminderResult> => ({ acknowledged: true }))
+  // T5.1: the shell requires the HUB 总览 fetch face. The HUB branch calls
+  // it (the stub resolves the single-project wire fixture — the 聚合条 +
+  // 卡墙 assertions below read it); the other roles never call it.
+  const loadHubOverview = vi.fn(async (): Promise<HubOverviewResult> => HUB_OVERVIEW_RESULT)
   render(
     <StrictMode>
       <ResearchShell
         sessionId={sessionId}
         loadPlaneState={loadPlaneState}
+        loadHubOverview={loadHubOverview}
         setHub={setHub}
         bindProject={bindProject}
         rescan={rescan}
@@ -169,10 +185,38 @@ describe('ResearchShell — 5 角色分支', () => {
     for (const label of ['总览', '重要事件', '调查员', '设置']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
-    // The page body renders as a placeholder (P5 — T5.1…T5.4 — fills it).
     expect(document.querySelector('[data-page="overview"]')).toBeTruthy()
-    expect(screen.getByText('总览 页建设中')).toBeTruthy()
+    // V2-T5.1: the 总览 body is the 聚合条 + 项目卡墙 (the loadHubOverview
+    // stub resolves the single-project wire fixture).
+    expect(await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')).toBeTruthy()
+    expect(document.querySelector('[data-hub-overview][data-phase="ready"]')).toBeTruthy()
+    // The 需关注 row is ABSENT (the fixture's attention list is empty —
+    // 无则整行不渲染，不占位).
+    expect(document.querySelector('[data-hub-overview-attention]')).toBeNull()
+    // The card wall carries the fixture's single card.
+    expect(document.querySelector('[data-project-id="PRJ-1"]')).toBeTruthy()
     expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('HUB: whole-card click drills into the project view; 返回总览 back to the wall', async () => {
+    await mountStub(makeStubRpc())
+    renderShell(vi.fn().mockResolvedValue(HUB_RESULT), 'sess-hub')
+
+    const card = await screen.findByRole('button', { name: /查看项目 PRJ-1/ })
+    fireEvent.click(card)
+
+    // The 总览 content switches to the project view (the project page as
+    // the console root) — the aggregate strip is gone, the back
+    // affordance is in.
+    expect(await screen.findByText(/PRJ-1 · Project One/)).toBeTruthy()
+    expect(document.querySelector('[data-project-console-page="project"]')).toBeTruthy()
+    expect(document.querySelector('[data-hub-overview]')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '← 返回总览' }))
+
+    // The wall re-renders (the overview re-fetches; the stub resolves
+    // again).
+    expect(await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')).toBeTruthy()
   })
 
   it('HUB: the nav switches the active entry and the placeholder body follows', async () => {
@@ -188,22 +232,33 @@ describe('ResearchShell — 5 角色分支', () => {
     expect(screen.getByText('设置 页建设中')).toBeTruthy()
   })
 
-  it('MANAGED: keeps the V1 cockpit wired as the project view', async () => {
+  it('MANAGED: 同构收窄控制台 — 总览 = the project console as ROOT (no aggregate strip, no back)', async () => {
     await mountStub(makeStubRpc())
     renderShell(vi.fn().mockResolvedValue(MANAGED_RESULT), 'sess-managed')
 
-    // The cockpit's home face (研究总览 heading — always rendered by the
-    // HomeDashboardView header) proves the REAL cockpit is the branch body.
-    expect(await screen.findByText('研究总览')).toBeTruthy()
+    // The 4-entry frame (design §6 — the SAME entries as the HUB).
+    expect(await screen.findByRole('button', { name: '总览' })).toBeTruthy()
+    for (const label of ['总览', '重要事件', '调查员', '设置']) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy()
+    }
     expect(document.querySelector('[data-role="MANAGED"]')).toBeTruthy()
+    // The 总览 body is the project page AS ROOT (the real store over the
+    // stub facade — PRJ-1 = the stub's single project).
+    expect(await screen.findByText(/PRJ-1 · Project One/)).toBeTruthy()
+    // NO aggregate strip (the 聚合条 is HUB-only) and NO back affordance
+    // (root mode — the project page IS the 总览 root).
+    expect(document.querySelector('[data-hub-overview]')).toBeNull()
+    expect(screen.queryByRole('button', { name: '← 返回总览' })).toBeNull()
   })
 
-  it('STANDALONE: keeps the V1 cockpit wired as the project view', async () => {
+  it('STANDALONE: 同构收窄控制台 — 总览 = the project console as ROOT (data-role distinguishes)', async () => {
     await mountStub(makeStubRpc())
     renderShell(vi.fn().mockResolvedValue(STANDALONE_RESULT), 'sess-standalone')
 
-    expect(await screen.findByText('研究总览')).toBeTruthy()
+    expect(await screen.findByText(/PRJ-1 · Project One/)).toBeTruthy()
     expect(document.querySelector('[data-role="STANDALONE"]')).toBeTruthy()
+    expect(document.querySelector('[data-hub-overview]')).toBeNull()
+    expect(screen.queryByRole('button', { name: '← 返回总览' })).toBeNull()
   })
 
   it('UNREGISTERED: renders the 引导卡 with the §5 状态表 button states (T4.2)', async () => {

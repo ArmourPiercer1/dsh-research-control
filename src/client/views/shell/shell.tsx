@@ -17,11 +17,20 @@
  * Five branches on `session.role` (design §5 标签页分流):
  *  - HUB          → 中枢控制台 frame: the 4 first-level entries 总览 /
  *                   重要事件 / 调查员 / 设置 (design §6 fixed naming) as a
- *                   nav frame; the page bodies are minimal placeholders
- *                   (P5 — T5.1…T5.4 — fills them);
- *  - MANAGED /    → project-narrowed console: the V1 cockpit stays wired
- *    STANDALONE     as the project view for now (P5 reshapes it — the
- *                   cockpit receives exactly what it needs today);
+ *                   nav frame (V2-T5.1): 总览 = 聚合条 + 项目卡墙
+ *                   (`getHubOverview`, design §7.1 — 需关注行 only when
+ *                   attention is non-empty; empty hub → the 登记第一个
+ *                   研究项目 onboarding card at the card-wall position)
+ *                   with the WHOLE-CARD 钻取 into the project console
+ *                   (back = 返回总览 to the wall); the other three
+ *                   entries stay 页建设中 placeholders until T5.2…T5.4;
+ *  - MANAGED /    → 同构收窄控制台 (V2-T5.1): the SAME 4-entry frame,
+ *    STANDALONE     总览 = the EXISTING project page (brief + 目标 +
+ *                   topic list) AS ROOT — no aggregate strip, no back
+ *                   affordance; the drill chain 项目→主题→工作流→历史
+ *                   stays inside the console (the V1 cockpit is no
+ *                   longer mounted by the shell — its withdrawn pages
+ *                   are nav-unreachable, see cockpit.tsx);
  *  - UNREGISTERED → 引导卡 (design §5 引导卡状态表):
  *       hub === null → BOTH buttons enabled;
  *       hub !== null → 「设为中枢」 DISABLED + reason copy 已存在中枢,
@@ -75,6 +84,7 @@ import type {
   BindProjectArgs,
   BindProjectResult,
   GetResearchPlaneStateResult,
+  HubOverviewResult,
   PlaneSessionDto,
   RescanArgs,
   RescanResult,
@@ -83,8 +93,10 @@ import type {
   UnbindProjectArgs,
   UnbindProjectResult,
 } from '../../../shared/rpc-contracts.js'
-import { ResearchCockpit } from '../drilldown/cockpit.js'
+import { HubOverviewPage } from './hub-overview.js'
 import { MissingModal } from './missing-modal.js'
+import { OnboardingCard } from './onboarding-card.js'
+import { ProjectConsole } from './project-console.js'
 import styles from './shell.module.css'
 
 /**
@@ -107,6 +119,15 @@ export interface ResearchShellProps {
    * result; rejects on any failure (the failure face + 重试 respond).
    */
   readonly loadPlaneState: () => Promise<GetResearchPlaneStateResult>
+  /**
+   * The injected 总览（中枢模式）fetch (design §12 row 2 — `getHubOverview`):
+   * the cross-project aggregation (totals + 需关注 attention list + the
+   * project card wall) the HUB 总览 page body renders. Resolves the wire
+   * result; rejects on any failure (the overview's failure face responds).
+   * The MANAGED / STANDALONE roles never call it (their 总览 is the
+   * project console itself — no aggregate strip).
+   */
+  readonly loadHubOverview: () => Promise<HubOverviewResult>
   /**
    * The injected 设为中枢 mutation (design §8 设为中枢 → `setHub`, §12 row
    * 4). The UNREGISTERED card's confirm flow calls it with the session's
@@ -197,6 +218,11 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
   // close + re-fetch; there is no plain dismiss, the entry is 挂起，等待
   // 用户处置, and 推后 is the 「not now」 path).
   const [missingOpen, setMissingOpen] = useState(false)
+  // V2-T5.1: the HUB 总览 drill target (the card wall's whole-card click
+  // hands the project id here; null = the card wall is showing). Reset on
+  // any nav-tab change (the 总览 tab re-enters at the wall) and on
+  // re-fetch (the plane may have changed under a stale drill target).
+  const [hubDrillProjectId, setHubDrillProjectId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -250,6 +276,9 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
    * flips the branch — e.g. UNREGISTERED → HUB, design §8 平面状态刷新).
    */
   const refresh = useCallback(() => {
+    // A re-fetch may change the plane under a stale HUB drill target —
+    // the drill resets to the card wall (V2-T5.1).
+    setHubDrillProjectId(null)
     setPhase('loading')
     setGeneration((g) => g + 1)
   }, [])
@@ -298,17 +327,44 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
 
   let branch: ReactElement
   switch (effective.role) {
-    case 'HUB':
-      branch = <HubConsoleFrame />
+    case 'HUB': {
+      // V2-T5.1 — 总览（中枢模式）= 聚合条 + 项目卡墙 (`getHubOverview`,
+      // design §7.1). The whole-card click is the 钻取链 root: while
+      // `hubDrillProjectId` is set, 总览 renders the project console and
+      // the console's back returns to the wall (返回总览). The HUB role is
+      // defined by a resolvable hub cwd — the null case is unreachable by
+      // the host's role resolution, rendered as a fault instead of
+      // guessing a value (fail-loud).
+      const overview =
+        effective.cwd === null || plane.hub === null ? (
+          <p className={styles.faultLine} role="alert">
+            研究平面状态异常：中枢工作区未解析
+          </p>
+        ) : hubDrillProjectId === null ? (
+          <HubOverviewPage
+            loadHubOverview={props.loadHubOverview}
+            onDrill={setHubDrillProjectId}
+            wsPath={effective.cwd}
+            hub={plane.hub}
+            dirNames={plane.dirNames}
+            setHub={props.setHub}
+            bindProject={props.bindProject}
+            onApplied={refresh}
+          />
+        ) : (
+          <ProjectConsole onBackToWall={() => setHubDrillProjectId(null)} />
+        )
+      branch = <ConsoleFrame role="HUB" overview={overview} onNavChange={() => setHubDrillProjectId(null)} />
       break
+    }
     case 'MANAGED':
     case 'STANDALONE':
-      // Project-narrowed console (design §5: 同构收窄控制台). P5 reshapes
-      // the cockpit per role; today it receives exactly what it needs.
+      // V2-T5.1 — 同构收窄控制台 (design §5): the SAME 4-entry frame; 总览
+      // = the EXISTING project page (brief + 目标 + topic list) AS ROOT —
+      // no aggregate strip, no back affordance. The drill chain
+      // 项目→主题→工作流→历史 stays inside the console.
       branch = (
-        <div className={styles.shell} data-role={effective.role} data-cwd={effective.cwd ?? undefined}>
-          <ResearchCockpit sessionId={props.sessionId} />
-        </div>
+        <ConsoleFrame role={effective.role} cwd={effective.cwd ?? undefined} overview={<ProjectConsole />} />
       )
       break
     case 'UNREGISTERED':
@@ -362,16 +418,29 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
 }
 
 /**
- * The 中枢控制台 frame (HUB branch — design §5/§6): a nav frame with the 4
- * first-level entries and a placeholder page body (P5 fills 总览/重要事件/
- * 调查员/设置 — T5.1…T5.4). The frame, the nav, and the 4 entries MUST
- * render from this task on.
+ * The V2 console frame (design §5/§6 — 同构收窄控制台, 一级入口恒为 4 个,
+ * 四种角色视图共用标签名): a nav frame with the 4 first-level entries.
+ * 总览 is the role-specific page body (HUB: 聚合条 + 卡墙 with the 钻取链
+ * into the project console; MANAGED/STANDALONE: the project console
+ * itself AS ROOT). The other three entries stay 页建设中 placeholders
+ * until T5.2…T5.4. The frame, the nav, and the 4 entries MUST render
+ * from this task on.
  */
-function HubConsoleFrame(): ReactElement {
+interface ConsoleFrameProps {
+  readonly role: 'HUB' | 'MANAGED' | 'STANDALONE'
+  /** The session cwd (data attribute only — the MANAGED/STANDALONE
+   *  branch keeps the T4.x data-cwd contract; HUB omits it). */
+  readonly cwd?: string
+  readonly overview: ReactElement
+  /** Fired on every nav-tab click (the shell resets the HUB drill there). */
+  readonly onNavChange?: () => void
+}
+
+function ConsoleFrame({ role, cwd, overview, onNavChange }: ConsoleFrameProps): ReactElement {
   const [active, setActive] = useState<HubEntryId>('overview')
   const activeLabel = HUB_ENTRIES.find((e) => e.id === active)?.label ?? '总览'
   return (
-    <div className={styles.shell} data-role="HUB">
+    <div className={styles.shell} data-role={role} data-cwd={cwd}>
       <header className={styles.hubHeader}>
         <h1 className={styles.hubTitle}>研究控制台</h1>
         <nav className={styles.nav} aria-label="研究控制台一级入口">
@@ -381,7 +450,10 @@ function HubConsoleFrame(): ReactElement {
               type="button"
               className={entry.id === active ? styles.navActive : styles.navItem}
               aria-current={entry.id === active ? 'page' : undefined}
-              onClick={() => setActive(entry.id)}
+              onClick={() => {
+                setActive(entry.id)
+                onNavChange?.()
+              }}
             >
               {entry.label}
             </button>
@@ -389,262 +461,9 @@ function HubConsoleFrame(): ReactElement {
         </nav>
       </header>
       <section className={styles.pageBody} data-page={active} aria-label={`${activeLabel}页`}>
-        <p className={styles.placeholder}>{activeLabel} 页建设中</p>
+        {active === 'overview' ? overview : <p className={styles.placeholder}>{activeLabel} 页建设中</p>}
       </section>
     </div>
   )
 }
 
-/**
- * The onboarding dialog kinds (T4.2 — design §5 状态表 + §8 flows). Every
- * dialog is a card-local overlay (the views layer is DSH-free — INV-PERM-5,
- * so no host dialog service): cancel simply closes the dialog and fires no
- * RPC (state unchanged, per the task gate).
- */
-type OnboardDialog =
-  /** 设为中枢 confirm — explains the marker + empty registry to create. */
-  | 'setHub'
-  /** 无中枢 接入 warning — confirming does NOT block (single-workspace mode). */
-  | 'noHubWarning'
-  /** 接入 displayName collection (prefilled with the folder name). */
-  | 'displayName'
-
-/** The folder name a wsPath binds under by default (design §8: 默认文件夹名). */
-function folderNameOf(wsPath: string): string {
-  const parts = wsPath.split(/[\\/]/).filter((p) => p !== '')
-  return parts.length > 0 ? parts[parts.length - 1] : ''
-}
-
-/**
- * The 引导卡 (onboarding card) — UNREGISTERED and NO_CWD branches
- * (design §5 引导卡状态表).
- *
- * T4.2 fills the two-state button logic + the two flows:
- *  - hub === null → BOTH buttons enabled. 「接入」 first opens the
- *    「尚无管理中枢」 warning; confirming proceeds (does NOT block —
- *    single-workspace mode, design §5/§8 Q7).
- *  - hub !== null → 「设为中枢」 DISABLED with the reason copy 已存在中枢
- *    (a second hub is impossible — design §2 Q2 恰好一个); 「接入」 runs
- *    the normal registration flow.
- *  - setHub: confirm dialog → `setHub({wsPath})` → success → RE-FETCH
- *    (onApplied) → the role flips to HUB → the hub console renders;
- *    RPC error → the error shows on the card, the card stays.
- *  - bind: (warning when hub===null) → displayName dialog (prefilled) →
- *    `bindProject({wsPath, displayName, scaffold: true})` → success →
- *    re-fetch → the project console renders; RPC error → error on the
- *    card, the card stays. `scaffold: true` is the UNREGISTERED intent:
- *    discovery saw no tree at this workspace, so the host scaffolds the
- *    minimal tree when absent (a live tree that appeared since discovery
- *    refuses loudly — the error row surfaces it).
- *  - every cancel → dialog closes, no RPC fired, state unchanged.
- *
- * @param props - `narrowed` selects the NO_CWD 收窄文案 variant (both
- *  buttons disabled, no flow reachable); `wsPath` is the session's working
- *  directory (null only in the narrowed variant); `hub` / `dirNames` are
- *  the plane-state segments that drive the §5 state table; the two
- *  mutation faces + `onApplied` (the post-mutation plane-state re-fetch).
- */
-function OnboardingCard(
-  props: {
-    readonly narrowed?: boolean
-    readonly wsPath: string | null
-    readonly hub: { readonly path: string } | null
-    readonly dirNames: { readonly treeDir: string; readonly hubDir: string }
-    readonly setHub: (args: SetHubArgs) => Promise<SetHubResult>
-    readonly bindProject: (args: BindProjectArgs) => Promise<BindProjectResult>
-    readonly onApplied: () => void
-  },
-): ReactElement {
-  const { narrowed, wsPath, hub, dirNames, setHub, bindProject, onApplied } = props
-  // null = no dialog open.
-  const [dialog, setDialog] = useState<OnboardDialog | null>(null)
-  // true while a mutation RPC is in flight (dialog buttons lock, no second
-  // call can be issued).
-  const [busy, setBusy] = useState(false)
-  // The last mutation error (design §8: 显示错误, 卡片保留); null = none.
-  const [error, setError] = useState<string | null>(null)
-  // The displayName dialog input (seeded from the folder name when the
-  // dialog opens — design §8 默认文件夹名).
-  const [displayName, setDisplayName] = useState('')
-
-  const hubExists = hub !== null
-  const actionsEnabled = !narrowed && !busy
-  // The §5 state table: 设为中枢 is available only when NO global hub
-  // exists (无中枢 → 可用; 有中枢 → 置灰 + 已存在中枢).
-  const setHubEnabled = actionsEnabled && !hubExists
-
-  const openDisplayNameDialog = (): void => {
-    // Prefill sensibly: the folder name (the host default — bindProject's
-    // `displayName` omitted branch is `basename(wsPath)`, design §8).
-    setDisplayName(wsPath !== null ? folderNameOf(wsPath) : '')
-    setDialog('displayName')
-  }
-
-  const onSetHubClick = (): void => {
-    setError(null)
-    setDialog('setHub')
-  }
-
-  const onBindClick = (): void => {
-    setError(null)
-    if (hub === null) {
-      // 接入（无中枢）: the 「尚无管理中枢」 warning comes FIRST —
-      // confirming does NOT block (it proceeds to the displayName dialog).
-      setDialog('noHubWarning')
-    } else {
-      // 接入（有中枢）: the normal registration flow.
-      openDisplayNameDialog()
-    }
-  }
-
-  const cancelDialog = (): void => {
-    // Cancel on EVERY dialog leaves state unchanged — no RPC fired.
-    setDialog(null)
-  }
-
-  /** The 设为中枢 confirm: RPC → success re-fetches (role flips to HUB); error stays on the card. */
-  const confirmSetHub = async (): Promise<void> => {
-    if (wsPath === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await setHub({ wsPath })
-      // design §8 设为中枢: 平面状态刷新 → 该会话进入中枢控制台.
-      setDialog(null)
-      onApplied()
-    } catch (err) {
-      setDialog(null)
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  /**
-   * The 无中枢 warning confirm — does NOT block (design §5 状态表 / §8
-   * Q7): it proceeds to the displayName dialog (single-workspace mode).
-   */
-  const continueNoHubWarning = (): void => {
-    openDisplayNameDialog()
-  }
-
-  /** The 接入 confirm: RPC → success re-fetches (role flips to the project console); error stays on the card. */
-  const confirmBind = async (): Promise<void> => {
-    if (wsPath === null || displayName.trim() === '') return
-    setBusy(true)
-    setError(null)
-    try {
-      await bindProject({ wsPath, displayName: displayName.trim(), scaffold: true })
-      // design §8 接入: → 进入项目视图 (the plane state's project list now
-      // carries this workspace; the re-fetch flips the branch).
-      setDialog(null)
-      onApplied()
-    } catch (err) {
-      setDialog(null)
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const confirmLabel =
-    dialog === 'setHub'
-      ? '设为中枢'
-      : dialog === 'noHubWarning'
-        ? '继续接入'
-        : '接入'
-
-  const dialogTitle =
-    dialog === 'setHub' ? '设为研究管理中枢' : dialog === 'noHubWarning' ? '尚无管理中枢' : '接入研究管理系统'
-
-  return (
-    <div
-      className={narrowed ? `${styles.shell} ${styles.onboardNarrow}` : styles.shell}
-      data-onboarding-card
-      data-onboarding-variant={narrowed ? 'no-cwd' : 'unregistered'}
-      role="region"
-      aria-label="研究管理系统引导"
-    >
-      <h2 className={styles.onboardTitle}>{narrowed ? '本会话未关联工作区' : '接入研究管理系统'}</h2>
-      <p className={styles.onboardCopy}>
-        {narrowed
-          ? '当前会话未关联任何工作区，研究功能暂不可用。请在关联了工作区的会话中打开研究标签。'
-          : '本工作区尚未登记进研究管理系统。选择一种接入方式：将其设为全局研究管理中枢，或作为独立项目登记接入。'}
-      </p>
-      {error !== null && (
-        <p className={styles.onboardError} role="alert">
-          {error}
-        </p>
-      )}
-      <div className={styles.onboardActions}>
-        <div className={styles.onboardActionGroup}>
-          <button type="button" className={styles.onboardButton} disabled={!setHubEnabled} onClick={onSetHubClick}>
-            将此工作区设为研究管理中枢
-          </button>
-          {/* The §5 状态表 reason copy (有中枢 → 置灰 + 原因文案：已存在中枢). */}
-          {!narrowed && hubExists && (
-            <p className={styles.onboardReason} data-onboard-sethub-reason>
-              已存在中枢
-            </p>
-          )}
-        </div>
-        <button type="button" className={styles.onboardButton} disabled={!actionsEnabled} onClick={onBindClick}>
-          将此工作区接入研究管理系统
-        </button>
-      </div>
-      {dialog !== null && (
-        <div className={styles.dialogOverlay} role="dialog" aria-modal="true" aria-label={dialogTitle}>
-          <div className={styles.dialogPanel}>
-            <h3 className={styles.dialogTitle}>{dialogTitle}</h3>
-            {dialog === 'setHub' && (
-              <p className={styles.dialogCopy}>
-                将在本工作区创建 <code>{dirNames.hubDir}/</code> 标记目录与空的{' '}
-                <code>registry.yaml</code>，此后本工作区即全局研究管理中枢。
-              </p>
-            )}
-            {dialog === 'noHubWarning' && (
-              <p className={styles.dialogCopy}>
-                当前研究平面尚无管理中枢。继续将以单工作区模式接入：项目数据落在本工作区自身的{' '}
-                <code>{dirNames.treeDir}/state/</code> 下（日后设立中枢时可迁入中枢）。
-              </p>
-            )}
-            {dialog === 'displayName' && (
-              <>
-                <p className={styles.dialogCopy}>将以该显示名登记本工作区为研究项目。</p>
-                <label className={styles.dialogField} htmlFor="onboard-display-name">
-                  项目显示名
-                </label>
-                <input
-                  id="onboard-display-name"
-                  className={styles.dialogInput}
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                />
-              </>
-            )}
-            <div className={styles.dialogActions}>
-              <button type="button" className={styles.dialogCancel} onClick={cancelDialog} disabled={busy}>
-                取消
-              </button>
-              <button
-                type="button"
-                className={styles.dialogConfirm}
-                disabled={busy || (dialog === 'displayName' && displayName.trim() === '')}
-                onClick={() => {
-                  void (dialog === 'setHub'
-                    ? confirmSetHub()
-                    : dialog === 'noHubWarning'
-                      ? continueNoHubWarning()
-                      : confirmBind())
-                }}
-              >
-                {busy ? '处理中…' : confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}

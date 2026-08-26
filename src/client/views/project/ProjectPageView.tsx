@@ -43,8 +43,14 @@ export interface ProjectPageViewProps {
   readonly error: string | null
   /** Re-issue the project load (first-load failure path). */
   readonly onRetry: () => void
-  /** Back to the home dashboard (the cockpit's page navigation). */
-  readonly onBack: () => void
+  /**
+   * Back to the previous level (the cockpit's page navigation — 返回总览).
+   * V2-T5.1: OPTIONAL — the project-narrowed 总览 (design §7.1 项目视图:
+   * 现有项目页作根、无聚合条) renders the project page AS ROOT, so there is
+   * no back affordance; the HUB-drill variant passes the back-to-wall
+   * callback (钻取链 root). Omitted → the back button is NOT rendered.
+   */
+  readonly onBack?: () => void
   /** Drill-down: open one topic (the topic view). */
   readonly onOpenTopic: (topicId: string) => void
 }
@@ -84,11 +90,15 @@ export function ProjectPageView({
   onBack,
   onOpenTopic,
 }: ProjectPageViewProps): ReactElement {
-  const back = (
-    <button type="button" className={styles.backButton} onClick={onBack}>
-      ← 返回总览
-    </button>
-  )
+  // V2-T5.1: the back affordance is OPTIONAL (the project-narrowed 总览
+  // renders the project page as ROOT — no previous level; the HUB-drill
+  // variant passes the back-to-wall callback).
+  const back =
+    onBack === undefined ? null : (
+      <button type="button" className={styles.backButton} onClick={onBack}>
+        ← 返回总览
+      </button>
+    )
 
   if (data === null) {
     return (

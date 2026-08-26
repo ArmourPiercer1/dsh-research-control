@@ -49,8 +49,10 @@ import {
 import { ResearchShell, type ResearchShellProps } from '../../src/client/views/shell/index.js'
 import type {
   GetResearchPlaneStateResult,
+  HubOverviewResult,
 } from '../../src/shared/rpc-contracts.js'
 import { makeStubRpc, type StubRpc } from '../stores/stub-rpc.js'
+import { HUB_OVERVIEW_RESULT } from '../views-overview/fixtures.js'
 import {
   HUB_RESULT_AT_UNREGISTERED,
   MANAGED_RESULT_AT_UNREGISTERED,
@@ -108,11 +110,16 @@ function renderOnboarding(
   const rescan = vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [] }))
   const unbindProject = vi.fn(async () => ({ projectId: 'PRJ-9', archivedDir: '/workspace/.research-control/archived/PRJ-9' }))
   const ackMissingReminder = vi.fn(async () => ({ acknowledged: true }))
+  // T5.1: the shell requires the HUB 总览 fetch face. The onboarding cases
+  // never reach the HUB overview (the UNREGISTERED/NO_CWD card branch
+  // renders instead), so the inert resolver stays inert.
+  const loadHubOverview = vi.fn(async (): Promise<HubOverviewResult> => HUB_OVERVIEW_RESULT)
   render(
     <StrictMode>
       <ResearchShell
         sessionId={opts.sessionId}
         loadPlaneState={load as ResearchShellProps['loadPlaneState']}
+        loadHubOverview={loadHubOverview}
         setHub={setHub as ResearchShellProps['setHub']}
         bindProject={bindProject as ResearchShellProps['bindProject']}
         rescan={rescan as ResearchShellProps['rescan']}
@@ -127,8 +134,9 @@ function renderOnboarding(
 /**
  * Mount the plugin's facade over the stub namespace — required ONLY for the
  * success-flip cases whose re-fetch resolves a MANAGED/STANDALONE role (the
- * project console branch renders the REAL cockpit, which fetches through
- * the mounted facade; the HUB flip renders the frame and needs no mount).
+ * project console branch renders the REAL `ProjectConsole`, whose store
+ * fetches through the mounted facade; the HUB flip renders the frame +
+ * the overview face stub and needs no mount).
  */
 async function mountStub(stub: StubRpc): Promise<void> {
   const fakeCtx = {
@@ -274,8 +282,9 @@ describe('OnboardingCard — 接入 flow (design §8)', () => {
     })
     expect(faces.load).toHaveBeenCalledTimes(2) // initial + the post-mutation re-fetch
 
-    // The role flips to MANAGED — the project console (real cockpit) renders.
-    expect(await screen.findByText('研究总览')).toBeTruthy()
+    // The role flips to MANAGED — the project console (同构收窄, 总览 =
+    // the project page as ROOT) renders.
+    expect(await screen.findByText(/PRJ-1 · Project One/)).toBeTruthy()
     expect(document.querySelector('[data-role="MANAGED"]')).toBeTruthy()
   })
 
@@ -314,8 +323,8 @@ describe('OnboardingCard — 接入 flow (design §8)', () => {
     expect(faces.load).toHaveBeenCalledTimes(2)
 
     // Single-workspace mode: the re-fetch resolves STANDALONE — the project
-    // console (real cockpit) renders.
-    expect(await screen.findByText('研究总览')).toBeTruthy()
+    // console (同构收窄, 总览 = the project page as ROOT) renders.
+    expect(await screen.findByText(/PRJ-1 · Project One/)).toBeTruthy()
     expect(document.querySelector('[data-role="STANDALONE"]')).toBeTruthy()
   })
 

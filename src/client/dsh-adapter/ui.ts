@@ -23,6 +23,7 @@ import type {
   BindProjectArgs,
   BindProjectResult,
   GetResearchPlaneStateResult,
+  HubOverviewResult,
   RescanArgs,
   RescanResult,
   SetHubArgs,
@@ -87,21 +88,22 @@ export type ResearchClientContext = Context & { slots: SlotService }
  * it fetches `getResearchPlaneState` (the injected face below carries the
  * framework sessionId; the host resolves cwd → role from the session
  * registry) and routes the tab body to one of the five §5 branches
- * (HUB console frame / project-narrowed cockpit / 引导卡 / NO_CWD
+ * (HUB console frame / 同构收窄控制台 / 引导卡 / NO_CWD
  * narrowing). The tab registration ITSELF is unchanged — always visible,
- * same id/order/label. The shell's MANAGED/STANDALONE branch renders the
- * V1 cockpit (P5 reshapes it); the cockpit creates its own
- * `createResearchStore()` per mount.
+ * same id/order/label. V2-T5.1: the HUB 总览 renders the 聚合条 + 卡墙
+ * (the `loadHubOverview` face below); the MANAGED/STANDALONE 总览 renders
+ * the project console (its own per-mount `createResearchStore()`).
  *
  * The injected face is the apply-world → view channel (client/AGENTS.md
  * rule 7 — plain data and callbacks only): it wraps the mounted
- * `researchRpc` facade's plane-state call and (V2-T4.2, design §8) the two
- * onboarding mutations — `setHub` (设为中枢) and `bindProject` (接入) — and
- * (V2-T4.3, design §4 MISSING 处置) the 四选一 modal's mutations — `rescan`
- * (恢复), `unbindProject` (移除登记), and `ackMissingReminder` (推后, the
- * runtime dedup flag) — and folds the carrier's `ok: false` branch into a
- * plain rejection, so the DSH-free view (views/ — INV-PERM-5) never sees a
- * `RemoteResult`.
+ * `researchRpc` facade's plane-state call, (V2-T5.1, design §12 row 2)
+ * the HUB 总览 `getHubOverview` fetch (`loadHubOverview`), and (V2-T4.2,
+ * design §8) the two onboarding mutations — `setHub` (设为中枢) and
+ * `bindProject` (接入) — and (V2-T4.3, design §4 MISSING 处置) the 四选一
+ * modal's mutations — `rescan` (恢复), `unbindProject` (移除登记), and
+ * `ackMissingReminder` (推后, the runtime dedup flag) — and folds the
+ * carrier's `ok: false` branch into a plain rejection, so the DSH-free
+ * view (views/ — INV-PERM-5) never sees a `RemoteResult`.
  *
  * The registration rides the slot service's `inject` wrapper, so a late
  * slot declaration is tolerated and plugin unload removes the tab
@@ -121,6 +123,7 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
         ): Pick<
           ResearchShellProps,
           | 'loadPlaneState'
+          | 'loadHubOverview'
           | 'setHub'
           | 'bindProject'
           | 'rescan'
@@ -134,6 +137,18 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
               // failure face (重试) responds; the view stays DSH-free.
               throw new Error(
                 `research shell: plane-state fetch failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-T5.1 (design §12 row 2): the HUB 总览 fetch. Same fold as
+          // loadPlaneState — the overview's failure face (重试) responds on
+          // rejection; the view stays DSH-free.
+          loadHubOverview: async (): Promise<HubOverviewResult> => {
+            const result = await researchRpc.getHubOverview({})
+            if (!result.ok) {
+              throw new Error(
+                `research shell: getHubOverview failed — ${result.error.code}: ${result.error.message}`,
               )
             }
             return result.value

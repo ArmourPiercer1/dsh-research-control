@@ -108,14 +108,17 @@ type CockpitPage =
  *  仍经 Home/页面内入口到达, 保持既有钻取路径不变)。 */
 type PlainPageKind = 'home' | 'intervention' | 'actions' | 'reporting' | 'attention' | 'brief' | 'inbox' | 'investigator'
 
+// V2-T5.1 — 撤出导航 (design §6 信息架构): 行动 / 汇报 / 注意力 / 简报 /
+// 收件箱 are DEFERRED, not deleted — per the design the V2 first-tier
+// entries are fixed at four (总览 / 重要事件 / 调查员 / 设置) and these five
+// pages are withdrawn from every rendered nav/tab set. The host-side
+// services and data behind them are retained (see design §6 撤出导航 =
+// deferred, services retained); their page bodies below stay wired so the
+// later V2 tasks (T5.2–T5.4) can re-host them from 重要事件 / the hub
+// overview. Only the nav registration is removed here.
 const COCKPIT_NAV: ReadonlyArray<{ readonly kind: PlainPageKind; readonly label: string }> = [
   { kind: 'home', label: '首页' },
   { kind: 'intervention', label: '干预' },
-  { kind: 'actions', label: '行动' },
-  { kind: 'reporting', label: '汇报' },
-  { kind: 'attention', label: '注意力' },
-  { kind: 'brief', label: '简报' },
-  { kind: 'inbox', label: '收件箱' },
   // WP-7.4 / G7 S1c — 调查员页（transient 分析面板 + 显式保存; 一键
   // 调查成功后自动跳入, 导航栏亦可达）。
   { kind: 'investigator', label: '调查员' },
@@ -172,8 +175,22 @@ function DrilldownSection({
   )
 }
 
-/** The workstream page body (the three-zone view + the WP-4.6 panels). */
-function WorkstreamPage({
+/** The workstream page props (V2-T5.1: exported so the V2 project
+ *  console can host the same workstream page body in the drill chain
+ *  项目 → 主题 → 工作流 → 历史). */
+export interface WorkstreamPageProps {
+  readonly store: ResearchStore
+  readonly workstreamId: string
+  readonly selection: DrilldownSelection
+  readonly onSelect: (selection: DrilldownSelection) => void
+  readonly onOpenSession: (sessionId: string, runId: string) => void
+  readonly onOpenHistory: () => void
+  readonly onBack: () => void
+}
+
+/** The workstream page body (the three-zone view + the WP-4.6 panels).
+ *  V2-T5.1: exported for reuse by the V2 project console. */
+export function WorkstreamPage({
   store,
   workstreamId,
   selection,
@@ -181,15 +198,7 @@ function WorkstreamPage({
   onOpenSession,
   onOpenHistory,
   onBack,
-}: {
-  store: ResearchStore
-  workstreamId: string
-  selection: DrilldownSelection
-  onSelect: (selection: DrilldownSelection) => void
-  onOpenSession: (sessionId: string, runId: string) => void
-  onOpenHistory: () => void
-  onBack: () => void
-}): ReactElement {
+}: WorkstreamPageProps): ReactElement {
   return (
     <section className={styles.page} aria-label="工作流域页">
       <h1 className={styles.pageTitle}>

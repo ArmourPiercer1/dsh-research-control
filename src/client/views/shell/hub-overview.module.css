@@ -1,0 +1,192 @@
+/**
+ * V2-T5.1 — 总览（中枢模式）styles (design §7.1 — 聚合条 + 项目卡墙).
+ *
+ * CSS Modules + the local `--rc-*` → host `--dsw-alias-*` token convention
+ * (DSH_ADAPTER §6), same as the shell/other view packages: status colors
+ * resolve ONLY through the state tokens (no literal status colors in the
+ * components); meaningful text stays on the label-primary/secondary band
+ * (the T1.2 contrast gate — the label-tertiary band never carries meaning;
+ * the warn row uses the dedicated state-warn-label token, not tertiary).
+ */
+.overview {
+  --rc-label-primary: var(--dsw-alias-label-primary, #1d1d1f);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #55555a);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f5f7);
+  --rc-border-l1: var(--dsw-alias-border-l1, #d9d9de);
+  --rc-border-l2: var(--dsw-alias-border-l2, #c8c8ce);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #ff3b30);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+}
+
+.statusLine {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+.faultLine {
+  margin: 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xs);
+}
+
+.refreshButton {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-primary);
+  cursor: pointer;
+}
+
+.refreshButton:hover:enabled {
+  background: var(--rc-interactive-hover);
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.refreshError {
+  margin: 4px 0 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+  word-break: break-word;
+}
+
+/* 聚合条 (design §7.1): 项目数 / 未决干预合计 / 收件箱合计 — a single
+   text node (the e2e/component assertions match the whole line). */
+.strip {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-primary);
+  font-size: var(--rc-font-xs);
+}
+
+/* 「需关注」 row — rendered ONLY when at least one project carries open
+   interventions (无则整行不渲染, 不占位 — the JSX condition, design §7.1).
+   The text carries meaning → the dedicated warn LABEL token (never the
+   low-contrast label-tertiary band). */
+.attention {
+  margin: 8px 0 0;
+  padding: 8px 14px;
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 8px;
+  color: var(--dsw-alias-state-warn-label, var(--rc-label-primary));
+  font-size: var(--rc-font-xxs);
+  word-break: break-word;
+}
+
+/* 项目卡墙 — one card per ACTIVE project (design §7.1 C 案). */
+.wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+/* The WHOLE CARD is the drill affordance (a real <button> — no nested
+   interactive elements inside a card). */
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  background: var(--rc-interactive-hover);
+  border-color: var(--rc-border-l2);
+}
+
+/* 注意力模式徽标 — host STATE tokens only (design §7.1: FOCUS/NORMAL/
+   BACKGROUND, 宿主状态色 token): FOCUS = warn (attention due), NORMAL =
+   business (steady), BACKGROUND = muted neutral (the hollow dot ○). */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--rc-font-xxs);
+  letter-spacing: 0.04em;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.badgeFocus {
+  color: var(--dsw-alias-state-warn-label, var(--rc-label-primary));
+}
+
+.badgeFocus .dot {
+  background: var(--dsw-alias-state-warn-primary, currentColor);
+}
+
+.badgeNormal {
+  color: var(--rc-label-primary);
+}
+
+.badgeNormal .dot {
+  background: var(--dsw-alias-state-business-primary, currentColor);
+}
+
+.badgeBackground {
+  color: var(--rc-label-secondary);
+}
+
+.badgeBackground .dot {
+  background: transparent;
+  border: 1.5px solid var(--rc-label-secondary);
+}
+
+/* 项目名 + PRJ-id (design §7.1 card field). */
+.cardName {
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  color: var(--rc-label-primary);
+  word-break: break-word;
+}
+
+/* 计数行 (design §7.1: 未决干预>0 → warn/error token 着色). The count
+   values carry meaning → the warn LABEL token for the hot state, never
+   the low-contrast tertiary band. */
+.cardCounts {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
+.cardCountsWarn {
+  color: var(--dsw-alias-state-warn-label, var(--rc-label-primary));
+}
+
+/* 目标日期 (design §7.1: 有则显 — rendered only when targetDate ≠ null). */
+.cardTarget {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}

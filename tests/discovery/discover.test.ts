@@ -397,6 +397,7 @@ function planeProject(id: string, kind: PlaneProject['kind']): PlaneProject {
     entry: kind === 'MANAGED' ? entry(id, `/workspaces/${id.toLowerCase()}`) : null,
     wsPath: `/workspaces/${id.toLowerCase()}`,
     kind,
+    treeTitle: `Title of ${id}`,
   }
 }
 

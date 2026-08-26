@@ -12,12 +12,15 @@
  * contribution into `ctx.typert`; tests/rpc-spike.test.ts (ping) and
  * tests/rpc-face/manifest.test.ts (the full face) replicate those rules.
  *
- * WP-4.1a: the manifest now carries the FULL 14-member service model
- * (ping + the 13 §7.1 RPCs), every wire schema as a live zod v4
- * instance (the loader's `_zod` brand check), and the 14 strict
- * invocation descriptors — the SAME shared objects the client `./remote`
- * contribution exports (no drift by construction, the WP-0.3 rule
- * extended from ping to the whole face).
+ * WP-4.1a: the manifest now carries the FULL service model, every wire
+ * schema as a live zod v4 instance (the loader's `_zod` brand check),
+ * and the strict invocation descriptors — the SAME shared objects the
+ * client `./remote` contribution exports (no drift by construction, the
+ * WP-0.3 rule extended from ping to the whole face). V2-T3.2a: the
+ * registered face is the 17-member model (ping + the 13 §7.1 RPCs + the
+ * 3 read-only plane RPCs of design §12 rows 1-3 — the shared
+ * `REGISTERED_RESEARCH_INVOCATIONS`; the 6 change-family plane RPCs stay
+ * contract-only until their @Remote bodies land in T3.2b+).
  *
  * Type note: the whole-manifest type is the LOCAL `TypertContributionMirror`
  * (registry package stale/uninstallable) — 以 loader 运行时校验为准. The
@@ -37,13 +40,20 @@ import {
   DismissPlanForkResultSchema,
   GetGitHistoryArgsSchema,
   GetGitHistoryResultSchema,
+  GetHubOverviewArgsSchema,
+  GetPortfolioInterventionsArgsSchema,
+  GetPortfolioInterventionsResultSchema,
+  GetResearchPlaneStateArgsSchema,
+  GetResearchPlaneStateResultSchema,
   GetTopicArgsSchema,
   GetWorkstreamArgsSchema,
+  HubOverviewResultSchema,
   PingResultSchema,
   ProjectSnapshotSchema,
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
   RESEARCH_CONTROL_PACKAGE,
+  REGISTERED_RESEARCH_INVOCATIONS,
   ReorderPlanArgsSchema,
   ReorderPlanResultSchema,
   RegisterInteractionArgsSchema,
@@ -60,7 +70,6 @@ import {
   WorkstreamSnapshotSchema,
   type TypertContributionMirror,
   type TypertSchemaMirror,
-  ALL_RESEARCH_INVOCATIONS,
 } from '../../../shared/rpc-contracts.js'
 
 /**
@@ -75,9 +84,11 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
 
 /**
  * Every wire schema the face uses, as a live zod v4 instance (the loader
- * requires the `_zod` brand on each `TYPERT.schemas` entry). 27 entries:
+ * requires the `_zod` brand on each `TYPERT.schemas` entry). 31 entries:
  * ping's result + the 13 RPCs' args/results (the two zero-arg queries
- * carry no args schema).
+ * carry no args schema) + the 3 read-only plane RPCs' args/results
+ * (V2-T3.2a — the 6 change-family plane RPCs' schemas join this list with
+ * their implementation tasks).
  */
 const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'PingResult', schema: PingResultSchema },
@@ -105,6 +116,13 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'GetGitHistoryResult', schema: GetGitHistoryResultSchema },
   { name: 'RestoreDeclarativeFileArgs', schema: RestoreDeclarativeFileArgsSchema },
   { name: 'RestoreDeclarativeFileResult', schema: RestoreDeclarativeFileResultSchema },
+  // V2-T3.2a: the 3 read-only plane RPCs (design §12 rows 1-3).
+  { name: 'GetResearchPlaneStateArgs', schema: GetResearchPlaneStateArgsSchema },
+  { name: 'GetResearchPlaneStateResult', schema: GetResearchPlaneStateResultSchema },
+  { name: 'GetHubOverviewArgs', schema: GetHubOverviewArgsSchema },
+  { name: 'HubOverviewResult', schema: HubOverviewResultSchema },
+  { name: 'GetPortfolioInterventionsArgs', schema: GetPortfolioInterventionsArgsSchema },
+  { name: 'GetPortfolioInterventionsResult', schema: GetPortfolioInterventionsResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -112,8 +130,10 @@ export const TYPERT: TypertHostManifest = {
   face: 'host',
   schemas: ALL_SCHEMAS,
   // The SAME descriptor objects the client `./remote` contribution exports
-  // (ping first — the 14th diagnostic method — then the 13 §7.1 RPCs).
-  invocations: ALL_RESEARCH_INVOCATIONS,
+  // (ping first — the 14th diagnostic method — then the 13 §7.1 RPCs —
+  // then the 3 read-only plane RPCs, V2-T3.2a). The 6 change-family plane
+  // RPCs stay contract-only until their @Remote bodies land (T3.2b+).
+  invocations: REGISTERED_RESEARCH_INVOCATIONS,
   model: {
     services: [
       {
@@ -121,9 +141,12 @@ export const TYPERT: TypertHostManifest = {
         exportName: 'ResearchControlService',
         description:
           'Research Control Plane host service (WP-4.1a: the 13-RPC client face of ' +
-          'ARCHITECTURE §7.1 + the WP-0.3 ping diagnostic).',
+          'ARCHITECTURE §7.1 + the WP-0.3 ping diagnostic; V2-T3.2a: the 3 read-only ' +
+          'plane RPCs of design §12 rows 1-3 — the 17-endpoint registered face).',
         tags: [],
-        // FULL member list (brief: members 全量) — all 14 @Remote methods.
+        // FULL member list (brief: members 全量) — all 17 @Remote methods
+        // (ping + the 13 frozen RPCs + the 3 read-only plane RPCs; the 6
+        // change-family plane RPCs join with their implementation tasks).
         members: [
           {
             name: 'ping',
@@ -211,6 +234,25 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'USER: explicit restore of one .research file (INV-GIT-5).',
           },
+          // V2-T3.2a: the 3 read-only plane RPCs (design §12 rows 1-3).
+          {
+            name: 'getResearchPlaneState',
+            signature: 'getResearchPlaneState(args: GetResearchPlaneStateArgs): Promise<GetResearchPlaneStateResult>',
+            kind: 'method',
+            summary: 'Plane state + caller-session role (design §5 标签页分流 + 设置页① 数据源).',
+          },
+          {
+            name: 'getHubOverview',
+            signature: 'getHubOverview(args: GetHubOverviewArgs): Promise<HubOverviewResult>',
+            kind: 'method',
+            summary: 'Cross-project aggregation: 聚合条 + 需关注行 + 项目卡墙 (design §7.1).',
+          },
+          {
+            name: 'getPortfolioInterventions',
+            signature: 'getPortfolioInterventions(args: GetPortfolioInterventionsArgs): Promise<GetPortfolioInterventionsResult>',
+            kind: 'method',
+            summary: 'Cross-project intervention list, projectId-labeled, 状态过滤 (design §7.2).',
+          },
         ],
         types: [
           {
@@ -282,6 +324,22 @@ export const TYPERT: TypertHostManifest = {
             name: 'RestoreDeclarativeFileResult',
             declaration:
               'interface RestoreDeclarativeFileResult { readonly path; readonly commitOid; readonly validationOk: boolean; readonly validationErrors: { file; path; summary }[]; readonly warnings: string[] }',
+          },
+          // V2-T3.2a: the 3 read-only plane RPC result types (design §12 rows 1-3).
+          {
+            name: 'GetResearchPlaneStateResult',
+            declaration:
+              'interface GetResearchPlaneStateResult { readonly hub: { path } | null; readonly dirNames: { treeDir; hubDir }; readonly projects: PlaneProjectDto[]; readonly missing: PlaneMissingDto[]; readonly session: PlaneSessionDto | null }',
+          },
+          {
+            name: 'HubOverviewResult',
+            declaration:
+              'interface HubOverviewResult { readonly totals: { projects; openInterventions; inbox }; readonly attention: { projectId; displayName; openCount; oldestHours }[]; readonly cards: { projectId; displayName; title; description; attentionMode; targetDate; openInterventions; pendingInterventions; topics; inboxCount }[] }',
+          },
+          {
+            name: 'GetPortfolioInterventionsResult',
+            declaration:
+              'interface GetPortfolioInterventionsResult { readonly items: { projectId; displayName; id; title; origin; status; workstreamIds; createdAt }[] }',
           },
         ],
       },

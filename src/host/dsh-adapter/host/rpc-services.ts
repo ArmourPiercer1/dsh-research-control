@@ -204,6 +204,61 @@ function consoleLogger(): StructuredLogger {
   }
 }
 
+/**
+ * V2-T3.2a — the fresh-tree load with the frozen-13 fail-loud verdict
+ * (extracted from `ProductionResearchRpcServices.#loadTree`: the same
+ * read, the same message — the plane-read face reuses it verbatim so a
+ * broken tree refuses the snapshot on every query path).
+ */
+export function loadResearchTreeOrThrow(researchRoot: string, declarativeDir: string, operation: string): ResearchTree {
+  const load = loadResearchTree(new FsResearchReader(researchRoot), researchRoot, declarativeDir)
+  if (load.errors.length > 0) {
+    const e = load.errors[0]!
+    throw new Error(
+      `${operation}: the declarative tree failed to load — refusing to serve a broken snapshot: ` +
+        `[${e.code}] ${e.file || '<root>'}${e.path !== undefined ? e.path : ''}: ${e.message}`,
+    )
+  }
+  return load.tree
+}
+
+/**
+ * V2-T3.2a — the V1 getDashboard production REFRESH SIDECAR (extracted
+ * from `ProductionResearchRpcServices.getDashboard` — the same two
+ * steps, the same order, the same verdicts):
+ *   1. the idempotent `stale.checkAllOpen()` FULL sweep (WP-4.6
+ *      RR-015① query-path stale pre-check — a sweep-level throw
+ *      PROPAGATES: a lying query is worse than a failed one);
+ *   2. the RR-018① audit refresh (the client's refresh loop IS the
+ *      production trigger; a refresh failure is LOGGED LOUD and never
+ *      blocks the query — the sidecar is mechanical, not part of the
+ *      data-plane contract).
+ *
+ * The §7.1 总览 (getHubOverview) runs this per project: under V2 the
+ * overview IS the refresh surface for every wired project (the V1
+ * dashboard's trigger point, moved with the data), so the audit chain
+ * and the stale sweep stay on the refresh loop exactly as in V1.
+ */
+export async function runProjectRefreshSidecar(wiring: HostWiring, logger: StructuredLogger): Promise<void> {
+  await wiring.stale.checkAllOpen()
+  try {
+    const refresh = await wiring.auditRefresh.run()
+    logger.info('auditRefresh', {
+      discrepancies: refresh.discrepancyCount,
+      captured: refresh.captured.length,
+      escalated: refresh.escalated === null ? null : refresh.escalated.inboxItemId,
+      skippedDedupe: refresh.skippedDedupe,
+      skippedBaseline: refresh.skippedBaseline,
+      captureFailures: refresh.captureFailures.length,
+    })
+  } catch (cause) {
+    logger.error(
+      'auditRefreshFailed',
+      { message: cause instanceof Error ? cause.message : String(cause) },
+    )
+  }
+}
+
 export interface ProductionResearchRpcServicesOptions {
   /** The wiring-assembled service graph (the composition root's output). */
   readonly wiring: HostWiring
@@ -343,32 +398,13 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
   }
 
   async getDashboard(): Promise<DashboardSnapshot> {
-    await this.#stalePrecheck()
-    // RR-018① 生产触发（查询路径挂点）: the audit chain (strict audit +
-    // discovery diff + mechanical classify + inbox routing) runs on the
-    // dashboard refresh — the client's refresh loop IS the production
-    // trigger (no independent timer: no config surface exists for an
-    // interval, and a hardcoded one would be a tunable that shouldn't
-    // exist — strategy documented in WP-7.2). 失败 loud 不阻塞查询主
-    // 路径: any refresh failure is logged loudly and the query
-    // projection proceeds (the audit chain is a sidecar mechanical face,
-    // not part of the data-plane contract).
-    try {
-      const refresh = await this.#wiring.auditRefresh.run()
-      this.#logger.info('auditRefresh', {
-        discrepancies: refresh.discrepancyCount,
-        captured: refresh.captured.length,
-        escalated: refresh.escalated === null ? null : refresh.escalated.inboxItemId,
-        skippedDedupe: refresh.skippedDedupe,
-        skippedBaseline: refresh.skippedBaseline,
-        captureFailures: refresh.captureFailures.length,
-      })
-    } catch (cause) {
-      this.#logger.error(
-        'auditRefreshFailed',
-        { message: cause instanceof Error ? cause.message : String(cause) },
-      )
-    }
+    // The production refresh sidecar (V2-T3.2a: extracted as
+    // runProjectRefreshSidecar — the §7.1 总览 runs the same per project):
+    // RR-015① full stale sweep (a sweep-level throw propagates) + the
+    // RR-018① audit refresh (the client's refresh loop IS the production
+    // trigger; 失败 loud 不阻塞查询主路径 — a refresh failure is logged
+    // loudly and the query projection proceeds).
+    await runProjectRefreshSidecar(this.#wiring, this.#logger)
     const tree = this.#loadTree('getDashboard')
     const project = tree.project
     if (project === null) {
@@ -766,6 +802,10 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     const result = await saveResearchCheckpoint(this.#wiring.repoRoot, {
       summary: args.summary,
       logger: this.#logger,
+      // V2 T3.2b: the W9/W10 pathspecs follow the plane's configured tree
+      // name (the wiring was built over researchDir; default `.research`
+      // keeps the frozen V1 argv byte-identical).
+      treeDir: this.#wiring.researchDir,
     })
     return {
       committed: result.committed,
@@ -783,6 +823,7 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       baseline: args.baseline,
       maxCount: args.maxCount,
       skip: args.skip,
+      treeDir: this.#wiring.researchDir,
     })
     return {
       versions: result.versions.map((v) => ({ oid: v.oid, authorDate: v.authorDate, subject: v.subject })),
@@ -805,6 +846,7 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     const result = await restoreResearchFile(this.#wiring.repoRoot, args.commitOid, args.path, {
       logger: this.#logger,
       schemaDir: this.#declarativeDir,
+      treeDir: this.#wiring.researchDir,
     })
     return {
       path: result.path,
@@ -824,19 +866,9 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    * ------------------------------------------------------------------ */
 
   #loadTree(operation: string): ResearchTree {
-    const load = loadResearchTree(
-      new FsResearchReader(this.#wiring.researchRoot),
-      this.#wiring.researchRoot,
-      this.#declarativeDir,
-    )
-    if (load.errors.length > 0) {
-      const e = load.errors[0]!
-      throw new Error(
-        `${operation}: the declarative tree failed to load — refusing to serve a broken snapshot: ` +
-          `[${e.code}] ${e.file || '<root>'}${e.path !== undefined ? e.path : ''}: ${e.message}`,
-      )
-    }
-    return load.tree
+    // V2-T3.2a: the read + fail-loud verdict live in loadResearchTreeOrThrow
+    // (shared with the plane-read face — one tree-load discipline).
+    return loadResearchTreeOrThrow(this.#wiring.researchRoot, this.#declarativeDir, operation)
   }
 
   #findWorkstreamNode(tree: ResearchTree, workstreamId: string, operation: string): WorkstreamNode {

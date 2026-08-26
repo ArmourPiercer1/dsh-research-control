@@ -50,6 +50,19 @@
  * forwarded services keep their existing permission checks. In spike
  * mode (no research workspace registered) the 13 methods fail loud.
  * `ping` stays the 14th, diagnostic-only method (WP-0.3).
+ * V2-T3.2a (design §12 rows 1-3 — the plane-level read-only face):
+ * `getResearchPlaneState` / `getHubOverview` / `getPortfolioInterventions`
+ * join the service as THIN `@Remote` bodies that forward to the PLANE-
+ * LEVEL `ResearchPlaneServices` port (plane-read-services.ts — ONE
+ * instance for the whole plane, composed here in `[Service.init]` over
+ * the discovered PlaneState + the per-project wirings map; tests inject
+ * a stub through the optional 4th constructor argument). Unlike the 13,
+ * they are NOT routed: they serve the whole plane in every mode (the
+ * empty plane included — the 引导卡 data of design §6), and fail loud
+ * only pre-init. The §12.1 routing of the 13 lands in the SAME bodies
+ * (decode first → `requireRpc(decoded.projectId)` — the 11 parameterized
+ * RPCs route on the optional `projectId`; the two zero-arg queries keep
+ * their frozen wire face and route through the omitted-id rule).
  * WP-3.6 (RR-011 ledger — the host service wiring): `[Service.init]` now
  * COMPLETES the dependency graph over the registered research workspace:
  * `createHostWiring` (src/host/service/wiring — store → registry → tree →
@@ -130,6 +143,9 @@ import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   DismissPlanForkArgsSchema,
   GetGitHistoryArgsSchema,
+  GetHubOverviewArgsSchema,
+  GetPortfolioInterventionsArgsSchema,
+  GetResearchPlaneStateArgsSchema,
   GetTopicArgsSchema,
   GetWorkstreamArgsSchema,
   QueryHistoryArgsSchema,
@@ -144,8 +160,14 @@ import {
   type DismissPlanForkResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
+  type GetHubOverviewArgs,
+  type GetPortfolioInterventionsArgs,
+  type GetPortfolioInterventionsResult,
+  type GetResearchPlaneStateArgs,
+  type GetResearchPlaneStateResult,
   type GetTopicArgs,
   type GetWorkstreamArgs,
+  type HubOverviewResult,
   type PingResult,
   type ProjectSnapshot,
   type QueryHistoryArgs,
@@ -169,6 +191,10 @@ import {
   ProductionResearchRpcServices,
   type ResearchRpcServices,
 } from './rpc-services.js'
+import {
+  ProductionResearchPlaneServices,
+  type ResearchPlaneServices,
+} from './plane-read-services.js'
 import { HostSessionAdapter, type SessionHostContext } from '../session.js'
 import {
   assertMinDshVersion,
@@ -363,6 +389,32 @@ export class ResearchControlService extends TypertRemoteService {
   private projectRpcs: Map<string, ResearchRpcServices> | undefined
 
   /**
+   * V2-T3.2a: the per-project wirings (the plane-read face's read source —
+   * `getHubOverview` / `getPortfolioInterventions` aggregate over these
+   * service faces: the fresh tree load, the intervention store, the inbox
+   * service). Same fill/dispose lifecycle as {@link projectRpcs} (both
+   * maps are composed together in `#initResearchPlane` and torn down by
+   * the plane effect's disposer). Same proxy rule as {@link plane} (TS
+   * `private`, not `#` — read through the plane service's lazy getter on
+   * the @Remote chain).
+   */
+  private projectWirings: Map<string, HostWiring> | undefined
+
+  /**
+   * V2-T3.2a (design §12 rows 1-3): the PLANE-LEVEL read-only RPC port
+   * (getResearchPlaneState / getHubOverview / getPortfolioInterventions)
+   * — ONE instance for the whole plane (unlike the per-project
+   * {@link projectRpcs} map, which the §12.1 routing selects between):
+   * composed in `[Service.init]` over the discovered `plane` + the
+   * `projectWirings` map (plane-read-services.ts); tests inject a stub
+   * through the optional 4th constructor argument (the WP-4.1a seam
+   * extended). `undefined` only before init — `requirePlaneServices`
+   * fails loud (the same spike-mode guard shape as `requireRpc`). Same
+   * proxy rule as {@link plane} (TS `private`, not `#`).
+   */
+  private planeServices: ResearchPlaneServices | undefined
+
+  /**
    * WP-4.1a / V2-T2.2: the RPC service port the 13 `@Remote` methods
    * forward to. V2-T2.2: the PRODUCTION ports live in
    * {@link projectRpcs} (one per plane project — the §12.1 routing map,
@@ -392,11 +444,21 @@ export class ResearchControlService extends TypertRemoteService {
    * @param rpcServices - WP-4.1a test seam: a stub for the RPC service
    *  port (production fibers pass nothing — `[Service.init]` composes
    *  the production implementation over the wiring).
+   * @param planeServices - V2-T3.2a test seam: a stub for the PLANE-LEVEL
+   *  read-only port (the 3 design §12 rows 1-3 methods; production
+   *  fibers pass nothing — `[Service.init]` composes the production
+   *  implementation over the discovered plane + the wirings map).
    */
-  constructor(ctx: Context, config: Config, rpcServices?: ResearchRpcServices) {
+  constructor(
+    ctx: Context,
+    config: Config,
+    rpcServices?: ResearchRpcServices,
+    planeServices?: ResearchPlaneServices,
+  ) {
     super(ctx, 'researchControl')
     this.#config = config
     this.rpc = rpcServices
+    this.planeServices = planeServices
     // Cordis 管不到的资源 teardown 占位：SQLite 连接、file watcher（后续 WP）。
     // 注册本身即逆 effect：fiber 卸载时随注册自动回滚（DSH_ADAPTER §4 要点 2）。
     ctx.effect(() => () => {
@@ -518,7 +580,23 @@ export class ResearchControlService extends TypertRemoteService {
     const plane = this.#initResearchPlane(adapter, schemaRoot)
     this.plane = plane.plane
     this.projectRpcs = plane.rpcs
+    this.projectWirings = plane.wirings
     this.#wiring = plane.wirings.size === 1 ? [...plane.wirings.values()][0]! : undefined
+    // V2-T3.2a (design §12 rows 1-3): the PLANE-LEVEL read-only port —
+    // one instance for the whole plane (unlike the per-project rpcs map).
+    // Composed in EVERY mode (the empty plane included — the 3 read-only
+    // RPCs serve the empty plane state: the 引导卡 data of design §6):
+    // the getters read the service's live fields, so the T3.2b `rescan`
+    // swaps plane/wirings in place and this port sees the fresh state
+    // without re-composition. The session face is the adapter's
+    // `listSessions` (the §5 role-segment cwd source).
+    this.planeServices = new ProductionResearchPlaneServices({
+      getPlane: () => this.plane,
+      getWirings: () => this.projectWirings,
+      dirNames: () => getResearchDirNames(this.ctx),
+      sessions: adapter,
+      declarativeDir: join(schemaRoot, 'declarative'),
+    })
     if (plane.wirings.size > 0) {
       // ONE disposer for the whole graph (DSH_ADAPTER §9: `[Service.init]`
       // open, `ctx.effect` close — the storage-sqlite register/close
@@ -533,7 +611,9 @@ export class ResearchControlService extends TypertRemoteService {
           for (const service of rpcs.values()) service.close?.()
           for (const wiring of wirings.values()) wiring.close()
           this.projectRpcs = undefined
+          this.projectWirings = undefined
           this.plane = undefined
+          this.planeServices = undefined
           this.#wiring = undefined
         }
       })
@@ -574,20 +654,21 @@ export class ResearchControlService extends TypertRemoteService {
         }
       } else {
         // Multi-project plane: no unambiguous binding target for the
-        // frozen tool/command face (V2-T2.2: design §12.1 — an omitted
-        // projectId with several active projects is a clear error, and
-        // the 11 tools' frozen parameters carry no projectId). Warn loud
-        // instead of registering an ambiguous binding: the 13 RPCs and
-        // these surfaces return to full service once multi-project
-        // routing lands (T3.x), and every attempt stays fail-loud in the
-        // meantime (no silent downgrade, no forged routing).
+        // frozen tool/command face (design §12.1 — the 11 tools' frozen
+        // parameters carry no projectId; their multi-project face is a
+        // T3.x design decision). The 13 RPCs, however, ROUTE: V2-T3.2a
+        // wired the §12.1 resolution into `requireRpc` (explicit
+        // projectId → the project; omitted → the sole active project;
+        // omitted + several → a clear error listing the projects). Warn
+        // loud about the tool/command surfaces only (no silent
+        // downgrade, no forged routing).
         console.warn(
           `[research-control] the plane has ${String(plane.wirings.size)} projects ` +
             `(${[...plane.wirings.keys()].join(', ')}) — the 11 agent tools and the ` +
             'investigate/analysis commands are NOT registered this round: their frozen ' +
             'face carries no projectId, so there is no unambiguous routing target ' +
-            '(design §12.1); the 13 RPCs likewise fail loud with the project list ' +
-            'until their optional projectId parameter is wired (T3.1)',
+            '(design §12.1); the 13 RPCs route through their optional projectId ' +
+            '(omitted + several active projects → a clear error listing the projects)',
         )
       }
     }
@@ -618,75 +699,138 @@ export class ResearchControlService extends TypertRemoteService {
 
   @Remote('getDashboard')
   async getDashboard(): Promise<DashboardSnapshot> {
+    // V2-T3.2a (design §12.1): the zero-arg queries keep their frozen
+    // wire face (no projectId field) — the routing is the omitted-id
+    // rule (single active project → it; several → a clear error).
     return this.requireRpc().getDashboard()
   }
 
   @Remote('getProject')
   async getProject(): Promise<ProjectSnapshot> {
+    // V2-T3.2a (design §12.1): zero-arg frozen wire face — the omitted-
+    // id routing rule (see getDashboard).
     return this.requireRpc().getProject()
   }
 
   @Remote('getTopic')
   async getTopic(args: unknown): Promise<TopicSnapshot> {
-    return this.requireRpc().getTopic(GetTopicArgsSchema.parse(args) satisfies GetTopicArgs)
+    // V2-T3.2a (design §12.1): decode FIRST, then route on the decoded
+    // optional `projectId` (requireRpc is the single routing point — an
+    // omitted id keeps the V1 single-project default behavior).
+    const decoded = GetTopicArgsSchema.parse(args) satisfies GetTopicArgs
+    return this.requireRpc(decoded.projectId).getTopic(decoded)
   }
 
   @Remote('getWorkstream')
   async getWorkstream(args: unknown): Promise<WorkstreamSnapshot> {
-    return this.requireRpc().getWorkstream(GetWorkstreamArgsSchema.parse(args) satisfies GetWorkstreamArgs)
+    const decoded = GetWorkstreamArgsSchema.parse(args) satisfies GetWorkstreamArgs
+    return this.requireRpc(decoded.projectId).getWorkstream(decoded)
   }
 
   @Remote('queryHistory')
   async queryHistory(args: unknown): Promise<QueryHistoryResult> {
-    return this.requireRpc().queryHistory(QueryHistoryArgsSchema.parse(args) satisfies QueryHistoryArgs)
+    const decoded = QueryHistoryArgsSchema.parse(args) satisfies QueryHistoryArgs
+    return this.requireRpc(decoded.projectId).queryHistory(decoded)
   }
 
   @Remote('reorderPlan')
   async reorderPlan(args: unknown): Promise<ReorderPlanResult> {
-    return this.requireRpc().reorderPlan(ReorderPlanArgsSchema.parse(args) satisfies ReorderPlanArgs)
+    const decoded = ReorderPlanArgsSchema.parse(args) satisfies ReorderPlanArgs
+    return this.requireRpc(decoded.projectId).reorderPlan(decoded)
   }
 
   @Remote('selectPlanFork')
   async selectPlanFork(args: unknown): Promise<SelectPlanForkResult> {
-    return await this.requireRpc().selectPlanFork(SelectPlanForkArgsSchema.parse(args) satisfies SelectPlanForkArgs)
+    const decoded = SelectPlanForkArgsSchema.parse(args) satisfies SelectPlanForkArgs
+    return await this.requireRpc(decoded.projectId).selectPlanFork(decoded)
   }
 
   @Remote('dismissPlanFork')
   async dismissPlanFork(args: unknown): Promise<DismissPlanForkResult> {
-    return await this.requireRpc().dismissPlanFork(DismissPlanForkArgsSchema.parse(args) satisfies DismissPlanForkArgs)
+    const decoded = DismissPlanForkArgsSchema.parse(args) satisfies DismissPlanForkArgs
+    return await this.requireRpc(decoded.projectId).dismissPlanFork(decoded)
   }
 
   @Remote('updateInterventionState')
   async updateInterventionState(args: unknown): Promise<UpdateInterventionStateResult> {
-    return this.requireRpc().updateInterventionState(
-      UpdateInterventionStateArgsSchema.parse(args) satisfies UpdateInterventionStateArgs,
-    )
+    const decoded = UpdateInterventionStateArgsSchema.parse(args) satisfies UpdateInterventionStateArgs
+    return this.requireRpc(decoded.projectId).updateInterventionState(decoded)
   }
 
   @Remote('registerInteraction')
   async registerInteraction(args: unknown): Promise<RegisterInteractionResult> {
-    return await this.requireRpc().registerInteraction(
-      RegisterInteractionArgsSchema.parse(args) satisfies RegisterInteractionArgs,
-    )
+    const decoded = RegisterInteractionArgsSchema.parse(args) satisfies RegisterInteractionArgs
+    return await this.requireRpc(decoded.projectId).registerInteraction(decoded)
   }
 
   @Remote('saveResearchCheckpoint')
   async saveResearchCheckpoint(args: unknown): Promise<SaveResearchCheckpointResult> {
-    return await this.requireRpc().saveResearchCheckpoint(
-      SaveResearchCheckpointArgsSchema.parse(args) satisfies SaveResearchCheckpointArgs,
-    )
+    const decoded = SaveResearchCheckpointArgsSchema.parse(args) satisfies SaveResearchCheckpointArgs
+    return await this.requireRpc(decoded.projectId).saveResearchCheckpoint(decoded)
   }
 
   @Remote('getGitHistory')
   async getGitHistory(args: unknown): Promise<GetGitHistoryResult> {
-    return await this.requireRpc().getGitHistory(GetGitHistoryArgsSchema.parse(args) satisfies GetGitHistoryArgs)
+    const decoded = GetGitHistoryArgsSchema.parse(args) satisfies GetGitHistoryArgs
+    return await this.requireRpc(decoded.projectId).getGitHistory(decoded)
   }
 
   @Remote('restoreDeclarativeFile')
   async restoreDeclarativeFile(args: unknown): Promise<RestoreDeclarativeFileResult> {
-    return await this.requireRpc().restoreDeclarativeFile(
-      RestoreDeclarativeFileArgsSchema.parse(args) satisfies RestoreDeclarativeFileArgs,
+    const decoded = RestoreDeclarativeFileArgsSchema.parse(args) satisfies RestoreDeclarativeFileArgs
+    return await this.requireRpc(decoded.projectId).restoreDeclarativeFile(decoded)
+  }
+
+  /* ---------------------------------------------------------------- *
+   * V2-T3.2a: the plane-level read-only face (design §12 rows 1-3)
+   *
+   * The 3 plane reads are NOT routed (they serve the WHOLE plane — the
+   * cross-project views of design §5/§7.1/§7.2): every body is THIN
+   * (zod decode → forward to the plane port, red line unchanged). The
+   * empty plane serves too (the 引导卡 data of design §6); only the
+   * frozen 13 fail loud pre-init (their per-project ports require an
+   * active project).
+   * ---------------------------------------------------------------- */
+
+  @Remote('getResearchPlaneState')
+  async getResearchPlaneState(args: unknown): Promise<GetResearchPlaneStateResult> {
+    return this.requirePlaneServices().getResearchPlaneState(
+      GetResearchPlaneStateArgsSchema.parse(args) satisfies GetResearchPlaneStateArgs,
     )
+  }
+
+  @Remote('getHubOverview')
+  async getHubOverview(args: unknown): Promise<HubOverviewResult> {
+    return await this.requirePlaneServices().getHubOverview(
+      GetHubOverviewArgsSchema.parse(args) satisfies GetHubOverviewArgs,
+    )
+  }
+
+  @Remote('getPortfolioInterventions')
+  async getPortfolioInterventions(args: unknown): Promise<GetPortfolioInterventionsResult> {
+    return this.requirePlaneServices().getPortfolioInterventions(
+      GetPortfolioInterventionsArgsSchema.parse(args) satisfies GetPortfolioInterventionsArgs,
+    )
+  }
+
+  /**
+   * The plane-read port guard (V2-T3.2a — the plane-level twin of
+   * {@link requireRpc}): a constructor-injected stub (TESTS only) always
+   * wins; pre-init (plane not discovered yet) fails loud (the gateway
+   * carries the message as an `ok: false` failure; `ping` still serves).
+   * The plane port is composed in EVERY init mode (the empty plane
+   * included — it serves the empty aggregates), so a non-undefined
+   * field always has a usable target once init has run.
+   */
+  private requirePlaneServices(): ResearchPlaneServices {
+    const stub = this.planeServices
+    if (stub === undefined) {
+      throw new Error(
+        'the research control plane is not initialized (spike mode) — the plane RPCs require ' +
+          '[Service.init] (the discovered plane state); ping stays available',
+      )
+    }
+    return stub
   }
 
   /**
@@ -700,13 +844,18 @@ export class ResearchControlService extends TypertRemoteService {
    *    the client as an `ok: false` failure; `ping` still serves — the
    *    WP-0.3 spike-mode contract);
    *  - otherwise the target project is resolved per design §12.1
-   *    ({@link resolveProject}): the frozen 13 RPCs carry no `projectId`
-   *    yet (T3.1 adds the optional field — the method bodies stay
-   *    `requireRpc()` today and become `requireRpc(args.projectId)`
-   *    then, so this seam is the ONLY routing point). A single-project
-   *    plane resolves to its sole project (the V1 implicit behavior —
-   *    byte-identical RPC results); a multi-project plane with an
-   *    omitted id fails loud listing every project id (never guess).
+   *    ({@link resolveProject}): the 11 parameterized RPCs decode their
+   *    args first and pass the optional `projectId` (V2-T3.2a: the §12.1
+   *    contract field, T3.1) — explicit id → that project (absent or
+   *    not-active, e.g. a MISSING or archived registration → a clear
+   *    error); omitted → the sole MANAGED/STANDALONE project (the V1
+   *    implicit behavior — byte-identical RPC results on a
+   *    single-project plane); omitted + several → a clear error listing
+   *    every project id (never guess). The two zero-arg queries
+   *    (getDashboard/getProject) keep their frozen wire face (no
+   *    `projectId` field — §12.1: the result shapes and the zero-arg
+   *    request shapes stay untouched) and route through the same
+   *    omitted-id rule.
    */
   private requireRpc(projectId?: string): ResearchRpcServices {
     const stub = this.rpc
@@ -866,7 +1015,9 @@ export class ResearchControlService extends TypertRemoteService {
           : 'register a project through the settings plane'
       console.warn(
         `[research-control] ${situation} — the research control plane stays in spike ` +
-          `mode (ping only); the tools and the 13 RPCs are NOT registered (${remedy})`,
+          `mode (ping only); the tools and the 13 RPCs are NOT registered (${remedy}); the ` +
+          `3 read-only plane RPCs still serve the empty plane state (the design §6 ` +
+          `引导卡 data source — the 研究 tab renders its boot state from it)`,
       )
     }
     for (const project of planeState.projects) {

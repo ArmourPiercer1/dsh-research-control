@@ -81,7 +81,7 @@ import {
   type RegistryEntry,
   type RegistryFile,
 } from '../../domain/registry/index.js'
-import { readProjectId } from '../../service/wiring/index.js'
+import { readProjectId, readProjectTitle } from '../../service/wiring/index.js'
 import type { ResearchDirNames } from './settings.js'
 
 /* ------------------------------------------------------------------ *
@@ -113,6 +113,16 @@ export interface ProbedWorkspace {
    * (`WIRING_INPUT`, the V1 single-workspace behavior, unchanged).
    */
   readonly treeProjectId?: string
+  /**
+   * The project `title` from the same `project.yaml` (the lenient
+   * `readProjectTitle` probe — V2-T3.2a: the STANDALONE wire `displayName`
+   * source, since an unregistered tree has no registry entry to read a
+   * display name from; a MANAGED project displays its registry entry's
+   * `displayName` instead). `null` when the title is absent/unusable (a
+   * full wiring of such a tree would already fail loud in the tree load —
+   * the probe only records the degenerate case honestly).
+   */
+  readonly treeTitle?: string | null
 }
 
 /**
@@ -139,14 +149,18 @@ export function probeWorkspaces(
     const path = resolve(rawPath)
     const hasHubDir = isDirectory(join(path, dirNames.hubDir))
     const hasTreeDir = isDirectory(join(path, dirNames.treeDir))
+    if (!hasTreeDir) return { path, hasHubDir, hasTreeDir }
+    // The id probe runs only on real trees (a missing project.yaml
+    // fails loud here — BEFORE any wiring exists — exactly like the
+    // V1 single-workspace path: no Project scope, no data dir key).
+    // The title probe (V2-T3.2a) is the same file, lenient verdict.
+    const treeRoot = join(path, dirNames.treeDir)
     return {
       path,
       hasHubDir,
       hasTreeDir,
-      // The id probe runs only on real trees (a missing project.yaml
-      // fails loud here — BEFORE any wiring exists — exactly like the
-      // V1 single-workspace path: no Project scope, no data dir key).
-      ...(hasTreeDir ? { treeProjectId: readProjectId(join(path, dirNames.treeDir)) } : {}),
+      treeProjectId: readProjectId(treeRoot),
+      treeTitle: readProjectTitle(treeRoot),
     }
   })
 }
@@ -182,6 +196,15 @@ export interface PlaneProject {
   /** The workspace path carrying the tree (canonical, as probed). */
   readonly wsPath: string
   readonly kind: 'MANAGED' | 'STANDALONE'
+  /**
+   * The tree's `project.yaml` title (the probe's lenient read — V2-T3.2a:
+   * the STANDALONE wire `displayName` source; MANAGED displays the
+   * registry entry's `displayName`). `null` when the title was
+   * absent/unusable at probe time (a wired project always has one — the
+   * full tree load fails loud otherwise, so `null` is a degenerate case
+   * only the wire projection has to fall back on).
+   */
+  readonly treeTitle: string | null
 }
 
 /**
@@ -370,9 +393,9 @@ export function discoverPlane(
             'entry or the tree and restart; TC-DSH-008)',
         )
       }
-      projects.push({ projectId: treeId, entry, wsPath: ws.path, kind: 'MANAGED' })
+      projects.push({ projectId: treeId, entry, wsPath: ws.path, kind: 'MANAGED', treeTitle: ws.treeTitle ?? null })
     } else {
-      projects.push({ projectId: treeId, entry: null, wsPath: ws.path, kind: 'STANDALONE' })
+      projects.push({ projectId: treeId, entry: null, wsPath: ws.path, kind: 'STANDALONE', treeTitle: ws.treeTitle ?? null })
     }
     // The project id keys the data dir — two trees with one id would
     // open one database (fail loud instead of corrupting).

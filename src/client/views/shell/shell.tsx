@@ -22,8 +22,11 @@
  *                   attention is non-empty; empty hub → the 登记第一个
  *                   研究项目 onboarding card at the card-wall position)
  *                   with the WHOLE-CARD 钻取 into the project console
- *                   (back = 返回总览 to the wall); the other three
- *                   entries stay 页建设中 placeholders until T5.2…T5.4;
+ *                   (back = 返回总览 to the wall); 重要事件 = the pure
+ *                   intervention stream (V2-T5.2, design §7.2 — portfolio
+ *                   view for HUB, 限本项目 client-side filter for the
+ *                   project roles); 调查员 / 设置 stay 页建设中
+ *                   placeholders until T5.3 / T5.4;
  *  - MANAGED /    → 同构收窄控制台 (V2-T5.1): the SAME 4-entry frame,
  *    STANDALONE     总览 = the EXISTING project page (brief + 目标 +
  *                   topic list) AS ROOT — no aggregate strip, no back
@@ -83,17 +86,23 @@ import type {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  GetPortfolioInterventionsArgs,
+  GetPortfolioInterventionsResult,
   GetResearchPlaneStateResult,
   HubOverviewResult,
   PlaneSessionDto,
+  PortfolioInterventionItemDto,
   RescanArgs,
   RescanResult,
   SetHubArgs,
   SetHubResult,
   UnbindProjectArgs,
   UnbindProjectResult,
+  UpdateInterventionStateArgs,
+  UpdateInterventionStateResult,
 } from '../../../shared/rpc-contracts.js'
 import { HubOverviewPage } from './hub-overview.js'
+import { InterventionStreamPage } from './intervention-stream.js'
 import { MissingModal } from './missing-modal.js'
 import { OnboardingCard } from './onboarding-card.js'
 import { ProjectConsole } from './project-console.js'
@@ -128,6 +137,38 @@ export interface ResearchShellProps {
    * project console itself — no aggregate strip).
    */
   readonly loadHubOverview: () => Promise<HubOverviewResult>
+  /**
+   * The injected 重要事件 stream fetch (V2-T5.2, design §7.2 —
+   * `getPortfolioInterventions`, §12 row 3): the pure intervention stream
+   * the 重要事件 page renders (the history timeline is NOT part of it).
+   * ALWAYS the cross-project host-side call for every role — the 限本项目
+   * narrowing for MANAGED / STANDALONE is a CLIENT-SIDE filter on the
+   * session's own project (derived from the plane state, no new wire
+   * field). Resolves the wire result; rejects on any failure (the page's
+   * failure face responds).
+   */
+  readonly loadPortfolioInterventions: (
+    args: GetPortfolioInterventionsArgs,
+  ) => Promise<GetPortfolioInterventionsResult>
+  /**
+   * The injected 状态迁移 mutation (the frozen §13 machine —
+   * `updateInterventionState`): the 重要事件 action row (标记处理中 /
+   * 关闭 / 确认关闭 / 重开). `projectId` routes the call to the item's
+   * project store (design §12.1 explicit multi-project routing — always
+   * the item's own project, both roles). Resolves the wire result;
+   * rejects on any failure (the row's fault line responds).
+   */
+  readonly updateInterventionState: (
+    args: UpdateInterventionStateArgs,
+  ) => Promise<UpdateInterventionStateResult>
+  /**
+   * The injected 一键调查 channel (the V1 investigation channel — OPEN
+   * cards only, NOT a §13 state transition): resolves the channel's
+   * success text (it carries the launched investigator session id — the
+   * transient 输出口径 shown on the row), rejects on any failure (the
+   * row's fault line responds).
+   */
+  readonly onInvestigate: (item: PortfolioInterventionItemDto, question: string) => Promise<string>
   /**
    * The injected 设为中枢 mutation (design §8 设为中枢 → `setHub`, §12 row
    * 4). The UNREGISTERED card's confirm flow calls it with the session's
@@ -223,6 +264,12 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
   // any nav-tab change (the 总览 tab re-enters at the wall) and on
   // re-fetch (the plane may have changed under a stale drill target).
   const [hubDrillProjectId, setHubDrillProjectId] = useState<string | null>(null)
+  // V2-T5.2: the console frame's active first-level entry, LIFTED out of
+  // ConsoleFrame so the 重要事件 page's 空态 light action (「去看工作流
+  // 进展」) can jump the frame back to the 总览 console. Reset to 总览 on
+  // re-fetch — the same rule as the drill target (the plane may have
+  // changed under a stale entry).
+  const [navEntry, setNavEntry] = useState<HubEntryId>('overview')
 
   useEffect(() => {
     let cancelled = false
@@ -277,8 +324,11 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
    */
   const refresh = useCallback(() => {
     // A re-fetch may change the plane under a stale HUB drill target —
-    // the drill resets to the card wall (V2-T5.1).
+    // the drill resets to the card wall (V2-T5.1). The lifted nav entry
+    // resets to 总览 for the same reason (the role may have flipped under
+    // a stale entry — V2-T5.2).
     setHubDrillProjectId(null)
+    setNavEntry('overview')
     setPhase('loading')
     setGeneration((g) => g + 1)
   }, [])
@@ -354,7 +404,39 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
         ) : (
           <ProjectConsole onBackToWall={() => setHubDrillProjectId(null)} />
         )
-      branch = <ConsoleFrame role="HUB" overview={overview} onNavChange={() => setHubDrillProjectId(null)} />
+      // V2-T5.2 — 重要事件 = 纯干预流 (design §7.2): the HUB role is the
+      // PORTFOLIO view (scopeProjectId null — every card carries its 项目
+      // 标签). 项目标签 / 工作流 chip 钻取 lands the user in the item's
+      // project console: the drill target is set AND the frame jumps to
+      // 总览 (the console is the 总览 body while the drill is active).
+      const attention = (
+        <InterventionStreamPage
+          role="HUB"
+          scopeProjectId={null}
+          loadPortfolioInterventions={props.loadPortfolioInterventions}
+          updateInterventionState={props.updateInterventionState}
+          onInvestigate={props.onInvestigate}
+          onOpenProject={(projectId) => {
+            setHubDrillProjectId(projectId)
+            setNavEntry('overview')
+          }}
+          onGoToWorkstreams={() => setNavEntry('overview')}
+        />
+      )
+      branch = (
+        <ConsoleFrame
+          role="HUB"
+          overview={overview}
+          attention={attention}
+          active={navEntry}
+          onActivate={(id) => {
+            setNavEntry(id)
+            // Any nav-tab click re-enters 总览 at the card wall (the
+            // T5.1 drill-reset rule, unchanged).
+            setHubDrillProjectId(null)
+          }}
+        />
+      )
       break
     }
     case 'MANAGED':
@@ -363,8 +445,39 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
       // = the EXISTING project page (brief + 目标 + topic list) AS ROOT —
       // no aggregate strip, no back affordance. The drill chain
       // 项目→主题→工作流→历史 stays inside the console.
+      //
+      // V2-T5.2 — 重要事件 限本项目 (design §7.2): the SAME page, CLIENT-
+      // SIDE filtered to the session's own project — its projectId is
+      // derived from the plane state (session cwd → the plane project
+      // whose wsPath matches; NO new wire field, §12.1 routing rides the
+      // frozen RPCs). The host's role resolution already guarantees the
+      // match exists; a missing one is a state fault (fail-loud, the HUB
+      // null-cwd rule).
+      const scopeProject = effective.cwd === null ? undefined : plane.projects.find((p) => p.wsPath === effective.cwd)
+      const attention =
+        scopeProject === undefined ? (
+          <p className={styles.faultLine} role="alert">
+            研究平面状态异常：当前项目未解析
+          </p>
+        ) : (
+          <InterventionStreamPage
+            role={effective.role}
+            scopeProjectId={scopeProject.projectId}
+            loadPortfolioInterventions={props.loadPortfolioInterventions}
+            updateInterventionState={props.updateInterventionState}
+            onInvestigate={props.onInvestigate}
+            onGoToWorkstreams={() => setNavEntry('overview')}
+          />
+        )
       branch = (
-        <ConsoleFrame role={effective.role} cwd={effective.cwd ?? undefined} overview={<ProjectConsole />} />
+        <ConsoleFrame
+          role={effective.role}
+          cwd={effective.cwd ?? undefined}
+          overview={<ProjectConsole />}
+          attention={attention}
+          active={navEntry}
+          onActivate={setNavEntry}
+        />
       )
       break
     case 'UNREGISTERED':
@@ -422,9 +535,13 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
  * 四种角色视图共用标签名): a nav frame with the 4 first-level entries.
  * 总览 is the role-specific page body (HUB: 聚合条 + 卡墙 with the 钻取链
  * into the project console; MANAGED/STANDALONE: the project console
- * itself AS ROOT). The other three entries stay 页建设中 placeholders
- * until T5.2…T5.4. The frame, the nav, and the 4 entries MUST render
- * from this task on.
+ * itself AS ROOT); 重要事件 is the pure intervention stream (V2-T5.2,
+ * design §7.2 — portfolio for HUB, 限本项目 for the project roles).
+ * 调查员 / 设置 stay 页建设中 placeholders until T5.3 / T5.4. The active
+ * entry is LIFTED to the shell (V2-T5.2): the 重要事件 page's 空态 light
+ * action (「去看工作流进展」) jumps the frame back to 总览, which the
+ * frame can only do when the shell owns the state. The frame, the nav,
+ * and the 4 entries MUST render from this task on.
  */
 interface ConsoleFrameProps {
   readonly role: 'HUB' | 'MANAGED' | 'STANDALONE'
@@ -432,12 +549,16 @@ interface ConsoleFrameProps {
    *  branch keeps the T4.x data-cwd contract; HUB omits it). */
   readonly cwd?: string
   readonly overview: ReactElement
-  /** Fired on every nav-tab click (the shell resets the HUB drill there). */
-  readonly onNavChange?: () => void
+  /** The 重要事件 page body (V2-T5.2 — all three console roles). */
+  readonly attention: ReactElement
+  /** The active first-level entry (owned by the shell). */
+  readonly active: HubEntryId
+  /** Fired on every nav-tab click with the target entry (the shell
+   *  updates its lifted state + resets the HUB drill there). */
+  readonly onActivate: (id: HubEntryId) => void
 }
 
-function ConsoleFrame({ role, cwd, overview, onNavChange }: ConsoleFrameProps): ReactElement {
-  const [active, setActive] = useState<HubEntryId>('overview')
+function ConsoleFrame({ role, cwd, overview, attention, active, onActivate }: ConsoleFrameProps): ReactElement {
   const activeLabel = HUB_ENTRIES.find((e) => e.id === active)?.label ?? '总览'
   return (
     <div className={styles.shell} data-role={role} data-cwd={cwd}>
@@ -450,10 +571,7 @@ function ConsoleFrame({ role, cwd, overview, onNavChange }: ConsoleFrameProps): 
               type="button"
               className={entry.id === active ? styles.navActive : styles.navItem}
               aria-current={entry.id === active ? 'page' : undefined}
-              onClick={() => {
-                setActive(entry.id)
-                onNavChange?.()
-              }}
+              onClick={() => onActivate(entry.id)}
             >
               {entry.label}
             </button>
@@ -461,7 +579,7 @@ function ConsoleFrame({ role, cwd, overview, onNavChange }: ConsoleFrameProps): 
         </nav>
       </header>
       <section className={styles.pageBody} data-page={active} aria-label={`${activeLabel}页`}>
-        {active === 'overview' ? overview : <p className={styles.placeholder}>{activeLabel} 页建设中</p>}
+        {active === 'overview' ? overview : active === 'attention' ? attention : <p className={styles.placeholder}>{activeLabel} 页建设中</p>}
       </section>
     </div>
   )

@@ -48,8 +48,10 @@ import {
 } from '../../src/client/dsh-adapter/remote/mount.js'
 import { ResearchShell, type ResearchShellProps } from '../../src/client/views/shell/index.js'
 import type {
+  GetPortfolioInterventionsResult,
   GetResearchPlaneStateResult,
   HubOverviewResult,
+  UpdateInterventionStateResult,
 } from '../../src/shared/rpc-contracts.js'
 import { makeStubRpc, type StubRpc } from '../stores/stub-rpc.js'
 import { HUB_OVERVIEW_RESULT } from '../views-overview/fixtures.js'
@@ -114,12 +116,27 @@ function renderOnboarding(
   // never reach the HUB overview (the UNREGISTERED/NO_CWD card branch
   // renders instead), so the inert resolver stays inert.
   const loadHubOverview = vi.fn(async (): Promise<HubOverviewResult> => HUB_OVERVIEW_RESULT)
+  // T5.2: the shell requires the 重要事件 stream faces. The onboarding
+  // cases never reach the console frame (the card branch renders instead),
+  // so inert EMPTY resolvers stay inert.
+  const loadPortfolioInterventions = vi.fn(async (): Promise<GetPortfolioInterventionsResult> => ({ items: [] }))
+  const updateInterventionState = vi.fn(async (): Promise<UpdateInterventionStateResult> => ({
+    interventionId: 'IV-1',
+    statusFrom: 'OPEN',
+    statusTo: 'PENDING',
+    closedAt: null,
+    resolutionNote: null,
+  }))
+  const onInvestigate = vi.fn(async (): Promise<string> => '调查已启动')
   render(
     <StrictMode>
       <ResearchShell
         sessionId={opts.sessionId}
         loadPlaneState={load as ResearchShellProps['loadPlaneState']}
         loadHubOverview={loadHubOverview}
+        loadPortfolioInterventions={loadPortfolioInterventions as ResearchShellProps['loadPortfolioInterventions']}
+        updateInterventionState={updateInterventionState as ResearchShellProps['updateInterventionState']}
+        onInvestigate={onInvestigate as ResearchShellProps['onInvestigate']}
         setHub={setHub as ResearchShellProps['setHub']}
         bindProject={bindProject as ResearchShellProps['bindProject']}
         rescan={rescan as ResearchShellProps['rescan']}

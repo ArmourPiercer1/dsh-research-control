@@ -52,8 +52,10 @@ import { ResearchShell, type ResearchShellProps } from '../../src/client/views/s
 import type {
   AckMissingReminderArgs,
   AckMissingReminderResult,
+  GetPortfolioInterventionsResult,
   GetResearchPlaneStateResult,
   HubOverviewResult,
+  UpdateInterventionStateResult,
 } from '../../src/shared/rpc-contracts.js'
 import { makeStubRpc, type StubRpc } from '../stores/stub-rpc.js'
 import { HUB_OVERVIEW_RESULT } from '../views-overview/fixtures.js'
@@ -87,12 +89,29 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
   // it (the stub resolves the single-project wire fixture — the 聚合条 +
   // 卡墙 assertions below read it); the other roles never call it.
   const loadHubOverview = vi.fn(async (): Promise<HubOverviewResult> => HUB_OVERVIEW_RESULT)
+  // T5.2: the shell requires the 重要事件 stream faces. The routing fixtures
+  // here only render the 重要事件 frame (the stream's own behavior is
+  // covered in tests/views-intervention-stream/), so an EMPTY portfolio
+  // keeps these cases focused on the frame wiring (the empty-state face
+  // shows).
+  const loadPortfolioInterventions = vi.fn(async (): Promise<GetPortfolioInterventionsResult> => ({ items: [] }))
+  const updateInterventionState = vi.fn(async (): Promise<UpdateInterventionStateResult> => ({
+    interventionId: 'IV-1',
+    statusFrom: 'OPEN',
+    statusTo: 'PENDING',
+    closedAt: null,
+    resolutionNote: null,
+  }))
+  const onInvestigate = vi.fn(async (): Promise<string> => '调查已启动')
   render(
     <StrictMode>
       <ResearchShell
         sessionId={sessionId}
         loadPlaneState={loadPlaneState}
         loadHubOverview={loadHubOverview}
+        loadPortfolioInterventions={loadPortfolioInterventions}
+        updateInterventionState={updateInterventionState}
+        onInvestigate={onInvestigate}
         setHub={setHub}
         bindProject={bindProject}
         rescan={rescan}
@@ -219,13 +238,16 @@ describe('ResearchShell — 5 角色分支', () => {
     expect(await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')).toBeTruthy()
   })
 
-  it('HUB: the nav switches the active entry and the placeholder body follows', async () => {
+  it('HUB: the nav switches the active entry — 重要事件 = the real stream, 设置 = placeholder', async () => {
     renderShell(vi.fn().mockResolvedValue(HUB_RESULT), 'sess-hub')
     await screen.findByRole('button', { name: '总览' })
 
+    // T5.2: 重要事件 is the live pure-intervention stream (the stub resolves
+    // an EMPTY portfolio → the stream's empty-state face; the page's own
+    // behavior is pinned in tests/views-intervention-stream/).
     fireEvent.click(screen.getByRole('button', { name: '重要事件' }))
     expect(document.querySelector('[data-page="attention"]')).toBeTruthy()
-    expect(screen.getByText('重要事件 页建设中')).toBeTruthy()
+    expect(await screen.findByText('当前没有需要处理的事件')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(document.querySelector('[data-page="settings"]')).toBeTruthy()

@@ -22,16 +22,22 @@ import type {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  GetPortfolioInterventionsArgs,
+  GetPortfolioInterventionsResult,
   GetResearchPlaneStateResult,
   HubOverviewResult,
+  PortfolioInterventionItemDto,
   RescanArgs,
   RescanResult,
   SetHubArgs,
   SetHubResult,
   UnbindProjectArgs,
   UnbindProjectResult,
+  UpdateInterventionStateArgs,
+  UpdateInterventionStateResult,
 } from '../../shared/rpc-contracts.js'
 import { ResearchShell, type ResearchShellProps } from '../views/shell/index.js'
+import { investigateIntervention } from './remote/investigate.js'
 import { researchRpc } from './remote/mount.js'
 
 /**
@@ -124,6 +130,9 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
           ResearchShellProps,
           | 'loadPlaneState'
           | 'loadHubOverview'
+          | 'loadPortfolioInterventions'
+          | 'updateInterventionState'
+          | 'onInvestigate'
           | 'setHub'
           | 'bindProject'
           | 'rescan'
@@ -208,6 +217,50 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
               )
             }
             return result.value
+          },
+          // V2-T5.2 (design §7.2, §12 row 3): the 重要事件 stream fetch.
+          // ALWAYS the cross-project host-side call for every role — the
+          // 限本项目 narrowing (MANAGED/STANDALONE) is a CLIENT-SIDE filter
+          // the shell applies from the plane state (no new wire field).
+          // Same fold as loadPlaneState — the page's failure face responds
+          // on rejection; the view stays DSH-free.
+          loadPortfolioInterventions: async (args: GetPortfolioInterventionsArgs): Promise<GetPortfolioInterventionsResult> => {
+            const result = await researchRpc.getPortfolioInterventions(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: getPortfolioInterventions failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-T5.2 (design §7.2 动作行, the frozen §13 machine): the 状态
+          // 迁移 mutation. `projectId` always rides the item's own project
+          // (design §12.1 explicit multi-project routing, both roles).
+          // Same fold as loadHubOverview — the row's fault line responds on
+          // rejection; the page re-fetches on success (no local patch).
+          updateInterventionState: async (args: UpdateInterventionStateArgs): Promise<UpdateInterventionStateResult> => {
+            const result = await researchRpc.updateInterventionState(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: updateInterventionState failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-T5.2 (design §7.2 动作行): the 一键调查 channel (the V1
+          // investigation channel, OPEN cards only — NOT a §13 transition).
+          // The channel resolves its outcome {ok, message, sessionId?};
+          // ok:false carries the structured error text (the row's fault
+          // line renders it verbatim) → folded into a rejection with the
+          // same text; ok:true resolves the success text (it carries the
+          // launched investigator session id — the transient 输出口径 the
+          // row shows). The view never sees the outcome shape.
+          onInvestigate: async (item: PortfolioInterventionItemDto, question: string): Promise<string> => {
+            const outcome = await investigateIntervention({ sessionId, interventionId: item.id, question })
+            if (!outcome.ok) {
+              throw new Error(outcome.message)
+            }
+            return outcome.message
           },
         }),
       },

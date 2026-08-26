@@ -9,7 +9,7 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3180'
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /(?:smoke\..+|tc-e2e\.spec|tc-dsh-010\.spec|t42-onboarding-hub\.spec|t51-overview-drill\.spec|probe\.spec)\.ts$/,
+  testMatch: /(?:smoke\..+|tc-e2e\.spec|tc-dsh-010\.spec|t42-onboarding-hub\.spec|t51-overview-drill\.spec|t52-attention-migration\.spec|probe\.spec)\.ts$/,
   timeout: 180_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,

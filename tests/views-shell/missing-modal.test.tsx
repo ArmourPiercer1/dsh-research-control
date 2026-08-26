@@ -47,7 +47,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../graph/xyflow-mock.js'
 
 import { ResearchShell, type ResearchShellProps } from '../../src/client/views/shell/index.js'
-import type { GetResearchPlaneStateResult, HubOverviewResult } from '../../src/shared/rpc-contracts.js'
+import type { GetPortfolioInterventionsResult, GetResearchPlaneStateResult, HubOverviewResult, UpdateInterventionStateResult } from '../../src/shared/rpc-contracts.js'
 import { HUB_OVERVIEW_RESULT } from '../views-overview/fixtures.js'
 import {
   MISSING_ACKED_RESULT,
@@ -119,12 +119,27 @@ function renderMissing(
   // HUB session, so the HUB branch renders the overview under the modal —
   // the inert resolver resolves the single-project wire fixture).
   const loadHubOverview = vi.fn(async (): Promise<HubOverviewResult> => HUB_OVERVIEW_RESULT)
+  // T5.2: the shell requires the 重要事件 stream faces. The modal spec rides
+  // the 总览 entry (the stream is NOT mounted here), so inert EMPTY
+  // resolvers keep this file focused on the modal.
+  const loadPortfolioInterventions = vi.fn(async (): Promise<GetPortfolioInterventionsResult> => ({ items: [] }))
+  const updateInterventionState = vi.fn(async (): Promise<UpdateInterventionStateResult> => ({
+    interventionId: 'IV-1',
+    statusFrom: 'OPEN',
+    statusTo: 'PENDING',
+    closedAt: null,
+    resolutionNote: null,
+  }))
+  const onInvestigate = vi.fn(async (): Promise<string> => '调查已启动')
   render(
     <StrictMode>
       <ResearchShell
         sessionId="sess-hub"
         loadPlaneState={load as ResearchShellProps['loadPlaneState']}
         loadHubOverview={loadHubOverview}
+        loadPortfolioInterventions={loadPortfolioInterventions as ResearchShellProps['loadPortfolioInterventions']}
+        updateInterventionState={updateInterventionState as ResearchShellProps['updateInterventionState']}
+        onInvestigate={onInvestigate as ResearchShellProps['onInvestigate']}
         setHub={vi.fn(async () => ({ hubPath: '/workspace/hub', registryPath: '/workspace/hub/.research-control/registry.yaml' }))}
         bindProject={bindProject as ResearchShellProps['bindProject']}
         rescan={rescan as ResearchShellProps['rescan']}

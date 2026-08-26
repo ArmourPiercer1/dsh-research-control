@@ -1,0 +1,286 @@
+/**
+ * V2-T5.2 — 重要事件（纯干预流）styles (design §7.2 — 状态段过滤 + 卡片流
+ * + 按状态机的动作行).
+ *
+ * CSS Modules + the local `--rc-*` → host `--dsw-alias-*` token convention
+ * (DSH_ADAPTER §6), same as the shell/other view packages: meaningful text
+ * stays on the label-primary/secondary band (the T1.2 contrast gate — the
+ * label-tertiary band never carries meaning; faults use the dedicated
+ * state-error-primary token, no literal colors anywhere).
+ */
+.stream {
+  --rc-label-primary: var(--dsw-alias-label-primary, #1d1d1f);
+  --rc-label-secondary: var(--dsw-alias-label-secondary, #55555a);
+  --rc-bg-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --rc-bg-layer-2: var(--dsw-alias-bg-layer-2, #f5f5f7);
+  --rc-border-l1: var(--dsw-alias-border-l1, #d9d9de);
+  --rc-border-l2: var(--dsw-alias-border-l2, #c8c8ce);
+  --rc-error-primary: var(--dsw-alias-state-error-primary, #ff3b30);
+  --rc-interactive-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --rc-interactive-pressed: var(--dsw-alias-interactive-bg-primary, rgba(0, 0, 0, 0.08));
+  --rc-font-family: var(--dsw-font-family, system-ui, -apple-system, sans-serif);
+  --rc-font-xs: var(--dsw-font-xs-13, 13px);
+  --rc-font-xxs: var(--dsw-font-xxs-12, 12px);
+
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+  background: var(--rc-bg-layer-1);
+}
+
+.statusLine {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+.faultLine {
+  margin: 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xs);
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.refreshButton {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-primary);
+  cursor: pointer;
+}
+
+.refreshButton:hover:enabled {
+  background: var(--rc-interactive-hover);
+}
+
+.refreshFault {
+  margin: 4px 0 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+  word-break: break-word;
+}
+
+/* 状态段过滤 (design §7.2): 待处理 / 待确认 / 已关闭▾ — the pressed
+   segment (aria-pressed) carries the stronger interactive background. */
+.segments {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.segment {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  cursor: pointer;
+}
+
+.segment:hover:enabled {
+  background: var(--rc-interactive-hover);
+}
+
+.segment[aria-pressed='true'] {
+  background: var(--rc-interactive-pressed);
+  border-color: var(--rc-label-secondary);
+  font-weight: 600;
+}
+
+/* 卡片流 (design §7.2): one card per intervention, OPEN group first then
+   PENDING (组内时间倒序 — the host's order, preserved). */
+.cards {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.card {
+  padding: 10px 14px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-1);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  color: var(--rc-label-primary);
+  word-break: break-word;
+}
+
+.cardIcon {
+  margin-right: 4px;
+}
+
+/* 项目标签 (中枢模式 only, design §7.2: 可点跳转 — the item's project
+   console; the project-role stream never renders it). */
+.projectTag {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  font-weight: 500;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+  cursor: pointer;
+}
+
+.projectTag:hover {
+  background: var(--rc-interactive-hover);
+  color: var(--rc-label-primary);
+}
+
+.cardMeta {
+  margin: 4px 0 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 来源徽标 (design §7.2 卡片字段 — carries meaning → the secondary band,
+   never the low-contrast tertiary band). */
+.originBadge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--rc-border-l1);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+}
+
+/* 涉及工作流 chips (可点 → 钻取: HUB 进该项目, 项目角色跳总览). */
+.wsChip {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--rc-border-l2);
+  background: transparent;
+  color: var(--rc-label-secondary);
+  cursor: pointer;
+}
+
+.wsChip:hover {
+  background: var(--rc-interactive-hover);
+  color: var(--rc-label-primary);
+}
+
+/* 动作行 (design §7.2: 按状态机, 每卡最多 3 个动作 + 输入框). */
+.controls {
+  margin: 8px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.rowInput {
+  flex: 1 1 220px;
+  min-width: 160px;
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+}
+
+.rowInput::placeholder {
+  color: var(--rc-label-secondary);
+}
+
+.button {
+  font: inherit;
+  font-size: var(--rc-font-xxs);
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l2);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-primary);
+  cursor: pointer;
+}
+
+.button:hover:enabled {
+  background: var(--rc-interactive-hover);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.rowFault {
+  margin: 6px 0 0;
+  color: var(--rc-error-primary);
+  font-size: var(--rc-font-xxs);
+  word-break: break-word;
+}
+
+/* 一键调查 success text (carries the launched session id — the transient
+   输出口径; meaning → secondary band). */
+.investigatedLine {
+  margin: 6px 0 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+  word-break: break-word;
+}
+
+/* 空态 (design §7.2): the dashed border marks the no-events state. */
+.emptyState {
+  margin: 10px 0 0;
+  padding: 18px 14px;
+  border: 1px dashed var(--rc-border-l2);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+}
+
+.emptyState .button {
+  margin-top: 10px;
+}
+
+/* 已关闭段 (folded by default — rendered only while expanded). */
+.closedSection {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rc-border-l1);
+}
+
+.closedHeading {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  color: var(--rc-label-primary);
+}
+
+.closedSection .cards {
+  margin-top: 8px;
+}
+
+.closedSection .refreshFault,
+.closedSection .emptyTitle {
+  margin-top: 8px;
+}

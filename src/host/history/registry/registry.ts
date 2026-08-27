@@ -46,22 +46,54 @@ import type {
 const EVENTS_FILE = 'history-events.schema.json'
 const COMMON_FILE = 'common.schema.json'
 
-/** Minimal POSIX join with `.`/`..` resolution for the two-file layout (kernel stays platform-free, cf. WP-1.1 pjoin). */
+/**
+ * Minimal path join with `.`/`..` resolution for the two-file layout
+ * (kernel stays platform-free, cf. WP-1.1 `pjoin`). Separator-aware for
+ * BOTH `/` and `\` with the same absolute-prefix recognition (POSIX `/`,
+ * Windows drive `C:`, UNC `//`) and forward-slash output normalization —
+ * the host hands native roots (a Windows `C:\…`), and the injected reader
+ * maps the normalized output onto the host FS (node fs accepts `/`).
+ */
 function joinPath(base: string, ...segments: string[]): string {
-  const absolute = base.startsWith('/')
+  // absolute-prefix on the FIRST segment: POSIX `/`, drive `C:` (+sep or
+  // bare), UNC `\\…`/`//…`. (Same recognition as the frozen
+  // ABSOLUTE_PATH_PATTERN twins.) Drive-relative (`C:foo`) is not a root.
+  let prefix = ''
+  let firstBody = base
+  // UNC first: `//…` also starts with `/` (Windows UNC forward-slash form).
+  if (base.startsWith('\\\\') || base.startsWith('//')) {
+    prefix = '//'
+    firstBody = base.slice(2)
+  } else if (base.startsWith('/')) {
+    prefix = '/'
+    firstBody = base.slice(1)
+  } else {
+    const drive = /^([A-Za-z]:)([\\/])(.*)$/.exec(base)
+    if (drive) {
+      prefix = drive[1]!
+      firstBody = drive[3]!
+    } else if (/^[A-Za-z]:$/.test(base)) {
+      prefix = base
+      firstBody = ''
+    }
+  }
+  const absolute = prefix !== ''
   const out: string[] = []
-  for (const segment of [base, ...segments]) {
-    for (const part of segment.split('/')) {
+  const pushParts = (raw: string): void => {
+    for (const part of raw.split(/[\\/]/)) {
       if (part === '' || part === '.') continue
       if (part === '..') {
         if (out.length > 0 && out[out.length - 1] !== '..') out.pop()
-        else out.push('..')
+        else if (!absolute) out.push('..')
         continue
       }
       out.push(part)
     }
   }
-  return (absolute ? '/' : '') + out.join('/')
+  pushParts(firstBody)
+  for (const segment of segments) pushParts(segment)
+  if (out.length === 0) return prefix.endsWith(':') ? `${prefix}/` : prefix
+  return prefix.endsWith(':') ? `${prefix}/${out.join('/')}` : `${prefix}${out.join('/')}`
 }
 
 interface RawSchema {

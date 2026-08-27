@@ -8,7 +8,7 @@
  * dir (the frozen bytes stay byte-identical — asserted at the end).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -180,6 +180,55 @@ describe('WP-2.2 — registry load failures (SCHEMA_LOAD / CATALOG_SYNC)', () =>
     const registry = loadHistoryEventRegistry(makeReader(readerFiles), dir)
     expect(registry.isUsable).toBe(false)
     expect(registry.loadErrors.some((e) => e.code === 'CATALOG_SYNC' && e.message.includes('TASK_EXECUTION_CHANGED'))).toBe(true)
+  })
+})
+
+/**
+ * The user's Windows failure (shared with the declarative loader — see
+ * tests/loader/real-schema.test.ts): the host hands the NATIVE schema root
+ * (`C:\…\schema\history`), and the registry's join must preserve the drive
+ * while resolving `..` up to `common.schema.json`. The old POSIX-only
+ * join collapsed the backslash root into a bare relative filename →
+ * SCHEMA_LOAD on every Windows startup.
+ *
+ * A Windows path is a legal POSIX string: chdir into scratch and build the
+ * literal `C:/…` tree — the kernel's normalized forward-slash output
+ * resolves through the REAL fs exactly as it does on Windows.
+ */
+describe('WP-2.2 — registry loading from a Windows-native drive root (real fs, `..` resolution)', () => {
+  const MIRROR_ROOT = 'C:/Users/user/.dsh/profiles/web/node_modules/dsh-research-control/schema'
+  const WIN_HISTORY_DIR = 'C:\\Users\\user\\.dsh\\profiles\\web\\node_modules\\dsh-research-control\\schema\\history'
+
+  let scratch: string
+  let previousCwd: string
+
+  beforeAll(() => {
+    scratch = mkdtempSync(join(tmpdir(), 'wp22-win-root-'))
+    previousCwd = process.cwd()
+    process.chdir(scratch)
+    const historyDir = join(MIRROR_ROOT, 'history')
+    mkdirSync(historyDir, { recursive: true })
+    for (const name of SCHEMA_FILES) {
+      writeFileSync(join(historyDir, name), readFileSync(join(WR_HISTORY_SCHEMA_DIR, name), 'utf8'))
+    }
+    writeFileSync(join(MIRROR_ROOT, 'common.schema.json'), readFileSync(join(WR_ROOT, 'schema', 'common.schema.json'), 'utf8'))
+  })
+
+  afterAll(() => {
+    process.chdir(previousCwd)
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
+  it('drive-root schemaDir: events + common load through `..`, registry usable, zero load errors', () => {
+    const registry = loadHistoryEventRegistry(
+      {
+        readFile: (path: string): string | null =>
+          existsSync(path) && statSync(path).isFile() ? readFileSync(path, 'utf8') : null,
+      },
+      WIN_HISTORY_DIR,
+    )
+    expect(registry.loadErrors, JSON.stringify(registry.loadErrors)).toEqual([])
+    expect(registry.isUsable).toBe(true)
   })
 })
 

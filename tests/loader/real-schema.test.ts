@@ -9,13 +9,13 @@
  * on-disk `.research/` tree in a temp dir.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
-import type { DirEntry, ResearchFileReader, ResearchTree } from '../../src/host/domain/loader/index.js'
-import { loadResearchTree } from '../../src/host/domain/loader/index.js'
+import type { DirEntry, ResearchFileReader, ResearchLoadError, ResearchTree } from '../../src/host/domain/loader/index.js'
+import { loadResearchTree, loadSchemas } from '../../src/host/domain/loader/index.js'
 import { baseTreeFiles, WR_SCHEMA_DIR } from './fixtures.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -154,3 +154,68 @@ function writeTree(root: string, files: Record<string, string>): void {
     writeFileSync(p, content, 'utf8')
   }
 }
+
+/**
+ * The user's Windows failure: the DSH host hands NATIVE workspace paths
+ * (drive roots like `D:\Projects\…` / `C:\Users\…`), and the schema root is
+ * resolved to a drive path too. The kernel join must (a) preserve the
+ * drive root and (b) resolve `schemaDir/..` → `common.schema.json` — the
+ * old POSIX-only `pjoin` collapsed `C:\…\schema\declarative` + `..` into a
+ * bare `common.schema.json` (drive lost), so the frozen set looked "not
+ * found" on every Windows startup.
+ *
+ * A Windows path is a LEGAL POSIX string, so we exercise the real fs
+ * pipeline on this runner too: chdir into a scratch dir and build the
+ * literal `C:/…` tree there — the kernel's normalized forward-slash output
+ * resolves through the real reader exactly as it does on Windows.
+ */
+describe('WP-1.1 loader — Windows-native drive root (real fs, `..` resolution)', () => {
+  // The on-disk (scratch-relative) mirror of `C:\…\schema\…`.
+  const MIRROR_ROOT = 'C:/Users/user/.dsh/profiles/web/node_modules/dsh-research-control/schema'
+  // The NATIVE Windows schemaDir the host would hand in (backslashes).
+  const WIN_SCHEMA_DIR = 'C:\\Users\\user\\.dsh\\profiles\\web\\node_modules\\dsh-research-control\\schema\\declarative'
+
+  class RelFsReader implements ResearchFileReader {
+    readFile(path: string): string | null {
+      if (!existsSync(path) || !statSync(path).isFile()) return null
+      return readFileSync(path, 'utf8')
+    }
+    readDir(path: string): DirEntry[] | null {
+      if (!existsSync(path) || !statSync(path).isDirectory()) return null
+      return readdirSync(path, { withFileTypes: true }).map((e) => ({
+        name: e.name,
+        kind: e.isDirectory() ? ('directory' as const) : ('file' as const),
+      }))
+    }
+  }
+
+  const reader = new RelFsReader()
+  let scratch: string
+  let previousCwd: string
+
+  beforeAll(() => {
+    scratch = mkdtempSync(join(tmpdir(), 'wp11-win-root-'))
+    previousCwd = process.cwd()
+    process.chdir(scratch)
+    // mirror the frozen schema root under a literal `C:/…` dir
+    const mirrorDeclarative = join(MIRROR_ROOT, 'declarative')
+    mkdirSync(mirrorDeclarative, { recursive: true })
+    for (const f of readdirSync(WR_SCHEMA_DIR)) {
+      if (f.endsWith('.schema.json')) writeFileSync(join(mirrorDeclarative, f), readFileSync(join(WR_SCHEMA_DIR, f), 'utf8'))
+    }
+    writeFileSync(join(MIRROR_ROOT, 'common.schema.json'), readFileSync(join(dirname(WR_SCHEMA_DIR), 'common.schema.json'), 'utf8'))
+  })
+
+  afterAll(() => {
+    process.chdir(previousCwd)
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
+  it('drive-root schemaDir: common.schema.json resolves via `..` and all 11 validators compile', () => {
+    const errors: ResearchLoadError[] = []
+    const { validators, commonFailed } = loadSchemas(reader, WIN_SCHEMA_DIR, errors)
+    expect(errors, `unexpected schema errors: ${JSON.stringify(errors)}`).toEqual([])
+    expect(commonFailed).toBe(false)
+    expect(validators.size).toBe(11)
+  })
+})

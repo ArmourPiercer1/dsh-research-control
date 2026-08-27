@@ -258,6 +258,15 @@
   color: var(--rc-label-primary);
 }
 
+/* The 空态 hint line (carries MEANING — where the 一键调查 entry
+   appears once a 待处理 event exists: the label-secondary band, the
+   T1.2 gate; never the tertiary band). */
+.emptyHint {
+  margin: 8px 0 0;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+
 .emptyState .button {
   margin-top: 10px;
 }

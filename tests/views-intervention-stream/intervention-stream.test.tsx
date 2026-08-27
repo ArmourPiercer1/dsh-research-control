@@ -486,6 +486,10 @@ describe('InterventionStreamPage — 空态', () => {
     await awaitReady()
 
     expect(screen.getByText('当前没有需要处理的事件')).toBeTruthy()
+    // 空态提示（一键调查入口在哪 — 「待处理」事件卡片上）: 随空态一并呈现。
+    expect(
+      screen.getByText(/出现「待处理」事件后.*「一键调查」入口/),
+    ).toBeTruthy()
     const button = screen.getByRole('button', { name: '去看工作流进展' })
     fireEvent.click(button)
     expect(onGoToWorkstreams).toHaveBeenCalledTimes(1)

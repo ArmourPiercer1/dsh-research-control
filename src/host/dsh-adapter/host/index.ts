@@ -735,8 +735,18 @@ export class ResearchControlService extends TypertRemoteService {
         // without a command registry (non-web profile) is warned loud:
         // every launch/save attempt still fails loud at use time (IVL_*)
         // — no silent downgrade.
-        const disposeCommand = registerInvestigationCommand(this.ctx, this.#wiring)
-        const disposeAnalysisCommands = registerAnalysisCommands(this.ctx, this.#wiring)
+        // LIVE WIRING (the re-init fix): the handlers receive the
+        // `() => this.#wiring` getter, NOT the boot-time wiring VALUE —
+        // a plane-mutation re-init (`#reinitResearchPlane` after
+        // setHub / bindProject / unbindProject / restoreProject / rescan)
+        // closes the boot-time wiring and swaps a fresh one in place;
+        // a value-capturing handler would then execute on the CLOSED
+        // second connections (the 「database is not open」 failure
+        // class). Each invocation re-resolves the current wiring;
+        // `undefined` (the plane later left the single-project shape)
+        // → the channel's clear no-wiring error text.
+        const disposeCommand = registerInvestigationCommand(this.ctx, () => this.#wiring)
+        const disposeAnalysisCommands = registerAnalysisCommands(this.ctx, () => this.#wiring)
         if (disposeCommand === null || disposeAnalysisCommands === null) {
           console.warn(
             '[research-control] the host exposes no command registry (non-web profile) — ' +
@@ -1089,8 +1099,22 @@ export class ResearchControlService extends TypertRemoteService {
    * sole wiring (e.g. a rescan on a single-project plane) leaves the
    * registered tool closures on the closed old wiring while
    * `#runResearchTool` resolves the actor against the NEW `#wiring`
-   * (fail-loud at use time, no silent data path). Tool re-registration
-   * is a T3.x scope, like the tools' multi-project face.
+   * (fail-loud at use time, no silent data path — the db-adapter's
+   * closed-connection guard turns such a call into the actionable
+   * `WIRING_CLOSED` message instead of a raw driver error). Tool
+   * re-registration is a T3.x scope, like the tools' multi-project
+   * face.
+   *
+   * The user-facing COMMAND channels are NOT on this stale side: the
+   * one-click (`/research-investigate`) and the three analysis
+   * data-face commands register ONCE too, but their handlers re-resolve
+   * the wiring LIVE on every invocation (the `() => this.#wiring`
+   * getter — the same discipline as `requireRpc` / `#runResearchTool`),
+   * so a re-init NEVER strands them on the closed old wiring: the
+   * single-project plane keeps them working against the fresh wiring,
+   * and a plane that leaves the single-project shape fails loud with
+   * the channel's no-wiring text (investigate-command.ts /
+   * analysis-commands.ts).
    */
   async #reinitResearchPlane(adapter: HostSessionAdapter, schemaRoot: string): Promise<void> {
     const fresh = this.#initResearchPlane(adapter, schemaRoot)

@@ -9,7 +9,9 @@
  *  - handler 全链（结构假 wiring — 真 HostWiring 类型面, 零 DSH）:
  *    成功（launch 恰好 1 次, 入参 = record + question + repoRoot 逐字）/
  *    语法错（error 结果带语法提示）/ intervention 不存在 / IVL_ 结构化
- *    错误映射（code 逐字透出）/ 意外错误兜底映射;
+ *    错误映射（code 逐字透出）/ 意外错误兜底映射 / 无 wiring（空平面/
+ *    多项目平面 ⇒ 清晰单源错误文本）/ wiring 按调用实时解析（re-init
+ *    换装场景 — boot wiring 关闭后新 wiring 接管, 绝不走已关闭连接）;
  *  - 注册面: 命令名/描述/hint 逐字钉 + disposer 回传; 无命令注册表
  *    部署（非 web profile）⇒ null（调用方大声点名, 不静默降级）。
  */
@@ -25,6 +27,7 @@ import {
   parseInvestigationSessionId,
 } from '../src/shared/investigation-command.js'
 import {
+  INVESTIGATION_NO_WIRING_TEXT,
   makeInvestigationCommandHandler,
   registerInvestigationCommand,
   type CommandRegistrarLike,
@@ -132,7 +135,7 @@ describe('共享一键调查语法（单源 — 宿主解析 / 客户端构建�
 describe('一键调查命令 handler（真链 — 结构假 wiring）', () => {
   it('成功: launch 恰好 1 次, 入参 = record + question + repoRoot 逐字', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeInvestigationCommandHandler(wiring)
+    const handler = makeInvestigationCommandHandler(() => wiring)
     const result = await handler({ rawInput: 'IV-1 为什么 PF 在堆积?' })
     expect(result).toEqual({ kind: 'success', text: INVESTIGATION_SUCCESS_TEXT('investigator-live-1') })
     expect(fake.launchCalls).toHaveLength(1)
@@ -143,7 +146,7 @@ describe('一键调查命令 handler（真链 — 结构假 wiring）', () => {
 
   it('语法错: error 结果带语法提示（不触达 launch 端口）', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeInvestigationCommandHandler(wiring)
+    const handler = makeInvestigationCommandHandler(() => wiring)
     const result = await handler({ rawInput: '这不是一个 IV id' })
     expect(result.kind).toBe('error')
     if (result.kind === 'error') {
@@ -155,7 +158,7 @@ describe('一键调查命令 handler（真链 — 结构假 wiring）', () => {
 
   it('intervention 不存在: error 结果点名 id（查 store 真源, 无 client echo）', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeInvestigationCommandHandler(wiring)
+    const handler = makeInvestigationCommandHandler(() => wiring)
     const result = await handler({ rawInput: 'IV-99 问题' })
     expect(result.kind).toBe('error')
     if (result.kind === 'error') expect(result.text).toContain('IV-99')
@@ -169,7 +172,7 @@ describe('一键调查命令 handler（真链 — 结构假 wiring）', () => {
         message: '/permission read-only 未注册 — 无只读化不降级启动',
       }),
     })
-    const handler = makeInvestigationCommandHandler(wiring)
+    const handler = makeInvestigationCommandHandler(() => wiring)
     const result = await handler({ rawInput: 'IV-1 q' })
     expect(result).toEqual({
       kind: 'error',
@@ -179,12 +182,42 @@ describe('一键调查命令 handler（真链 — 结构假 wiring）', () => {
 
   it('意外错误兜底映射: [IVL_LAUNCH] + 消息（无裸错泄露）', async () => {
     const { wiring } = makeWiringFake({ launchError: new Error('socket exploded') })
-    const handler = makeInvestigationCommandHandler(wiring)
+    const handler = makeInvestigationCommandHandler(() => wiring)
     const result = await handler({ rawInput: 'IV-1 q' })
     expect(result.kind).toBe('error')
     if (result.kind === 'error') {
       expect(result.text).toContain('[IVL_LAUNCH]')
       expect(result.text).toContain('socket exploded')
+    }
+  })
+
+  it('无 wiring（空平面/多项目平面）⇒ 清晰单源错误文本（不解析输入, 不触碰连接）', async () => {
+    const handler = makeInvestigationCommandHandler(() => undefined)
+    const result = await handler({ rawInput: 'IV-1 q' })
+    expect(result.kind).toBe('error')
+    if (result.kind === 'error') {
+      expect(result.text).toBe(INVESTIGATION_NO_WIRING_TEXT)
+    }
+  })
+
+  it('wiring 按调用实时解析（re-init 换装场景: boot wiring 已关闭, 新 wiring 接管）', async () => {
+    const boot = makeWiringFake()
+    let current: HostWiring | undefined = boot.wiring
+    const handler = makeInvestigationCommandHandler(() => current)
+    expect((await handler({ rawInput: 'IV-1 q' })).kind).toBe('success')
+    // 模拟 #reinitResearchPlane: boot wiring 被 close + 换新 wiring 原地换装
+    const fresh = makeWiringFake()
+    current = fresh.wiring
+    expect((await handler({ rawInput: 'IV-7 q' })).kind).toBe('success')
+    expect(boot.fake.launchCalls).toHaveLength(1)
+    expect(fresh.fake.launchCalls).toHaveLength(1)
+    expect(fresh.fake.launchCalls[0].record.id).toBe('IV-7')
+    // 再模拟换装后退回空平面: 下一次调用即清晰报错（绝不再走已关闭连接）
+    current = undefined
+    const after = await handler({ rawInput: 'IV-1 q' })
+    expect(after.kind).toBe('error')
+    if (after.kind === 'error') {
+      expect(after.text).toBe(INVESTIGATION_NO_WIRING_TEXT)
     }
   })
 })
@@ -203,7 +236,7 @@ describe('一键调查命令注册面', () => {
     }
     const ctx = { get: (name: string) => (name === 'commands' ? registrar : undefined) } as never
     const { wiring } = makeWiringFake()
-    const dispose = registerInvestigationCommand(ctx, wiring)
+    const dispose = registerInvestigationCommand(ctx, () => wiring)
     expect(dispose).not.toBeNull()
     expect(registrations).toEqual([
       {
@@ -219,6 +252,6 @@ describe('一键调查命令注册面', () => {
   it('无命令注册表（非 web profile）⇒ null（调用方大声点名, 不静默降级）', () => {
     const ctx = { get: () => undefined } as never
     const { wiring } = makeWiringFake()
-    expect(registerInvestigationCommand(ctx, wiring)).toBeNull()
+    expect(registerInvestigationCommand(ctx, () => wiring)).toBeNull()
   })
 })

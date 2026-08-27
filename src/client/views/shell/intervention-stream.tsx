@@ -586,6 +586,9 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
           {streamEmpty ? (
             <>
               <p className={styles.emptyTitle}>当前没有需要处理的事件</p>
+              <p className={styles.emptyHint} data-attention-investigate-hint>
+                出现「待处理」事件后, 其卡片上会出现「一键调查」入口 — 调查员页的专职调查会话由它启动
+              </p>
               {onGoToWorkstreams !== undefined && (
                 <button type="button" className={styles.button} data-attention-go-workstreams onClick={onGoToWorkstreams}>
                   去看工作流进展

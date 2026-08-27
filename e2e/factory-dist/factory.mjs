@@ -19830,8 +19830,24 @@ function makeCollectingLogger() {
 */
 function adaptDatabaseSync(db) {
 	if (db === null || typeof db !== "object") throw new TypeError("adaptDatabaseSync: db must be a DatabaseSync");
+	/**
+	* The CLOSED-CONNECTION guard（the 「database is not open」 fix）:
+	* a statement executed on a CLOSED `DatabaseSync` handle raises a raw
+	* driver error far from its cause — the wiring was re-initialized or
+	* torn down out from under a stale reference. Every operation
+	* pre-checks `isOpen` and fails loud with the actionable
+	* `WIRING_CLOSED` message INSTEAD of letting the driver error surface
+	* (the store/service layers pass the message through verbatim, so the
+	* user sees WHY + the remedy, not a SQLite internal). The guard sits
+	* BEFORE the try so its own structured error is not re-wrapped by
+	* {@link wrap}.
+	*/
+	const assertOpen = (operation, sql) => {
+		if (db.isOpen === false) throw new HostWiringError("WIRING_CLOSED", `the wiring second connection was closed before ${operation} (the research plane was re-initialized or torn down — a live console re-resolves the wiring on its next call; reload the console if this error persists) (statement: ${sql})`);
+	};
 	return {
 		exec(sql) {
+			assertOpen("exec", sql);
 			try {
 				db.exec(sql);
 			} catch (cause) {
@@ -19839,6 +19855,7 @@ function adaptDatabaseSync(db) {
 			}
 		},
 		run(sql, ...params) {
+			assertOpen("run", sql);
 			try {
 				return Number(db.prepare(sql).run(...params).changes);
 			} catch (cause) {
@@ -19846,6 +19863,7 @@ function adaptDatabaseSync(db) {
 			}
 		},
 		get(sql, ...params) {
+			assertOpen("get", sql);
 			try {
 				return db.prepare(sql).get(...params);
 			} catch (cause) {
@@ -19853,6 +19871,7 @@ function adaptDatabaseSync(db) {
 			}
 		},
 		all(sql, ...params) {
+			assertOpen("all", sql);
 			try {
 				return db.prepare(sql).all(...params);
 			} catch (cause) {
@@ -19860,6 +19879,7 @@ function adaptDatabaseSync(db) {
 			}
 		},
 		transaction(work) {
+			assertOpen("BEGIN IMMEDIATE", "BEGIN IMMEDIATE");
 			try {
 				db.exec("BEGIN IMMEDIATE");
 			} catch (cause) {

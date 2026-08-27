@@ -127,15 +127,32 @@ function toTransientDto(snapshot: AnalysisTransientSnapshot): InvestigatorTransi
  * command.ts 的纯 handler + 注册 seam 分割）
  * ------------------------------------------------------------------ */
 
+/** The no-wiring error text（the analysis data-face channel of an empty
+ *  plane or a multi-project plane — the frozen command face carries no
+ *  projectId, so there is no unambiguous routing target; a
+ *  single-project plane resolves the sole wiring and this branch never
+ *  fires — 多项目命令路由面 is a T3.x design decision, the same §12.1
+ *  argument as the 一键调查 channel / the 11 tools）. */
+export const ANALYSIS_NO_WIRING_TEXT =
+  '研究平面当前没有可路由的唯一项目 wiring（空平面或多项目平面）— 单项目平面下此通道自动恢复; 多项目命令路由面是 T3.x 设计项'
+
 /**
  * The transient-read handler（`/research-transient-read <会话id>`）.
- * @param wiring - the live host wiring（`analysisTransient` 读面 —
- *  全读零写入, INV-PERM-3 类型面）。
+ * @param getWiring - the LIVE resolver of the sole-project wiring (the
+ *  host service's `#wiring` field — the plane-mutation RE-INIT closes
+ *  the boot-time wiring and swaps a fresh one in place; the getter
+ *  re-resolves on every invocation, never a closed handle; see
+ *  `investigate-command.ts` `makeInvestigationCommandHandler` for the
+ *  full argument).
  */
 export function makeTransientReadHandler(
-  wiring: HostWiring,
+  getWiring: () => HostWiring | undefined,
 ): (invocation: { readonly rawInput: string }) => Promise<CommandOutcome> {
   return async (invocation): Promise<CommandOutcome> => {
+    const wiring = getWiring()
+    if (wiring === undefined) {
+      return { kind: 'error', text: ANALYSIS_NO_WIRING_TEXT }
+    }
     const sessionId = parseTransientReadInput(invocation.rawInput)
     if (sessionId === null) {
       return { kind: 'error', text: `语法: ${ANALYSIS_TRANSIENT_READ_COMMAND_NAME} <会话id>（语法全表: ${analysisCommandGrammar}）` }
@@ -151,12 +168,17 @@ export function makeTransientReadHandler(
 
 /**
  * The analysis-list handler（`/research-analysis-list` — 无参）。
- * @param wiring - the live host wiring（`analysisService` 查询面）。
+ * @param getWiring - the LIVE sole-project wiring resolver（同
+ *  {@link makeTransientReadHandler} — RE-INIT 后绝不再触碰已关闭连接）.
  */
 export function makeAnalysisListHandler(
-  wiring: HostWiring,
+  getWiring: () => HostWiring | undefined,
 ): (invocation: { readonly rawInput: string }) => Promise<CommandOutcome> {
   return async (): Promise<CommandOutcome> => {
+    const wiring = getWiring()
+    if (wiring === undefined) {
+      return { kind: 'error', text: ANALYSIS_NO_WIRING_TEXT }
+    }
     try {
       const rows = wiring.analysisService.listAnalysisRecords()
       return { kind: 'success', text: JSON.stringify([...rows].map(toRecordDto)) }
@@ -170,12 +192,17 @@ export function makeAnalysisListHandler(
  * The analysis-save handler（`/research-analysis-save <单行JSON>` —
  * 用户显式保存, INV-PERM-3 落地面; actor = `USER_ACTOR` — 通道层用户
  * 语义见模块头, 宿主 `assertUserActor` 门是第二道保险）。
- * @param wiring - the live host wiring（`analysisService` 保存面）。
+ * @param getWiring - the LIVE sole-project wiring resolver（同
+ *  {@link makeTransientReadHandler} — RE-INIT 后绝不再触碰已关闭连接）.
  */
 export function makeAnalysisSaveHandler(
-  wiring: HostWiring,
+  getWiring: () => HostWiring | undefined,
 ): (invocation: { readonly rawInput: string }) => Promise<CommandOutcome> {
   return async (invocation): Promise<CommandOutcome> => {
+    const wiring = getWiring()
+    if (wiring === undefined) {
+      return { kind: 'error', text: ANALYSIS_NO_WIRING_TEXT }
+    }
     let args: SaveAnalysisRecordArgs | null
     try {
       args = parseAnalysisSaveInput(invocation.rawInput)
@@ -231,12 +258,25 @@ function mapAnalysisFailure(cause: unknown, what: string): CommandOutcome {
  * disposer 逆序回滚; 无命令注册表的部署返回 `null`, 调用方大声点名 —
  * 数据面随一键入口同批降级, 不静默）。
  *
+ * The registration happens ONCE at `[Service.init]` (when the plane
+ * carries the sole wiring); each handler re-resolves the wiring LIVE on
+ * every invocation, so a later plane-mutation RE-INIT (which closes the
+ * boot-time wiring and swaps a fresh one in place) never strands the
+ * data face on a closed connection — the user-visible failure class
+ * behind the 「分析数据面不可用: … database is not open」 report is
+ * eliminated at the source; a plane that later leaves the single-project
+ * shape fails loud with {@link ANALYSIS_NO_WIRING_TEXT}.
+ *
  * @param ctx - the host context（`ctx.get('commands')` 结构面）。
- * @param wiring - the live host wiring.
+ * @param getWiring - the live sole-project wiring resolver（见
+ *  {@link makeTransientReadHandler}）.
  * @returns the disposer, or null（no command registry — non-web
  *  profile）.
  */
-export function registerAnalysisCommands(ctx: Context, wiring: HostWiring): (() => void) | null {
+export function registerAnalysisCommands(
+  ctx: Context,
+  getWiring: () => HostWiring | undefined,
+): (() => void) | null {
   const registrar = (ctx as unknown as { get: (name: string) => unknown }).get('commands') as
     | CommandRegistrarLike
     | undefined
@@ -246,12 +286,12 @@ export function registerAnalysisCommands(ctx: Context, wiring: HostWiring): (() 
     name: ANALYSIS_TRANSIENT_READ_COMMAND_NAME,
     description: '读取一个 investigator 会话的 transient 分析快照（只读 — 零 operational 表写入; 参数: 会话 id）',
     input: { hint: '<会话id>' },
-    handler: makeTransientReadHandler(wiring),
+    handler: makeTransientReadHandler(getWiring),
   })
   const disposeList = registrar.register({
     name: ANALYSIS_LIST_COMMAND_NAME,
     description: '列出本项目已保存的 AnalysisRecord（用户显式保存的不可变记录 — createdAt 升序）',
-    handler: makeAnalysisListHandler(wiring),
+    handler: makeAnalysisListHandler(getWiring),
   })
   const disposeSave = registrar.register({
     name: ANALYSIS_SAVE_COMMAND_NAME,
@@ -261,7 +301,7 @@ export function registerAnalysisCommands(ctx: Context, wiring: HostWiring): (() 
     // — 生命周期事件不带 args）。
     recordInput: false,
     input: { hint: '<单行JSON载荷>' },
-    handler: makeAnalysisSaveHandler(wiring),
+    handler: makeAnalysisSaveHandler(getWiring),
   })
   return () => {
     disposeTransient()

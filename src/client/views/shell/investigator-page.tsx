@@ -121,8 +121,8 @@ export interface InvestigatorPageProps {
  *  transcript viewer). */
 function guideCopy(role: InvestigatorPageProps['role']): string {
   return role === 'HUB'
-    ? '中枢工作区的会话是只读观察位。深度调查请用「一键调查」启动专职调查会话。'
-    : '调查员页只做调查管理 + 分析记录沉淀（完整转录由宿主会话界面承载）。深度调查请用「一键调查」启动专职调查会话。'
+    ? '中枢工作区的会话是只读观察位。深度调查请用「一键调查」启动专职调查会话（入口在「重要事件」的「待处理」事件卡片上）。'
+    : '调查员页只做调查管理 + 分析记录沉淀（完整转录由宿主会话界面承载）。深度调查请用「一键调查」启动专职调查会话（入口在「重要事件」的「待处理」事件卡片上）。'
 }
 
 /** The status-bar run label for a transient snapshot (the §1.4 词表;
@@ -370,7 +370,7 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
         </div>
       ) : (
         <p className={styles.unboundLine} data-investigator-unbound>
-          未绑定调查会话 — 在「重要事件」对一条待处理干预使用「一键调查」启动专职调查会话。
+          未绑定调查会话 — 在「重要事件」对一张「待处理」事件卡片使用「一键调查」启动专职调查会话（没有待处理事件时入口不出现）。
         </p>
       )}
 

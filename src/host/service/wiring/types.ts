@@ -36,6 +36,7 @@ import type { DshAgentLauncherAdapter } from '../investigator/index.js'
 export type HostWiringErrorCode =
   | 'WIRING_INPUT'
   | 'WIRING_INTEGRITY'
+  | 'WIRING_CLOSED'
   | 'WIRING_TREE'
   | 'WIRING_STORE'
   | 'WIRING_REGISTRY'

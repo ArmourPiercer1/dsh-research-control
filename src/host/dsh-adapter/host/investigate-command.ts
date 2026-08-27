@@ -86,18 +86,39 @@ export type CommandOutcome =
   | { readonly kind: 'success'; readonly text?: string }
   | { readonly kind: 'error'; readonly text: string }
 
+/** The no-wiring error text（the command channel of an empty plane or a
+ *  multi-project plane — the frozen command face carries no projectId, so
+ *  there is no unambiguous routing target; a single-project plane resolves
+ *  the sole wiring and this branch never fires — 多项目命令路由面 is a
+ *  T3.x design decision, the same §12.1 argument as the 11 tools）. */
+export const INVESTIGATION_NO_WIRING_TEXT =
+  '一键调查不可用: 研究平面当前没有可路由的唯一项目 wiring（空平面或多项目平面）— 单项目平面下此入口自动可用; 多项目命令路由面是 T3.x 设计项'
+
 /**
  * The command handler（exported for unit tests — the production entry
  * {@link registerInvestigationCommand} is a thin registration wrapper
  * over it, same split as the launcher's pure builder + adapter seam）.
  *
- * @param wiring - the live host wiring（the investigator + interventions
- *  + repoRoot face — the REAL `HostWiring` type, no mirror）.
+ * @param getWiring - the LIVE resolver of the sole-project wiring (the
+ *  host service's `#wiring` field). The plane-mutation RE-INIT
+ *  (`#reinitResearchPlane` after setHub / bindProject / unbindProject /
+ *  restoreProject / rescan) closes the boot-time wiring and swaps a
+ *  fresh one IN PLACE — a handler capturing the boot-time VALUE would
+ *  execute its reads/launches on the CLOSED second connections (a raw
+ *  driver "database is not open" far from the cause). The getter
+ *  re-resolves on EVERY invocation (the same live-field discipline as
+ *  `requireRpc` / `#runResearchTool`); `undefined` (empty / multi-project
+ *  plane) → the clear {@link INVESTIGATION_NO_WIRING_TEXT} error result,
+ *  never a closed-handle failure.
  */
 export function makeInvestigationCommandHandler(
-  wiring: HostWiring,
+  getWiring: () => HostWiring | undefined,
 ): (invocation: { readonly rawInput: string }) => Promise<CommandOutcome> {
   return async (invocation): Promise<CommandOutcome> => {
+    const wiring = getWiring()
+    if (wiring === undefined) {
+      return { kind: 'error', text: INVESTIGATION_NO_WIRING_TEXT }
+    }
     const parsed = parseInvestigationInput(invocation.rawInput)
     if (parsed === null) {
       return {
@@ -137,12 +158,26 @@ export function makeInvestigationCommandHandler(
  * command registry（the disposer is returned — the caller registers it
  * with `ctx.effect`, the registration-as-effect convention）.
  *
+ * The registration happens ONCE at `[Service.init]` (when the plane
+ * carries the sole wiring); the handler re-resolves the wiring LIVE on
+ * every invocation, so a later plane-mutation RE-INIT (which closes the
+ * boot-time wiring and swaps a fresh one in place) never strands the
+ * command on a closed connection — and a plane that later leaves the
+ * single-project shape fails loud with {@link INVESTIGATION_NO_WIRING_TEXT}
+ * instead of a closed-handle driver error.
+ *
+ * @param ctx - the host context（`ctx.get('commands')` 结构面）.
+ * @param getWiring - the live sole-project wiring resolver（见
+ *  {@link makeInvestigationCommandHandler}）.
  * @returns the registration disposer, or `null` when the deployment
  *  exposes no command registry（a non-web profile — the caller logs the
  *  gap loud; the launch capability itself is untouched and still fails
  *  loud `IVL_PERMISSION` on use — no silent downgrade）.
  */
-export function registerInvestigationCommand(ctx: Context, wiring: HostWiring): (() => void) | null {
+export function registerInvestigationCommand(
+  ctx: Context,
+  getWiring: () => HostWiring | undefined,
+): (() => void) | null {
   const registrar = (ctx as unknown as { get: (name: string) => unknown }).get('commands') as
     | CommandRegistrarLike
     | undefined
@@ -151,6 +186,6 @@ export function registerInvestigationCommand(ctx: Context, wiring: HostWiring): 
     name: INVESTIGATION_COMMAND_NAME,
     description: '对一个 Intervention 启动只读 Investigator 调查（transient 输出; 参数: IV-<n> <调查问题>）',
     input: { hint: 'IV-<n> <调查问题>' },
-    handler: makeInvestigationCommandHandler(wiring),
+    handler: makeInvestigationCommandHandler(getWiring),
   })
 }

@@ -10,9 +10,9 @@
  *    零 DSH）: 成功（read 恰 1 次 + camelCase 投影逐字 — 三 null 面
  *    诚实透出 / cwd-title-taskId-intent null 合并）/ 空白 rawInput ⇒
  *    语法 error 零读取 / `AN_*` 结构化映射 / 意外错误 `[AN_CHANNEL]`
- *    兜底;
+ *    兜底 / 无 wiring（空平面/多项目平面 ⇒ 清晰单源错误文本）;
  *  - analysis-list handler: 行 → DTO 数组逐字（snake→camel + 可选字段
- *    null 合并）/ 空列表 `[]` / `AN_*` 映射;
+ *    null 合并）/ 空列表 `[]` / `AN_*` 映射 / 无 wiring 清晰错误文本;
  *  - analysis-save handler: 成功（保存恰 1 次, 入参 = 线形 DTO → 宿主
  *    参数投影逐字, **actor = USER_ACTOR** 〔kind 'USER' 钉 — INV-
  *    PERM-3 用户门的通道层〕, 产物 = 保存记录 DTO JSON）/ 全零写入面
@@ -39,6 +39,7 @@ import {
   type SaveAnalysisRecordArgs,
 } from '../src/shared/analysis-command.js'
 import {
+  ANALYSIS_NO_WIRING_TEXT,
   makeAnalysisListHandler,
   makeAnalysisSaveHandler,
   makeTransientReadHandler,
@@ -213,7 +214,7 @@ describe('共享 analysis 线形单源（宿主解析 / 客户端构建）', () 
 describe('transient-read 命令 handler（真链 — 结构假 wiring）', () => {
   it('成功: read 恰 1 次 + 全 null 快照逐字（缺席诚实透出, 不虚构）', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeTransientReadHandler(wiring)
+    const handler = makeTransientReadHandler(() => wiring)
     const result = await handler({ rawInput: 'investigator-live-1' })
     expect(fake.readCalls).toEqual(['investigator-live-1'])
     expect(result).toEqual({
@@ -235,7 +236,7 @@ describe('transient-read 命令 handler（真链 — 结构假 wiring）', () =>
         run: { id: 'R-5', workstreamId: 'WS-1', status: 'FINISHED', startedAt: 1_700_000_000_000, endedAt: 1_700_000_001_000 },
       }),
     })
-    const handler = makeTransientReadHandler(wiring)
+    const handler = makeTransientReadHandler(() => wiring)
     const result = await handler({ rawInput: 'investigator-live-1' })
     expect(result.kind).toBe('success')
     if (result.kind === 'success') {
@@ -288,7 +289,7 @@ describe('transient-read 命令 handler（真链 — 结构假 wiring）', () =>
         },
       }),
     })
-    const handler = makeTransientReadHandler(wiring)
+    const handler = makeTransientReadHandler(() => wiring)
     const result = await handler({ rawInput: 's-1' })
     expect(result.kind).toBe('success')
     if (result.kind === 'success') {
@@ -300,7 +301,7 @@ describe('transient-read 命令 handler（真链 — 结构假 wiring）', () =>
 
   it('空白 rawInput ⇒ 语法 error 结果 + 零读取（不触端口）', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeTransientReadHandler(wiring)
+    const handler = makeTransientReadHandler(() => wiring)
     const result = await handler({ rawInput: '   ' })
     expect(result.kind).toBe('error')
     if (result.kind === 'error') {
@@ -314,20 +315,26 @@ describe('transient-read 命令 handler（真链 — 结构假 wiring）', () =>
     const { wiring } = makeWiringFake({
       readError: new AnalysisError({ code: 'AN_STORE', message: 'pointerOf failed: db locked' }),
     })
-    const handler = makeTransientReadHandler(wiring)
+    const handler = makeTransientReadHandler(() => wiring)
     const result = await handler({ rawInput: 's-1' })
     expect(result).toEqual({ kind: 'error', text: '[AN_STORE] pointerOf failed: db locked' })
   })
 
   it('意外错误兜底映射: [AN_CHANNEL] + 消息（不裸抛）', async () => {
     const { wiring } = makeWiringFake({ readError: new Error('socket exploded') })
-    const handler = makeTransientReadHandler(wiring)
+    const handler = makeTransientReadHandler(() => wiring)
     const result = await handler({ rawInput: 's-1' })
     expect(result.kind).toBe('error')
     if (result.kind === 'error') {
       expect(result.text).toContain('[AN_CHANNEL]')
       expect(result.text).toContain('socket exploded')
     }
+  })
+
+  it('无 wiring（空平面/多项目平面）⇒ 清晰单源错误文本（不解析, 不触碰连接）', async () => {
+    const handler = makeTransientReadHandler(() => undefined)
+    const result = await handler({ rawInput: 's-1' })
+    expect(result).toEqual({ kind: 'error', text: ANALYSIS_NO_WIRING_TEXT })
   })
 })
 
@@ -346,7 +353,7 @@ describe('analysis-list 命令 handler（真链 — 结构假 wiring）', () => 
         }),
       ],
     })
-    const handler = makeAnalysisListHandler(wiring)
+    const handler = makeAnalysisListHandler(() => wiring)
     const result = await handler({ rawInput: '' })
     expect(result.kind).toBe('success')
     if (result.kind === 'success') {
@@ -373,7 +380,7 @@ describe('analysis-list 命令 handler（真链 — 结构假 wiring）', () => 
 
   it('空列表 ⇒ `[]`（诚实空态, 非 null/缺省）', async () => {
     const { wiring } = makeWiringFake({ rows: [] })
-    const handler = makeAnalysisListHandler(wiring)
+    const handler = makeAnalysisListHandler(() => wiring)
     const result = await handler({ rawInput: '' })
     expect(result).toEqual({ kind: 'success', text: '[]' })
   })
@@ -382,9 +389,15 @@ describe('analysis-list 命令 handler（真链 — 结构假 wiring）', () => 
     const { wiring } = makeWiringFake({
       listError: new AnalysisError({ code: 'AN_STORE', message: 'list failed: no such table' }),
     })
-    const handler = makeAnalysisListHandler(wiring)
+    const handler = makeAnalysisListHandler(() => wiring)
     const result = await handler({ rawInput: '' })
     expect(result).toEqual({ kind: 'error', text: '[AN_STORE] list failed: no such table' })
+  })
+
+  it('无 wiring（空平面/多项目平面）⇒ 清晰单源错误文本（不触碰连接）', async () => {
+    const handler = makeAnalysisListHandler(() => undefined)
+    const result = await handler({ rawInput: '' })
+    expect(result).toEqual({ kind: 'error', text: ANALYSIS_NO_WIRING_TEXT })
   })
 })
 
@@ -393,7 +406,7 @@ describe('analysis-save 命令 handler（真链 — 结构假 wiring, INV-PERM-3
     const { wiring, fake } = makeWiringFake({
       savedRecord: makeRecord({ investigator_run_id: 'R-81', dsh_session_id: 'investigator-live-1' }),
     })
-    const handler = makeAnalysisSaveHandler(wiring)
+    const handler = makeAnalysisSaveHandler(() => wiring)
     const payload = JSON.stringify({
       sourceRef: { kind: 'INTERVENTION', id: 'IV-2' },
       content: '保存的分析',
@@ -427,7 +440,7 @@ describe('analysis-save 命令 handler（真链 — 结构假 wiring, INV-PERM-3
 
   it('成功: 可选字段缺省 ⇒ 参数不携带（undefined — 不虚构空串）', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeAnalysisSaveHandler(wiring)
+    const handler = makeAnalysisSaveHandler(() => wiring)
     const result = await handler({ rawInput: JSON.stringify({ sourceRef: { kind: 'BRIEF', id: 'TOPIC-1' }, content: 'c' }) })
     expect(result.kind).toBe('success')
     expect(fake.saveCalls).toHaveLength(1)
@@ -439,7 +452,7 @@ describe('analysis-save 命令 handler（真链 — 结构假 wiring, INV-PERM-3
 
   it('空白 rawInput ⇒ 语法 error + 零保存（零写入）', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeAnalysisSaveHandler(wiring)
+    const handler = makeAnalysisSaveHandler(() => wiring)
     const result = await handler({ rawInput: '   ' })
     expect(result.kind).toBe('error')
     if (result.kind === 'error') {
@@ -451,7 +464,7 @@ describe('analysis-save 命令 handler（真链 — 结构假 wiring, INV-PERM-3
 
   it('非 JSON ⇒ 语法 error + 零保存（零写入）', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeAnalysisSaveHandler(wiring)
+    const handler = makeAnalysisSaveHandler(() => wiring)
     const result = await handler({ rawInput: '这不是 JSON' })
     expect(result.kind).toBe('error')
     expect(fake.saveCalls).toHaveLength(0)
@@ -459,7 +472,7 @@ describe('analysis-save 命令 handler（真链 — 结构假 wiring, INV-PERM-3
 
   it('形状偏离（未知键）⇒ 逐字原因 error + 零保存（线形门先于宿主）', async () => {
     const { wiring, fake } = makeWiringFake()
-    const handler = makeAnalysisSaveHandler(wiring)
+    const handler = makeAnalysisSaveHandler(() => wiring)
     const result = await handler({ rawInput: JSON.stringify({ sourceRef: { kind: 'X', id: 'IV-1' }, content: 'c', evil: true }) })
     expect(result.kind).toBe('error')
     if (result.kind === 'error') {
@@ -475,7 +488,7 @@ describe('analysis-save 命令 handler（真链 — 结构假 wiring, INV-PERM-3
         message: 'saveAsAnalysisRecord.sourceRef.kind "BOGUS" is not a member of the frozen 24-kind ObjectKind registry',
       }),
     })
-    const handler = makeAnalysisSaveHandler(wiring)
+    const handler = makeAnalysisSaveHandler(() => wiring)
     const result = await handler({ rawInput: JSON.stringify({ sourceRef: { kind: 'BOGUS', id: 'IV-1' }, content: 'c' }) })
     expect(result.kind).toBe('error')
     if (result.kind === 'error') {
@@ -492,12 +505,22 @@ describe('analysis-save 命令 handler（真链 — 结构假 wiring, INV-PERM-3
         message: 'saveAsAnalysisRecord: only USER actors may save an AnalysisRecord (INV-PERM-3)',
       }),
     })
-    const handler = makeAnalysisSaveHandler(wiring)
+    const handler = makeAnalysisSaveHandler(() => wiring)
     const result = await handler({ rawInput: JSON.stringify({ sourceRef: { kind: 'INTERVENTION', id: 'IV-1' }, content: 'c' }) })
     expect(result).toEqual({
       kind: 'error',
       text: '[AN_ACTOR_FORBIDDEN] saveAsAnalysisRecord: only USER actors may save an AnalysisRecord (INV-PERM-3)',
     })
+  })
+
+  it('无 wiring（空平面/多项目平面）⇒ 清晰单源错误文本（零保存调用, 不触碰连接）', async () => {
+    const { fake } = makeWiringFake()
+    const handler = makeAnalysisSaveHandler(() => undefined)
+    const result = await handler({
+      rawInput: JSON.stringify({ sourceRef: { kind: 'INTERVENTION', id: 'IV-1' }, content: 'c' }),
+    })
+    expect(result).toEqual({ kind: 'error', text: ANALYSIS_NO_WIRING_TEXT })
+    expect(fake.saveCalls).toHaveLength(0)
   })
 })
 
@@ -515,7 +538,7 @@ describe('analysis 命令注册面', () => {
     }
     const ctx = { get: (name: string) => (name === 'commands' ? registrar : undefined) } as never
     const { wiring } = makeWiringFake()
-    const dispose = registerAnalysisCommands(ctx, wiring)
+    const dispose = registerAnalysisCommands(ctx, () => wiring)
     expect(dispose).not.toBeNull()
     expect(registrations).toEqual([
       {
@@ -544,7 +567,7 @@ describe('analysis 命令注册面', () => {
   it('无命令注册表（非 web profile）⇒ null（调用方大声点名, 不静默降级）', () => {
     const ctx = { get: () => undefined } as never
     const { wiring } = makeWiringFake()
-    expect(registerAnalysisCommands(ctx, wiring)).toBeNull()
+    expect(registerAnalysisCommands(ctx, () => wiring)).toBeNull()
   })
 
   it('USER_ACTOR 单源: 通道面与宿主面同一常量（kind USER + label user）', () => {

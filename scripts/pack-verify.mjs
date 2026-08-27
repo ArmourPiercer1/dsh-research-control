@@ -2,8 +2,10 @@
 /**
  * WP-8.4 — pack verification (release-gate smoke):
  *
- *  1. `pnpm pack` in the plugin root (prepare → build + SI-001 snapshot
- *     runs first, so the tarball is always the CURRENT surface);
+ *  1. `pnpm run build` then `pnpm pack` in the plugin root (the build
+ *     refreshes `lib/` + the SI-001 snapshot, so the tarball is always the
+ *     CURRENT surface — `lib/` is committed prebuilt, so the pack reflects
+ *     whatever was last built);
  *  2. **surface check** — the tarball entry list must carry the complete
  *     `files` surface (all `lib/` artifacts, the `schema/` snapshot, the
  *     8 root docs, `SNAPSHOT.md`, `cordis.patch.yml`, `package.json`,
@@ -49,7 +51,9 @@ const log = (message) => console.log(`[pack-verify] ${message}`)
  * 1. Pack
  * ------------------------------------------------------------------ */
 
-log('running pnpm pack (prepare → build + snapshot first)')
+log('running pnpm run build (refresh lib/ + snapshot), then pnpm pack')
+const preBuild = spawnSync('pnpm', ['run', 'build'], { cwd: PLUGIN_ROOT, encoding: 'utf8' })
+if (preBuild.status !== 0) fail(`pnpm run build failed:\n${preBuild.stdout}\n${preBuild.stderr}`)
 const pack = spawnSync('pnpm', ['pack'], { cwd: PLUGIN_ROOT, encoding: 'utf8' })
 if (pack.status !== 0) fail(`pnpm pack failed:\n${pack.stdout}\n${pack.stderr}`)
 

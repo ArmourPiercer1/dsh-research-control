@@ -29,21 +29,16 @@ dsh plugin --profile web add ./dsh-research-control-<version>.tgz
 
 `dsh plugin add` 本质是在 profile 目录跑 pnpm 安装 + 把本包声明的 `dsh.bundle` 层追加进 `dsh.profile.bundles`（`dsh.bundle.patch` 指向包内 `cordis.patch.yml`，插入 `research-control` 行）。预构建 tarball 不触发任何包内构建脚本，**无需 allowBuilds**。
 
-### 方式二：git checkout / git host（需要 pnpm allowBuilds）
+### 方式二：git checkout / git host（开箱即用 — 同样无需 allowBuilds）
 
 ```sh
 dsh plugin --profile web add ./path/to/dsh-research-control        # 本地 checkout
 dsh plugin --profile web add github:ArmourPiercer1/dsh-research-control  # git host
 ```
 
-git 安装取的是**源码**：冻结面（`schema/` + 8 份文档）已提交进版本树，pnpm 安装后运行的 `prepare` 只需构建 `lib/` 入口（`tsdown`；自包含，不假设兄弟 monorepo），git 安装开箱即可启动。**pnpm ≥ 10 默认拒绝执行 git 依赖的构建脚本**，首次 `add` 会失败并提示修法——把 pnpm 打印的包键写进 **profile 的 `pnpm-workspace.yaml`**：
+git 安装取的是**版本树**：冻结面（`schema/` + 8 份文档 + `SNAPSHOT.md`）与**预构建的 `lib/`** 都已提交进版本树，包内不再声明任何安装期构建脚本（无 `prepare`），因此 pnpm 安装过程零脚本执行——**pnpm ≥ 10 的构建脚本门禁（allowBuilds / `pnpm-workspace.yaml` 白名单）天然不需要**，首次 `add` 直接成功。仓库纪律保证新鲜度：每次推送前必须 `pnpm run build`（发布批次先编译后推送），`pack:verify` 复核产物面。
 
-```yaml
-allowBuilds:
-  dsh-research-control: true
-```
-
-然后重跑 `add`。把 `allowBuilds` 当成它实际是的东西：**允许该包在你的机器上、在沙箱之外执行代码**。只对你信任源码的包放行，并尽量 pin commit（`github:you/repo#<sha>`）以免后续推送静默改变被执行的代码。tarball / 注册表发行不需要此许可（见方式一）。
+仍建议 pin commit（`github:you/repo#<sha>`）：git 安装直接消费版本树内容，pin 住 sha 可避免后续推送静默改变你机器上运行的代码。
 
 ### 验证、卸载与热切换
 
@@ -103,7 +98,6 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 | `pnpm run test:perf` | 性能门禁（TC-PERF-001..006：10k 全谱系数据集；`DSH_RUN_PERF=1` 语义内置于 config） |
 | `pnpm run test:e2e` | Playwright 真机循环：隔离 smoke home（**绝不**触碰 `~/.dsh` 与 3080），TC-DSH-005/007/008/009/010 + TC-E2E 双相位 + N 轮 load/unload；`--reset` 显式重置种子面 |
 | `pnpm run pack:verify` | 发布门禁冒烟：`pnpm pack` 产物清单核查（files 面完整性 + 开发私有路径零泄漏）+ 解包后 node 实 import 主入口/`./typert`/`./remote` |
-| `pnpm run prepare` | 安装期钩子（git install / `pnpm pack` 自动触发）：同 `build`，自包含（不假设兄弟 monorepo）；无工作区根时快照钩子跳过——冻结面已提交进版本树，仅跳过「刷新」 |
 
 源码布局见 [ARCHITECTURE.md §2.1](ARCHITECTURE.md)；测试策略与机器环境指纹见 TEST_MATRIX.md 与 `tests/` 各套件头注。
 
@@ -144,7 +138,7 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 ## 已知局限与延后工作
 
 - **9/11 工具 handler 为桩** — 注册面（name/description/parameters/output 契约）完整且被测试冻结，但 `research_fact_record` / `research_claim_record` / `research_artifact_register` / `research_intervention_create` / `research_next_action_create` / `research_context_get` / `research_plan_get` / `research_history_query` / `research_contract_read` 的调用返回 `TOOL_NOT_IMPLEMENTED`（`detail.plannedService` 指明目标服务）；对应 service 层多数已存在（WP-1.3/2.3/2.4/5.1/5.2），缺的是工具 handler → service 的接线 WP。模型体验上 = 「工具可见、调用即得结构化未实现错误」。
-- **未公开发布** — `0.1.0` + `private: true`，未上 npm 公共注册表，license 未定；当前分发面 = 本地 tarball（`pnpm pack`）或 git checkout（需 allowBuilds）。
+- **未公开发布** — `0.1.0` + `private: true`，未上 npm 公共注册表，license 未定；当前分发面 = 本地 tarball（`pnpm pack`）或 git checkout / git host（`lib/` 预构建随树提交，两种 git 路径均开箱即用，无需 allowBuilds）。
 - **宿主无兼容承诺** — DSH 为 pre-release（「rename or repackage freely」）；本包以 peer 精确 pin `0.1.1-rc.2` + 自持 `minDshVersion` fail-loud 门（默认下限 `0.1.0-rc.8`）+ TC-DSH-008 compatibility smoke 承接升级风险，不提供跨宿主版本兼容。
 - **e2e 证据面** — 全绿证据基于隔离 smoke home（独立 DSH_HOME + 独立端口 + `--reset` 种子重置），非真实用户 profile 的长期运行；宿主侧长时行为（WAL checkpoint、profile 多 bundle 组合漂移）未覆盖。
 - **快照无自动新鲜度门** — `SNAPSHOT.md` 记录构建时 sha256，但没有机制在「工作区根冻结面变更」后自动重打包；发布流程须重跑 `pnpm run build && pnpm run pack:verify`（重跑即重算快照并逐文件断言内容一致）。

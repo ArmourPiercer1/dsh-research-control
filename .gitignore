@@ -1,6 +1,5 @@
 node_modules/
 dist/
-lib/
 *.tsbuildinfo
 coverage/
 .pnpm-store/
@@ -17,5 +16,11 @@ dsh-research-control-*.tgz
 # surface must ship with the tree or the package fail-louds at boot
 # (src #resolveSchemaRoot). The workspace root keeps the authoring canonical;
 # `pnpm run build` (scripts/snapshot-release.mjs) re-copies it and sha256-asserts
-# identity, so the committed copy cannot drift. lib/ stays a build artifact:
-# prepare (tsdown) builds it on git install after the pnpm allowBuilds grant.
+# identity, so the committed copy cannot drift. lib/ is ALSO committed
+# prebuilt (V2 release revision): pnpm >= 10 refuses to run dependency build
+# scripts unless the user grants allowBuilds in their own pnpm-workspace.yaml,
+# and a git install (`dsh plugin add github:...` / file checkout) must work
+# out of the box — so the runnable surface ships with the tree and the
+# install-time `prepare` build script was dropped. Release discipline:
+# `pnpm run build` BEFORE every push/pack; `pack:verify` asserts the lib
+# surface after packing.

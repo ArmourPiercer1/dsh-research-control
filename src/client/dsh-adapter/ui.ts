@@ -224,7 +224,18 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
           },
           // V2-T4.2 (design §8 接入): the 引导卡 displayName flow.
           bindProject: async (args: BindProjectArgs): Promise<BindProjectResult> => {
-            const result = await researchRpc.bindProject(args)
+            let result = await researchRpc.bindProject(args)
+            // A tree that ALREADY exists (an earlier 接入 attempt, a
+            // hand-made tree, a rebind after unbind) refuses the scaffold
+            // with PLANE_TREE_EXISTS and its own remedy — 「bind it as-is
+            // (omit `scaffold`)」. Honor it in the shell so the 接入 /
+            // 重初始化 buttons converge on the as-is bind instead of
+            // dead-ending on the error. The server stays strict — a
+            // scaffold NEVER clobbers; only the shell's retry drops the
+            // flag (args with scaffold omitted/false are never retried).
+            if (!result.ok && result.error.code === 'PLANE_TREE_EXISTS' && args.scaffold === true) {
+              result = await researchRpc.bindProject({ ...args, scaffold: false })
+            }
             if (!result.ok) {
               throw new Error(
                 `research shell: bindProject failed — ${result.error.code}: ${result.error.message}`,

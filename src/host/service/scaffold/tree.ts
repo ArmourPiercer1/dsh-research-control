@@ -59,10 +59,11 @@
  */
 
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { join } from 'node:path'
 import { stringify } from 'yaml'
 
 import { IdAllocator, type IdCounterPort, counterKey, parseId } from '../../../shared/ids/index.js'
+import { isAbsolutePath } from '../../../shared/paths.js'
 
 /* ------------------------------------------------------------------ *
  * Frozen tree constants (the e2e factory shape, lifted into src —
@@ -246,10 +247,10 @@ export function allocateProjectId(knownProjectIds: readonly string[]): string {
  */
 export function scaffoldResearchTree(input: ScaffoldTreeInput): ScaffoldTreeResult {
   // ── input validation (fail loud BEFORE any write) ──
-  if (typeof input.wsPath !== 'string' || input.wsPath.length === 0 || !isAbsolute(input.wsPath)) {
+  if (!isAbsolutePath(input.wsPath)) {
     throw new ScaffoldError(
       'SCAFFOLD_INPUT',
-      `wsPath must be an absolute path (got ${JSON.stringify(input.wsPath ?? null)})`,
+      `wsPath must be an absolute path (POSIX "/…", Windows drive "C:\\…", or UNC "\\\\…"; got ${JSON.stringify(input.wsPath ?? null)})`,
     )
   }
   if (

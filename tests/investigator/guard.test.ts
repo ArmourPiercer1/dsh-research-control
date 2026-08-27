@@ -169,6 +169,15 @@ describe('assertReadonlyLaunchRequest — 字面量 / 值畸形 / 容器畸形',
     )
   })
 
+  it('Windows absolute cwd 被接受（跨平台 — 宿主传入的是原生路径，不是 POSIX 专属）', () => {
+    // 回归钉: 用户报障 `rescan failed — internal: repoRoot must be an
+    // absolute path (got "D:\Projects\AIUED")` 的同一类校验面（guard 的
+    // 沙箱边界守卫与 wiring/hardening 共用跨平台判定）。
+    expect(() =>
+      assertReadonlyLaunchRequest(makeValidRequest({ cwd: 'D:\\Projects\\AIUED' })),
+    ).not.toThrow()
+  })
+
   it.each([
     ['presetId'],
     ['permissionPreset'],

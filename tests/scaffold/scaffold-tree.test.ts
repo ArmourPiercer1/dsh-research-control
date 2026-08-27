@@ -19,7 +19,7 @@
  * Real temp directories (mkdtemp) + real files — the same convention as
  * the registry/storage-locations suites.
  */
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -145,6 +145,32 @@ describe('scaffold — project id allocation (the ids allocator precedent)', () 
   it('allocates PRJ-1 from an empty seed', () => {
     expect(allocateProjectId([])).toBe('PRJ-1')
     expect(allocateProjectId(['PRJ-42'])).toBe('PRJ-43')
+  })
+
+  it('Windows absolute wsPath passes validation (cross-platform — the host hands native paths)', () => {
+    // 回归钉: 用户报障 `repoRoot must be an absolute path (got
+    // "D:\Projects\AIUED")` 的同一类校验面（scaffold 此前用
+    // node:path.isAbsolute — 平台相关，POSIX runner 上拒 Windows 路径）。
+    // On this POSIX runner the Windows path is a legal LITERAL name:
+    // chdir into a scratch dir, materialize it, and let the scaffold
+    // prove the validation accepted it (a rejection would throw
+    // SCAFFOLD_INPUT before any write).
+    const previous = process.cwd()
+    const scratch = makeTemp('t32b-win-')
+    process.chdir(scratch)
+    try {
+      mkdirSync('D:\\Projects\\AIUED', { recursive: true })
+      const result = scaffoldResearchTree({
+        wsPath: 'D:\\Projects\\AIUED',
+        treeDir: '.research',
+        displayName: 'Win',
+      })
+      expect(result.projectId).toBe('PRJ-1')
+      expect(result.treePath).toBe(join('D:\\Projects\\AIUED', '.research'))
+      expect(existsSync(join('D:\\Projects\\AIUED', '.research', SCHEMA_VERSION_FILE))).toBe(true)
+    } finally {
+      process.chdir(previous)
+    }
   })
 
   it('honors an explicit projectId and refuses a malformed one (SCAFFOLD_ID)', () => {

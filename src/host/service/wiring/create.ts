@@ -123,6 +123,7 @@ import {
   type PlanFileWriter,
 } from '../../domain/plan/index.js'
 import { IdAllocator } from '../../../shared/ids/index.js'
+import { isAbsolutePath } from '../../../shared/paths.js'
 import {
   createResearchTools,
   type ResearchToolDeps,
@@ -317,8 +318,11 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
   // 0. Input validation (WIRING_INPUT)
   // ------------------------------------------------------------------ *
   const requireAbs = (value: string, name: string): string => {
-    if (typeof value !== 'string' || value.length === 0 || !value.startsWith('/')) {
-      throw new HostWiringError('WIRING_INPUT', `${name} must be an absolute path (got ${JSON.stringify(value ?? null)})`)
+    if (typeof value !== 'string' || value.length === 0 || !isAbsolutePath(value)) {
+      throw new HostWiringError(
+        'WIRING_INPUT',
+        `${name} must be an absolute path (POSIX "/…", Windows drive "C:\\…", or UNC "\\\\…"; got ${JSON.stringify(value ?? null)})`,
+      )
     }
     return value
   }

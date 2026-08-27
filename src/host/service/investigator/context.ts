@@ -17,6 +17,7 @@ import type { TypedRef } from '../../history/registry/index.js'
 import type { InterventionOrigin, InterventionRecord } from '../flooding/index.js'
 import { INVESTIGATOR_CAPABILITIES, type InvestigationContext } from './types.js'
 import { InvestigatorLaunchError } from './types.js'
+import { isAbsolutePath } from '../../../shared/paths.js'
 
 /**
  * 前置校验错误码归一: 缝入口的输入畸形统一 `IVL_INPUT`（模块边界参数
@@ -55,7 +56,7 @@ export function buildInvestigationContext(
   if (typeof question !== 'string' || question.trim() === '') {
     throw badInput('question', question)
   }
-  if (typeof cwd !== 'string' || !cwd.startsWith('/')) {
+  if (!isAbsolutePath(cwd)) {
     throw badInput('cwd (must be an absolute path)', cwd)
   }
   if (typeof intervention.id !== 'string' || !IV_ID.test(intervention.id)) {

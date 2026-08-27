@@ -10,7 +10,11 @@
  *  - a plain value (returned as the `RemoteResult`),
  *  - a `Promise` (awaited by the store — timing control),
  *  - an `Error` instance (thrown — simulates a transport/assembly fault;
- *    a business fault is instead the `ok: false` result shape).
+ *    a business fault is instead the `ok: false` result shape),
+ *  - an ARRAY of the above (a per-call SEQUENCE — each call consumes the
+ *    next element; once exhausted the last element repeats — the
+ *    retry-after-fault face, e.g. bindProject PLANE_TREE_EXISTS → as-is
+ *    retry).
  */
 
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
@@ -112,7 +116,10 @@ export interface StubRpc {
   /** How many times one method was called. */
   countOf(method: string): number
   /**
-   * Configure a method's outcome (plain value | Promise | Error to throw).
+   * Configure a method's outcome (plain value | Promise | Error to throw;
+   * an ARRAY is a per-call SEQUENCE — each call consumes the next element,
+   * and once exhausted the LAST element repeats; e.g. a retry-after-fault
+   * face: `[faultResult, okResult]`).
    * @param value - the configured outcome; restore with `reset()`.
    */
   set(method: string, value: unknown): void
@@ -192,18 +199,31 @@ const DEFAULTS: Record<string, () => unknown> = {
  */
 export function makeStubRpc(): StubRpc {
   const configured = new Map<string, unknown>()
+  const sequences = new Map<string, number>()
   const calls: StubCall[] = []
+
+  /** The next configured outcome for one call (array ⇒ per-call sequence, last repeats). */
+  function nextOutcome(method: string): unknown {
+    const value = configured.get(method)
+    if (value === undefined) return DEFAULTS[method]()
+    if (!Array.isArray(value)) return value
+    if (value.length === 0) throw new Error(`stub: empty outcome sequence for ${method}`)
+    const index = sequences.get(method) ?? 0
+    const next = value[Math.min(index, value.length - 1)]!
+    sequences.set(method, index + 1)
+    return next
+  }
 
   function deliver<R>(method: string): R {
     calls.push({ method })
-    const outcome = configured.has(method) ? configured.get(method) : DEFAULTS[method]()
+    const outcome = nextOutcome(method)
     if (outcome instanceof Error) throw outcome
     return outcome as R
   }
 
   function deliverArgs<R>(method: string, args: unknown): R {
     calls.push({ method, args })
-    const outcome = configured.has(method) ? configured.get(method) : DEFAULTS[method]()
+    const outcome = nextOutcome(method)
     if (outcome instanceof Error) throw outcome
     return outcome as R
   }
@@ -258,6 +278,7 @@ export function makeStubRpc(): StubRpc {
     },
     reset: () => {
       configured.clear()
+      sequences.clear()
       calls.length = 0
     },
   }

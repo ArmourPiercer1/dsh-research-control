@@ -32,6 +32,7 @@ import {
   type InvestigatorLaunchRequest,
 } from './types.js'
 import { InvestigatorLaunchError } from './types.js'
+import { isAbsolutePath } from '../../../shared/paths.js'
 
 /** 请求闭集键（types.ts 的 4 字段 — 单一来源, 不复制字面）。 */
 const REQUEST_KEYS: readonly string[] = ['presetId', 'permissionPreset', 'cwd', 'task']
@@ -212,12 +213,12 @@ export function assertInvestigationContext(context: InvestigationContext): void 
   assertAbsoluteCwd(context.cwd)
 }
 
-/** absolute 路径守卫（沙箱边界必须是 canonical 绝对路径 — IVL_INPUT）。 */
+/** absolute 路径守卫（沙箱边界必须是 canonical 绝对路径 — IVL_INPUT）。跨平台判定见 shared/paths。 */
 function assertAbsoluteCwd(cwd: unknown): void {
-  if (typeof cwd !== 'string' || !cwd.startsWith('/')) {
+  if (!isAbsolutePath(cwd)) {
     throw new InvestigatorLaunchError({
       code: 'IVL_INPUT',
-      message: `assertAbsoluteCwd: cwd must be an absolute path, got ${JSON.stringify(cwd)}`,
+      message: `assertAbsoluteCwd: cwd must be an absolute path (POSIX "/…", Windows drive "C:\\…", or UNC "\\\\…"; got ${JSON.stringify(cwd)})`,
     })
   }
 }

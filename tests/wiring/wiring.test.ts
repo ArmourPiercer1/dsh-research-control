@@ -281,6 +281,36 @@ describe('(d) per-step loud failures (structured codes, partial unwind)', () => 
     expect(() => attempt({ repoRoot, dataDir: makeTempDir('wp36-ind-'), projectId: 'BOGUS-1' })).toThrow(/projectId/)
   })
 
+  it('Windows absolute repoRoot passes input validation (cross-platform — the DSH host hands native paths)', () => {
+    // The Windows failure mode (the user's `repoRoot must be an absolute
+    // path (got "D:\Projects\AIUED")`): the POSIX-only `startsWith('/')`
+    // check rejected the native workspace path at rescan / re-init time.
+    // Step-0 validation must ACCEPT the path shape; on this (POSIX) bench
+    // the run then fails LATER on the genuinely missing tree (the literal
+    // `D:\Projects\AIUED` directory does not exist here — the missing-tree
+    // check reuses the WIRING_INPUT code, so only the MESSAGE is the
+    // regression guard) — it must NEVER fail with the path complaint.
+    const winRoot = 'D:\\Projects\\AIUED'
+    let caught: unknown
+    try {
+      createHostWiring({
+        repoRoot: winRoot,
+        schemaRoot: WR_SCHEMA_ROOT,
+        projectId: 'PRJ-1',
+        dataDir: makeTempDir('wp36-win-'),
+        adapter: new FakeSessionAdapter(),
+        launcherAdapter: makeFakeLauncherAdapter(),
+        workspaceRoots: [winRoot],
+      })
+    } catch (e) {
+      caught = e
+    }
+    if (caught !== undefined) {
+      expect(caught).toBeInstanceOf(HostWiringError)
+      expect(String((caught as Error).message)).not.toContain('must be an absolute path')
+    }
+  })
+
   it('WIRING_INPUT: a workspace without a .research tree is refused', () => {
     const repoRoot = makeTempDir('wp36-notree-')
     mkdirSync(repoRoot, { recursive: true })

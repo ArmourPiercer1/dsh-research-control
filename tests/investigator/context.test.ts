@@ -101,6 +101,13 @@ describe('buildInvestigationContext（Gate P7 三 — 引用相关上下文）',
     return expectIvlInput(() => buildInvestigationContext(makeRecord(), 'q', 'ws/project'), 'absolute')
   })
 
+  it('Windows absolute cwd 被接受（跨平台 — 宿主传入的是原生路径）', () => {
+    // 回归钉: 用户报障 `repoRoot must be an absolute path
+    // (got "D:\Projects\AIUED")` 的同一类校验面。
+    const context = buildInvestigationContext(makeRecord(), 'q', 'D:\\Projects\\AIUED')
+    expect(context.cwd).toBe('D:\\Projects\\AIUED')
+  })
+
   it('非字符串 cwd ⇒ IVL_INPUT', () => {
     return expectIvlInput(
       () => buildInvestigationContext(makeRecord(), 'q', 42 as unknown as string),

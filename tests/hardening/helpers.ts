@@ -52,6 +52,9 @@ export function makeTestClock(): () => number {
   return makeClock(CLOCK0)
 }
 
+/** Tracked temp dir (re-export — the suites that only need one scratch dir). */
+export { makeTempDir }
+
 export { existsSync, statSync }
 
 /**

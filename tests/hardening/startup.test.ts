@@ -37,6 +37,7 @@ import {
   initializeDbWithEvent,
   initializeValidDb,
   makeCollectingLogger,
+  makeTempDir,
   makeWorkspace,
 } from './helpers.js'
 import { WS1_YAML } from '../loader/fixtures.js'
@@ -399,6 +400,25 @@ describe('runStartupIntegrityChecks — the sample bound + input validation', ()
     expect(badId).toBeInstanceOf(HardeningError)
     expect((badId as HardeningError).code).toBe('HARDENING_INPUT')
     expect((badId as HardeningError).message).toContain('PRJ-')
+  })
+
+  it('Windows absolute paths pass input validation (cross-platform — the DSH host hands native paths)', async () => {
+    // The user's rescan failure (`repoRoot must be an absolute path
+    // (got "D:\Projects\AIUED")`): the POSIX-only check rejected the
+    // native workspace path. The validator must ACCEPT it; the checks
+    // then RESOLVE with an aggregated report (the Windows location is
+    // absent on this platform — findings, never an input throw).
+    const dbPath = makeTempDir('wp81-win-')
+    const report = await runStartupIntegrityChecks({
+      dbPath,
+      repoRoot: 'D:\\Projects\\AIUED',
+      researchRoot: 'D:\\Projects\\AIUED\\.research',
+      schemaDir: DECLARATIVE_SCHEMA_DIR,
+      projectId: 'PRJ-1',
+      reader: new FsReader(),
+    }).catch((e: unknown) => e)
+    expect(report).not.toBeInstanceOf(HardeningError)
+    expect((report as StartupIntegrityReport).outcome).toBeDefined()
   })
 
   it('every non-ok outcome is loud: guidance non-empty + a warn/error log entry + a summary', async () => {

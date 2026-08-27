@@ -229,7 +229,45 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
     await expect(face.setHub({ wsPath: '/workspace/unregistered' })).rejects.toThrow(/PLANE_HUB_EXISTS/)
   })
 
-  it('folds a bindProject business fault (ok:false) into a plain rejection carrying the error code', async () => {
+  it('bindProject: PLANE_TREE_EXISTS + scaffold:true retries as-is (scaffold:false) and converges', async () => {
+    // A tree that already exists refuses the scaffold with its own remedy
+    // (「bind it as-is (omit `scaffold`)」) — the shell honors it with ONE
+    // retry, so the 接入 / 重初始化 buttons converge instead of
+    // dead-ending (the server stays strict; scaffold never clobbers).
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('bindProject', [
+      {
+        ok: false,
+        error: {
+          code: 'PLANE_TREE_EXISTS',
+          message:
+            'a research tree already exists at /workspace/unregistered/.research — the scaffold never clobbers an existing tree; bind it as-is (omit `scaffold`) instead',
+          details: {},
+        },
+      },
+      {
+        ok: true,
+        value: { projectId: 'PRJ-7', registryPath: '/workspace/hub/.research-control/registry.yaml', dbMigrated: false },
+      },
+    ])
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MutationFaces
+
+    const result = (await face.bindProject({
+      wsPath: '/workspace/unregistered',
+      displayName: 'unregistered',
+      scaffold: true,
+    })) as { projectId: string }
+    expect(result.projectId).toBe('PRJ-7')
+    expect(stub.callsTo('bindProject')).toHaveLength(2)
+    expect(stub.callsTo('bindProject')[0]!.args).toEqual({ wsPath: '/workspace/unregistered', displayName: 'unregistered', scaffold: true })
+    expect(stub.callsTo('bindProject')[1]!.args).toEqual({ wsPath: '/workspace/unregistered', displayName: 'unregistered', scaffold: false })
+  })
+
+  it('bindProject: a PLANE_TREE_EXISTS retry that FAILS again still surfaces the error (no retry loop)', async () => {
     const stub = makeStubRpc()
     await mountStub(stub)
     stub.set('bindProject', {
@@ -244,6 +282,27 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
     await expect(
       face.bindProject({ wsPath: '/workspace/unregistered', displayName: 'unregistered', scaffold: true }),
     ).rejects.toThrow(/PLANE_TREE_EXISTS/)
+    // exactly ONE retry — the second call (scaffold:false) failed again
+    expect(stub.callsTo('bindProject')).toHaveLength(2)
+    expect(stub.callsTo('bindProject')[1]!.args).toMatchObject({ scaffold: false })
+  })
+
+  it('bindProject: any OTHER fault with scaffold:true is NOT retried (single call, plain rejection)', async () => {
+    const stub = makeStubRpc()
+    await mountStub(stub)
+    stub.set('bindProject', {
+      ok: false,
+      error: { code: 'PLANE_HUB_WORKSPACE', message: 'the target IS the hub workspace', details: {} },
+    })
+    const fake = makeFakeSlots()
+    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    const { options } = fake.get()
+    const face = options.inject!('sess-1') as MutationFaces
+
+    await expect(
+      face.bindProject({ wsPath: '/workspace/unregistered', displayName: 'unregistered', scaffold: true }),
+    ).rejects.toThrow(/PLANE_HUB_WORKSPACE/)
+    expect(stub.callsTo('bindProject')).toHaveLength(1)
   })
 })
 

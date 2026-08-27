@@ -57,6 +57,7 @@
  */
 
 import { loadResearchTree } from '../../domain/loader/index.js'
+import { isAbsolutePath } from '../../../shared/paths.js'
 import { checkDatabase } from './db-check.js'
 import { checkDualTruthConsistency } from './consistency.js'
 import { checkGitWorkspace } from './git-check.js'
@@ -336,8 +337,11 @@ function emptyTree() {
 }
 
 function requireAbs(value: unknown, name: string): string {
-  if (typeof value !== 'string' || value.length === 0 || !value.startsWith('/')) {
-    throw new HardeningError('HARDENING_INPUT', `${name} must be an absolute path (got ${JSON.stringify(value ?? null)})`)
+  if (typeof value !== 'string' || value.length === 0 || !isAbsolutePath(value)) {
+    throw new HardeningError(
+      'HARDENING_INPUT',
+      `${name} must be an absolute path (POSIX "/…", Windows drive "C:\\…", or UNC "\\\\…"; got ${JSON.stringify(value ?? null)})`,
+    )
   }
   return value
 }

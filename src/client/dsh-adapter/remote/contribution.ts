@@ -41,6 +41,8 @@ import {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  CreateLocalResearchProjectArgs,
+  CreateLocalResearchProjectResult,
   CreateTopicArgs,
   CreateTopicResult,
   CreateWorkstreamArgs,
@@ -48,6 +50,8 @@ import {
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
+  DropWorkstreamArgs,
+  DropWorkstreamResult,
   GetCurrentFocusArgs,
   GetCurrentFocusResult,
   GetGitHistoryArgs,
@@ -60,6 +64,8 @@ import {
   GetTopicArgs,
   GetWorkstreamArgs,
   HubOverviewResult,
+  InspectProjectDirectoryArgs,
+  InspectProjectDirectoryResult,
   PingResult,
   ProjectSnapshot,
   QueryHistoryArgs,
@@ -89,6 +95,12 @@ import {
   UnbindProjectResult,
   UpdateInterventionStateArgs,
   UpdateInterventionStateResult,
+  UpdateProjectMetadataArgs,
+  UpdateProjectMetadataResult,
+  UpdateTopicArgs,
+  UpdateTopicResult,
+  UpdateWorkstreamArgs,
+  UpdateWorkstreamResult,
   WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
 
@@ -157,6 +169,27 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/createWorkstream': (
       args: CreateWorkstreamArgs,
     ) => Promise<RemoteResult<CreateWorkstreamResult>>
+    // V2-UI-0.4 UI-2: the 4 hierarchy update/drop management RPCs (UI-2A,
+    // project-routed) + the 2 local-project management RPCs (UI-2B,
+    // plane-level).
+    'researchControl/updateProjectMetadata': (
+      args: UpdateProjectMetadataArgs,
+    ) => Promise<RemoteResult<UpdateProjectMetadataResult>>
+    'researchControl/updateTopic': (
+      args: UpdateTopicArgs,
+    ) => Promise<RemoteResult<UpdateTopicResult>>
+    'researchControl/updateWorkstream': (
+      args: UpdateWorkstreamArgs,
+    ) => Promise<RemoteResult<UpdateWorkstreamResult>>
+    'researchControl/dropWorkstream': (
+      args: DropWorkstreamArgs,
+    ) => Promise<RemoteResult<DropWorkstreamResult>>
+    'researchControl/inspectProjectDirectory': (
+      args: InspectProjectDirectoryArgs,
+    ) => Promise<RemoteResult<InspectProjectDirectoryResult>>
+    'researchControl/createLocalResearchProject': (
+      args: CreateLocalResearchProjectArgs,
+    ) => Promise<RemoteResult<CreateLocalResearchProjectResult>>
   }
 
   interface TypertRemoteNamespaceMap {
@@ -169,7 +202,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
    * V2-T3.2a: + the 3 read-only plane RPCs (design §12 rows 1-3);
    * V2-T3.2b: + the 6 change-family plane RPCs (design §12 rows 4-6/8/9);
    * UI-0.4: + the 4 GUI management RPCs (the current-focus pair, R-01,
-   * and the hierarchy create pair, Task 3 — project-routed).
+   * and the hierarchy create pair, Task 3 — project-routed);
+   * V2-UI-0.4 UI-2: + the 6 GUI management RPCs (the 4 hierarchy
+   * update/drop RPCs, project-routed — UI-2A — and the 2 local-project
+   * RPCs, plane-level — UI-2B).
    */
   interface TypertRemoteNamespace$726573656172636f6e74726f6c {
     ping: () => Promise<RemoteResult<PingResult>>
@@ -219,6 +255,23 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     createWorkstream: (
       args: CreateWorkstreamArgs,
     ) => Promise<RemoteResult<CreateWorkstreamResult>>
+    // V2-UI-0.4 UI-2: the 6 GUI management RPCs — the 4 hierarchy
+    // update/drop RPCs (UI-2A, project-routed) + the 2 local-project
+    // RPCs (UI-2B, plane-level).
+    updateProjectMetadata: (
+      args: UpdateProjectMetadataArgs,
+    ) => Promise<RemoteResult<UpdateProjectMetadataResult>>
+    updateTopic: (args: UpdateTopicArgs) => Promise<RemoteResult<UpdateTopicResult>>
+    updateWorkstream: (
+      args: UpdateWorkstreamArgs,
+    ) => Promise<RemoteResult<UpdateWorkstreamResult>>
+    dropWorkstream: (args: DropWorkstreamArgs) => Promise<RemoteResult<DropWorkstreamResult>>
+    inspectProjectDirectory: (
+      args: InspectProjectDirectoryArgs,
+    ) => Promise<RemoteResult<InspectProjectDirectoryResult>>
+    createLocalResearchProject: (
+      args: CreateLocalResearchProjectArgs,
+    ) => Promise<RemoteResult<CreateLocalResearchProjectResult>>
   }
 }
 

@@ -26,6 +26,8 @@ import {
   AckMissingReminderResultSchema,
   BindProjectArgsSchema,
   BindProjectResultSchema,
+  CreateLocalResearchProjectArgsSchema,
+  CreateLocalResearchProjectResultSchema,
   CreateTopicArgsSchema,
   CreateTopicResultSchema,
   CreateWorkstreamArgsSchema,
@@ -33,6 +35,8 @@ import {
   DashboardSnapshotSchema,
   DismissPlanForkArgsSchema,
   DismissPlanForkResultSchema,
+  DropWorkstreamArgsSchema,
+  DropWorkstreamResultSchema,
   GetCurrentFocusArgsSchema,
   GetCurrentFocusResultSchema,
   GetGitHistoryArgsSchema,
@@ -45,6 +49,8 @@ import {
   GetTopicArgsSchema,
   GetWorkstreamArgsSchema,
   HubOverviewResultSchema,
+  InspectProjectDirectoryArgsSchema,
+  InspectProjectDirectoryResultSchema,
   PingResultSchema,
   ProjectSnapshotSchema,
   QueryHistoryArgsSchema,
@@ -77,6 +83,12 @@ import {
   UnbindProjectResultSchema,
   UpdateInterventionStateArgsSchema,
   UpdateInterventionStateResultSchema,
+  UpdateProjectMetadataArgsSchema,
+  UpdateProjectMetadataResultSchema,
+  UpdateTopicArgsSchema,
+  UpdateTopicResultSchema,
+  UpdateWorkstreamArgsSchema,
+  UpdateWorkstreamResultSchema,
   WorkstreamSnapshotSchema,
   type InvocationDescriptorMirror,
 } from '../../src/shared/rpc-contracts.js'
@@ -123,9 +135,37 @@ const createWorkstreamFixture = {
   createdAt: 1755000003000,
 }
 
-/** The 27 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
+/** V2-UI-0.4 UI-2 — wire-valid result fixtures for the 6 GUI management
+ *  RPCs (the 4 hierarchy update/drop + the 2 local-project). */
+const updateProjectMetadataFixture = { projectId: 'PRJ-1', title: 'Updated project', updatedAt: 1755000004000 }
+const updateTopicFixture = { topicId: 'TPC-2', title: 'Updated topic', updatedAt: 1755000005000 }
+const updateWorkstreamFixture = { workstreamId: 'WS-4', topicId: 'TPC-1', title: 'Updated workstream', updatedAt: 1755000006000 }
+const dropWorkstreamFixture = { workstreamId: 'WS-4', topicId: 'TPC-1', currentFocusCleared: true }
+const inspectProjectDirectoryFixture = {
+  wsPath: '/tmp/ui2-ws',
+  state: 'RC_PROJECT',
+  message: 'Existing Research Control project detected.',
+  detail: null,
+  hasGitRepo: true,
+  hasResearchTree: true,
+  treeValid: true,
+  alreadyManaged: true,
+  projectId: 'PRJ-1',
+  title: 'A project',
+}
+const createLocalResearchProjectFixture = {
+  ok: true,
+  projectId: 'PRJ-9',
+  treePath: '/tmp/ui2-ws/.research',
+  registryPath: null,
+  dbMigrated: false,
+}
+
+/** The 33 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
  *  V2-T3.2b: the 6 change-family plane RPCs + UI-0.4: the 4 GUI
- *  management RPCs (the 2 current-focus + the 2 hierarchy-create),
+ *  management RPCs (the 2 current-focus + the 2 hierarchy-create) +
+ *  V2-UI-0.4 UI-2: the 6 GUI management RPCs (the 4 hierarchy
+ *  update/drop + the 2 local-project),
  *  appended after the frozen 14), each with its
  *  wire-valid result fixture. */
 const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = [
@@ -156,10 +196,16 @@ const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = 
   { method: 'getCurrentFocus', resultFixture: getCurrentFocusFixture },
   { method: 'createTopic', resultFixture: createTopicFixture },
   { method: 'createWorkstream', resultFixture: createWorkstreamFixture },
+  { method: 'updateProjectMetadata', resultFixture: updateProjectMetadataFixture },
+  { method: 'updateTopic', resultFixture: updateTopicFixture },
+  { method: 'updateWorkstream', resultFixture: updateWorkstreamFixture },
+  { method: 'dropWorkstream', resultFixture: dropWorkstreamFixture },
+  { method: 'inspectProjectDirectory', resultFixture: inspectProjectDirectoryFixture },
+  { method: 'createLocalResearchProject', resultFixture: createLocalResearchProjectFixture },
 ]
 
-/** The args-schema identity table (24 parameterized RPCs: the frozen 11
- *  + the 9 plane RPCs + the 4 GUI management RPCs — every one carries a
+/** The args-schema identity table (30 parameterized RPCs: the frozen 11
+ *  + the 9 plane RPCs + the 10 GUI management RPCs — every one carries a
  *  strict args object). */
 const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getTopic: GetTopicArgsSchema,
@@ -186,6 +232,12 @@ const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getCurrentFocus: GetCurrentFocusArgsSchema,
   createTopic: CreateTopicArgsSchema,
   createWorkstream: CreateWorkstreamArgsSchema,
+  updateProjectMetadata: UpdateProjectMetadataArgsSchema,
+  updateTopic: UpdateTopicArgsSchema,
+  updateWorkstream: UpdateWorkstreamArgsSchema,
+  dropWorkstream: DropWorkstreamArgsSchema,
+  inspectProjectDirectory: InspectProjectDirectoryArgsSchema,
+  createLocalResearchProject: CreateLocalResearchProjectArgsSchema,
 }
 
 /** Narrow a descriptor codec to its strict arm. */
@@ -194,13 +246,13 @@ function strictCodec(codec: TypertCodec): Extract<TypertCodec, { mode: 'strict' 
   return codec
 }
 
-describe('WP-4.1a manifest — the full 27-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4)', () => {
+describe('WP-4.1a manifest — the full 33-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2)', () => {
   it('TYPERT passes the mirrored loader validation (validateTypertManifest semantics)', () => {
     expect(() => validateTypertManifest(RESEARCH_CONTROL_PACKAGE, TYPERT)).not.toThrow()
   })
 
-  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 4 GUI management RPCs, in order', () => {
-    expect(TYPERT.invocations).toHaveLength(27)
+  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 10 GUI management RPCs, in order', () => {
+    expect(TYPERT.invocations).toHaveLength(33)
     expect(TYPERT.invocations.map((i) => i.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,
@@ -217,10 +269,16 @@ describe('WP-4.1a manifest — the full 27-endpoint registered face (V2-T3.2a + 
       'getCurrentFocus',
       'createTopic',
       'createWorkstream',
+      'updateProjectMetadata',
+      'updateTopic',
+      'updateWorkstream',
+      'dropWorkstream',
+      'inspectProjectDirectory',
+      'createLocalResearchProject',
     ])
     // The host manifest re-exports the SHARED descriptors (identity):
     // index 0 is the shared ping descriptor, indices 1..13 are the shared
-    // RESEARCH_RPC_INVOCATIONS in order, indices 23..26 are the shared
+    // RESEARCH_RPC_INVOCATIONS in order, indices 23..32 are the shared
     // RESEARCH_MANAGEMENT_INVOCATIONS in order.
     expect(TYPERT.invocations[0]).toBe(pingInvocation)
     expect(TYPERT.invocations[1]).toBe(RESEARCH_RPC_INVOCATIONS[0])
@@ -229,6 +287,12 @@ describe('WP-4.1a manifest — the full 27-endpoint registered face (V2-T3.2a + 
     expect(TYPERT.invocations[24]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[1])
     expect(TYPERT.invocations[25]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[2])
     expect(TYPERT.invocations[26]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[3])
+    expect(TYPERT.invocations[27]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[4])
+    expect(TYPERT.invocations[28]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[5])
+    expect(TYPERT.invocations[29]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[6])
+    expect(TYPERT.invocations[30]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[7])
+    expect(TYPERT.invocations[31]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[8])
+    expect(TYPERT.invocations[32]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[9])
   })
 
   it('every invocation carries the id grammar + direct receiver + strict codecs', () => {
@@ -288,6 +352,12 @@ describe('WP-4.1a manifest — the full 27-endpoint registered face (V2-T3.2a + 
       getCurrentFocus: GetCurrentFocusResultSchema,
       createTopic: CreateTopicResultSchema,
       createWorkstream: CreateWorkstreamResultSchema,
+      updateProjectMetadata: UpdateProjectMetadataResultSchema,
+      updateTopic: UpdateTopicResultSchema,
+      updateWorkstream: UpdateWorkstreamResultSchema,
+      dropWorkstream: DropWorkstreamResultSchema,
+      inspectProjectDirectory: InspectProjectDirectoryResultSchema,
+      createLocalResearchProject: CreateLocalResearchProjectResultSchema,
     }
     for (const { method, resultFixture } of endpointFixtures) {
       const invocation = (TYPERT.invocations as readonly InvocationDescriptorMirror[]).find(
@@ -306,10 +376,10 @@ describe('WP-4.1a manifest — the full 27-endpoint registered face (V2-T3.2a + 
     }
   })
 
-  it('TYPERT.schemas covers the full contract: ping + 24 args + 26 results, live zod instances, unique names', () => {
+  it('TYPERT.schemas covers the full contract: ping + 30 args + 32 results, live zod instances, unique names', () => {
     const names = TYPERT.schemas.map((s) => s.name)
-    expect(names).toHaveLength(51)
-    expect(new Set(names).size).toBe(51)
+    expect(names).toHaveLength(63)
+    expect(new Set(names).size).toBe(63)
     for (const s of TYPERT.schemas) {
       expect('_zod' in (s.schema as object), `${s.name} must be a live zod v4 instance`).toBe(true)
     }
@@ -340,12 +410,18 @@ describe('WP-4.1a manifest — the full 27-endpoint registered face (V2-T3.2a + 
       'GetCurrentFocusArgs', 'GetCurrentFocusResult',
       'CreateTopicArgs', 'CreateTopicResult',
       'CreateWorkstreamArgs', 'CreateWorkstreamResult',
+      'UpdateProjectMetadataArgs', 'UpdateProjectMetadataResult',
+      'UpdateTopicArgs', 'UpdateTopicResult',
+      'UpdateWorkstreamArgs', 'UpdateWorkstreamResult',
+      'DropWorkstreamArgs', 'DropWorkstreamResult',
+      'InspectProjectDirectoryArgs', 'InspectProjectDirectoryResult',
+      'CreateLocalResearchProjectArgs', 'CreateLocalResearchProjectResult',
     ]) {
       expect(names, `missing schema entry ${expected}`).toContain(expected)
     }
   })
 
-  it('the model carries the full 27-member service face', () => {
+  it('the model carries the full 33-member service face', () => {
     const [service] = TYPERT.model.services
     expect(TYPERT.model.events).toEqual([])
     expect(TYPERT.model.objects).toEqual([])
@@ -367,6 +443,12 @@ describe('WP-4.1a manifest — the full 27-endpoint registered face (V2-T3.2a + 
       'getCurrentFocus',
       'createTopic',
       'createWorkstream',
+      'updateProjectMetadata',
+      'updateTopic',
+      'updateWorkstream',
+      'dropWorkstream',
+      'inspectProjectDirectory',
+      'createLocalResearchProject',
     ])
     for (const member of service.members) {
       expect(member.kind).toBe('method')
@@ -383,12 +465,18 @@ describe('WP-4.1a manifest — the full 27-endpoint registered face (V2-T3.2a + 
     expect(service.types.map((t) => t.name)).toContain('GetCurrentFocusResult')
     expect(service.types.map((t) => t.name)).toContain('CreateTopicResult')
     expect(service.types.map((t) => t.name)).toContain('CreateWorkstreamResult')
+    expect(service.types.map((t) => t.name)).toContain('UpdateProjectMetadataResult')
+    expect(service.types.map((t) => t.name)).toContain('UpdateTopicResult')
+    expect(service.types.map((t) => t.name)).toContain('UpdateWorkstreamResult')
+    expect(service.types.map((t) => t.name)).toContain('DropWorkstreamResult')
+    expect(service.types.map((t) => t.name)).toContain('InspectProjectDirectoryResult')
+    expect(service.types.map((t) => t.name)).toContain('CreateLocalResearchProjectResult')
   })
 
-  it('③ the client contribution exports the SAME 27 strict descriptor objects (no drift)', () => {
+  it('③ the client contribution exports the SAME 33 strict descriptor objects (no drift)', () => {
     expect(researchRemotes.package).toBe(RESEARCH_CONTROL_PACKAGE)
-    expect(researchRemotes.descriptors).toHaveLength(27)
-    for (let i = 0; i < 27; i += 1) {
+    expect(researchRemotes.descriptors).toHaveLength(33)
+    for (let i = 0; i < 33; i += 1) {
       expect(researchRemotes.descriptors[i], `descriptor ${i} identity`).toBe(TYPERT.invocations[i])
     }
     // And the first (ping) remains the WP-0.3 shared object.

@@ -2235,12 +2235,19 @@ export const ackMissingReminderInvocation: InvocationDescriptorMirror = descript
 
 /** The GUI management RPC method names (order preserved; purely
  *  additive — the frozen 13 / frozen 14 / plane 9 lists stay
- *  byte-identical). */
+ *  byte-identical). UI-2A: + the update-and-drop set (D §8.2);
+ *  UI-2B: + the local-project pair (D §8.7 Create/Bind). */
 export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'setCurrentFocus',
   'getCurrentFocus',
   'createTopic',
   'createWorkstream',
+  'updateProjectMetadata',
+  'updateTopic',
+  'updateWorkstream',
+  'dropWorkstream',
+  'inspectProjectDirectory',
+  'createLocalResearchProject',
 ] as const
 
 export type ResearchManagementRpcMethod = (typeof RESEARCH_MANAGEMENT_RPC_METHODS)[number]
@@ -2441,6 +2448,403 @@ export const createWorkstreamInvocation: InvocationDescriptorMirror = descriptor
   CreateWorkstreamResultSchema,
 )
 
+/* -------------------------------------------------------------------- *
+ * updateProjectMetadata — declarative-tree update (D §8.2 update-and-
+ * drop set, UI-2A): read-modify-write merge of the provided fields
+ * (title / description / importance / attention_mode / target_date)
+ * into the routed project's project.yaml — omitted fields are preserved
+ * byte-for-byte, no default materialization. At least one field is
+ * required (HIER_INPUT in the service). Faults ride the HIER_* carrier
+ * (`[research-control] <CODE>: <message>`).
+ * -------------------------------------------------------------------- */
+
+export interface UpdateProjectMetadataArgs {
+  /** 1–200 chars (frozen project.schema.json `title`). */
+  readonly title?: string
+  /** Any string (frozen `description` — no length cap). */
+  readonly description?: string
+  /** Integer 1–5 (frozen `importance`). */
+  readonly importance?: number
+  /** Frozen enum (frozen `attention_mode`). */
+  readonly attentionMode?: 'FOCUS' | 'NORMAL' | 'BACKGROUND'
+  /** `YYYY-MM-DD` (frozen `target_date`). */
+  readonly targetDate?: string
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string
+}
+
+export const UpdateProjectMetadataArgsSchema = z
+  .object({
+    title: z.string().min(1).max(200).optional(),
+    description: z.string().optional(),
+    importance: z.number().int().min(1).max(5).optional(),
+    attentionMode: attentionMode.optional(),
+    targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface UpdateProjectMetadataResult {
+  readonly projectId: string
+  /** The effective title after the merge. */
+  readonly title: string
+  /** Write stamp, epoch ms (client invalidation version — the frozen
+   *  schema has no `updated_at` field). */
+  readonly updatedAt: number
+}
+
+export const UpdateProjectMetadataResultSchema = z
+  .object({
+    projectId: idProject,
+    title: z.string().min(1).max(200),
+    updatedAt: epochMs,
+  })
+  .strict()
+
+export const updateProjectMetadataInvocation: InvocationDescriptorMirror = descriptor(
+  'updateProjectMetadata',
+  [argsParameter('UpdateProjectMetadataArgs', UpdateProjectMetadataArgsSchema)],
+  'UpdateProjectMetadataResult',
+  UpdateProjectMetadataResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * updateTopic — declarative-tree update (D §8.2, UI-2A): the same RMW
+ * spine over the target topic's topic.yaml (title / description /
+ * importance / attention_mode). The topic must belong to the routed
+ * project (HIER_TOPIC_NOT_FOUND otherwise).
+ * -------------------------------------------------------------------- */
+
+export interface UpdateTopicArgs {
+  /** An existing topic of the routed project. */
+  readonly topicId: string
+  /** 1–200 chars (frozen topic.schema.json `title`). */
+  readonly title?: string
+  readonly description?: string
+  readonly importance?: number
+  readonly attentionMode?: 'FOCUS' | 'NORMAL' | 'BACKGROUND'
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string
+}
+
+export const UpdateTopicArgsSchema = z
+  .object({
+    topicId: idTopic,
+    title: z.string().min(1).max(200).optional(),
+    description: z.string().optional(),
+    importance: z.number().int().min(1).max(5).optional(),
+    attentionMode: attentionMode.optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface UpdateTopicResult {
+  readonly topicId: string
+  /** The effective title after the merge. */
+  readonly title: string
+  /** Write stamp, epoch ms. */
+  readonly updatedAt: number
+}
+
+export const UpdateTopicResultSchema = z
+  .object({
+    topicId: idTopic,
+    title: z.string().min(1).max(200),
+    updatedAt: epochMs,
+  })
+  .strict()
+
+export const updateTopicInvocation: InvocationDescriptorMirror = descriptor(
+  'updateTopic',
+  [argsParameter('UpdateTopicArgs', UpdateTopicArgsSchema)],
+  'UpdateTopicResult',
+  UpdateTopicResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * updateWorkstream — declarative-tree update (D §8.2, UI-2A): the same
+ * RMW spine over the target workstream's workstream.yaml (title /
+ * summary — the update face is title+summary ONLY; lifecycle changes
+ * are NOT part of this slice). The workstream must belong to the
+ * routed project (HIER_WORKSTREAM_NOT_FOUND otherwise).
+ * -------------------------------------------------------------------- */
+
+export interface UpdateWorkstreamArgs {
+  /** An existing workstream of the routed project. */
+  readonly workstreamId: string
+  /** 1–200 chars (frozen workstream.schema.json `title`). */
+  readonly title?: string
+  readonly summary?: string
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string
+}
+
+export const UpdateWorkstreamArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    title: z.string().min(1).max(200).optional(),
+    summary: z.string().optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface UpdateWorkstreamResult {
+  readonly workstreamId: string
+  /** The topic the workstream lives under (change fact for
+   *  invalidation). */
+  readonly topicId: string
+  /** The effective title after the merge. */
+  readonly title: string
+  /** Write stamp, epoch ms. */
+  readonly updatedAt: number
+}
+
+export const UpdateWorkstreamResultSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    topicId: idTopic,
+    title: z.string().min(1).max(200),
+    updatedAt: epochMs,
+  })
+  .strict()
+
+export const updateWorkstreamInvocation: InvocationDescriptorMirror = descriptor(
+  'updateWorkstream',
+  [argsParameter('UpdateWorkstreamArgs', UpdateWorkstreamArgsSchema)],
+  'UpdateWorkstreamResult',
+  UpdateWorkstreamResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * dropWorkstream — declarative-tree drop (D §8.2, UI-2A): deletes the
+ * workstream directory tree (the topic survives — an emptied topic is
+ * legal). CONSERVATIVE gate: a workstream with ANY history event is
+ * refused (HIER_WORKSTREAM_HAS_HISTORY — history is never auto-cleared);
+ * the post-delete current-focus clear is best-effort (the result flag
+ * says whether it removed a live pointer).
+ * -------------------------------------------------------------------- */
+
+export interface DropWorkstreamArgs {
+  /** The workstream to drop. */
+  readonly workstreamId: string
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string
+}
+
+export const DropWorkstreamArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface DropWorkstreamResult {
+  readonly workstreamId: string
+  /** The topic the workstream lived under (change fact for
+   *  invalidation — the topic itself still exists). */
+  readonly topicId: string
+  /** Whether the post-delete best-effort current-focus clear removed a
+   *  live pointer (false = no pointer to clear, or the clear failed —
+   *  non-blocking either way). */
+  readonly currentFocusCleared: boolean
+}
+
+export const DropWorkstreamResultSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    topicId: idTopic,
+    currentFocusCleared: z.boolean(),
+  })
+  .strict()
+
+export const dropWorkstreamInvocation: InvocationDescriptorMirror = descriptor(
+  'dropWorkstream',
+  [argsParameter('DropWorkstreamArgs', DropWorkstreamArgsSchema)],
+  'DropWorkstreamResult',
+  DropWorkstreamResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * inspectProjectDirectory — PLANE-level read (D §8.7 Bind journey,
+ * UI-2B): classifies a registered workspace directory into the four
+ * detected states (an existing Research Control project / a git repo
+ * without a research tree / a plain directory / an incompatible one).
+ * READ-ONLY — the incompatible state explains (its `detail` carries the
+ * reason); nothing is ever auto-repaired. The configured tree directory
+ * name is resolved HOST-side from the settings (the wire carries only
+ * the workspace path — no stale-client tree names).
+ * -------------------------------------------------------------------- */
+
+export type InspectProjectDirectoryState = 'RC_PROJECT' | 'GIT_ONLY' | 'PLAIN_DIR' | 'INCOMPATIBLE'
+
+export interface InspectProjectDirectoryArgs {
+  /** The registered DSH workspace path to inspect (absolute). */
+  readonly wsPath: string
+}
+
+export const InspectProjectDirectoryArgsSchema = z
+  .object({
+    wsPath: z.string().min(1),
+  })
+  .strict()
+
+export interface InspectProjectDirectoryResult {
+  readonly wsPath: string
+  /** The detected state (the B spec's four branch points). */
+  readonly state: InspectProjectDirectoryState
+  /** The verbatim detected-state line (the B spec copy — the
+   *  INCOMPATIBLE reason lives in `detail`). */
+  readonly message: string
+  /** The second detected-state line (GIT_ONLY / PLAIN_DIR) or the
+   *  INCOMPATIBLE conflict reason; `null` for RC_PROJECT. */
+  readonly detail: string | null
+  readonly hasGitRepo: boolean
+  readonly hasResearchTree: boolean
+  readonly treeValid: boolean
+  /** The plane-state fact (already managed — the Bind action still
+   *  offers; a re-bind refusal surfaces from bindProject itself). */
+  readonly alreadyManaged: boolean
+  /** The tree's project id (RC_PROJECT only). */
+  readonly projectId?: string
+  /** The `project.yaml` title (RC_PROJECT only). */
+  readonly title?: string
+}
+
+export const InspectProjectDirectoryResultSchema = z
+  .object({
+    wsPath: z.string().min(1),
+    state: z.enum(['RC_PROJECT', 'GIT_ONLY', 'PLAIN_DIR', 'INCOMPATIBLE']),
+    message: z.string().min(1),
+    detail: z.string().nullable(),
+    hasGitRepo: z.boolean(),
+    hasResearchTree: z.boolean(),
+    treeValid: z.boolean(),
+    alreadyManaged: z.boolean(),
+    projectId: idProject.optional(),
+    title: z.string().min(1).optional(),
+  })
+  .strict()
+
+export const inspectProjectDirectoryInvocation: InvocationDescriptorMirror = descriptor(
+  'inspectProjectDirectory',
+  [argsParameter('InspectProjectDirectoryArgs', InspectProjectDirectoryArgsSchema)],
+  'InspectProjectDirectoryResult',
+  InspectProjectDirectoryResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * createLocalResearchProject — PLANE-level mutation (D §8.7 Create
+ * journey, UI-2B): creates a research project from scratch under a
+ * registered workspace — mkdir → git init (W12 user-explicit) →
+ * scaffold the minimal tree → write the full project metadata (only
+ * when a field is provided) → registry COMMIT LAST + re-init +
+ * post-check (the bindProject ladder). THREE-STAGE failure contract:
+ * pre-checks THROW (the PLANE_* rungs + LP_INPUT / LP_PARENT_INVALID /
+ * LP_DIR_EXISTS — no partial change yet); a step failure RETURNS the
+ * `ok: false` arm of the result union (the failed step + completed
+ * steps + the PARTIAL-CHANGE NOTE — there is no rollback engine,
+ * frozen ruling); the success arm carries the registration facts.
+ * -------------------------------------------------------------------- */
+
+export interface CreateLocalResearchProjectArgs {
+  /** The registered DSH workspace path (the tree's parent). */
+  readonly wsPath: string
+  /** 1–200 chars (frozen project.schema.json `title` — becomes the
+   *  scaffolded `project.yaml` title = the registry display name). */
+  readonly title: string
+  readonly description?: string
+  /** Integer 1–5 (frozen `importance`). */
+  readonly importance?: number
+  readonly attentionMode?: 'FOCUS' | 'NORMAL' | 'BACKGROUND'
+  /** `YYYY-MM-DD` (frozen `target_date`). */
+  readonly targetDate?: string
+}
+
+export const CreateLocalResearchProjectArgsSchema = z
+  .object({
+    wsPath: z.string().min(1),
+    title: z.string().min(1).max(200),
+    description: z.string().optional(),
+    importance: z.number().int().min(1).max(5).optional(),
+    attentionMode: attentionMode.optional(),
+    targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  })
+  .strict()
+
+/** The create step vocabulary (the failure arm's `failedStep` /
+ *  `completedSteps`). */
+export type CreateLocalResearchProjectWireStep = 'mkdir' | 'gitInit' | 'scaffold' | 'metadata' | 'register'
+
+/** The LP_* codes that can appear in the failure arm (the STEP codes —
+ *  the pre-check codes LP_INPUT / LP_PARENT_INVALID / LP_DIR_EXISTS
+ *  throw instead, because no step has started; their carrier rides the
+ *  gateway error message like the PLANE_* rung carriers). */
+export type CreateLocalResearchProjectWireCode =
+  | 'LP_MKDIR'
+  | 'LP_GIT_INIT'
+  | 'LP_SCAFFOLD'
+  | 'LP_METADATA'
+  | 'LP_REGISTER'
+
+export interface CreateLocalResearchProjectSuccessResult {
+  readonly ok: true
+  readonly projectId: string
+  /** The absolute tree directory that was created. */
+  readonly treePath: string
+  /** `null` when the plane has no hub (the standalone flow — no
+   *  registry to append to). */
+  readonly registryPath: string | null
+  readonly dbMigrated: boolean
+}
+
+export interface CreateLocalResearchProjectFailureResult {
+  readonly ok: false
+  readonly code: CreateLocalResearchProjectWireCode
+  readonly failedStep: CreateLocalResearchProjectWireStep
+  /** The steps that completed (and left a durable trace) before the
+   *  failure — `[]` when the first step failed. */
+  readonly completedSteps: readonly CreateLocalResearchProjectWireStep[]
+  /** Human-facing: what now exists on disk (the spec's partial-change
+   *  note). */
+  readonly partialChangeNote: string
+  /** The raw failure detail (the fs / git / scaffold / registry error
+   *  message, carrier-free — `code` is the machine key for this arm). */
+  readonly detail: string
+}
+
+export type CreateLocalResearchProjectResult =
+  | CreateLocalResearchProjectSuccessResult
+  | CreateLocalResearchProjectFailureResult
+
+export const CreateLocalResearchProjectResultSchema: TypertSchemaLike = z.union([
+  z
+    .object({
+      ok: z.literal(true),
+      projectId: idProject,
+      treePath: z.string().min(1),
+      registryPath: z.string().min(1).nullable(),
+      dbMigrated: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      code: z.enum(['LP_MKDIR', 'LP_GIT_INIT', 'LP_SCAFFOLD', 'LP_METADATA', 'LP_REGISTER']),
+      failedStep: z.enum(['mkdir', 'gitInit', 'scaffold', 'metadata', 'register']),
+      completedSteps: z.array(z.enum(['mkdir', 'gitInit', 'scaffold', 'metadata', 'register'])),
+      partialChangeNote: z.string().min(1),
+      detail: z.string(),
+    })
+    .strict(),
+])
+
+export const createLocalResearchProjectInvocation: InvocationDescriptorMirror = descriptor(
+  'createLocalResearchProject',
+  [argsParameter('CreateLocalResearchProjectArgs', CreateLocalResearchProjectArgsSchema)],
+  'CreateLocalResearchProjectResult',
+  CreateLocalResearchProjectResultSchema,
+)
+
 /** The GUI management invocation descriptors (appended to the registered
  *  face at the end — the frozen 14 + plane 9 entries stay untouched). */
 export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
@@ -2448,6 +2852,12 @@ export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirro
   getCurrentFocusInvocation,
   createTopicInvocation,
   createWorkstreamInvocation,
+  updateProjectMetadataInvocation,
+  updateTopicInvocation,
+  updateWorkstreamInvocation,
+  dropWorkstreamInvocation,
+  inspectProjectDirectoryInvocation,
+  createLocalResearchProjectInvocation,
 ]
 
 /**
@@ -2490,8 +2900,12 @@ export const RESEARCH_PLANE_INVOCATIONS: readonly InvocationDescriptorMirror[] =
  * UI-0.4 appends the 4 GUI management RPCs ({@link
  * RESEARCH_MANAGEMENT_INVOCATIONS}: setCurrentFocus / getCurrentFocus —
  * slice 1, R-01; createTopic / createWorkstream — Task 3, the D §8.1
- * create pair) — the incremental management face grows by slice (D
- * §6.5); the registered face is now 26 business RPCs (27 with ping).
+ * create pair); UI-2A appends the update-and-drop set (D §8.2:
+ * updateProjectMetadata / updateTopic / updateWorkstream /
+ * dropWorkstream); UI-2B appends the local-project pair (D §8.7
+ * Create/Bind: inspectProjectDirectory / createLocalResearchProject) —
+ * the incremental management face grows by slice (D §6.5); the
+ * registered face is now 32 business RPCs (33 with ping).
  */
 export const REGISTERED_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
   ...ALL_RESEARCH_INVOCATIONS,

@@ -1,12 +1,18 @@
 /**
- * V2-UI-0.4 (Task 3) — Declarative Hierarchy CRUD: type surface
- * (createTopic / createWorkstream — the D §8.1 create pair, UI-2A).
+ * V2-UI-0.4 (Task 3) + UI-2A — Declarative Hierarchy CRUD: type surface
+ * (createTopic / createWorkstream — the D §8.1 create pair; the
+ * updateProjectMetadata / updateTopic / updateWorkstream /
+ * dropWorkstream update-and-drop set — UI-2A).
  *
  * This module owns the USER-facing mutation semantics of the DECLARATIVE
  * tree skeleton: creating a new Topic (a `.research/topics/<TPC-n>/`
- * directory with its required `topic.yaml`) and creating a new
+ * directory with its required `topic.yaml`), creating a new
  * Workstream (a `.research/topics/<t>/workstreams/<WS-n>/` directory with
- * its required `workstream.yaml`) inside the routed project's tree.
+ * its required `workstream.yaml`), updating the mutable fields of
+ * `project.yaml` / `topic.yaml` / `workstream.yaml` (read-modify-write
+ * over the file's OWN text — untouched fields stay byte-faithful, no
+ * default materialization) and dropping a Workstream (its whole
+ * directory, history-gated) inside the routed project's tree.
  *
  * Minimal-file-set discipline (loader phase-0 layout rules,
  * `domain/loader/load.ts`): a topic directory holds ONLY `topic.yaml`
@@ -48,7 +54,7 @@
  * cause preserved); non-hierarchy errors are NOT re-coded.
  */
 
-import type { ResearchLoadError, ResearchTree } from '../../domain/loader/index.js'
+import type { AttentionMode, ResearchLoadError, ResearchTree } from '../../domain/loader/index.js'
 import type { PlanFileWriter } from '../../domain/plan/index.js'
 
 /* ------------------------------------------------------------------ *
@@ -78,8 +84,17 @@ import type { PlanFileWriter } from '../../domain/plan/index.js'
  *   - `HIER_WORKSTREAM_EXISTS` — the target workstream file already
  *     exists at the moment of the pre-write probe (same TOCTOU
  *     semantics as HIER_TOPIC_EXISTS);
- *   - `HIER_WRITE` — the atomic write failed (fs failure; cause
- *     preserved).
+ *   - `HIER_WORKSTREAM_NOT_FOUND` — the referenced workstream is not a
+ *     node of the routed project's tree (update path) or its yaml file
+ *     is already gone at the moment of the pre-delete probe (drop path
+ *     — a raced deletion; the drop is refused and nothing is removed);
+ *   - `HIER_WORKSTREAM_HAS_HISTORY` — drop refused: the workstream has
+ *     at least one history event in the operational store (the
+ *     conservative ruling: history is never auto-purged, so a
+ *     workstream with history is not droppable through this face — no
+ *     silent data loss);
+ *   - `HIER_WRITE` — the atomic write or the directory removal failed
+ *     (fs failure; cause preserved).
  */
 export type HierarchyErrorCode =
   | 'HIER_INPUT'
@@ -87,6 +102,8 @@ export type HierarchyErrorCode =
   | 'HIER_TOPIC_EXISTS'
   | 'HIER_TOPIC_NOT_FOUND'
   | 'HIER_WORKSTREAM_EXISTS'
+  | 'HIER_WORKSTREAM_NOT_FOUND'
+  | 'HIER_WORKSTREAM_HAS_HISTORY'
   | 'HIER_WRITE'
 
 export class HierarchyError extends Error {
@@ -141,6 +158,48 @@ export type HierarchyFileExists = (absPath: string) => boolean
  *  `topics/<t>/workstreams/<ws>/` parent chain). */
 export type HierarchyWriter = PlanFileWriter
 
+/**
+ * Raw text read of one file (production = `FsResearchReader` `readFile`
+ * — `null` when the path is absent). The read-modify-write update path
+ * operates on the file's OWN text (parse → merge the provided fields →
+ * re-serialize) so that every untouched field stays byte-faithful: the
+ * frozen schemas' defaults are materialized by the LOADER at read time,
+ * so a writer that re-emitted a fully materialized doc would fabricate
+ * values the user never set (e.g. an `importance: 3` that was absent
+ * from the file until now).
+ */
+export type HierarchyReadFile = (absPath: string) => string | null
+
+/**
+ * Recursive directory removal (production = the wiring's
+ * `rmSync(dir, { recursive: true, force: false })`). Used ONLY by
+ * `dropWorkstream`, and ONLY on the workstream directory itself (never
+ * the topic or the tree root). `force: false` makes a raced, already-
+ * gone path fail loudly (ENOENT → HIER_WRITE) instead of pretending
+ * success.
+ */
+export type HierarchyRemoveDir = (absPath: string) => void
+
+/**
+ * Operational-history probe (production = the wired `ResearchStore`
+ * `listRange(workstreamId, 1).length > 0`). The conservative drop gate:
+ * a workstream that has even ONE history event is not droppable
+ * (HIER_WORKSTREAM_HAS_HISTORY) — history is never auto-purged.
+ */
+export type HierarchyHasHistory = (workstreamId: string) => boolean
+
+/**
+ * Best-effort current-focus clear (production = the wired
+ * `CurrentFocusService` `clear(workstreamId)`; returns true when a focus
+ * row was actually removed). `dropWorkstream` invokes this AFTER the
+ * directory removal succeeded: a failure here is NON-BLOCKING (the
+ * wiring logs it) — the workstream is gone either way and a dangling
+ * focus row is the focus service's own reconciliation target. The
+ * boolean result is surfaced in the DropWorkstreamOutput DTO
+ * (`currentFocusCleared`) so the view can state what happened.
+ */
+export type HierarchyClearCurrentFocus = (workstreamId: string) => boolean
+
 /* ------------------------------------------------------------------ *
  * Service-level inputs / outputs (plain DTOs — the RPC layer decodes
  * the wire shape and maps onto these; the service never sees zod)
@@ -180,4 +239,92 @@ export interface CreateWorkstreamOutput {
   readonly path: string
   /** `created_at` as epoch ms. */
   readonly createdAt: number
+}
+
+/* ---- UI-2A update-and-drop set (D §8.1) ----------------------------
+ *
+ * All three update operations are READ-MODIFY-WRITE over the target
+ * file's own text (see `HierarchyReadFile`): the provided fields are
+ * merged into the parsed doc, everything else is re-serialized
+ * verbatim. The frozen schemas' property ORDER is preserved (the
+ * merge never reorders keys). `target_date` is carried as its YAML
+ * string form (`YYYY-MM-DD`, frozen `isoDate`) — the service never
+ * converts it (the loader parses it to epoch ms at read time).
+ * ------------------------------------------------------------------ */
+
+export interface UpdateProjectMetadataInput {
+  /** 1–200 chars (frozen project.schema.json `title`). */
+  readonly title?: string
+  /** Any string (frozen `description` — the schema imposes no length
+   *  cap). */
+  readonly description?: string
+  /** 1–5 integer (frozen `importance`). */
+  readonly importance?: number
+  /** Frozen enum (frozen `attention_mode`). */
+  readonly attentionMode?: AttentionMode
+  /** `YYYY-MM-DD` (frozen `target_date`, `isoDate`). */
+  readonly targetDate?: string
+}
+
+export interface UpdateProjectMetadataOutput {
+  readonly projectId: string
+  /** The effective title after the merge. */
+  readonly title: string
+  /** Write stamp, epoch ms (the frozen schema has no `updated_at` —
+   *  this is the client invalidation version, not a persisted field). */
+  readonly updatedAt: number
+}
+
+export interface UpdateTopicInput {
+  /** An existing topic of the routed project. */
+  readonly topicId: string
+  /** 1–200 chars (frozen topic.schema.json `title`). */
+  readonly title?: string
+  /** Any string (frozen `description`). */
+  readonly description?: string
+  /** 1–5 integer (frozen `importance`). */
+  readonly importance?: number
+  /** Frozen enum (frozen `attention_mode`). */
+  readonly attentionMode?: AttentionMode
+}
+
+export interface UpdateTopicOutput {
+  readonly topicId: string
+  /** The effective title after the merge. */
+  readonly title: string
+  /** Write stamp, epoch ms (client invalidation version). */
+  readonly updatedAt: number
+}
+
+export interface UpdateWorkstreamInput {
+  /** An existing workstream of the routed project. */
+  readonly workstreamId: string
+  /** 1–200 chars (frozen workstream.schema.json `title`). */
+  readonly title?: string
+  /** Any string (frozen `summary`). */
+  readonly summary?: string
+}
+
+export interface UpdateWorkstreamOutput {
+  readonly workstreamId: string
+  readonly topicId: string
+  /** The effective title after the merge. */
+  readonly title: string
+  /** Write stamp, epoch ms (client invalidation version). */
+  readonly updatedAt: number
+}
+
+export interface DropWorkstreamInput {
+  /** An existing workstream of the routed project. */
+  readonly workstreamId: string
+}
+
+export interface DropWorkstreamOutput {
+  readonly workstreamId: string
+  /** The topic the workstream lived under (the drop never removes the
+   *  topic — an emptied topic directory is legal). */
+  readonly topicId: string
+  /** Whether the post-delete best-effort current-focus clear removed a
+   *  focus row (see `HierarchyClearCurrentFocus`). */
+  readonly currentFocusCleared: boolean
 }

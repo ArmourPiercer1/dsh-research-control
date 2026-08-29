@@ -864,5 +864,152 @@ interface CreateWorkstreamResult {
   /** `created_at` as epoch ms. */
   readonly createdAt: number;
 }
+interface UpdateProjectMetadataArgs {
+  /** 1–200 chars (frozen project.schema.json `title`). */
+  readonly title?: string;
+  /** Any string (frozen `description` — no length cap). */
+  readonly description?: string;
+  /** Integer 1–5 (frozen `importance`). */
+  readonly importance?: number;
+  /** Frozen enum (frozen `attention_mode`). */
+  readonly attentionMode?: 'FOCUS' | 'NORMAL' | 'BACKGROUND';
+  /** `YYYY-MM-DD` (frozen `target_date`). */
+  readonly targetDate?: string;
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string;
+}
+interface UpdateProjectMetadataResult {
+  readonly projectId: string;
+  /** The effective title after the merge. */
+  readonly title: string;
+  /** Write stamp, epoch ms (client invalidation version — the frozen
+   *  schema has no `updated_at` field). */
+  readonly updatedAt: number;
+}
+interface UpdateTopicArgs {
+  /** An existing topic of the routed project. */
+  readonly topicId: string;
+  /** 1–200 chars (frozen topic.schema.json `title`). */
+  readonly title?: string;
+  readonly description?: string;
+  readonly importance?: number;
+  readonly attentionMode?: 'FOCUS' | 'NORMAL' | 'BACKGROUND';
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string;
+}
+interface UpdateTopicResult {
+  readonly topicId: string;
+  /** The effective title after the merge. */
+  readonly title: string;
+  /** Write stamp, epoch ms. */
+  readonly updatedAt: number;
+}
+interface UpdateWorkstreamArgs {
+  /** An existing workstream of the routed project. */
+  readonly workstreamId: string;
+  /** 1–200 chars (frozen workstream.schema.json `title`). */
+  readonly title?: string;
+  readonly summary?: string;
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string;
+}
+interface UpdateWorkstreamResult {
+  readonly workstreamId: string;
+  /** The topic the workstream lives under (change fact for
+   *  invalidation). */
+  readonly topicId: string;
+  /** The effective title after the merge. */
+  readonly title: string;
+  /** Write stamp, epoch ms. */
+  readonly updatedAt: number;
+}
+interface DropWorkstreamArgs {
+  /** The workstream to drop. */
+  readonly workstreamId: string;
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string;
+}
+interface DropWorkstreamResult {
+  readonly workstreamId: string;
+  /** The topic the workstream lived under (change fact for
+   *  invalidation — the topic itself still exists). */
+  readonly topicId: string;
+  /** Whether the post-delete best-effort current-focus clear removed a
+   *  live pointer (false = no pointer to clear, or the clear failed —
+   *  non-blocking either way). */
+  readonly currentFocusCleared: boolean;
+}
+type InspectProjectDirectoryState = 'RC_PROJECT' | 'GIT_ONLY' | 'PLAIN_DIR' | 'INCOMPATIBLE';
+interface InspectProjectDirectoryArgs {
+  /** The registered DSH workspace path to inspect (absolute). */
+  readonly wsPath: string;
+}
+interface InspectProjectDirectoryResult {
+  readonly wsPath: string;
+  /** The detected state (the B spec's four branch points). */
+  readonly state: InspectProjectDirectoryState;
+  /** The verbatim detected-state line (the B spec copy — the
+   *  INCOMPATIBLE reason lives in `detail`). */
+  readonly message: string;
+  /** The second detected-state line (GIT_ONLY / PLAIN_DIR) or the
+   *  INCOMPATIBLE conflict reason; `null` for RC_PROJECT. */
+  readonly detail: string | null;
+  readonly hasGitRepo: boolean;
+  readonly hasResearchTree: boolean;
+  readonly treeValid: boolean;
+  /** The plane-state fact (already managed — the Bind action still
+   *  offers; a re-bind refusal surfaces from bindProject itself). */
+  readonly alreadyManaged: boolean;
+  /** The tree's project id (RC_PROJECT only). */
+  readonly projectId?: string;
+  /** The `project.yaml` title (RC_PROJECT only). */
+  readonly title?: string;
+}
+interface CreateLocalResearchProjectArgs {
+  /** The registered DSH workspace path (the tree's parent). */
+  readonly wsPath: string;
+  /** 1–200 chars (frozen project.schema.json `title` — becomes the
+   *  scaffolded `project.yaml` title = the registry display name). */
+  readonly title: string;
+  readonly description?: string;
+  /** Integer 1–5 (frozen `importance`). */
+  readonly importance?: number;
+  readonly attentionMode?: 'FOCUS' | 'NORMAL' | 'BACKGROUND';
+  /** `YYYY-MM-DD` (frozen `target_date`). */
+  readonly targetDate?: string;
+}
+/** The create step vocabulary (the failure arm's `failedStep` /
+ *  `completedSteps`). */
+type CreateLocalResearchProjectWireStep = 'mkdir' | 'gitInit' | 'scaffold' | 'metadata' | 'register';
+/** The LP_* codes that can appear in the failure arm (the STEP codes —
+ *  the pre-check codes LP_INPUT / LP_PARENT_INVALID / LP_DIR_EXISTS
+ *  throw instead, because no step has started; their carrier rides the
+ *  gateway error message like the PLANE_* rung carriers). */
+type CreateLocalResearchProjectWireCode = 'LP_MKDIR' | 'LP_GIT_INIT' | 'LP_SCAFFOLD' | 'LP_METADATA' | 'LP_REGISTER';
+interface CreateLocalResearchProjectSuccessResult {
+  readonly ok: true;
+  readonly projectId: string;
+  /** The absolute tree directory that was created. */
+  readonly treePath: string;
+  /** `null` when the plane has no hub (the standalone flow — no
+   *  registry to append to). */
+  readonly registryPath: string | null;
+  readonly dbMigrated: boolean;
+}
+interface CreateLocalResearchProjectFailureResult {
+  readonly ok: false;
+  readonly code: CreateLocalResearchProjectWireCode;
+  readonly failedStep: CreateLocalResearchProjectWireStep;
+  /** The steps that completed (and left a durable trace) before the
+   *  failure — `[]` when the first step failed. */
+  readonly completedSteps: readonly CreateLocalResearchProjectWireStep[];
+  /** Human-facing: what now exists on disk (the spec's partial-change
+   *  note). */
+  readonly partialChangeNote: string;
+  /** The raw failure detail (the fs / git / scaffold / registry error
+   *  message, carrier-free — `code` is the machine key for this arm). */
+  readonly detail: string;
+}
+type CreateLocalResearchProjectResult = CreateLocalResearchProjectSuccessResult | CreateLocalResearchProjectFailureResult;
 //#endregion
-export { ReorderPlanArgs as A, SelectPlanForkArgs as B, HubOverviewResult as C, QueryHistoryResult as D, QueryHistoryArgs as E, RestoreDeclarativeFileResult as F, SetHubResult as G, SetCurrentFocusArgs as H, RestoreProjectArgs as I, UnbindProjectArgs as J, TopicSnapshot as K, RestoreProjectResult as L, RescanArgs as M, RescanResult as N, RegisterInteractionArgs as O, RestoreDeclarativeFileArgs as P, WorkstreamSnapshot as Q, SaveResearchCheckpointArgs as R, GetWorkstreamArgs as S, ProjectSnapshot as T, SetCurrentFocusResult as U, SelectPlanForkResult as V, SetHubArgs as W, UpdateInterventionStateArgs as X, UnbindProjectResult as Y, UpdateInterventionStateResult as Z, GetPortfolioInterventionsArgs as _, CreateTopicArgs as a, GetResearchPlaneStateResult as b, CreateWorkstreamResult as c, DismissPlanForkResult as d, GetCurrentFocusArgs as f, GetHubOverviewArgs as g, GetGitHistoryResult as h, BindProjectResult as i, ReorderPlanResult as j, RegisterInteractionResult as k, DashboardSnapshot as l, GetGitHistoryArgs as m, AckMissingReminderResult as n, CreateTopicResult as o, GetCurrentFocusResult as p, TypertContributionMirror as q, BindProjectArgs as r, CreateWorkstreamArgs as s, AckMissingReminderArgs as t, DismissPlanForkArgs as u, GetPortfolioInterventionsResult as v, PingResult as w, GetTopicArgs as x, GetResearchPlaneStateArgs as y, SaveResearchCheckpointResult as z };
+export { TypertContributionMirror as $, PingResult as A, RestoreDeclarativeFileArgs as B, GetResearchPlaneStateArgs as C, HubOverviewResult as D, GetWorkstreamArgs as E, RegisterInteractionResult as F, SaveResearchCheckpointResult as G, RestoreProjectArgs as H, ReorderPlanArgs as I, SetCurrentFocusArgs as J, SelectPlanForkArgs as K, ReorderPlanResult as L, QueryHistoryArgs as M, QueryHistoryResult as N, InspectProjectDirectoryArgs as O, RegisterInteractionArgs as P, TopicSnapshot as Q, RescanArgs as R, GetPortfolioInterventionsResult as S, GetTopicArgs as T, RestoreProjectResult as U, RestoreDeclarativeFileResult as V, SaveResearchCheckpointArgs as W, SetHubArgs as X, SetCurrentFocusResult as Y, SetHubResult as Z, GetCurrentFocusResult as _, CreateLocalResearchProjectArgs as a, UpdateProjectMetadataResult as at, GetHubOverviewArgs as b, CreateTopicResult as c, UpdateWorkstreamArgs as ct, DashboardSnapshot as d, UnbindProjectArgs as et, DismissPlanForkArgs as f, GetCurrentFocusArgs as g, DropWorkstreamResult as h, BindProjectResult as i, UpdateProjectMetadataArgs as it, ProjectSnapshot as j, InspectProjectDirectoryResult as k, CreateWorkstreamArgs as l, UpdateWorkstreamResult as lt, DropWorkstreamArgs as m, AckMissingReminderResult as n, UpdateInterventionStateArgs as nt, CreateLocalResearchProjectResult as o, UpdateTopicArgs as ot, DismissPlanForkResult as p, SelectPlanForkResult as q, BindProjectArgs as r, UpdateInterventionStateResult as rt, CreateTopicArgs as s, UpdateTopicResult as st, AckMissingReminderArgs as t, UnbindProjectResult as tt, CreateWorkstreamResult as u, WorkstreamSnapshot as ut, GetGitHistoryArgs as v, GetResearchPlaneStateResult as w, GetPortfolioInterventionsArgs as x, GetGitHistoryResult as y, RescanResult as z };

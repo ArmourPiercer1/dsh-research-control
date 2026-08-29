@@ -41,13 +41,19 @@
 
 import { researchRpc } from '../dsh-adapter/remote/mount.js'
 import {
+  type CreateLocalResearchProjectArgs,
+  type CreateLocalResearchProjectResult,
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
+  type DropWorkstreamArgs,
+  type DropWorkstreamResult,
   type GetCurrentFocusArgs,
   type GetCurrentFocusResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
+  type InspectProjectDirectoryArgs,
+  type InspectProjectDirectoryResult,
   type ProjectSnapshot,
   type QueryHistoryArgs,
   type QueryHistoryResult,
@@ -66,6 +72,12 @@ import {
   type TopicSnapshot,
   type UpdateInterventionStateArgs,
   type UpdateInterventionStateResult,
+  type UpdateProjectMetadataArgs,
+  type UpdateProjectMetadataResult,
+  type UpdateTopicArgs,
+  type UpdateTopicResult,
+  type UpdateWorkstreamArgs,
+  type UpdateWorkstreamResult,
   type WorkstreamSnapshot,
 } from '../../shared/rpc-contracts.js'
 import { createStore, type StoreSnapshotSource } from './engine.js'
@@ -183,6 +195,36 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
    * selecting from this slice).
    */
   setCurrentFocus(args: SetCurrentFocusArgs): Promise<SetCurrentFocusResult>
+
+  /* -- V2-UI-0.4 UI-2 (UI-2A / UI-2B): the six GUI management mutations
+         (the 4 hierarchy update/drop faces, project-routed — UI-2A — and
+         the 2 local-project faces, plane-level — UI-2B). Same idiom:
+         okValue → INVALIDATE_REGISTRY → refetchKeys; a business fault
+         rejects with ResearchRpcError. `inspectProjectDirectory` is a
+         QUERY face surfaced through the store for uniformity (its
+         registry rule invalidates nothing — it mutates no state). -- */
+
+  /** Update the project's editable metadata (RMW merge — omitted fields
+   *  keep their on-disk value). On OK: refetches `project`. */
+  updateProjectMetadata(args: UpdateProjectMetadataArgs): Promise<UpdateProjectMetadataResult>
+  /** Update a topic's title/description/importance/attentionMode. On
+   *  OK: refetches the topic slice. */
+  updateTopic(args: UpdateTopicArgs): Promise<UpdateTopicResult>
+  /** Update a workstream's title/summary. On OK: refetches the
+   *  workstream slice. */
+  updateWorkstream(args: UpdateWorkstreamArgs): Promise<UpdateWorkstreamResult>
+  /** Drop a workstream (conservative: refuses on history refs; deletes
+   *  the ws directory; best-effort CF clear). On OK: refetches the ws +
+   *  its topic + the dashboard. */
+  dropWorkstream(args: DropWorkstreamArgs): Promise<DropWorkstreamResult>
+  /** Inspect a directory's research-control state (the Bind journey's
+   *  detector). QUERY — no invalidation (rule returns `[]`). */
+  inspectProjectDirectory(args: InspectProjectDirectoryArgs): Promise<InspectProjectDirectoryResult>
+  /** Create a local research project (the Create journey's 5-step
+   *  chain). RESOLVES with the strict result union (success arm / the
+   *  ok:false three-stage failure arm — step failures do NOT reject);
+   *  pre-check faults reject. On OK success: refetches `dashboard`. */
+  createLocalResearchProject(args: CreateLocalResearchProjectArgs): Promise<CreateLocalResearchProjectResult>
 
   /* -- the refresh loop (ARCHITECTURE §8 items 3/4) -- */
 
@@ -474,6 +516,52 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     async setCurrentFocus(args: SetCurrentFocusArgs): Promise<SetCurrentFocusResult> {
       const value = okValue(await rpc.setCurrentFocus(args))
       await refetchKeys(INVALIDATE_REGISTRY.setCurrentFocus(value, base.getState()))
+      return value
+    },
+
+    /* V2-UI-0.4 UI-2 — the six GUI management mutations: the same
+       okValue → INVALIDATE_REGISTRY → refetchKeys idiom. createLocal-
+       ResearchProject RESOLVES with the failure arm too (the three-
+       stage contract — only pre-checks reject); the registry rule
+       refetches the dashboard on the success arm, nothing on the
+       failure arm (the wizard renders the partial change, no cache is
+       affected). */
+
+    async updateProjectMetadata(args: UpdateProjectMetadataArgs): Promise<UpdateProjectMetadataResult> {
+      const value = okValue(await rpc.updateProjectMetadata(args))
+      await refetchKeys(INVALIDATE_REGISTRY.updateProjectMetadata(value, base.getState()))
+      return value
+    },
+
+    async updateTopic(args: UpdateTopicArgs): Promise<UpdateTopicResult> {
+      const value = okValue(await rpc.updateTopic(args))
+      await refetchKeys(INVALIDATE_REGISTRY.updateTopic(value, base.getState()))
+      return value
+    },
+
+    async updateWorkstream(args: UpdateWorkstreamArgs): Promise<UpdateWorkstreamResult> {
+      const value = okValue(await rpc.updateWorkstream(args))
+      await refetchKeys(INVALIDATE_REGISTRY.updateWorkstream(value, base.getState()))
+      return value
+    },
+
+    async dropWorkstream(args: DropWorkstreamArgs): Promise<DropWorkstreamResult> {
+      const value = okValue(await rpc.dropWorkstream(args))
+      await refetchKeys(INVALIDATE_REGISTRY.dropWorkstream(value, base.getState()))
+      return value
+    },
+
+    async inspectProjectDirectory(args: InspectProjectDirectoryArgs): Promise<InspectProjectDirectoryResult> {
+      const value = okValue(await rpc.inspectProjectDirectory(args))
+      await refetchKeys(INVALIDATE_REGISTRY.inspectProjectDirectory(value, base.getState()))
+      return value
+    },
+
+    async createLocalResearchProject(
+      args: CreateLocalResearchProjectArgs,
+    ): Promise<CreateLocalResearchProjectResult> {
+      const value = okValue(await rpc.createLocalResearchProject(args))
+      await refetchKeys(INVALIDATE_REGISTRY.createLocalResearchProject(value, base.getState()))
       return value
     },
 

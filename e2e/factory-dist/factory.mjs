@@ -3,7 +3,7 @@ import { accessSync, chmodSync, constants, existsSync, lstatSync, mkdirSync, mkd
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { YAMLMap, parseAllDocuments, parseDocument, stringify } from "yaml";
+import { YAMLMap, parse, parseAllDocuments, parseDocument, stringify } from "yaml";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { createHash } from "node:crypto";
@@ -11537,6 +11537,77 @@ function workstreamYamlText(input) {
 	doc.created_at = isoTimestampUtc(input.createdAtMs);
 	return stringify(doc, { lineWidth: 0 });
 }
+/** Parse a YAML file's text into a plain mapping (throw otherwise). */
+function parseYamlMapping(rawText) {
+	let doc;
+	try {
+		doc = parse(rawText);
+	} catch (cause) {
+		throw new Error(`hierarchy YAML merge: the file text does not parse as YAML (${cause.message})`, { cause });
+	}
+	if (typeof doc !== "object" || doc === null || Array.isArray(doc)) throw new Error("hierarchy YAML merge: the file text is not a YAML mapping document");
+	return doc;
+}
+/** Apply the provided (already snake_case, already gated) fields to a
+*  parsed doc: overwrite when present, append when absent, never
+*  delete. Returns a NEW object; the input is not mutated. */
+function applyYamlFields(doc, fields) {
+	const out = {};
+	for (const [key, value] of Object.entries(doc)) out[key] = value;
+	for (const [key, value] of Object.entries(fields)) if (value !== void 0) out[key] = value;
+	return out;
+}
+/** Serialize a merged doc with the module's pinned `lineWidth: 0`
+*  discipline. */
+function mergedYamlText(doc) {
+	return stringify(doc, { lineWidth: 0 });
+}
+function mergedTitle(doc) {
+	const title = doc.title;
+	if (typeof title !== "string") throw new Error("hierarchy YAML merge: the merged doc lost its required `title` string");
+	return title;
+}
+/** Merge the provided `project.yaml` fields (frozen snake_case names)
+*  into an existing project.yaml's own text. */
+function updateProjectYamlText(rawText, updates) {
+	const fields = {};
+	if (updates.title !== void 0) fields.title = updates.title;
+	if (updates.description !== void 0) fields.description = updates.description;
+	if (updates.importance !== void 0) fields.importance = updates.importance;
+	if (updates.attentionMode !== void 0) fields.attention_mode = updates.attentionMode;
+	if (updates.targetDate !== void 0) fields.target_date = updates.targetDate;
+	const doc = applyYamlFields(parseYamlMapping(rawText), fields);
+	return {
+		text: mergedYamlText(doc),
+		title: mergedTitle(doc)
+	};
+}
+/** Merge the provided `topic.yaml` fields into an existing
+*  topic.yaml's own text. */
+function updateTopicYamlText(rawText, updates) {
+	const fields = {};
+	if (updates.title !== void 0) fields.title = updates.title;
+	if (updates.description !== void 0) fields.description = updates.description;
+	if (updates.importance !== void 0) fields.importance = updates.importance;
+	if (updates.attentionMode !== void 0) fields.attention_mode = updates.attentionMode;
+	const doc = applyYamlFields(parseYamlMapping(rawText), fields);
+	return {
+		text: mergedYamlText(doc),
+		title: mergedTitle(doc)
+	};
+}
+/** Merge the provided `workstream.yaml` fields into an existing
+*  workstream.yaml's own text. */
+function updateWorkstreamYamlText(rawText, updates) {
+	const fields = {};
+	if (updates.title !== void 0) fields.title = updates.title;
+	if (updates.summary !== void 0) fields.summary = updates.summary;
+	const doc = applyYamlFields(parseYamlMapping(rawText), fields);
+	return {
+		text: mergedYamlText(doc),
+		title: mergedTitle(doc)
+	};
+}
 //#endregion
 //#region src/host/service/hierarchy/service.ts
 /**
@@ -11571,11 +11642,45 @@ function workstreamYamlText(input) {
 *     statement) and step 4 scanning workstream ids PROJECT-WIDE (the
 *     §1.1 uniqueness scope of a WS id is the Project, not the Topic).
 *
-* Deliberately absent (frozen scope of this slice): update / drop /
-* move / merge / bulk / nested / clone (D §8.2); importance /
-* attention_mode / objective_refs / lifecycle / origin_topology_edge_ref
-* are not exposed at create time (no UI field, no fabricated values —
-* the loader materializes schema defaults at read); no git checkpoint
+*   updateProjectMetadata / updateTopic / updateWorkstream (RMW):
+*     1. input shape (HIER_INPUT — at least ONE field provided; every
+*        provided field passes its frozen-shape gate: title 1–200,
+*        importance integer 1–5, attentionMode FOCUS/NORMAL/BACKGROUND,
+*        targetDate YYYY-MM-DD, description/summary string);
+*     2. fresh tree load, fail loud (HIER_TREE_BROKEN);
+*     3. membership (HIER_TOPIC_NOT_FOUND / HIER_WORKSTREAM_NOT_FOUND —
+*        the wiring is per-project, so absence IS the cross-project
+*        statement);
+*     4. raw-text read of the target file (null = the file raced away
+*        between load and read ⇒ HIER_TREE_BROKEN — the RMW source must
+*        be exactly what the loader just saw);
+*     5. merge the provided fields into the file's OWN text (unparseable
+*        ⇒ HIER_TREE_BROKEN — same raced-change statement; untouched
+*        fields stay byte-faithful, no default materialization);
+*     6. atomic write (HIER_WRITE on fs failure, cause preserved).
+*
+*   dropWorkstream:
+*     1. input shape (HIER_INPUT — non-empty id);
+*     2. fresh tree load, fail loud (HIER_TREE_BROKEN);
+*     3. membership (HIER_WORKSTREAM_NOT_FOUND);
+*     4. CONSERVATIVE history gate, pre-delete (HIER_WORKSTREAM_HAS_
+*        HISTORY — a workstream with even one history event is not
+*        droppable; history is never auto-purged; the probe failing is
+*        HIER_TREE_BROKEN — a broken store must not enable a delete);
+*     5. pre-delete probe of `topics/<t>/workstreams/<ws>/workstream.yaml`
+*        (gone = raced deletion ⇒ HIER_WORKSTREAM_NOT_FOUND — nothing
+*        is removed);
+*     6. recursive removal of the WHOLE workstream directory
+*        (HIER_WRITE on fs failure, cause preserved);
+*     7. post-delete BEST-EFFORT current-focus clear (NON-BLOCKING — a
+*        failure here only loses the convenience, never the drop; the
+*        outcome is surfaced as DropWorkstreamOutput.currentFocusCleared).
+*
+* Deliberately absent (frozen scope of this slice): move / merge / bulk
+* / nested / clone (D §8.2); update never touches id / created_at /
+* project_id / topic_id / lifecycle / objective_refs / current_objective_refs
+* / origin_topology_edge_ref (no UI field, no fabricated values — the
+* loader materializes schema defaults at read); no git checkpoint
 * (the reorderPlan precedent — mutations never auto-commit,
 * `saveResearchCheckpoint` stays a separate USER action); no DB ledger
 * (the tree IS the truth — no second store).
@@ -11591,6 +11696,10 @@ var HierarchyService = class {
 	#loadTree;
 	#writer;
 	#fileExists;
+	#readFile;
+	#removeDir;
+	#hasHistory;
+	#clearCurrentFocus;
 	#researchRoot;
 	#now;
 	constructor(options) {
@@ -11606,6 +11715,22 @@ var HierarchyService = class {
 			code: "HIER_INPUT",
 			message: "fileExists: an (absPath) => boolean pre-write probe is required"
 		});
+		if (options.readFile === void 0 || typeof options.readFile !== "function") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: "readFile: an (absPath) => string | null raw-text reader is required"
+		});
+		if (options.removeDir === void 0 || typeof options.removeDir !== "function") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: "removeDir: an (absPath) => void recursive directory remover is required"
+		});
+		if (options.hasHistory === void 0 || typeof options.hasHistory !== "function") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: "hasHistory: an (workstreamId) => boolean history probe is required"
+		});
+		if (options.clearCurrentFocus === void 0 || typeof options.clearCurrentFocus !== "function") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: "clearCurrentFocus: an (workstreamId) => boolean best-effort focus clear is required"
+		});
 		if (typeof options.researchRoot !== "string" || options.researchRoot.length === 0) throw new HierarchyError({
 			code: "HIER_INPUT",
 			message: "researchRoot: a non-empty absolute path is required"
@@ -11613,6 +11738,10 @@ var HierarchyService = class {
 		this.#loadTree = options.loadTree;
 		this.#writer = options.writer;
 		this.#fileExists = options.fileExists;
+		this.#readFile = options.readFile;
+		this.#removeDir = options.removeDir;
+		this.#hasHistory = options.hasHistory;
+		this.#clearCurrentFocus = options.clearCurrentFocus;
 		this.#researchRoot = options.researchRoot;
 		this.#now = options.now ?? Date.now;
 	}
@@ -11719,6 +11848,131 @@ var HierarchyService = class {
 			});
 		}
 	}
+	/** HIER_INPUT: any (frozen schema has no length cap). */
+	#assertPlainString(operation, what, value) {
+		if (typeof value !== "string") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: ${what} must be a string (got ${JSON.stringify(value)})`
+		});
+	}
+	/** HIER_INPUT: integer 1–5 (frozen `importance`). */
+	#assertImportance(operation, value) {
+		if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: importance must be an integer 1-5 (got ${JSON.stringify(value)})`
+		});
+	}
+	/** HIER_INPUT: FOCUS / NORMAL / BACKGROUND (frozen `attention_mode`). */
+	#assertAttentionMode(operation, value) {
+		if (value !== "FOCUS" && value !== "NORMAL" && value !== "BACKGROUND") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: attentionMode must be one of FOCUS / NORMAL / BACKGROUND (got ${JSON.stringify(value)})`
+		});
+	}
+	/** HIER_INPUT: `YYYY-MM-DD` (frozen `target_date`, `isoDate` — the
+	*  loader's own parse is `Date.parse`, so a structurally valid but
+	*  unparseable date is refused here, not by a future load error). */
+	#assertTargetDate(operation, value) {
+		if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: targetDate must be a YYYY-MM-DD date (got ${JSON.stringify(value)})`
+		});
+	}
+	/** HIER_INPUT: the update must carry at least one field (an empty
+	*  update is a no-op — refusing it keeps "an update changed
+	*  something" a true statement for the client's invalidation). */
+	#assertProjectMetadataFields(operation, input) {
+		if (input.title === void 0 && input.description === void 0 && input.importance === void 0 && input.attentionMode === void 0 && input.targetDate === void 0) throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: at least one of title / description / importance / attentionMode / targetDate must be provided`
+		});
+		if (input.title !== void 0) this.#assertTitle(operation, input.title);
+		if (input.description !== void 0) this.#assertPlainString(operation, "description", input.description);
+		if (input.importance !== void 0) this.#assertImportance(operation, input.importance);
+		if (input.attentionMode !== void 0) this.#assertAttentionMode(operation, input.attentionMode);
+		if (input.targetDate !== void 0) this.#assertTargetDate(operation, input.targetDate);
+	}
+	/** HIER_INPUT: the update must carry at least one field. */
+	#assertTopicFields(operation, input) {
+		if (input.title === void 0 && input.description === void 0 && input.importance === void 0 && input.attentionMode === void 0) throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: at least one of title / description / importance / attentionMode must be provided`
+		});
+		if (input.title !== void 0) this.#assertTitle(operation, input.title);
+		if (input.description !== void 0) this.#assertPlainString(operation, "description", input.description);
+		if (input.importance !== void 0) this.#assertImportance(operation, input.importance);
+		if (input.attentionMode !== void 0) this.#assertAttentionMode(operation, input.attentionMode);
+	}
+	/** HIER_INPUT: the update must carry at least one field. */
+	#assertWorkstreamFields(operation, input) {
+		if (input.title === void 0 && input.summary === void 0) throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: at least one of title / summary must be provided`
+		});
+		if (input.title !== void 0) this.#assertTitle(operation, input.title);
+		if (input.summary !== void 0) this.#assertPlainString(operation, "summary", input.summary);
+	}
+	/** HIER_TOPIC_NOT_FOUND: the topic must be a node of the loaded tree
+	*  (the wiring is per-project — absence here IS the cross-project
+	*  statement). */
+	#requireTopic(snapshot, operation, topicId) {
+		const topic = snapshot.tree.topics.find((t) => t.id === topicId);
+		if (topic === void 0) throw new HierarchyError({
+			code: "HIER_TOPIC_NOT_FOUND",
+			message: `${operation}: topic ${topicId} is not a node of the routed project's tree`
+		});
+		return topic.path;
+	}
+	/** HIER_WORKSTREAM_NOT_FOUND: the workstream must be a node of the
+	*  loaded tree (scanned project-wide — the §1.1 id scope of a WS id
+	*  is the Project, not the Topic). */
+	#findWorkstream(snapshot, operation, workstreamId) {
+		for (const topic of snapshot.tree.topics) {
+			const ws = topic.workstreams.find((w) => w.id === workstreamId);
+			if (ws !== void 0) return {
+				topicId: topic.id,
+				path: ws.path
+			};
+		}
+		throw new HierarchyError({
+			code: "HIER_WORKSTREAM_NOT_FOUND",
+			message: `${operation}: workstream ${workstreamId} is not a node of the routed project's tree`
+		});
+	}
+	/** HIER_TREE_BROKEN: the RMW source read — the fresh loader JUST
+	*  accepted this tree, so the file must still be present; absence is
+	*  a raced modification between load and read. */
+	#readRawOrThrow(operation, relPath) {
+		let rawText;
+		try {
+			rawText = this.#readFile(join(this.#researchRoot, relPath));
+		} catch (cause) {
+			throw new HierarchyError({
+				code: "HIER_TREE_BROKEN",
+				message: `${operation}: reading ${relPath} for the merge failed: ${messageOf$1(cause)}`,
+				cause
+			});
+		}
+		if (rawText === null) throw new HierarchyError({
+			code: "HIER_TREE_BROKEN",
+			message: `${operation}: ${relPath} disappeared between the fresh load and the read — the tree state is no longer what the loader saw`
+		});
+		return rawText;
+	}
+	/** HIER_TREE_BROKEN: the merge itself — a doc the fresh loader just
+	*  accepted must parse; an unparseable text is the same raced-change
+	*  statement (the pure helper throws a plain Error; this codes it). */
+	#mergeOrThrow(operation, rawText, merge) {
+		try {
+			return merge(rawText);
+		} catch (cause) {
+			throw new HierarchyError({
+				code: "HIER_TREE_BROKEN",
+				message: `${operation}: the merge over the file text failed: ${messageOf$1(cause)}`,
+				cause
+			});
+		}
+	}
 	/**
 	* Create a new Topic in the routed project (gate order: input shape →
 	* fresh load / fail loud → project id → TPC-<n> allocation →
@@ -11779,6 +12033,133 @@ var HierarchyService = class {
 			title: input.title,
 			path: relPath,
 			createdAt: createdAtMs
+		};
+	}
+	/**
+	* Update the mutable fields of the routed project's `project.yaml`
+	* (gate order: input shape (≥1 field) → fresh load / fail loud →
+	* project doc present → raw read → merge → atomic write).
+	*/
+	updateProjectMetadata(input) {
+		this.#assertProjectMetadataFields("updateProjectMetadata", input);
+		const snapshot = this.#loadOrThrow();
+		const projectId = this.#requireProjectId(snapshot);
+		const rawText = this.#readRawOrThrow("updateProjectMetadata", "project.yaml");
+		const merged = this.#mergeOrThrow("updateProjectMetadata", rawText, (raw) => updateProjectYamlText(raw, input));
+		const updatedAt = this.#now();
+		this.#write("project.yaml", merged.text);
+		return {
+			projectId,
+			title: merged.title,
+			updatedAt
+		};
+	}
+	/**
+	* Update the mutable fields of an existing topic's `topic.yaml`
+	* (gate order: input shape (≥1 field) → fresh load / fail loud →
+	* topic membership (HIER_TOPIC_NOT_FOUND) → raw read → merge →
+	* atomic write).
+	*/
+	updateTopic(input) {
+		this.#assertNonEmptyId("updateTopic", "topicId", input.topicId);
+		this.#assertTopicFields("updateTopic", input);
+		const snapshot = this.#loadOrThrow();
+		const relPath = `${this.#requireTopic(snapshot, "updateTopic", input.topicId)}/topic.yaml`;
+		const rawText = this.#readRawOrThrow("updateTopic", relPath);
+		const merged = this.#mergeOrThrow("updateTopic", rawText, (raw) => updateTopicYamlText(raw, input));
+		const updatedAt = this.#now();
+		this.#write(relPath, merged.text);
+		return {
+			topicId: input.topicId,
+			title: merged.title,
+			updatedAt
+		};
+	}
+	/**
+	* Update the mutable fields of an existing workstream's
+	* `workstream.yaml` (title + summary only — `lifecycle` is NOT
+	* exposed here; gate order: input shape (≥1 field) → fresh load /
+	* fail loud → workstream membership (HIER_WORKSTREAM_NOT_FOUND) →
+	* raw read → merge → atomic write).
+	*/
+	updateWorkstream(input) {
+		this.#assertNonEmptyId("updateWorkstream", "workstreamId", input.workstreamId);
+		this.#assertWorkstreamFields("updateWorkstream", input);
+		const snapshot = this.#loadOrThrow();
+		const ws = this.#findWorkstream(snapshot, "updateWorkstream", input.workstreamId);
+		const relPath = `${ws.path}/workstream.yaml`;
+		const rawText = this.#readRawOrThrow("updateWorkstream", relPath);
+		const merged = this.#mergeOrThrow("updateWorkstream", rawText, (raw) => updateWorkstreamYamlText(raw, input));
+		const updatedAt = this.#now();
+		this.#write(relPath, merged.text);
+		return {
+			workstreamId: input.workstreamId,
+			topicId: ws.topicId,
+			title: merged.title,
+			updatedAt
+		};
+	}
+	/**
+	* Drop a workstream: remove its WHOLE directory
+	* (`topics/<t>/workstreams/<ws>/`) after the conservative history
+	* gate, then best-effort clear its current focus (gate order: input
+	* shape → fresh load / fail loud → workstream membership (
+	* HIER_WORKSTREAM_NOT_FOUND) → history gate PRE-DELETE (
+	* HIER_WORKSTREAM_HAS_HISTORY) → pre-delete probe (HIER_WORKSTREAM_
+	* NOT_FOUND on a raced deletion) → recursive removal (HIER_WRITE) →
+	* best-effort current-focus clear, non-blocking).
+	*/
+	dropWorkstream(input) {
+		this.#assertNonEmptyId("dropWorkstream", "workstreamId", input.workstreamId);
+		const snapshot = this.#loadOrThrow();
+		const ws = this.#findWorkstream(snapshot, "dropWorkstream", input.workstreamId);
+		let hasHistory;
+		try {
+			hasHistory = this.#hasHistory(input.workstreamId);
+		} catch (cause) {
+			throw new HierarchyError({
+				code: "HIER_TREE_BROKEN",
+				message: `dropWorkstream: the history probe failed (a broken store must not enable a delete): ${messageOf$1(cause)}`,
+				cause
+			});
+		}
+		if (hasHistory) throw new HierarchyError({
+			code: "HIER_WORKSTREAM_HAS_HISTORY",
+			message: `dropWorkstream: workstream ${input.workstreamId} has history events — the drop is refused (history is never auto-purged)`
+		});
+		let yamlStillPresent;
+		try {
+			yamlStillPresent = this.#fileExists(join(this.#researchRoot, `${ws.path}/workstream.yaml`));
+		} catch (cause) {
+			throw new HierarchyError({
+				code: "HIER_WRITE",
+				message: `dropWorkstream: cannot probe ${ws.path}/workstream.yaml before deleting: ${messageOf$1(cause)}`,
+				cause
+			});
+		}
+		if (!yamlStillPresent) throw new HierarchyError({
+			code: "HIER_WORKSTREAM_NOT_FOUND",
+			message: `dropWorkstream: workstream ${input.workstreamId} disappeared between the fresh load and the delete — nothing was removed`
+		});
+		try {
+			this.#removeDir(join(this.#researchRoot, ws.path));
+		} catch (cause) {
+			throw new HierarchyError({
+				code: "HIER_WRITE",
+				message: `dropWorkstream: removal of ${ws.path} failed: ${messageOf$1(cause)}`,
+				cause
+			});
+		}
+		let currentFocusCleared = false;
+		try {
+			currentFocusCleared = this.#clearCurrentFocus(input.workstreamId);
+		} catch {
+			currentFocusCleared = false;
+		}
+		return {
+			workstreamId: input.workstreamId,
+			topicId: ws.topicId,
+			currentFocusCleared
 		};
 	}
 };
@@ -22813,6 +23194,20 @@ function createHostWiring(options) {
 			loadTree: () => loadResearchTree(reader, researchRoot, declarativeDir),
 			writer: new FsPlanFileWriter(),
 			fileExists: (absPath) => reader.readFile(absPath) !== null,
+			readFile: (absPath) => reader.readFile(absPath),
+			removeDir: (absDir) => rmSync(absDir, {
+				recursive: true,
+				force: false
+			}),
+			hasHistory: (workstreamId) => store.listRange(workstreamId, 1).length > 0,
+			clearCurrentFocus: (workstreamId) => {
+				try {
+					return currentFocus.clear(workstreamId);
+				} catch (cause) {
+					logger?.warn("hierarchy", `dropWorkstream: best-effort current-focus clear failed for ${workstreamId} (non-blocking): ${cause instanceof Error ? cause.message : String(cause)}`);
+					return false;
+				}
+			},
 			researchRoot,
 			now
 		});

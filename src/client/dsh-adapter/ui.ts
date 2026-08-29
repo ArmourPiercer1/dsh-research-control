@@ -27,10 +27,14 @@ import type {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  CreateLocalResearchProjectArgs,
+  CreateLocalResearchProjectResult,
   GetPortfolioInterventionsArgs,
   GetPortfolioInterventionsResult,
   GetResearchPlaneStateResult,
   HubOverviewResult,
+  InspectProjectDirectoryArgs,
+  InspectProjectDirectoryResult,
   PortfolioInterventionItemDto,
   RescanArgs,
   RescanResult,
@@ -179,6 +183,8 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
           | 'onInvestigate'
           | 'setHub'
           | 'bindProject'
+          | 'inspectProjectDirectory'
+          | 'createLocalResearchProject'
           | 'rescan'
           | 'unbindProject'
           | 'restoreProject'
@@ -239,6 +245,40 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
             if (!result.ok) {
               throw new Error(
                 `research shell: bindProject failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-UI-0.4 UI-2 (UI-2B): the Bind journey's Inspect face — the
+          // 4-state detector (RC_PROJECT / GIT_ONLY / PLAIN_DIR /
+          // INCOMPATIBLE). Same fold as the mutation faces above; the
+          // journey's error line machine-matches the NOTE-4 carrier in
+          // the message (the code never rides error.code — the gateway
+          // fold to 'internal').
+          inspectProjectDirectory: async (
+            args: InspectProjectDirectoryArgs,
+          ): Promise<InspectProjectDirectoryResult> => {
+            const result = await researchRpc.inspectProjectDirectory(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: inspectProjectDirectory failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          // V2-UI-0.4 UI-2 (UI-2B): the Create journey's Initialize face —
+          // the 5-step local-project creation chain. Same fold as the
+          // mutation faces above. The ok:false FAILURE ARM of the result
+          // union RESOLVES (it is the value, not an error — the three-
+          // stage partial-change contract the wizard renders); only the
+          // pre-check faults reject (the NOTE-4 carrier in the message).
+          createLocalResearchProject: async (
+            args: CreateLocalResearchProjectArgs,
+          ): Promise<CreateLocalResearchProjectResult> => {
+            const result = await researchRpc.createLocalResearchProject(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: createLocalResearchProject failed — ${result.error.code}: ${result.error.message}`,
               )
             }
             return result.value

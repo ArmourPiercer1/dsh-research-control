@@ -52,7 +52,7 @@ describe('WP-4.1a RR-006 arity — descriptor parameter face == method signature
     ])
   })
 
-  it('V2-T3.2b + UI-0.4: the REGISTERED face is the frozen 14 + all 9 plane RPCs + the 4 GUI management RPCs (in order)', () => {
+  it('V2-T3.2b + UI-0.4 + V2-UI-0.4 (UI-2): the REGISTERED face is the frozen 14 + all 9 plane RPCs + all 10 GUI management RPCs (in order)', () => {
     expect(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method)).toEqual([
       'ping',
       'getDashboard',
@@ -81,6 +81,12 @@ describe('WP-4.1a RR-006 arity — descriptor parameter face == method signature
       'getCurrentFocus',
       'createTopic',
       'createWorkstream',
+      'updateProjectMetadata',
+      'updateTopic',
+      'updateWorkstream',
+      'dropWorkstream',
+      'inspectProjectDirectory',
+      'createLocalResearchProject',
     ])
   })
 

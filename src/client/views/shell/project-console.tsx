@@ -25,8 +25,10 @@
  * a host-side session-open channel can be plugged in later without
  * touching the display layer.
  */
-import { useMemo, useState, type ReactElement } from 'react'
+import { useMemo, useSyncExternalStore, useState, type ReactElement } from 'react'
 import { createResearchStore, type ResearchStore } from '../../stores/index.js'
+import type { UpdateProjectMetadataArgs } from '../../../shared/rpc-contracts.js'
+import { extractResearchErrorCarrier } from '../../util/error-carrier.js'
 import { type DrilldownSelection } from '../drilldown/drilldown-view.js'
 import { WorkstreamPage } from '../drilldown/cockpit.js'
 import { TopicPage } from '../drilldown/topic-page.js'
@@ -35,6 +37,8 @@ import { ProjectPage } from '../project/ProjectPage.js'
 // The V1 cockpit's page chrome (banner / back button / page frame) is
 // reused verbatim — the console IS the same page set, minus the nav bar.
 import styles from '../drilldown/cockpit.module.css'
+// V2-UI-0.4 UI-2 — the metadata dialog reuses the shell's dialog chrome.
+import dialogStyles from './shell.module.css'
 
 /** The console's page stack (the V2 drill chain, kept inside 总览).
  *
@@ -54,6 +58,176 @@ export interface ProjectConsoleProps {
   readonly onBackToWall?: () => void
 }
 
+/* -------------------------------------------------------------------- *
+ * V2-UI-0.4 UI-2 — the project metadata edit dialog (the 5 frozen
+ * project.yaml fields: title / description / importance / attention_mode
+ * / target_date). Minimal by ruling: it is the ONE store-mutation face
+ * of the console beyond the page loads; `store.updateProjectMetadata`
+ * performs the RMW merge on the host (omitted fields keep their on-disk
+ * value), so the dialog sends ONLY the fields the user changed.
+ * -------------------------------------------------------------------- */
+
+/** The dialog's prefill projection (the project payload slice it needs). */
+interface ProjectMetadataInitial {
+  readonly title: string
+  readonly description: string | null
+  readonly importance: number
+  readonly attentionMode: 'FOCUS' | 'NORMAL' | 'BACKGROUND'
+  /** `YYYY-MM-DD` (converted from the snapshot's epoch-ms targetDate). */
+  readonly targetDate: string | null
+}
+
+/** Epoch ms → `YYYY-MM-DD` (UTC — the yaml stores calendar dates). */
+function epochToYmd(ms: number): string {
+  const d = new Date(ms)
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+}
+
+function ProjectMetadataDialog(props: {
+  readonly initial: ProjectMetadataInitial
+  /** The store mutation (D5: `store.updateProjectMetadata` — resolves the
+   *  wire result, rejects on any failure; the project slice re-fetch on
+   *  success is the store's job, not the view's). */
+  readonly onSave: (args: UpdateProjectMetadataArgs) => Promise<unknown>
+  readonly onClose: () => void
+}): ReactElement {
+  const { initial, onSave, onClose } = props
+  const [title, setTitle] = useState(initial.title)
+  const [description, setDescription] = useState(initial.description ?? '')
+  const [importance, setImportance] = useState(String(initial.importance))
+  const [attentionMode, setAttentionMode] = useState<'FOCUS' | 'NORMAL' | 'BACKGROUND'>(initial.attentionMode)
+  const [targetDate, setTargetDate] = useState(initial.targetDate ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // A field is "changed" when it differs from the prefill; the changed
+  // fields are the ONLY ones sent (the RMW merge keeps the rest).
+  const titleChanged = title.trim() !== '' && title.trim() !== initial.title
+  const descriptionChanged = description !== (initial.description ?? '')
+  const importanceChanged = importance !== String(initial.importance)
+  const attentionChanged = attentionMode !== initial.attentionMode
+  // targetDate CANNOT be cleared through the wire (the Args carry no null
+  // arm — clearing is a no-op the dialog discards, disclosed in the note).
+  const targetDateChanged = targetDate !== '' && targetDate !== (initial.targetDate ?? '')
+  const changed = titleChanged || descriptionChanged || importanceChanged || attentionChanged || targetDateChanged
+
+  const confirm = async (): Promise<void> => {
+    if (busy || !changed || title.trim() === '' || title.length > 200) return
+    const args: UpdateProjectMetadataArgs = {
+      ...(titleChanged ? { title: title.trim() } : {}),
+      ...(descriptionChanged ? { description } : {}),
+      ...(importanceChanged ? { importance: Number(importance) } : {}),
+      ...(attentionChanged ? { attentionMode } : {}),
+      ...(targetDateChanged ? { targetDate } : {}),
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await onSave(args)
+      onClose()
+    } catch (err) {
+      // NOTE-4: the code rides the message prefix (the gateway folds
+      // error.code to 'internal'); machine-match the carrier, raw-text
+      // fallback.
+      const message = err instanceof Error ? err.message : String(err)
+      const carrier = extractResearchErrorCarrier(message)
+      setError(carrier !== null ? carrier.detail : message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={dialogStyles.dialogOverlay} role="dialog" aria-modal="true" aria-label="编辑项目元数据" data-metadata-dialog>
+      <div className={dialogStyles.dialogPanel}>
+        <h3 className={dialogStyles.dialogTitle}>编辑项目元数据</h3>
+        <label className={dialogStyles.dialogField} htmlFor="meta-title">
+          项目标题（必填，1–200 字）
+        </label>
+        <input
+          id="meta-title"
+          className={dialogStyles.dialogInput}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          data-meta-title
+        />
+        <label className={dialogStyles.dialogField} htmlFor="meta-description">
+          项目简介
+        </label>
+        <textarea
+          id="meta-description"
+          className={dialogStyles.dialogInput}
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          data-meta-description
+        />
+        <label className={dialogStyles.dialogField} htmlFor="meta-importance">
+          重要度（1–5）
+        </label>
+        <select
+          id="meta-importance"
+          className={dialogStyles.dialogInput}
+          value={importance}
+          onChange={(e) => setImportance(e.target.value)}
+          data-meta-importance
+        >
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+        <label className={dialogStyles.dialogField} htmlFor="meta-attention">
+          注意力模式
+        </label>
+        <select
+          id="meta-attention"
+          className={dialogStyles.dialogInput}
+          value={attentionMode}
+          onChange={(e) => setAttentionMode(e.target.value as 'FOCUS' | 'NORMAL' | 'BACKGROUND')}
+          data-meta-attention
+        >
+          <option value="FOCUS">聚焦</option>
+          <option value="NORMAL">常规</option>
+          <option value="BACKGROUND">后台</option>
+        </select>
+        <label className={dialogStyles.dialogField} htmlFor="meta-target-date">
+          目标日期（YYYY-MM-DD，暂不支持清空）
+        </label>
+        <input
+          id="meta-target-date"
+          className={dialogStyles.dialogInput}
+          type="date"
+          value={targetDate}
+          onChange={(e) => setTargetDate(e.target.value)}
+          data-meta-target-date
+        />
+        {error !== null && (
+          <p className={dialogStyles.missingError} role="alert" data-meta-error>
+            {error}
+          </p>
+        )}
+        <div className={dialogStyles.dialogActions}>
+          <button type="button" className={dialogStyles.dialogCancel} disabled={busy} onClick={onClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className={dialogStyles.dialogConfirm}
+            disabled={busy || !changed || title.trim() === '' || title.length > 200}
+            onClick={() => void confirm()}
+            data-meta-confirm
+          >
+            {busy ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * The V2-narrowed project console (the 总览 body for MANAGED /
  * STANDALONE; the HUB drill target).
@@ -71,6 +245,11 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
     readonly sessionId: string
     readonly runId: string
   } | null>(null)
+  // V2-UI-0.4 UI-2 — the project slice the 编辑项目元数据 affordance needs
+  // (the console subscribes ONLY to this slice — the immutable store
+  // discipline keeps its reference stable across other slices' commits).
+  const [metaOpen, setMetaOpen] = useState(false)
+  const projectSlice = useSyncExternalStore(store.subscribe, () => store.getState().project)
 
   // The DSH session-open channel (placeholder semantics — see header):
   // the pointer is recorded visibly; a host channel can replace this
@@ -94,13 +273,42 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
       )}
 
       {page.kind === 'project' && (
-        <ProjectPage
-          store={store}
-          onOpenTopic={(topicId) => {
-            setSelection(null)
-            setPage({ kind: 'topic', topicId })
+        <>
+          <ProjectPage
+            store={store}
+            onOpenTopic={(topicId) => {
+              setSelection(null)
+              setPage({ kind: 'topic', topicId })
+            }}
+            onBack={onBackToWall}
+          />
+          {/* V2-UI-0.4 UI-2 — the 编辑项目元数据 affordance (visible only
+              once the project slice has data — the dialog prefills from
+              it). ADDITIVE chrome; the page itself is untouched. */}
+          {projectSlice.data !== null && (
+            <button
+              type="button"
+              className={styles.backButton}
+              onClick={() => setMetaOpen(true)}
+              data-project-edit-metadata
+            >
+              编辑项目元数据
+            </button>
+          )}
+        </>
+      )}
+
+      {page.kind === 'project' && metaOpen && projectSlice.data !== null && (
+        <ProjectMetadataDialog
+          initial={{
+            title: projectSlice.data.project.title,
+            description: projectSlice.data.project.description,
+            importance: projectSlice.data.project.importance,
+            attentionMode: projectSlice.data.project.attentionMode,
+            targetDate: projectSlice.data.project.targetDate !== null ? epochToYmd(projectSlice.data.project.targetDate) : null,
           }}
-          onBack={onBackToWall}
+          onSave={(args) => store.updateProjectMetadata({ ...args, projectId: projectSlice.data !== null ? projectSlice.data.project.id : undefined })}
+          onClose={() => setMetaOpen(false)}
         />
       )}
 

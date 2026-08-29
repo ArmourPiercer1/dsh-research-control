@@ -57,6 +57,20 @@ import type {
   GetCurrentFocusResult,
   SetCurrentFocusArgs,
   SetCurrentFocusResult,
+  // V2-UI-0.4 UI-2: the 6 GUI management faces (4 hierarchy update/drop
+  // — UI-2A — + 2 local-project — UI-2B).
+  UpdateProjectMetadataArgs,
+  UpdateProjectMetadataResult,
+  UpdateTopicArgs,
+  UpdateTopicResult,
+  UpdateWorkstreamArgs,
+  UpdateWorkstreamResult,
+  DropWorkstreamArgs,
+  DropWorkstreamResult,
+  InspectProjectDirectoryArgs,
+  InspectProjectDirectoryResult,
+  CreateLocalResearchProjectArgs,
+  CreateLocalResearchProjectResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -204,6 +218,44 @@ const DEFAULTS: Record<string, () => unknown> = {
     value: { workstreamId: 'WS-1', planItemId: 'T-1', updatedAt: 1755000001000 },
   }),
   getCurrentFocus: () => ({ ok: true, value: { workstreamId: 'WS-1', focus: null } }),
+  // V2-UI-0.4 UI-2: wire-valid minimal defaults for the 6 GUI management
+  // faces — LOCAL to this stub (same convention as the CF pair); the
+  // store suite overrides per-test.
+  updateProjectMetadata: () => ({
+    ok: true,
+    value: { projectId: 'PRJ-1', title: 'Stub project', updatedAt: 1755000004000 },
+  }),
+  updateTopic: () => ({
+    ok: true,
+    value: { topicId: 'TPC-1', title: 'Stub topic', updatedAt: 1755000005000 },
+  }),
+  updateWorkstream: () => ({
+    ok: true,
+    value: { workstreamId: 'WS-1', topicId: 'TPC-1', title: 'Stub ws', updatedAt: 1755000006000 },
+  }),
+  dropWorkstream: () => ({
+    ok: true,
+    value: { workstreamId: 'WS-1', topicId: 'TPC-1', currentFocusCleared: false },
+  }),
+  inspectProjectDirectory: () => ({
+    ok: true,
+    value: {
+      wsPath: '/workspace/stub',
+      state: 'RC_PROJECT',
+      message: 'Existing Research Control project detected.',
+      detail: null,
+      hasGitRepo: true,
+      hasResearchTree: true,
+      treeValid: true,
+      alreadyManaged: true,
+      projectId: 'PRJ-1',
+      title: 'Stub project',
+    },
+  }),
+  createLocalResearchProject: () => ({
+    ok: true,
+    value: { ok: true, projectId: 'PRJ-9', treePath: '/workspace/stub/.research', registryPath: null, dbMigrated: false },
+  }),
 }
 
 /**
@@ -286,6 +338,19 @@ export function makeStubRpc(): StubRpc {
       deliverArgs<RemoteResult<SetCurrentFocusResult>>('setCurrentFocus', args),
     getCurrentFocus: async (args: GetCurrentFocusArgs) =>
       deliverArgs<RemoteResult<GetCurrentFocusResult>>('getCurrentFocus', args),
+    // V2-UI-0.4 UI-2: the 6 GUI management faces.
+    updateProjectMetadata: async (args: UpdateProjectMetadataArgs) =>
+      deliverArgs<RemoteResult<UpdateProjectMetadataResult>>('updateProjectMetadata', args),
+    updateTopic: async (args: UpdateTopicArgs) =>
+      deliverArgs<RemoteResult<UpdateTopicResult>>('updateTopic', args),
+    updateWorkstream: async (args: UpdateWorkstreamArgs) =>
+      deliverArgs<RemoteResult<UpdateWorkstreamResult>>('updateWorkstream', args),
+    dropWorkstream: async (args: DropWorkstreamArgs) =>
+      deliverArgs<RemoteResult<DropWorkstreamResult>>('dropWorkstream', args),
+    inspectProjectDirectory: async (args: InspectProjectDirectoryArgs) =>
+      deliverArgs<RemoteResult<InspectProjectDirectoryResult>>('inspectProjectDirectory', args),
+    createLocalResearchProject: async (args: CreateLocalResearchProjectArgs) =>
+      deliverArgs<RemoteResult<CreateLocalResearchProjectResult>>('createLocalResearchProject', args),
   }
 
   return {

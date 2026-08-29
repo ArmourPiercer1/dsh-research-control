@@ -6,10 +6,13 @@
 
 import { describe, expect, it } from 'vitest'
 import type {
+  CreateLocalResearchProjectResult,
   DashboardSnapshot,
   DismissPlanForkResult,
+  DropWorkstreamResult,
   GetCurrentFocusResult,
   GetGitHistoryResult,
+  InspectProjectDirectoryResult,
   ProjectSnapshot,
   QueryHistoryResult,
   ReorderPlanResult,
@@ -20,6 +23,9 @@ import type {
   SetCurrentFocusResult,
   TopicSnapshot,
   UpdateInterventionStateResult,
+  UpdateProjectMetadataResult,
+  UpdateTopicResult,
+  UpdateWorkstreamResult,
   WorkstreamSnapshot,
 } from '../../src/shared/rpc-contracts.js'
 import {
@@ -95,6 +101,57 @@ const SET_FOCUS: SetCurrentFocusResult = {
   workstreamId: 'WS-1',
   planItemId: 'T-1',
   updatedAt: 1755000001000,
+}
+
+// V2-UI-0.4 UI-2: the six GUI management result fixtures (local — same
+// convention as SET_FOCUS; the values are wire-valid).
+const UPDATE_META: UpdateProjectMetadataResult = {
+  projectId: 'PRJ-1',
+  title: 'Updated project',
+  updatedAt: 1755000004000,
+}
+const UPDATE_TOPIC: UpdateTopicResult = {
+  topicId: 'TPC-2',
+  title: 'Updated topic',
+  updatedAt: 1755000005000,
+}
+const UPDATE_WS: UpdateWorkstreamResult = {
+  workstreamId: 'WS-4',
+  topicId: 'TPC-1',
+  title: 'Updated workstream',
+  updatedAt: 1755000006000,
+}
+const DROP_WS: DropWorkstreamResult = {
+  workstreamId: 'WS-4',
+  topicId: 'TPC-1',
+  currentFocusCleared: true,
+}
+const CREATE_OK: CreateLocalResearchProjectResult = {
+  ok: true,
+  projectId: 'PRJ-9',
+  treePath: '/tmp/ui2-ws/.research',
+  registryPath: null,
+  dbMigrated: false,
+}
+const CREATE_FAIL: CreateLocalResearchProjectResult = {
+  ok: false,
+  code: 'LP_GIT_INIT',
+  failedStep: 'gitInit',
+  completedSteps: ['mkdir'],
+  partialChangeNote: 'The tree directory /tmp/ui2-ws/.research was created.',
+  detail: 'git init failed',
+}
+const INSPECT: InspectProjectDirectoryResult = {
+  wsPath: '/tmp/ui2-ws',
+  state: 'RC_PROJECT',
+  message: 'Existing Research Control project detected.',
+  detail: null,
+  hasGitRepo: true,
+  hasResearchTree: true,
+  treeValid: true,
+  alreadyManaged: true,
+  projectId: 'PRJ-1',
+  title: 'A project',
 }
 
 describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
@@ -183,6 +240,38 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
     const keys = INVALIDATE_REGISTRY.setCurrentFocus(SET_FOCUS, initialResearchStoreState())
     expect(keys).toEqual(['currentFocus:WS-1'])
   })
+
+  // V2-UI-0.4 UI-2 — the six GUI management rules.
+  it('updateProjectMetadata → the project slice ONLY (RMW merge rewrote project.yaml)', () => {
+    expect(INVALIDATE_REGISTRY.updateProjectMetadata(UPDATE_META, populatedState())).toEqual(['project'])
+    expect(INVALIDATE_REGISTRY.updateProjectMetadata(UPDATE_META, initialResearchStoreState())).toEqual(['project'])
+  })
+
+  it('updateTopic → the RESULT topic slice (state-independent)', () => {
+    expect(INVALIDATE_REGISTRY.updateTopic(UPDATE_TOPIC, populatedState())).toEqual(['topics:TPC-2'])
+    expect(INVALIDATE_REGISTRY.updateTopic(UPDATE_TOPIC, initialResearchStoreState())).toEqual(['topics:TPC-2'])
+  })
+
+  it('updateWorkstream → the RESULT workstream slice (state-independent)', () => {
+    expect(INVALIDATE_REGISTRY.updateWorkstream(UPDATE_WS, populatedState())).toEqual(['workstreams:WS-4'])
+    expect(INVALIDATE_REGISTRY.updateWorkstream(UPDATE_WS, initialResearchStoreState())).toEqual(['workstreams:WS-4'])
+  })
+
+  it('dropWorkstream → the dropped ws + its topic + the dashboard (result carries both ids)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.dropWorkstream(DROP_WS, populatedState()))).toEqual(
+      new Set(['workstreams:WS-4', 'topics:TPC-1', 'dashboard']),
+    )
+  })
+
+  it('createLocalResearchProject → dashboard on the SUCCESS arm, NOTHING on the failure arm', () => {
+    expect(INVALIDATE_REGISTRY.createLocalResearchProject(CREATE_OK, populatedState())).toEqual(['dashboard'])
+    expect(INVALIDATE_REGISTRY.createLocalResearchProject(CREATE_FAIL, populatedState())).toEqual([])
+  })
+
+  it('inspectProjectDirectory → NEVER invalidates (pure query)', () => {
+    expect(INVALIDATE_REGISTRY.inspectProjectDirectory(INSPECT, populatedState())).toEqual([])
+    expect(INVALIDATE_REGISTRY.inspectProjectDirectory(INSPECT, initialResearchStoreState())).toEqual([])
+  })
 })
 
 describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
@@ -195,6 +284,13 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     ['saveResearchCheckpoint', state => INVALIDATE_REGISTRY.saveResearchCheckpoint(CHECKPOINT, state)],
     ['restoreDeclarativeFile', state => INVALIDATE_REGISTRY.restoreDeclarativeFile(RESTORE, state)],
     ['setCurrentFocus', state => INVALIDATE_REGISTRY.setCurrentFocus(SET_FOCUS, state)],
+    // V2-UI-0.4 UI-2: the six GUI management rules join the invariant sweep.
+    ['updateProjectMetadata', state => INVALIDATE_REGISTRY.updateProjectMetadata(UPDATE_META, state)],
+    ['updateTopic', state => INVALIDATE_REGISTRY.updateTopic(UPDATE_TOPIC, state)],
+    ['updateWorkstream', state => INVALIDATE_REGISTRY.updateWorkstream(UPDATE_WS, state)],
+    ['dropWorkstream', state => INVALIDATE_REGISTRY.dropWorkstream(DROP_WS, state)],
+    ['createLocalResearchProject', state => INVALIDATE_REGISTRY.createLocalResearchProject(CREATE_OK, state)],
+    ['inspectProjectDirectory', state => INVALIDATE_REGISTRY.inspectProjectDirectory(INSPECT, state)],
   ]
 
   it('NO rule invalidates a history window (WS logs are append-only; none of the 13 RPCs appends)', () => {
@@ -226,8 +322,8 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     }
   })
 
-  it('MUTATION_IDS is exactly the registry key set (7 frozen-13 mutations + the UI-0.4 focus setter)', () => {
+  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces)', () => {
     expect([...MUTATION_IDS].sort()).toEqual(Object.keys(INVALIDATE_REGISTRY).sort())
-    expect(MUTATION_IDS).toHaveLength(8)
+    expect(MUTATION_IDS).toHaveLength(14)
   })
 })

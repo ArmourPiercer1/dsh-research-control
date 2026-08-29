@@ -71,6 +71,8 @@ import {
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
+  type DropWorkstreamArgs,
+  type DropWorkstreamResult,
   type GetCurrentFocusArgs,
   type GetCurrentFocusResult,
   type GetGitHistoryArgs,
@@ -103,6 +105,12 @@ import {
   type TopicSnapshot,
   type UpdateInterventionStateArgs,
   type UpdateInterventionStateResult,
+  type UpdateProjectMetadataArgs,
+  type UpdateProjectMetadataResult,
+  type UpdateTopicArgs,
+  type UpdateTopicResult,
+  type UpdateWorkstreamArgs,
+  type UpdateWorkstreamResult,
   type WorkstreamCardDto,
   type WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
@@ -215,6 +223,38 @@ export interface ResearchRpcServices {
    * (HIER_TOPIC_NOT_FOUND otherwise).
    */
   createWorkstream(args: CreateWorkstreamArgs): CreateWorkstreamResult
+  /**
+   * V2-UI-0.4 (UI-2A): rewrite the provided project metadata fields
+   * (title / description / importance / attention mode / target date)
+   * in the routed project — read-modify-write, the OMITTED fields are
+   * preserved byte-for-byte (at least one field required, HIER_INPUT
+   * otherwise). Returns the effective title + the write stamp
+   * (`updatedAt`) for client invalidation.
+   */
+  updateProjectMetadata(args: UpdateProjectMetadataArgs): UpdateProjectMetadataResult
+  /**
+   * V2-UI-0.4 (UI-2A): update a topic title / description / importance
+   * / attention mode in the routed project (RMW — provided fields
+   * only). The topic must be a node of this project
+   * (HIER_TOPIC_NOT_FOUND otherwise).
+   */
+  updateTopic(args: UpdateTopicArgs): UpdateTopicResult
+  /**
+   * V2-UI-0.4 (UI-2A): update a workstream title / summary in the
+   * routed project (RMW — title + summary ONLY; lifecycle changes are
+   * not part of this slice). The workstream must belong to this
+   * project (HIER_WORKSTREAM_NOT_FOUND otherwise).
+   */
+  updateWorkstream(args: UpdateWorkstreamArgs): UpdateWorkstreamResult
+  /**
+   * V2-UI-0.4 (UI-2A): delete a workstream of the routed project —
+   * the whole workstream directory plus its reference. CONSERVATIVE
+   * ruling: a workstream with history is REFUSED
+   * (HIER_WORKSTREAM_HAS_HISTORY) BEFORE any removal; the
+   * post-delete current-focus clear is best-effort (surfaced as the
+   * `currentFocusCleared` result flag, never as a failure).
+   */
+  dropWorkstream(args: DropWorkstreamArgs): DropWorkstreamResult
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -529,6 +569,94 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
         title: out.title,
         path: out.path,
         createdAt: out.createdAt,
+      }
+    } catch (e) {
+      throw this.#mapHierarchyError(e)
+    }
+  }
+
+  updateProjectMetadata(args: UpdateProjectMetadataArgs): UpdateProjectMetadataResult {
+    // UI-2A: the service owns the spine — the HIER_INPUT "at least one
+    // field" gate → the fresh load (fail-loud HIER_TREE_BROKEN) → the
+    // merge of the PROVIDED fields only (the rest byte-preserved) → the
+    // atomic rewrite. The `projectId` routing already selected this
+    // per-project wiring (requireRpc, §12.1).
+    try {
+      const out = this.#wiring.hierarchy.updateProjectMetadata({
+        title: args.title,
+        description: args.description,
+        importance: args.importance,
+        attentionMode: args.attentionMode,
+        targetDate: args.targetDate,
+      })
+      return {
+        projectId: out.projectId,
+        title: out.title,
+        updatedAt: out.updatedAt,
+      }
+    } catch (e) {
+      throw this.#mapHierarchyError(e)
+    }
+  }
+
+  updateTopic(args: UpdateTopicArgs): UpdateTopicResult {
+    // UI-2A: same RMW spine over the target topic.yaml; the topic
+    // membership gate (HIER_TOPIC_NOT_FOUND) runs inside the service
+    // BEFORE any write.
+    try {
+      const out = this.#wiring.hierarchy.updateTopic({
+        topicId: args.topicId,
+        title: args.title,
+        description: args.description,
+        importance: args.importance,
+        attentionMode: args.attentionMode,
+      })
+      return {
+        topicId: out.topicId,
+        title: out.title,
+        updatedAt: out.updatedAt,
+      }
+    } catch (e) {
+      throw this.#mapHierarchyError(e)
+    }
+  }
+
+  updateWorkstream(args: UpdateWorkstreamArgs): UpdateWorkstreamResult {
+    // UI-2A: same RMW spine over the target workstream.yaml (title +
+    // summary ONLY — the update face is frozen); the workstream
+    // membership gate (HIER_WORKSTREAM_NOT_FOUND) runs inside the
+    // service BEFORE any write.
+    try {
+      const out = this.#wiring.hierarchy.updateWorkstream({
+        workstreamId: args.workstreamId,
+        title: args.title,
+        summary: args.summary,
+      })
+      return {
+        workstreamId: out.workstreamId,
+        topicId: out.topicId,
+        title: out.title,
+        updatedAt: out.updatedAt,
+      }
+    } catch (e) {
+      throw this.#mapHierarchyError(e)
+    }
+  }
+
+  dropWorkstream(args: DropWorkstreamArgs): DropWorkstreamResult {
+    // UI-2A: the conservative ruling — the history refusal
+    // (HIER_WORKSTREAM_HAS_HISTORY) runs inside the service BEFORE the
+    // whole-directory removal; the post-delete current-focus clear is
+    // BEST-EFFORT (a failure there never undoes the drop — it is
+    // folded into the `currentFocusCleared` result flag).
+    try {
+      const out = this.#wiring.hierarchy.dropWorkstream({
+        workstreamId: args.workstreamId,
+      })
+      return {
+        workstreamId: out.workstreamId,
+        topicId: out.topicId,
+        currentFocusCleared: out.currentFocusCleared,
       }
     } catch (e) {
       throw this.#mapHierarchyError(e)

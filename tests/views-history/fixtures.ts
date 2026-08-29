@@ -222,6 +222,14 @@ export function makeHistoryFacade(log: readonly HistoryEventDto[]): HistoryFacad
       // must-not-be-called contract — the history view never calls them).
       setCurrentFocus: notUsed('setCurrentFocus'),
       getCurrentFocus: notUsed('getCurrentFocus'),
+      // V2-UI-0.4 UI-2: the 6 GUI management faces (same must-not-be-called
+      // contract).
+      updateProjectMetadata: notUsed('updateProjectMetadata'),
+      updateTopic: notUsed('updateTopic'),
+      updateWorkstream: notUsed('updateWorkstream'),
+      dropWorkstream: notUsed('dropWorkstream'),
+      inspectProjectDirectory: notUsed('inspectProjectDirectory'),
+      createLocalResearchProject: notUsed('createLocalResearchProject'),
     } as ResearchRpcFacade,
     calls,
     nextControlled: () => {
@@ -274,6 +282,14 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     // UI-1: the GUI management CF pair (same must-not-be-called contract).
     setCurrentFocus: notUsed('setCurrentFocus'),
     getCurrentFocus: notUsed('getCurrentFocus'),
+    // V2-UI-0.4 UI-2: the 6 GUI management faces (same must-not-be-called
+    // contract).
+    updateProjectMetadata: notUsed('updateProjectMetadata'),
+    updateTopic: notUsed('updateTopic'),
+    updateWorkstream: notUsed('updateWorkstream'),
+    dropWorkstream: notUsed('dropWorkstream'),
+    inspectProjectDirectory: notUsed('inspectProjectDirectory'),
+    createLocalResearchProject: notUsed('createLocalResearchProject'),
   } as ResearchRpcFacade
 }
 

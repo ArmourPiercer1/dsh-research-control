@@ -22,13 +22,13 @@
  * over the target FILE path, writer over the absolute path).
  */
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { loadResearchTree } from '../../src/host/domain/loader/index.js'
+import { loadResearchTree, type AttentionMode } from '../../src/host/domain/loader/index.js'
 import { FsResearchReader } from '../../src/host/service/checkpoint/index.js'
 import { isoTimestampUtc } from '../../src/host/service/scaffold/index.js'
 import { FsPlanFileWriter } from '../../src/host/service/fs/index.js'
@@ -49,11 +49,15 @@ const DECLARATIVE_DIR = join(WR_SCHEMA_ROOT, 'declarative')
 
 const dirs: string[] = []
 
-function freshTree(patch: Record<string, string | null> = {}): {
-  root: string
-  researchRoot: string
-  svc: HierarchyService
-} {
+/** The production-shape service options (one object, ports overridable
+ *  per case — the update/drop suites inject their own fakes where a
+ *  behavior under test needs them). */
+type ServiceOptions = ConstructorParameters<typeof HierarchyService>[0]
+
+function customTree(
+  patch: Record<string, string | null> = {},
+  override: Partial<ServiceOptions> = {},
+): { root: string; researchRoot: string; svc: HierarchyService } {
   const root = mkdtempSync(join(tmpdir(), 'hierarchy-'))
   dirs.push(root)
   const researchRoot = writeResearchTree(root, patch)
@@ -63,10 +67,31 @@ function freshTree(patch: Record<string, string | null> = {}): {
       loadResearchTree(reader, researchRoot, DECLARATIVE_DIR),
     writer: new FsPlanFileWriter(),
     fileExists: (absPath: string) => reader.readFile(absPath) !== null,
+    ...ui2aPorts(researchRoot, reader),
     researchRoot,
     now: () => NOW,
+    ...override,
   })
   return { root, researchRoot, svc }
+}
+
+/** All-real tree + service (the create-face suites' entry point). */
+function freshTree(patch: Record<string, string | null> = {}) {
+  return customTree(patch)
+}
+
+/** The UI-2A (update/drop) ports over the REAL fs: the RMW reader over
+ *  the same reader, a real `rmSync` recursive removal, and INERT
+ *  history / focus-clear seams (this unit suite has no operational
+ *  store — the update/drop describe blocks inject their own fakes
+ *  where a behavior under test needs them). */
+function ui2aPorts(_researchRoot: string, reader: FsResearchReader) {
+  return {
+    readFile: (absPath: string) => reader.readFile(absPath),
+    removeDir: (absDir: string) => rmSync(absDir, { recursive: true, force: false }),
+    hasHistory: () => false,
+    clearCurrentFocus: () => false,
+  }
 }
 
 afterAll(() => {
@@ -214,6 +239,10 @@ describe('hierarchy — createTopic (real tree, real fs, real frozen schemas)', 
       },
       writer: new FsPlanFileWriter(),
       fileExists: () => false,
+      readFile: () => null,
+      removeDir: () => {},
+      hasHistory: () => false,
+      clearCurrentFocus: () => false,
       researchRoot: '/x',
       now: () => NOW,
     })
@@ -235,6 +264,7 @@ describe('hierarchy — createTopic (real tree, real fs, real frozen schemas)', 
       writer: new FsPlanFileWriter(),
       fileExists: (p: string) =>
         p === raced ? true : reader.readFile(p) !== null,
+      ...ui2aPorts(researchRoot, reader),
       researchRoot,
       now: () => NOW,
     })
@@ -258,6 +288,7 @@ describe('hierarchy — createTopic (real tree, real fs, real frozen schemas)', 
         },
       },
       fileExists: (p: string) => reader.readFile(p) !== null,
+      ...ui2aPorts(researchRoot, reader),
       researchRoot,
       now: () => NOW,
     })
@@ -279,6 +310,7 @@ describe('hierarchy — createTopic (real tree, real fs, real frozen schemas)', 
       fileExists: () => {
         throw boom
       },
+      ...ui2aPorts(researchRoot, reader),
       researchRoot,
       now: () => NOW,
     })
@@ -374,6 +406,7 @@ describe('hierarchy — createWorkstream (real tree, real fs, real frozen schema
       loadTree: () => loadResearchTree(reader, researchRoot, DECLARATIVE_DIR),
       writer: new FsPlanFileWriter(),
       fileExists: (p: string) => (p === raced ? true : reader.readFile(p) !== null),
+      ...ui2aPorts(researchRoot, reader),
       researchRoot,
       now: () => NOW,
     })
@@ -399,6 +432,7 @@ describe(
         }),
         writer: new FsPlanFileWriter(),
         fileExists: (p: string) => reader.readFile(p) !== null,
+        ...ui2aPorts(researchRoot, reader),
         researchRoot,
         now: () => NOW,
       })
@@ -430,6 +464,7 @@ describe(
           }),
           writer: new FsPlanFileWriter(),
           fileExists: (p: string) => reader.readFile(p) !== null,
+          ...ui2aPorts(researchRoot, reader),
           researchRoot,
           now: () => NOW,
         })
@@ -457,5 +492,403 @@ describe('hierarchy — error family surface', () => {
     expect(isHierarchyError(undefined)).toBe(false)
     expect(err.name).toBe('HierarchyError')
     expect(err.message).toBe('x')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * V2-UI-0.4 UI-2 (UI-2A) — the update / drop faces                    *
+ *                                                                     *
+ * Same discipline as the create faces: a REAL temp tree, the REAL    *
+ * frozen schemas at the loader root, REAL fs read/write/remove ports. *
+ * The fakes are the individual ports only (raced reads, the history  *
+ * gate, the best-effort focus clear, a throwing remover) — and the   *
+ * carrier under test is the HierarchyError code itself (the adapter  *
+ * maps it to `[research-control] <CODE>` — the client's only decode  *
+ * point, NOTE-4).                                                     *
+ * ------------------------------------------------------------------ */
+
+describe('hierarchy — updateProjectMetadata (RMW over the real project.yaml)', () => {
+  it('merges the provided fields in place, appends new keys LAST, and reloads loader-clean', () => {
+    const { researchRoot, svc } = freshTree()
+    const rawBefore = readFileSync(join(researchRoot, 'project.yaml'), 'utf8')
+    const res = svc.updateProjectMetadata({ importance: 2, targetDate: '2026-09-30' })
+    expect(res).toEqual({ projectId: 'PRJ-1', title: '机器人视觉定位系统', updatedAt: NOW })
+
+    const rawAfter = readFileSync(join(researchRoot, 'project.yaml'), 'utf8')
+    // Key order = the file's own order, the new key appended LAST
+    // (applyYamlFields: overwrite in place, append when absent, never
+    // delete).
+    expect(Object.keys(parse(rawAfter))).toEqual([...Object.keys(parse(rawBefore)), 'target_date'])
+    // The untouched scalar lines survive the rewrite byte-identical.
+    expect(rawAfter).toContain('title: 机器人视觉定位系统\n')
+    expect(rawAfter).toContain('description: 多传感器融合的亚像素级视觉定位\n')
+    expect(rawAfter).toContain('attention_mode: FOCUS\n')
+
+    const snap = reloadClean(researchRoot)
+    expect(snap.tree.project?.importance).toBe(2)
+    expect(snap.tree.project?.target_date).toBe(Date.UTC(2026, 8, 30))
+    expect(snap.tree.project?.title).toBe('机器人视觉定位系统')
+  })
+
+  it('writes an empty-string description (RMW never deletes keys — clearing means "")', () => {
+    const { researchRoot, svc } = freshTree()
+    const res = svc.updateProjectMetadata({ description: '' })
+    expect(res.title).toBe('机器人视觉定位系统')
+    const raw = readFileSync(join(researchRoot, 'project.yaml'), 'utf8')
+    expect(raw).toContain('description: ""\n')
+    const snap = reloadClean(researchRoot)
+    expect(snap.tree.project?.description).toBe('')
+  })
+
+  it('HIER_INPUT: an empty update is refused before any I/O (the file is untouched)', () => {
+    const { researchRoot, svc } = freshTree()
+    const rawBefore = readFileSync(join(researchRoot, 'project.yaml'), 'utf8')
+    expectHierCode(() => svc.updateProjectMetadata({}), 'HIER_INPUT')
+    expect(readFileSync(join(researchRoot, 'project.yaml'), 'utf8')).toBe(rawBefore)
+  })
+
+  it('HIER_INPUT: the field gates (title 1-200, importance int 1-5, attentionMode enum, targetDate YYYY-MM-DD)', () => {
+    const { svc } = freshTree()
+    expectHierCode(() => svc.updateProjectMetadata({ title: '' }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateProjectMetadata({ title: 'x'.repeat(201) }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateProjectMetadata({ importance: 0 }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateProjectMetadata({ importance: 6 }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateProjectMetadata({ importance: 3.5 }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateProjectMetadata({ attentionMode: 'HIGH' as unknown as AttentionMode }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateProjectMetadata({ targetDate: 'not-a-date' }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateProjectMetadata({ targetDate: '2026-13-01' }), 'HIER_INPUT')
+  })
+
+  it('HIER_TREE_BROKEN: a rejected project.yaml fails loud (no update over a broken tree)', () => {
+    // title minLength 1 — the frozen schema rejects it.
+    const broken = `id: PRJ-1\ntitle: ""\ncreated_at: ${NOW_ISO}\n`
+    const { svc } = freshTree({ 'project.yaml': broken })
+    expectHierCode(() => svc.updateProjectMetadata({ importance: 2 }), 'HIER_TREE_BROKEN', 'load error')
+  })
+
+  it('HIER_TREE_BROKEN: the RMW source read racing to null (the file vanished between load and read)', () => {
+    const { svc } = customTree({}, { readFile: () => null })
+    expectHierCode(
+      () => svc.updateProjectMetadata({ importance: 2 }),
+      'HIER_TREE_BROKEN',
+      'disappeared between the fresh load and the read',
+    )
+  })
+
+  it('HIER_TREE_BROKEN: a throwing RMW read is wrapped (cause preserved)', () => {
+    const boom = new Error('read I/O gone')
+    const { svc } = customTree({}, { readFile: () => { throw boom } })
+    const e = expectHierCode(() => svc.updateProjectMetadata({ importance: 2 }), 'HIER_TREE_BROKEN')
+    expect(e.cause).toBe(boom)
+  })
+
+  it('HIER_WRITE: a writer failure is wrapped (cause preserved, the file untouched)', () => {
+    const { researchRoot, svc } = customTree({}, {
+      writer: {
+        writeAtomic(): void {
+          throw new Error('rename I/O gone')
+        },
+      },
+    })
+    const rawBefore = readFileSync(join(researchRoot, 'project.yaml'), 'utf8')
+    const e = expectHierCode(() => svc.updateProjectMetadata({ importance: 2 }), 'HIER_WRITE')
+    expect(e.cause).toBeInstanceOf(Error)
+    expect(readFileSync(join(researchRoot, 'project.yaml'), 'utf8')).toBe(rawBefore)
+  })
+})
+
+describe('hierarchy — updateTopic (RMW over the real topic.yaml)', () => {
+  it('merges all four fields: title in place, the new keys appended last, loader-clean', () => {
+    const { researchRoot, svc } = freshTree()
+    const rawBefore = readFileSync(join(researchRoot, 'topics/TPC-1/topic.yaml'), 'utf8')
+    const res = svc.updateTopic({
+      topicId: 'TPC-1',
+      title: 'New title',
+      description: 'what this topic tracks',
+      importance: 3,
+      attentionMode: 'BACKGROUND',
+    })
+    expect(res).toEqual({ topicId: 'TPC-1', title: 'New title', updatedAt: NOW })
+
+    const rawAfter = readFileSync(join(researchRoot, 'topics/TPC-1/topic.yaml'), 'utf8')
+    // The file's own key order is preserved (title overwritten IN PLACE);
+    // the previously absent keys arrive appended, in the merge order.
+    expect(Object.keys(parse(rawAfter))).toEqual([
+      'id',
+      'project_id',
+      'title',
+      'objective_refs',
+      'created_at',
+      'description',
+      'importance',
+      'attention_mode',
+    ])
+    expect(Object.keys(parse(rawAfter)).slice(0, 5)).toEqual(Object.keys(parse(rawBefore)))
+    expect(rawAfter).toContain('id: TPC-1\n')
+    expect(rawAfter).toContain('project_id: PRJ-1\n')
+
+    const snap = reloadClean(researchRoot)
+    const tpc1 = snap.tree.topics.find((t) => t.id === 'TPC-1')
+    expect(tpc1?.doc?.title).toBe('New title')
+    expect(tpc1?.doc?.description).toBe('what this topic tracks')
+    expect(tpc1?.doc?.importance).toBe(3)
+    expect(tpc1?.doc?.attention_mode).toBe('BACKGROUND')
+    // The objective refs survive the merge untouched.
+    expect(tpc1?.doc?.objective_refs).toEqual(['OBJ-1'])
+  })
+
+  it('is BYTE-FIDEL over a service-written file (update title ⇒ exactly the builder text again)', () => {
+    const { researchRoot, svc } = freshTree()
+    svc.createTopic({ title: 'Byte topic', description: 'dA' })
+    const before = readFileSync(join(researchRoot, 'topics/TPC-2/topic.yaml'), 'utf8')
+    expect(before).toBe(
+      topicYamlText({ id: 'TPC-2', projectId: 'PRJ-1', title: 'Byte topic', description: 'dA', createdAtMs: NOW }),
+    )
+    svc.updateTopic({ topicId: 'TPC-2', title: 'Byte topic v2' })
+    const after = readFileSync(join(researchRoot, 'topics/TPC-2/topic.yaml'), 'utf8')
+    // Only the title line moved — the description / created_at lines and
+    // the key order came back exactly as the builder writes them.
+    expect(after).toBe(
+      topicYamlText({ id: 'TPC-2', projectId: 'PRJ-1', title: 'Byte topic v2', description: 'dA', createdAtMs: NOW }),
+    )
+  })
+
+  it('HIER_INPUT: an empty update or an empty topicId is refused before any I/O', () => {
+    const { svc } = freshTree()
+    expectHierCode(() => svc.updateTopic({ topicId: 'TPC-1' }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateTopic({ topicId: '', title: 'x' }), 'HIER_INPUT')
+  })
+
+  it('HIER_INPUT: the field gates (title 1-200, importance int 1-5, attentionMode enum)', () => {
+    const { svc } = freshTree()
+    expectHierCode(() => svc.updateTopic({ topicId: 'TPC-1', title: 'x'.repeat(201) }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateTopic({ topicId: 'TPC-1', importance: 7 }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateTopic({ topicId: 'TPC-1', attentionMode: 'HIGH' as unknown as AttentionMode }), 'HIER_INPUT')
+  })
+
+  it('HIER_TOPIC_NOT_FOUND: a topic that is not a node of the routed tree is refused (no I/O)', () => {
+    const { svc } = freshTree()
+    expectHierCode(() => svc.updateTopic({ topicId: 'TPC-9', title: 'x' }), 'HIER_TOPIC_NOT_FOUND', 'not a node')
+  })
+
+  it('HIER_TREE_BROKEN: a rejected topic.yaml fails loud (no update over a broken tree)', () => {
+    const broken = `id: TPC-1\nproject_id: PRJ-1\ntitle: ""\ncreated_at: ${NOW_ISO}\n`
+    const { svc } = freshTree({ 'topics/TPC-1/topic.yaml': broken })
+    expectHierCode(() => svc.updateTopic({ topicId: 'TPC-1', title: 'x' }), 'HIER_TREE_BROKEN', 'load error')
+  })
+
+  it('HIER_TREE_BROKEN: the RMW source read racing to null', () => {
+    const { svc } = customTree({}, { readFile: () => null })
+    expectHierCode(
+      () => svc.updateTopic({ topicId: 'TPC-1', title: 'x' }),
+      'HIER_TREE_BROKEN',
+      'disappeared between the fresh load and the read',
+    )
+  })
+})
+
+describe('hierarchy — updateWorkstream (RMW over the real workstream.yaml)', () => {
+  it('merges title in place and appends a new summary last, loader-clean (the default lifecycle survives)', () => {
+    const { researchRoot, svc } = freshTree()
+    const res = svc.updateWorkstream({ workstreamId: 'WS-1', title: 'Renamed lane', summary: 'why it exists' })
+    expect(res).toEqual({ workstreamId: 'WS-1', topicId: 'TPC-1', title: 'Renamed lane', updatedAt: NOW })
+
+    const rawAfter = readFileSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-1/workstream.yaml'), 'utf8')
+    expect(Object.keys(parse(rawAfter))).toEqual(['id', 'topic_id', 'title', 'created_at', 'summary'])
+    expect(rawAfter).toContain('id: WS-1\n')
+    expect(rawAfter).toContain('topic_id: TPC-1\n')
+
+    const snap = reloadClean(researchRoot)
+    const ws = snap.tree.topics.find((t) => t.id === 'TPC-1')?.workstreams.find((w) => w.id === 'WS-1')
+    expect(ws?.doc?.title).toBe('Renamed lane')
+    expect(ws?.doc?.summary).toBe('why it exists')
+    // The frozen default materialized at load — untouched by the merge.
+    expect(ws?.doc?.lifecycle).toBe('PLANNED')
+  })
+
+  it('is BYTE-FIDEL over a service-written file (update title ⇒ exactly the builder text again)', () => {
+    const { researchRoot, svc } = freshTree()
+    svc.createWorkstream({ topicId: 'TPC-1', title: 'Lane', summary: 's0' })
+    const before = readFileSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-4/workstream.yaml'), 'utf8')
+    expect(before).toBe(
+      workstreamYamlText({ id: 'WS-4', topicId: 'TPC-1', title: 'Lane', summary: 's0', createdAtMs: NOW }),
+    )
+    svc.updateWorkstream({ workstreamId: 'WS-4', title: 'Lane v2' })
+    const after = readFileSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-4/workstream.yaml'), 'utf8')
+    expect(after).toBe(
+      workstreamYamlText({ id: 'WS-4', topicId: 'TPC-1', title: 'Lane v2', summary: 's0', createdAtMs: NOW }),
+    )
+  })
+
+  it('HIER_INPUT: an empty update or an empty workstreamId is refused before any I/O', () => {
+    const { svc } = freshTree()
+    expectHierCode(() => svc.updateWorkstream({ workstreamId: 'WS-1' }), 'HIER_INPUT')
+    expectHierCode(() => svc.updateWorkstream({ workstreamId: '', title: 'x' }), 'HIER_INPUT')
+  })
+
+  it('HIER_INPUT: an over-long title is refused', () => {
+    const { svc } = freshTree()
+    expectHierCode(() => svc.updateWorkstream({ workstreamId: 'WS-1', title: 'x'.repeat(201) }), 'HIER_INPUT')
+  })
+
+  it('HIER_WORKSTREAM_NOT_FOUND: a workstream that is not a node of the routed tree is refused (no I/O)', () => {
+    const { svc } = freshTree()
+    expectHierCode(
+      () => svc.updateWorkstream({ workstreamId: 'WS-9', title: 'x' }),
+      'HIER_WORKSTREAM_NOT_FOUND',
+      'not a node',
+    )
+  })
+
+  it('HIER_TREE_BROKEN: a rejected workstream.yaml fails loud (no update over a broken tree)', () => {
+    const broken = `id: WS-1\ntopic_id: TPC-1\ntitle: ""\ncreated_at: ${NOW_ISO}\n`
+    const { svc } = freshTree({ 'topics/TPC-1/workstreams/WS-1/workstream.yaml': broken })
+    expectHierCode(
+      () => svc.updateWorkstream({ workstreamId: 'WS-1', title: 'x' }),
+      'HIER_TREE_BROKEN',
+      'load error',
+    )
+  })
+
+  it('HIER_TREE_BROKEN: the RMW source read racing to null', () => {
+    const { svc } = customTree({}, { readFile: () => null })
+    expectHierCode(
+      () => svc.updateWorkstream({ workstreamId: 'WS-1', title: 'x' }),
+      'HIER_TREE_BROKEN',
+      'disappeared between the fresh load and the read',
+    )
+  })
+})
+
+describe('hierarchy — dropWorkstream (whole-directory removal, history gate, best-effort focus)', () => {
+  it('removes the WHOLE workstream directory (plan + items included); topology refs are surfaced, not auto-repaired', () => {
+    const { researchRoot, svc } = freshTree()
+    const ws1Dir = join(researchRoot, 'topics/TPC-1/workstreams/WS-1')
+    // The fixture WS-1 carries plan.yaml + gates/tasks/milestones.
+    expect(existsSync(join(ws1Dir, 'plan.yaml'))).toBe(true)
+    expect(existsSync(join(ws1Dir, 'items/tasks/T-1.yaml'))).toBe(true)
+
+    const res = svc.dropWorkstream({ workstreamId: 'WS-1' })
+    expect(res).toEqual({ workstreamId: 'WS-1', topicId: 'TPC-1', currentFocusCleared: false })
+
+    // The whole directory is gone — nothing under it survives.
+    expect(existsSync(ws1Dir)).toBe(false)
+
+    // The topic SURVIVES with its remaining workstreams; the frozen
+    // topology AND objectives are NOT auto-repaired by the drop — the
+    // loader SURFACES the dangling refs instead (this kernel edits
+    // neither topology.yaml nor objectives.yaml).
+    expect(existsSync(join(researchRoot, 'topics/TPC-1/topic.yaml'))).toBe(true)
+    expect(existsSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-2/workstream.yaml'))).toBe(true)
+    expect(existsSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-3/workstream.yaml'))).toBe(true)
+    const snap = loadResearchTree(new FsResearchReader(researchRoot), researchRoot, DECLARATIVE_DIR)
+    expect(snap.errors).toHaveLength(4)
+    for (const e of snap.errors) {
+      expect(e.code).toBe('DANGLING_REF')
+    }
+    // Two from the frozen topology (both edges' inputs[0] = WS-1), two
+    // from objectives.yaml — the objective links the workstream itself
+    // AND a gate (G-1) that lived INSIDE the removed WS directory.
+    const topo = snap.errors.filter((e) => e.file === 'topics/TPC-1/topology.yaml')
+    const obj = snap.errors.filter((e) => e.file === 'objectives.yaml')
+    expect(topo).toHaveLength(2)
+    expect(obj).toHaveLength(2)
+    for (const e of topo) {
+      expect(e.message).toContain('"WS-1"')
+    }
+    expect(obj.some((e) => e.message.includes('WS-1'))).toBe(true)
+    expect(obj.some((e) => e.message.includes('G-1'))).toBe(true)
+  })
+
+  it('reloads loader-clean when NOTHING references the dropped workstream (the no-topology case)', () => {
+    const { researchRoot, svc } = freshTree()
+    svc.createTopic({ title: 'Fresh topic' })
+    svc.createWorkstream({ topicId: 'TPC-2', title: 'Fresh lane' })
+    const res = svc.dropWorkstream({ workstreamId: 'WS-4' })
+    expect(res).toEqual({ workstreamId: 'WS-4', topicId: 'TPC-2', currentFocusCleared: false })
+    expect(existsSync(join(researchRoot, 'topics/TPC-2/workstreams/WS-4'))).toBe(false)
+    // The (now empty) topic survives; the whole tree reloads clean.
+    const snap = reloadClean(researchRoot)
+    const tpc2 = snap.tree.topics.find((t) => t.id === 'TPC-2')
+    expect(tpc2?.workstreams).toEqual([])
+    expect(snap.tree.project?.id).toBe('PRJ-1')
+  })
+
+  it('HIER_WORKSTREAM_HAS_HISTORY: the history gate refuses PRE-DELETE (nothing is removed)', () => {
+    const { researchRoot, svc } = customTree({}, { hasHistory: () => true })
+    const ws1Dir = join(researchRoot, 'topics/TPC-1/workstreams/WS-1')
+    expectHierCode(
+      () => svc.dropWorkstream({ workstreamId: 'WS-1' }),
+      'HIER_WORKSTREAM_HAS_HISTORY',
+      'has history events',
+    )
+    expect(existsSync(ws1Dir)).toBe(true)
+    expect(existsSync(join(ws1Dir, 'workstream.yaml'))).toBe(true)
+  })
+
+  it('HIER_TREE_BROKEN: a throwing history probe is a BROKEN STORE — the delete is refused (cause preserved)', () => {
+    const boom = new Error('history store gone')
+    const { researchRoot, svc } = customTree({}, { hasHistory: () => { throw boom } })
+    const e = expectHierCode(
+      () => svc.dropWorkstream({ workstreamId: 'WS-1' }),
+      'HIER_TREE_BROKEN',
+      'the history probe failed',
+    )
+    expect(e.cause).toBe(boom)
+    expect(existsSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-1'))).toBe(true)
+  })
+
+  it('HIER_WORKSTREAM_NOT_FOUND: a raced deletion (the yaml vanished between load and delete) removes nothing', () => {
+    const { svc } = customTree({}, { fileExists: () => false })
+    expectHierCode(
+      () => svc.dropWorkstream({ workstreamId: 'WS-1' }),
+      'HIER_WORKSTREAM_NOT_FOUND',
+      'disappeared between the fresh load and the delete',
+    )
+  })
+
+  it('HIER_WORKSTREAM_NOT_FOUND: an unknown workstream is refused before the history probe', () => {
+    let historyProbed = false
+    const { svc } = customTree({}, { hasHistory: () => { historyProbed = true; return false } })
+    expectHierCode(() => svc.dropWorkstream({ workstreamId: 'WS-9' }), 'HIER_WORKSTREAM_NOT_FOUND', 'not a node')
+    expect(historyProbed).toBe(false)
+  })
+
+  it('HIER_INPUT: an empty workstreamId is refused before any I/O', () => {
+    const { svc } = freshTree()
+    expectHierCode(() => svc.dropWorkstream({ workstreamId: '' }), 'HIER_INPUT')
+  })
+
+  it('HIER_WRITE: a throwing remover is wrapped (cause preserved, the focus clear NEVER runs)', () => {
+    const boom = new Error('rm I/O gone')
+    let focusCalls = 0
+    const { researchRoot, svc } = customTree({}, {
+      removeDir: () => { throw boom },
+      clearCurrentFocus: () => { focusCalls += 1; return false },
+    })
+    const e = expectHierCode(
+      () => svc.dropWorkstream({ workstreamId: 'WS-1' }),
+      'HIER_WRITE',
+      'removal of topics/TPC-1/workstreams/WS-1 failed',
+    )
+    expect(e.cause).toBe(boom)
+    expect(focusCalls).toBe(0)
+    expect(existsSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-1'))).toBe(true)
+  })
+
+  it('a throwing focus clear is NON-BLOCKING: the drop succeeds, cleared=false', () => {
+    const { researchRoot, svc } = customTree({}, {
+      clearCurrentFocus: () => { throw new Error('focus store gone') },
+    })
+    const res = svc.dropWorkstream({ workstreamId: 'WS-2' })
+    expect(res).toEqual({ workstreamId: 'WS-2', topicId: 'TPC-1', currentFocusCleared: false })
+    expect(existsSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-2'))).toBe(false)
+  })
+
+  it('a successful focus clear is SURFACED in the result (cleared=true)', () => {
+    const { researchRoot, svc } = customTree({}, { clearCurrentFocus: () => true })
+    const res = svc.dropWorkstream({ workstreamId: 'WS-3' })
+    expect(res.currentFocusCleared).toBe(true)
+    expect(existsSync(join(researchRoot, 'topics/TPC-1/workstreams/WS-3'))).toBe(false)
   })
 })

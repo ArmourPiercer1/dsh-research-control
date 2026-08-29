@@ -1,10 +1,13 @@
-import { A as ReorderPlanArgs, B as SelectPlanForkArgs, C as HubOverviewResult, D as QueryHistoryResult, E as QueryHistoryArgs, F as RestoreDeclarativeFileResult, G as SetHubResult, H as SetCurrentFocusArgs, I as RestoreProjectArgs, J as UnbindProjectArgs, K as TopicSnapshot, L as RestoreProjectResult, M as RescanArgs, N as RescanResult, O as RegisterInteractionArgs, P as RestoreDeclarativeFileArgs, Q as WorkstreamSnapshot, R as SaveResearchCheckpointArgs, S as GetWorkstreamArgs, T as ProjectSnapshot, U as SetCurrentFocusResult, V as SelectPlanForkResult, W as SetHubArgs, X as UpdateInterventionStateArgs, Y as UnbindProjectResult, Z as UpdateInterventionStateResult, _ as GetPortfolioInterventionsArgs, a as CreateTopicArgs, b as GetResearchPlaneStateResult, c as CreateWorkstreamResult, d as DismissPlanForkResult, f as GetCurrentFocusArgs, g as GetHubOverviewArgs, h as GetGitHistoryResult, i as BindProjectResult, j as ReorderPlanResult, k as RegisterInteractionResult, l as DashboardSnapshot, m as GetGitHistoryArgs, n as AckMissingReminderResult, o as CreateTopicResult, p as GetCurrentFocusResult, r as BindProjectArgs, s as CreateWorkstreamArgs, t as AckMissingReminderArgs, u as DismissPlanForkArgs, v as GetPortfolioInterventionsResult, w as PingResult, x as GetTopicArgs, y as GetResearchPlaneStateArgs, z as SaveResearchCheckpointResult } from "./rpc-contracts-P37Lgx6L.js";
+import { A as PingResult, B as RestoreDeclarativeFileArgs, C as GetResearchPlaneStateArgs, D as HubOverviewResult, E as GetWorkstreamArgs, F as RegisterInteractionResult, G as SaveResearchCheckpointResult, H as RestoreProjectArgs, I as ReorderPlanArgs, J as SetCurrentFocusArgs, K as SelectPlanForkArgs, L as ReorderPlanResult, M as QueryHistoryArgs, N as QueryHistoryResult, P as RegisterInteractionArgs, Q as TopicSnapshot, R as RescanArgs, S as GetPortfolioInterventionsResult, T as GetTopicArgs, U as RestoreProjectResult, V as RestoreDeclarativeFileResult, W as SaveResearchCheckpointArgs, X as SetHubArgs, Y as SetCurrentFocusResult, Z as SetHubResult, _ as GetCurrentFocusResult, at as UpdateProjectMetadataResult, b as GetHubOverviewArgs, c as CreateTopicResult, ct as UpdateWorkstreamArgs, d as DashboardSnapshot, et as UnbindProjectArgs, f as DismissPlanForkArgs, g as GetCurrentFocusArgs, h as DropWorkstreamResult, i as BindProjectResult, it as UpdateProjectMetadataArgs, j as ProjectSnapshot, k as InspectProjectDirectoryResult, l as CreateWorkstreamArgs, lt as UpdateWorkstreamResult, m as DropWorkstreamArgs, n as AckMissingReminderResult, nt as UpdateInterventionStateArgs, o as CreateLocalResearchProjectResult, ot as UpdateTopicArgs, p as DismissPlanForkResult, q as SelectPlanForkResult, r as BindProjectArgs, rt as UpdateInterventionStateResult, s as CreateTopicArgs, st as UpdateTopicResult, t as AckMissingReminderArgs, tt as UnbindProjectResult, u as CreateWorkstreamResult, ut as WorkstreamSnapshot, v as GetGitHistoryArgs, w as GetResearchPlaneStateResult, x as GetPortfolioInterventionsArgs, y as GetGitHistoryResult, z as RescanResult } from "./rpc-contracts-CMwk1Fml.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import s from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import { z } from "zod";
 import { DatabaseSync } from "node:sqlite";
 import "ajv";
+//#region src/host/domain/loader/types.d.ts
+type AttentionMode = 'FOCUS' | 'NORMAL' | 'BACKGROUND';
+//#endregion
 //#region src/host/dsh-adapter/host/rpc-services.d.ts
 /**
  * The injected service port the 13 `@Remote` method bodies forward to.
@@ -67,6 +70,38 @@ interface ResearchRpcServices {
    */
   createWorkstream(args: CreateWorkstreamArgs): CreateWorkstreamResult;
   /**
+   * V2-UI-0.4 (UI-2A): rewrite the provided project metadata fields
+   * (title / description / importance / attention mode / target date)
+   * in the routed project — read-modify-write, the OMITTED fields are
+   * preserved byte-for-byte (at least one field required, HIER_INPUT
+   * otherwise). Returns the effective title + the write stamp
+   * (`updatedAt`) for client invalidation.
+   */
+  updateProjectMetadata(args: UpdateProjectMetadataArgs): UpdateProjectMetadataResult;
+  /**
+   * V2-UI-0.4 (UI-2A): update a topic title / description / importance
+   * / attention mode in the routed project (RMW — provided fields
+   * only). The topic must be a node of this project
+   * (HIER_TOPIC_NOT_FOUND otherwise).
+   */
+  updateTopic(args: UpdateTopicArgs): UpdateTopicResult;
+  /**
+   * V2-UI-0.4 (UI-2A): update a workstream title / summary in the
+   * routed project (RMW — title + summary ONLY; lifecycle changes are
+   * not part of this slice). The workstream must belong to this
+   * project (HIER_WORKSTREAM_NOT_FOUND otherwise).
+   */
+  updateWorkstream(args: UpdateWorkstreamArgs): UpdateWorkstreamResult;
+  /**
+   * V2-UI-0.4 (UI-2A): delete a workstream of the routed project —
+   * the whole workstream directory plus its reference. CONSERVATIVE
+   * ruling: a workstream with history is REFUSED
+   * (HIER_WORKSTREAM_HAS_HISTORY) BEFORE any removal; the
+   * post-delete current-focus clear is best-effort (surfaced as the
+   * `currentFocusCleared` result flag, never as a failure).
+   */
+  dropWorkstream(args: DropWorkstreamArgs): DropWorkstreamResult;
+  /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
    * `ctx.effect`). Stub implementations may omit it.
@@ -113,6 +148,48 @@ interface ResearchPlaneMutationServices {
   unbindProject(args: UnbindProjectArgs): Promise<UnbindProjectResult>;
   /** Design §7.4 恢复登记 / §12 row 7 — revive the archived entry + rename the tree BACK (the symmetric unbind); the hub db re-attaches through the re-init. */
   restoreProject(args: RestoreProjectArgs): Promise<RestoreProjectResult>;
+}
+//#endregion
+//#region src/host/service/local-project/types.d.ts
+interface InspectProjectDirectoryInput {
+  /** The registered DSH workspace path to inspect (absolute). */
+  readonly wsPath: string;
+  /** The configured tree directory name (T2.1 `treeDir` —
+   *  parameterized; the kernel never hardcodes a tree name). */
+  readonly treeDir: string;
+}
+interface CreateLocalResearchProjectInput {
+  /** The registered DSH workspace path (the parent of the tree dir). */
+  readonly wsPath: string;
+  /** The configured tree directory name (T2.1 `treeDir` — bare
+   *  segment; parameterized, never a hardcoded literal). */
+  readonly treeDir: string;
+  /** The project title (= the scaffolded `project.yaml` title = the
+   *  registry display name; 1–200 chars, the frozen schema). */
+  readonly title: string;
+  /** The frozen project.schema.json optional fields (each omitted =
+   *  absent from the written YAML — the loader materializes the
+   *  defaults at read time). */
+  readonly description?: string;
+  readonly importance?: number;
+  readonly attentionMode?: AttentionMode;
+  /** `YYYY-MM-DD` (frozen `target_date`, isoDate). */
+  readonly targetDate?: string;
+}
+//#endregion
+//#region src/host/dsh-adapter/host/local-project-services.d.ts
+/** The local-project creation port (the host service's @Remote bodies
+ *  target this interface — the production implementation is
+ *  `ProductionLocalProjectServices`). */
+interface LocalProjectServices {
+  /** The Bind journey's read-only four-state classification (wire
+   *  DTO — structurally 1:1 with the kernel's). */
+  inspectProjectDirectory(input: InspectProjectDirectoryInput): InspectProjectDirectoryResult;
+  /** The Create journey (the three-stage contract — see the kernel).
+   *  Returns the WIRE result DTO: the failure arm's `code` is the
+   *  5-code step vocabulary (the pre-check codes throw instead —
+   *  they never reach this DTO). */
+  createLocalResearchProject(input: CreateLocalResearchProjectInput): Promise<CreateLocalResearchProjectResult>;
 }
 //#endregion
 //#region src/host/dsh-adapter/host/index.d.ts
@@ -226,6 +303,20 @@ declare class ResearchControlService extends TypertRemoteService {
    */
   private planeMutationServices;
   /**
+   * UI-2B (design §8.7): the local-project creation port
+   * (inspectProjectDirectory / createLocalResearchProject — the
+   * Create/Bind journeys) — ONE instance for the whole plane, composed
+   * in `[Service.init]` next to the mutation port over the SAME live
+   * plane fields (the onboarding path — callable on the EMPTY plane);
+   * its register step forwards to the bindProject ladder (registry
+   * COMMIT LAST + re-init + the fresh-state post-check). Tests inject
+   * a stub through the optional 6th constructor argument (the seam
+   * pattern extended). `undefined` only before init —
+   * `requireLocalProjectServices` fails loud (the same spike-mode guard
+   * shape). Same proxy rule as {@link plane} (TS `private`, not `#`).
+   */
+  private localProjectServices;
+  /**
    * WP-4.1a / V2-T2.2: the RPC service port the 13 `@Remote` methods
    * forward to. V2-T2.2: the PRODUCTION ports live in
    * {@link projectRpcs} (one per plane project — the §12.1 routing map,
@@ -263,8 +354,14 @@ declare class ResearchControlService extends TypertRemoteService {
    *  production fibers pass nothing — `[Service.init]` composes the
    *  production implementation with its re-init hook over the SAME live
    *  plane fields as the read port).
+   * @param localProjectServices - UI-2B test seam: a stub for the
+   *  local-project creation port (the inspect / create pair, design
+   *  §8.7; production fibers pass nothing — `[Service.init]` composes
+   *  the production implementation over the SAME live plane fields as
+   *  the mutation port, with its register step forwarding to the
+   *  bindProject ladder).
    */
-  constructor(ctx: Context, config: Config, rpcServices?: ResearchRpcServices, planeServices?: ResearchPlaneServices, planeMutationServices?: ResearchPlaneMutationServices);
+  constructor(ctx: Context, config: Config, rpcServices?: ResearchRpcServices, planeServices?: ResearchPlaneServices, planeMutationServices?: ResearchPlaneMutationServices, localProjectServices?: LocalProjectServices);
   /**
    * Post-construction async init.
    *
@@ -337,6 +434,12 @@ declare class ResearchControlService extends TypertRemoteService {
   getCurrentFocus(args: unknown): Promise<GetCurrentFocusResult>;
   createTopic(args: unknown): Promise<CreateTopicResult>;
   createWorkstream(args: unknown): Promise<CreateWorkstreamResult>;
+  updateProjectMetadata(args: unknown): Promise<UpdateProjectMetadataResult>;
+  updateTopic(args: unknown): Promise<UpdateTopicResult>;
+  updateWorkstream(args: unknown): Promise<UpdateWorkstreamResult>;
+  dropWorkstream(args: unknown): Promise<DropWorkstreamResult>;
+  inspectProjectDirectory(args: unknown): Promise<InspectProjectDirectoryResult>;
+  createLocalResearchProject(args: unknown): Promise<CreateLocalResearchProjectResult>;
   /**
    * The plane-mutation port guard (V2-T3.2b — the mutation twin of
    * {@link requirePlaneServices}): a constructor-injected stub (TESTS
@@ -347,6 +450,16 @@ declare class ResearchControlService extends TypertRemoteService {
    * non-undefined field always has a usable target once init has run.
    */
   private requirePlaneMutationServices;
+  /**
+   * The local-project port guard (UI-2B — the mutation port's twin): a
+   * constructor-injected stub (TESTS only) always wins; pre-init (plane
+   * not discovered yet) fails loud (the gateway carries the message as
+   * an `ok: false` failure; `ping` still serves). The port is composed
+   * in EVERY init mode (the empty plane included — the onboarding
+   * face), so a non-undefined field always has a usable target once
+   * init has run.
+   */
+  private requireLocalProjectServices;
   /**
    * The plane-read port guard (V2-T3.2a — the plane-level twin of
    * {@link requireRpc}): a constructor-injected stub (TESTS only) always

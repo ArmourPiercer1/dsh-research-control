@@ -43,7 +43,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { loadResearchTree, type ResearchFileReader } from '../../domain/loader/index.js'
@@ -948,27 +948,48 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     })
 
     // ---------------------------------------------------------------- *
-    // 11g. The hierarchy service (V2-UI-0.4 (Task 3) — the USER's
-    //      declarative tree mutation face, createTopic /
-    //      createWorkstream): NO second connection and NO operational
-    //      store (the tree IS the truth — unlike the CF_ pointer):
-    //      the injected ports are a FRESH `loadResearchTree` per call
-    //      over this wiring's reader (no cache — a just-created node is
-    //      visible to the next read without a restart/rescan), the
-    //      atomic tmp+rename writer (`FsPlanFileWriter` — its mkdir -p
-    //      creates the new node's directory chain, and its
-    //      `.dshrc-tmp` suffix is the one the startup tmp sweep already
-    //      clears) and a pre-write existence probe over the same
-    //      reader (closes the load→write TOCTOU window — the writer's
-    //      own mkdir+rename would otherwise silently replace a raced
-    //      file). The dsh-adapter exposes it through the GUI management
-    //      RPC face (createTopic / createWorkstream); mutations never
-    //      auto-checkpoint (the reorderPlan precedent).
+    // 11g. The hierarchy service (V2-UI-0.4 (Task 3) + UI-2A — the
+    //      USER's declarative tree mutation face: createTopic /
+    //      createWorkstream + updateProjectMetadata / updateTopic /
+    //      updateWorkstream / dropWorkstream): the injected ports are a
+    //      FRESH `loadResearchTree` per call over this wiring's reader
+    //      (no cache — a just-created node is visible to the next read
+    //      without a restart/rescan), the atomic tmp+rename writer
+    //      (`FsPlanFileWriter` — its mkdir -p creates the new node's
+    //      directory chain, and its `.dshrc-tmp` suffix is the one the
+    //      startup tmp sweep already clears), a pre-write existence
+    //      probe over the same reader (closes the load→write TOCTOU
+    //      window — the writer's own mkdir+rename would otherwise
+    //      silently replace a raced file), the SAME reader as the
+    //      read-modify-write source (RMW over the file's own text —
+    //      untouched fields stay byte-faithful), a `rmSync` recursive
+    //      removal for dropWorkstream (force: false — a raced, already-
+    //      gone path fails loudly), the ResearchStore history probe
+    //      (the conservative drop gate: listRange(ws, 1) non-empty ⇒
+    //      HIER_WORKSTREAM_HAS_HISTORY) and a best-effort
+    //      CurrentFocusService clear (post-delete, NON-BLOCKING — the
+    //      wiring logs the failure and the drop still succeeds). The
+    //      dsh-adapter exposes it through the GUI management RPC face;
+    //      mutations never auto-checkpoint (the reorderPlan precedent).
     // ---------------------------------------------------------------- *
     const hierarchy = new HierarchyService({
       loadTree: () => loadResearchTree(reader, researchRoot, declarativeDir),
       writer: new FsPlanFileWriter(),
       fileExists: (absPath: string) => reader.readFile(absPath) !== null,
+      readFile: (absPath: string) => reader.readFile(absPath),
+      removeDir: (absDir: string) => rmSync(absDir, { recursive: true, force: false }),
+      hasHistory: (workstreamId: string) => store.listRange(workstreamId, 1).length > 0,
+      clearCurrentFocus: (workstreamId: string) => {
+        try {
+          return currentFocus.clear(workstreamId)
+        } catch (cause) {
+          logger?.warn(
+            'hierarchy',
+            `dropWorkstream: best-effort current-focus clear failed for ${workstreamId} (non-blocking): ${cause instanceof Error ? cause.message : String(cause)}`,
+          )
+          return false
+        }
+      },
       researchRoot,
       now,
     })

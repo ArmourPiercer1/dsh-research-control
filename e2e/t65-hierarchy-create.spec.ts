@@ -26,6 +26,7 @@
  * (t64 tree minus WS-4) + fresh hub DB + the committed 0d9f7ad lib,
  * confirming the monotonic chain across a second materialization of this
  * fixture.
+ * Re-run (2026-08-30, UI-2 window): live 6/6 on the rebuilt UI-2 lib (33-face registered) — BL-06 formal closure.
  * The fresh-materialization requirement above is load-bearing: created
  * nodes persist on disk, the chain is monotonic, and ids are never reused.
  * Post-live-run, two spec-side harness defects were fixed (a mis-sorted

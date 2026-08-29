@@ -7,7 +7,12 @@
  * t64 GUI 管理面 setCurrentFocus/getCurrentFocus 裸信封线级验证，UI-0.4 +
  * t65 层级 create 对 createTopic/createWorkstream 裸信封线级验证，UI-2A +
  * t66 真实客户端 store（createResearchStore）经 Proxy facade 驱动
- * setCurrentFocus/getCurrentFocus 走 3180 活线，UI-1）。
+ * setCurrentFocus/getCurrentFocus 走 3180 活线，UI-1 +
+ * t67 六个剩余 GUI 管理面（updateProjectMetadata/updateTopic/
+ * updateWorkstream/dropWorkstream + inspectProjectDirectory/
+ * createLocalResearchProject）裸信封线级验证，UI-2 +
+ * t68 Create/Bind 旅程浏览器端真实用户路径（5 步 Create 向导 + 4 态
+ * Bind 流 + reload 持久化），UI-2）。
  */
 import { defineConfig } from '@playwright/test'
 
@@ -15,7 +20,7 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3180'
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /(?:t42-onboarding-hub\.spec|t51-overview-drill\.spec|t52-attention-migration\.spec|t53-investigator\.spec|t54-settings-unbind\.spec|t61-settings-card\.spec|t63-clean-probe\.spec|t64-current-focus-rpc\.spec|t65-hierarchy-create\.spec|t66-current-focus-store\.spec)\.ts$/,
+  testMatch: /(?:t42-onboarding-hub\.spec|t51-overview-drill\.spec|t52-attention-migration\.spec|t53-investigator\.spec|t54-settings-unbind\.spec|t61-settings-card\.spec|t63-clean-probe\.spec|t64-current-focus-rpc\.spec|t65-hierarchy-create\.spec|t66-current-focus-store\.spec|t67-local-project-rpc\.spec|t68-create-bind-ui\.spec)\.ts$/,
   // Archived V1 specs never run from either config, no matter how testMatch
   // evolves: the archive directory is excluded outright.
   testIgnore: /v1-archived\//,

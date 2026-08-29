@@ -62,23 +62,40 @@ export async function gotoApp(page: Page, baseURL: string): Promise<void> {
  * The create fallback (New Session → composer → Send) requires an LLM provider
  * in the host home; on a keyless home the Send button stays disabled, so
  * callers there must supply a pre-seeded session + its workspace instead.
+ *
+ * Per-workspace targeting: when `workspace` is given, the session is created
+ * with the workspace row's own plus button (the row's action buttons mount
+ * only while the row is hovered) — that creates the session IN the workspace
+ * context. The global sidebar-header "New Session" button creates the
+ * session outside any workspace context; its research tab then renders the
+ * hub wall instead of the workspace's unregistered card (live-verified in
+ * the UI-2 acceptance window). It is used only when no workspace is
+ * requested.
  */
 export async function ensureSessionOpen(page: Page, title: string, workspace?: string): Promise<void> {
   const list = page.locator('[aria-label="Sessions"]')
   await expect(list).toBeVisible({ timeout: 30_000 })
   const row = list.getByText(title, { exact: true })
-  if ((await row.count()) === 0 && workspace !== undefined) {
-    const group = list.getByRole('treeitem', { name: workspace }).first()
-    if ((await group.getAttribute('aria-expanded').catch(() => null)) !== 'true') {
-      await group.click()
-      await page.waitForTimeout(1000)
-    }
-  }
   if ((await row.count()) === 0) {
-    await page
-      .locator('button[aria-label="New session"]', { hasText: 'New Session' })
-      .first()
-      .click()
+    if (workspace !== undefined) {
+      const group = list.getByRole('treeitem', { name: workspace }).first()
+      if ((await group.getAttribute('aria-expanded').catch(() => null)) !== 'true') {
+        await group.click()
+        await page.waitForTimeout(1000)
+      }
+      // the row's action buttons mount only while the row is hovered
+      await group.hover()
+      await page.waitForTimeout(400)
+      await group
+        .getByRole('button', { name: `New session in ${workspace}` })
+        .first()
+        .click({ timeout: 10_000 })
+    } else {
+      await page
+        .locator('button[aria-label="New session"]', { hasText: 'New Session' })
+        .first()
+        .click()
+    }
     await page.waitForTimeout(1500)
     const composer = page.locator('textarea[placeholder="Describe what you want to build"]')
     await composer.waitFor({ timeout: 30_000 })
@@ -146,6 +163,10 @@ export async function nodePing(
  * descriptor's parameter names; every V2 face method's single parameter is
  * NAMED `args` (itself the plain-object DTO), hence the double nesting
  * (ping takes no parameters and stays the flat `{args: {}}` in nodePing).
+ * ZERO-ARG face methods (e.g. `getProject`) likewise reject the nested
+ * shape on the wire with `unexpected "args"` — pass `{ flatArgs: true }`
+ * as the 5th argument to send the flat `{args: {}}` instead (the `args`
+ * parameter is then ignored).
  *
  * Response: server-response envelope with result `{ok:true, value}` (value =
  * the method's result DTO) or, when the host method throws, the folded
@@ -170,7 +191,11 @@ export async function nodeRpc(
   method: string,
   args: Record<string, unknown> = {},
   rpcId = 'e2e-node',
+  opts?: { flatArgs?: boolean },
 ): Promise<NodeRpcOutcome> {
+  // flatArgs ⇒ the zero-arg flat payload (see doc comment); the `args`
+  // parameter is ignored in that case.
+  const payload = opts?.flatArgs ? { args: {} } : { args: { args } }
   const res = await fetch(new URL(`/api/researchControl/${method}`, baseURL), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -178,7 +203,7 @@ export async function nodeRpc(
       type: 'client-request',
       rpcId,
       method: `researchControl/${method}`,
-      payload: { args: { args } },
+      payload,
     }),
   })
   const text = await res.text()

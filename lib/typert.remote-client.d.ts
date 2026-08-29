@@ -1,4 +1,4 @@
-import { A as ReorderPlanArgs, B as SelectPlanForkArgs, C as HubOverviewResult, D as QueryHistoryResult, E as QueryHistoryArgs, F as RestoreDeclarativeFileResult, G as SetHubResult, H as SetCurrentFocusArgs, I as RestoreProjectArgs, J as UnbindProjectArgs, K as TopicSnapshot, L as RestoreProjectResult, M as RescanArgs, N as RescanResult, O as RegisterInteractionArgs, P as RestoreDeclarativeFileArgs, Q as WorkstreamSnapshot, R as SaveResearchCheckpointArgs, S as GetWorkstreamArgs, T as ProjectSnapshot, U as SetCurrentFocusResult, V as SelectPlanForkResult, W as SetHubArgs, X as UpdateInterventionStateArgs, Y as UnbindProjectResult, Z as UpdateInterventionStateResult, _ as GetPortfolioInterventionsArgs, a as CreateTopicArgs, b as GetResearchPlaneStateResult, c as CreateWorkstreamResult, d as DismissPlanForkResult, f as GetCurrentFocusArgs, g as GetHubOverviewArgs, h as GetGitHistoryResult, i as BindProjectResult, j as ReorderPlanResult, k as RegisterInteractionResult, l as DashboardSnapshot, m as GetGitHistoryArgs, n as AckMissingReminderResult, o as CreateTopicResult, p as GetCurrentFocusResult, r as BindProjectArgs, s as CreateWorkstreamArgs, t as AckMissingReminderArgs, u as DismissPlanForkArgs, v as GetPortfolioInterventionsResult, w as PingResult, x as GetTopicArgs, y as GetResearchPlaneStateArgs, z as SaveResearchCheckpointResult } from "./rpc-contracts-P37Lgx6L.js";
+import { A as PingResult, B as RestoreDeclarativeFileArgs, C as GetResearchPlaneStateArgs, D as HubOverviewResult, E as GetWorkstreamArgs, F as RegisterInteractionResult, G as SaveResearchCheckpointResult, H as RestoreProjectArgs, I as ReorderPlanArgs, J as SetCurrentFocusArgs, K as SelectPlanForkArgs, L as ReorderPlanResult, M as QueryHistoryArgs, N as QueryHistoryResult, O as InspectProjectDirectoryArgs, P as RegisterInteractionArgs, Q as TopicSnapshot, R as RescanArgs, S as GetPortfolioInterventionsResult, T as GetTopicArgs, U as RestoreProjectResult, V as RestoreDeclarativeFileResult, W as SaveResearchCheckpointArgs, X as SetHubArgs, Y as SetCurrentFocusResult, Z as SetHubResult, _ as GetCurrentFocusResult, a as CreateLocalResearchProjectArgs, at as UpdateProjectMetadataResult, b as GetHubOverviewArgs, c as CreateTopicResult, ct as UpdateWorkstreamArgs, d as DashboardSnapshot, et as UnbindProjectArgs, f as DismissPlanForkArgs, g as GetCurrentFocusArgs, h as DropWorkstreamResult, i as BindProjectResult, it as UpdateProjectMetadataArgs, j as ProjectSnapshot, k as InspectProjectDirectoryResult, l as CreateWorkstreamArgs, lt as UpdateWorkstreamResult, m as DropWorkstreamArgs, n as AckMissingReminderResult, nt as UpdateInterventionStateArgs, o as CreateLocalResearchProjectResult, ot as UpdateTopicArgs, p as DismissPlanForkResult, q as SelectPlanForkResult, r as BindProjectArgs, rt as UpdateInterventionStateResult, s as CreateTopicArgs, st as UpdateTopicResult, t as AckMissingReminderArgs, tt as UnbindProjectResult, u as CreateWorkstreamResult, ut as WorkstreamSnapshot, v as GetGitHistoryArgs, w as GetResearchPlaneStateResult, x as GetPortfolioInterventionsArgs, y as GetGitHistoryResult, z as RescanResult } from "./rpc-contracts-CMwk1Fml.js";
 import { RemoteResult, TypertRemoteContribution } from "@deepseek-ai/dsh-typert-protocol";
 //#region src/client/dsh-adapter/remote/contribution.d.ts
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -30,6 +30,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/getCurrentFocus': (args: GetCurrentFocusArgs) => Promise<RemoteResult<GetCurrentFocusResult>>;
     'researchControl/createTopic': (args: CreateTopicArgs) => Promise<RemoteResult<CreateTopicResult>>;
     'researchControl/createWorkstream': (args: CreateWorkstreamArgs) => Promise<RemoteResult<CreateWorkstreamResult>>;
+    'researchControl/updateProjectMetadata': (args: UpdateProjectMetadataArgs) => Promise<RemoteResult<UpdateProjectMetadataResult>>;
+    'researchControl/updateTopic': (args: UpdateTopicArgs) => Promise<RemoteResult<UpdateTopicResult>>;
+    'researchControl/updateWorkstream': (args: UpdateWorkstreamArgs) => Promise<RemoteResult<UpdateWorkstreamResult>>;
+    'researchControl/dropWorkstream': (args: DropWorkstreamArgs) => Promise<RemoteResult<DropWorkstreamResult>>;
+    'researchControl/inspectProjectDirectory': (args: InspectProjectDirectoryArgs) => Promise<RemoteResult<InspectProjectDirectoryResult>>;
+    'researchControl/createLocalResearchProject': (args: CreateLocalResearchProjectArgs) => Promise<RemoteResult<CreateLocalResearchProjectResult>>;
   }
   interface TypertRemoteNamespaceMap {
     researchControl: TypertRemoteNamespace$726573656172636f6e74726f6c;
@@ -40,7 +46,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
    * V2-T3.2a: + the 3 read-only plane RPCs (design §12 rows 1-3);
    * V2-T3.2b: + the 6 change-family plane RPCs (design §12 rows 4-6/8/9);
    * UI-0.4: + the 4 GUI management RPCs (the current-focus pair, R-01,
-   * and the hierarchy create pair, Task 3 — project-routed).
+   * and the hierarchy create pair, Task 3 — project-routed);
+   * V2-UI-0.4 UI-2: + the 6 GUI management RPCs (the 4 hierarchy
+   * update/drop RPCs, project-routed — UI-2A — and the 2 local-project
+   * RPCs, plane-level — UI-2B).
    */
   interface TypertRemoteNamespace$726573656172636f6e74726f6c {
     ping: () => Promise<RemoteResult<PingResult>>;
@@ -70,6 +79,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     getCurrentFocus: (args: GetCurrentFocusArgs) => Promise<RemoteResult<GetCurrentFocusResult>>;
     createTopic: (args: CreateTopicArgs) => Promise<RemoteResult<CreateTopicResult>>;
     createWorkstream: (args: CreateWorkstreamArgs) => Promise<RemoteResult<CreateWorkstreamResult>>;
+    updateProjectMetadata: (args: UpdateProjectMetadataArgs) => Promise<RemoteResult<UpdateProjectMetadataResult>>;
+    updateTopic: (args: UpdateTopicArgs) => Promise<RemoteResult<UpdateTopicResult>>;
+    updateWorkstream: (args: UpdateWorkstreamArgs) => Promise<RemoteResult<UpdateWorkstreamResult>>;
+    dropWorkstream: (args: DropWorkstreamArgs) => Promise<RemoteResult<DropWorkstreamResult>>;
+    inspectProjectDirectory: (args: InspectProjectDirectoryArgs) => Promise<RemoteResult<InspectProjectDirectoryResult>>;
+    createLocalResearchProject: (args: CreateLocalResearchProjectArgs) => Promise<RemoteResult<CreateLocalResearchProjectResult>>;
   }
 }
 /**

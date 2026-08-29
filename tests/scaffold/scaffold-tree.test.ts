@@ -11,8 +11,11 @@
  *  - PROJECT ID: explicit ids are honored + validated; the omitted id
  *    is allocated by the ids allocator from the `knownProjectIds`
  *    no-reuse seed (max known sequence + 1; empty seed → PRJ-1);
- *  - IDEMPOTENT REJECTION: an existing tree location (any kind) is
- *    refused with SCAFFOLD_TREE_EXISTS and left BYTE-INTACT;
+ *  - IDEMPOTENT REJECTION: an existing OCCUPIED tree location (a dir
+ *    with content or a plain file) is refused with
+ *    SCAFFOLD_TREE_EXISTS and left BYTE-INTACT; an EMPTY pre-created
+ *    dir is scaffoldable (the create chain's own mkdir step leaves
+ *    one behind before the scaffold step runs);
  *  - INPUT REJECTION: non-absolute wsPath, a treeDir that is not a bare
  *    segment, an empty/overlong display name, a missing wsPath.
  *
@@ -222,6 +225,26 @@ describe('scaffold — idempotent rejection (the clobber guard)', () => {
     // the original tree is untouched
     expect(readTree(join(first.treePath, PROJECT_YAML_FILE))).toBe(before)
     expect(readdirSync(first.treePath).sort()).toEqual(['project.yaml', 'schema-version'])
+  })
+
+  it('scaffolds into an EMPTY pre-existing tree dir (the create chain leaves one behind)', () => {
+    const ws = makeTemp('t32b-scaffold-empty-')
+    // the create chain's own mkdir step (D §8.5 step order) leaves a bare
+    // EMPTY tree dir behind before scaffoldTree runs — empty is scaffoldable
+    mkdirSync(join(ws, '.research'))
+    const out = scaffoldResearchTree({
+      wsPath: ws,
+      treeDir: '.research',
+      displayName: 'Fresh',
+      projectId: 'PRJ-9',
+    })
+    expect(out.treePath).toBe(join(ws, '.research'))
+    expect(out.files).toEqual([...SCAFFOLD_FILES])
+    // every scaffold file actually landed on disk
+    for (const name of SCAFFOLD_FILES) {
+      expect(existsSync(join(out.treePath, name))).toBe(true)
+    }
+    expect(readdirSync(out.treePath).sort()).toEqual([...SCAFFOLD_FILES].sort())
   })
 
   it('refuses when the tree location exists as a FILE (any kind blocks the scaffold)', () => {

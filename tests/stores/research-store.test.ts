@@ -10,11 +10,17 @@
 import { describe, expect, it } from 'vitest'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import {
+  type CreateLocalResearchProjectResult,
   type DashboardSnapshot,
+  type DropWorkstreamResult,
   type GetCurrentFocusResult,
   type GetGitHistoryArgs,
+  type InspectProjectDirectoryResult,
   type QueryHistoryArgs,
   type SetCurrentFocusResult,
+  type UpdateProjectMetadataResult,
+  type UpdateTopicResult,
+  type UpdateWorkstreamResult,
 } from '../../src/shared/rpc-contracts.js'
 import {
   DASHBOARD_FIXTURE,
@@ -36,6 +42,7 @@ import {
   type ResearchStore,
 } from '../../src/client/stores/research-store.js'
 import { ResearchRpcError } from '../../src/client/stores/model.js'
+import { extractResearchErrorCarrier } from '../../src/client/util/error-carrier.js'
 import { makeStubRpc, type StubRpc } from './stub-rpc.js'
 
 /** A deferred `RemoteResult` promise for timing control of in-flight loads. */
@@ -690,5 +697,333 @@ describe('the refresh loop (onRefetch + RR-015① stale seam)', () => {
     await store.refresh()
     expect(store.getState().dashboard.status).toBe('ready')
     expect(stub.countOf('getDashboard')).toBe(1)
+  })
+})
+
+describe('V2-UI-0.4 UI-2 — the six GUI management faces (success-invalidate / failure-stale / busy)', () => {
+  // The idiom under test (ruling G): `okValue(await rpc.X(args))` →
+  // INVALIDATE_REGISTRY.X(value, state) → refetchKeys → return value.
+  // Success refetches EXACTLY the registry's keys; a business fault
+  // rejects (ResearchRpcError) BEFORE any invalidation — the stale
+  // slices stay READY and visible; an in-flight mutation invalidates
+  // NOTHING until it settles.
+
+  it('updateProjectMetadata → resolves with the host result and refetches the PROJECT slice ONLY', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1') // must stay untouched
+
+    const result = await store.updateProjectMetadata({ title: 'Renamed' })
+    expect(result).toEqual({ projectId: 'PRJ-1', title: 'Stub project', updatedAt: 1755000004000 })
+    expect(stub.countOf('getProject')).toBe(2) // 1 load + 1 invalidation refetch
+    expect(stub.countOf('getTopic')).toBe(1)
+    // The refetch re-reads the host via getProject (the stub's default).
+    expect(store.getState().project.data).toBe(PROJECT_FIXTURE)
+  })
+
+  it('updateProjectMetadata business fault → ResearchRpcError, the project slice stays READY with the stale data', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    stub.set('updateProjectMetadata', {
+      ok: false,
+      error: {
+        code: 'internal',
+        message:
+          '[research-control] HIER_INPUT: updateProjectMetadata: the update must carry at least one field',
+        details: {},
+      },
+    })
+    let caught: unknown
+    try {
+      await store.updateProjectMetadata({ title: '' })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(ResearchRpcError)
+    expect((caught as ResearchRpcError).code).toBe('internal')
+    // NOTE-4: the view layer never branches on error.code (the gateway
+    // folds it to 'internal') — the machine-readable carrier rides the
+    // MESSAGE, decoded by the one client-side matcher.
+    expect(extractResearchErrorCarrier((caught as Error).message)).toEqual({
+      code: 'HIER_INPUT',
+      detail: 'updateProjectMetadata: the update must carry at least one field',
+    })
+    expect(stub.countOf('getProject')).toBe(1) // no invalidation on failure
+    expect(store.getState().project.status).toBe('ready')
+    expect(store.getState().project.data).toBe(PROJECT_FIXTURE)
+  })
+
+  it('updateTopic → refetches the RESULT topic slice ONLY (the key comes from the result, not the args)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadTopic('TPC-1')
+
+    const result = await store.updateTopic({ topicId: 'TPC-1', title: 'Renamed topic' })
+    expect(result.topicId).toBe('TPC-1')
+    expect(stub.countOf('getTopic')).toBe(2)
+
+    // A result whose topicId has NO ready slice → nothing to refetch.
+    stub.set('updateTopic', {
+      ok: true,
+      value: { topicId: 'TPC-7', title: 'Elsewhere', updatedAt: 1755000005001 },
+    })
+    await store.updateTopic({ topicId: 'TPC-1', title: 'x' })
+    expect(stub.countOf('getTopic')).toBe(2)
+  })
+
+  it('updateTopic business fault → the carrier is decodable, the topic slice stays stale', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadTopic('TPC-1')
+    stub.set('updateTopic', {
+      ok: false,
+      error: {
+        code: 'internal',
+        message:
+          "[research-control] HIER_TOPIC_NOT_FOUND: updateTopic: topic TPC-9 is not a node of the routed project's tree",
+        details: {},
+      },
+    })
+    let caught: unknown
+    try {
+      await store.updateTopic({ topicId: 'TPC-9', title: 'x' })
+    } catch (err) {
+      caught = err
+    }
+    expect(extractResearchErrorCarrier((caught as Error).message)?.code).toBe('HIER_TOPIC_NOT_FOUND')
+    expect(stub.countOf('getTopic')).toBe(1)
+    expect(store.getState().topics.get('TPC-1')?.status).toBe('ready')
+    expect(store.getState().topics.get('TPC-1')?.data).toBe(TOPIC_FIXTURE)
+  })
+
+  it('updateWorkstream → refetches the RESULT workstream slice ONLY', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    await store.loadTopic('TPC-1') // must stay untouched
+
+    const result = await store.updateWorkstream({ workstreamId: 'WS-1', title: 'Renamed lane' })
+    expect(result.workstreamId).toBe('WS-1')
+    expect(stub.countOf('getWorkstream')).toBe(2)
+    expect(stub.countOf('getTopic')).toBe(1)
+  })
+
+  it('updateWorkstream business fault → the carrier is decodable, the workstream slice stays stale', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    stub.set('updateWorkstream', {
+      ok: false,
+      error: { code: 'internal', message: '[research-control] HIER_WRITE: updateWorkstream: rename failed', details: {} },
+    })
+    let caught: unknown
+    try {
+      await store.updateWorkstream({ workstreamId: 'WS-1', title: 'x' })
+    } catch (err) {
+      caught = err
+    }
+    expect(extractResearchErrorCarrier((caught as Error).message)?.code).toBe('HIER_WRITE')
+    expect(stub.countOf('getWorkstream')).toBe(1)
+    expect(store.getState().workstreams.get('WS-1')?.status).toBe('ready')
+    expect(store.getState().workstreams.get('WS-1')?.data).toBe(WORKSTREAM_FIXTURE)
+  })
+
+  it('dropWorkstream → refetches workstream + topic + dashboard (ALL THREE from the result)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadDashboard()
+    await store.loadTopic('TPC-1')
+    await store.loadWorkstream('WS-1')
+
+    const result = await store.dropWorkstream({ workstreamId: 'WS-1' })
+    expect(result).toEqual({ workstreamId: 'WS-1', topicId: 'TPC-1', currentFocusCleared: false })
+    expect(stub.countOf('getWorkstream')).toBe(2)
+    expect(stub.countOf('getTopic')).toBe(2)
+    expect(stub.countOf('getDashboard')).toBe(2)
+  })
+
+  it('dropWorkstream business fault → the carrier is decodable, all three slices stay stale', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadDashboard()
+    await store.loadTopic('TPC-1')
+    await store.loadWorkstream('WS-1')
+    stub.set('dropWorkstream', {
+      ok: false,
+      error: {
+        code: 'internal',
+        message:
+          '[research-control] HIER_WORKSTREAM_HAS_HISTORY: dropWorkstream: workstream WS-1 has history events — the drop is refused (history is never auto-purged)',
+        details: {},
+      },
+    })
+    let caught: unknown
+    try {
+      await store.dropWorkstream({ workstreamId: 'WS-1' })
+    } catch (err) {
+      caught = err
+    }
+    expect(extractResearchErrorCarrier((caught as Error).message)?.code).toBe('HIER_WORKSTREAM_HAS_HISTORY')
+    expect(stub.countOf('getDashboard')).toBe(1)
+    expect(stub.countOf('getTopic')).toBe(1)
+    expect(stub.countOf('getWorkstream')).toBe(1)
+    expect(store.getState().dashboard.data).toBe(DASHBOARD_FIXTURE)
+    expect(store.getState().topics.get('TPC-1')?.data).toBe(TOPIC_FIXTURE)
+    expect(store.getState().workstreams.get('WS-1')?.data).toBe(WORKSTREAM_FIXTURE)
+  })
+
+  it('createLocalResearchProject SUCCESS arm → refetches the dashboard ONLY', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadDashboard()
+    await store.loadProject() // must stay untouched
+
+    const result = await store.createLocalResearchProject({ wsPath: '/w', title: 'New project' })
+    expect(result.ok).toBe(true)
+    expect(result.ok && result.projectId).toBe('PRJ-9')
+    expect(stub.countOf('getDashboard')).toBe(2)
+    expect(stub.countOf('getProject')).toBe(1)
+  })
+
+  it('createLocalResearchProject FAILURE arm → RESOLVES with the failure DTO and invalidates NOTHING (the UI renders the three-stage report)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadDashboard()
+    await store.loadProject()
+    stub.set('createLocalResearchProject', {
+      ok: true,
+      value: {
+        ok: false,
+        code: 'LP_GIT_INIT',
+        failedStep: 'gitInit',
+        completedSteps: ['mkdir'],
+        partialChangeNote: 'The tree directory was created.',
+        detail: 'git init failed',
+      },
+    })
+    const result = await store.createLocalResearchProject({ wsPath: '/w', title: 'New project' })
+    expect(result.ok).toBe(false)
+    expect(stub.countOf('getDashboard')).toBe(1) // the failure arm invalidates nothing
+    expect(stub.countOf('getProject')).toBe(1)
+  })
+
+  it('inspectProjectDirectory → resolves and NEVER refetches (a pure query — no slice exists)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadDashboard()
+
+    const result = await store.inspectProjectDirectory({ wsPath: '/w' })
+    expect(result.state).toBe('RC_PROJECT')
+    expect(stub.countOf('getDashboard')).toBe(1) // untouched — inspect invalidates []
+    expect(stub.countOf('getProject')).toBe(0)
+  })
+
+  it('inspectProjectDirectory business fault → rejects with the decodable carrier, the store is untouched', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadDashboard()
+    stub.set('inspectProjectDirectory', {
+      ok: false,
+      error: {
+        code: 'internal',
+        message: '[research-control] LP_INPUT: inspectProjectDirectory: wsPath must be an absolute path',
+        details: {},
+      },
+    })
+    let caught: unknown
+    try {
+      await store.inspectProjectDirectory({ wsPath: '/w' })
+    } catch (err) {
+      caught = err
+    }
+    expect(extractResearchErrorCarrier((caught as Error).message)?.code).toBe('LP_INPUT')
+    expect(store.getState().dashboard.data).toBe(DASHBOARD_FIXTURE)
+  })
+
+  it('busy: six in-flight mutations invalidate NOTHING until they settle (then EXACTLY the per-face keys)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadDashboard()
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+    await store.loadWorkstream('WS-1')
+
+    const dMeta = deferred<UpdateProjectMetadataResult>()
+    const dTopic = deferred<UpdateTopicResult>()
+    const dWs = deferred<UpdateWorkstreamResult>()
+    const dDrop = deferred<DropWorkstreamResult>()
+    const dCreate = deferred<CreateLocalResearchProjectResult>()
+    const dInspect = deferred<InspectProjectDirectoryResult>()
+    stub.set('updateProjectMetadata', dMeta.promise)
+    stub.set('updateTopic', dTopic.promise)
+    stub.set('updateWorkstream', dWs.promise)
+    stub.set('dropWorkstream', dDrop.promise)
+    stub.set('createLocalResearchProject', dCreate.promise)
+    stub.set('inspectProjectDirectory', dInspect.promise)
+
+    const pMeta = store.updateProjectMetadata({ title: 'A' })
+    const pTopic = store.updateTopic({ topicId: 'TPC-1', title: 'B' })
+    const pWs = store.updateWorkstream({ workstreamId: 'WS-1', title: 'C' })
+    const pDrop = store.dropWorkstream({ workstreamId: 'WS-1' })
+    const pCreate = store.createLocalResearchProject({ wsPath: '/w', title: 'D' })
+    const pInspect = store.inspectProjectDirectory({ wsPath: '/w' })
+
+    // Nothing has settled: ZERO refetches, every slice still stale+ready.
+    expect(stub.countOf('getDashboard')).toBe(1)
+    expect(stub.countOf('getProject')).toBe(1)
+    expect(stub.countOf('getTopic')).toBe(1)
+    expect(stub.countOf('getWorkstream')).toBe(1)
+    expect(store.getState().project.data).toBe(PROJECT_FIXTURE)
+
+    dMeta.resolve({ ok: true, value: { projectId: 'PRJ-1', title: 'A', updatedAt: 1 } })
+    dTopic.resolve({ ok: true, value: { topicId: 'TPC-1', title: 'B', updatedAt: 2 } })
+    dWs.resolve({ ok: true, value: { workstreamId: 'WS-1', topicId: 'TPC-1', title: 'C', updatedAt: 3 } })
+    dDrop.resolve({ ok: true, value: { workstreamId: 'WS-1', topicId: 'TPC-1', currentFocusCleared: true } })
+    dCreate.resolve({
+      ok: true,
+      value: { ok: true, projectId: 'PRJ-9', treePath: '/w/.research', registryPath: null, dbMigrated: false },
+    })
+    dInspect.resolve({
+      ok: true,
+      value: {
+        wsPath: '/w',
+        state: 'RC_PROJECT',
+        message: 'Existing Research Control project detected.',
+        detail: null,
+        hasGitRepo: true,
+        hasResearchTree: true,
+        treeValid: true,
+        alreadyManaged: true,
+        projectId: 'PRJ-1',
+        title: 'A',
+      },
+    })
+
+    const [meta, topic, ws, drop, create, inspect] = await Promise.all([
+      pMeta,
+      pTopic,
+      pWs,
+      pDrop,
+      pCreate,
+      pInspect,
+    ])
+    expect(meta.title).toBe('A')
+    expect(topic.title).toBe('B')
+    expect(ws.title).toBe('C')
+    expect(drop.currentFocusCleared).toBe(true)
+    expect(create.ok).toBe(true)
+    expect(inspect.state).toBe('RC_PROJECT')
+
+    // Exactly ONE refetch per invalidated key: the keys hit by TWO of the
+    // six faces (topics:TPC-1 — updateTopic + dropWorkstream;
+    // workstreams:WS-1 — updateWorkstream + dropWorkstream; dashboard —
+    // dropWorkstream + create success) dedupe to a single fetch through
+    // the per-key in-flight map.
+    expect(stub.countOf('getProject')).toBe(2)
+    expect(stub.countOf('getTopic')).toBe(2)
+    expect(stub.countOf('getWorkstream')).toBe(2)
+    expect(stub.countOf('getDashboard')).toBe(2)
   })
 })

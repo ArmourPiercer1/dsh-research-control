@@ -42,6 +42,8 @@ import {
   AckMissingReminderResultSchema,
   BindProjectArgsSchema,
   BindProjectResultSchema,
+  CreateLocalResearchProjectArgsSchema,
+  CreateLocalResearchProjectResultSchema,
   CreateTopicArgsSchema,
   CreateTopicResultSchema,
   CreateWorkstreamArgsSchema,
@@ -49,6 +51,8 @@ import {
   DashboardSnapshotSchema,
   DismissPlanForkArgsSchema,
   DismissPlanForkResultSchema,
+  DropWorkstreamArgsSchema,
+  DropWorkstreamResultSchema,
   GetGitHistoryArgsSchema,
   GetGitHistoryResultSchema,
   GetCurrentFocusArgsSchema,
@@ -61,6 +65,8 @@ import {
   GetTopicArgsSchema,
   GetWorkstreamArgsSchema,
   HubOverviewResultSchema,
+  InspectProjectDirectoryArgsSchema,
+  InspectProjectDirectoryResultSchema,
   PingResultSchema,
   ProjectSnapshotSchema,
   QueryHistoryArgsSchema,
@@ -90,6 +96,12 @@ import {
   UnbindProjectResultSchema,
   UpdateInterventionStateArgsSchema,
   UpdateInterventionStateResultSchema,
+  UpdateProjectMetadataArgsSchema,
+  UpdateProjectMetadataResultSchema,
+  UpdateTopicArgsSchema,
+  UpdateTopicResultSchema,
+  UpdateWorkstreamArgsSchema,
+  UpdateWorkstreamResultSchema,
   WorkstreamSnapshotSchema,
   type TypertContributionMirror,
   type TypertSchemaMirror,
@@ -107,14 +119,16 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
 
 /**
  * Every wire schema the face uses, as a live zod v4 instance (the loader
- * requires the `_zod` brand on each `TYPERT.schemas` entry). 51 entries:
+ * requires the `_zod` brand on each `TYPERT.schemas` entry). 63 entries:
  * ping's result + the 13 RPCs' args/results (the two zero-arg queries
  * carry no args schema) + the 3 read-only plane RPCs' args/results
  * (V2-T3.2a) + the 6 change-family plane RPCs' args/results (V2-T3.2b —
  * design §12 rows 4-6/8/9; `RescanResult` rides the shared
  * `PlaneStateSummary` schema, the rescan's result alias) + the 2
  * current-focus management RPCs' args/results (V2-UI-0.4 slice 1) + the
- * 2 hierarchy-create management RPCs' args/results (V2-UI-0.4 Task 3).
+ * 2 hierarchy-create management RPCs' args/results (V2-UI-0.4 Task 3) +
+ * the 6 GUI management RPCs' args/results (V2-UI-0.4 UI-2: the
+ * 4 hierarchy update/drop RPCs + the 2 local-project RPCs).
  */
 const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'PingResult', schema: PingResultSchema },
@@ -172,6 +186,20 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'CreateTopicResult', schema: CreateTopicResultSchema },
   { name: 'CreateWorkstreamArgs', schema: CreateWorkstreamArgsSchema },
   { name: 'CreateWorkstreamResult', schema: CreateWorkstreamResultSchema },
+  // V2-UI-0.4 UI-2: the 4 hierarchy update/drop management RPCs (UI-2A) +
+  // the 2 local-project management RPCs (UI-2B).
+  { name: 'UpdateProjectMetadataArgs', schema: UpdateProjectMetadataArgsSchema },
+  { name: 'UpdateProjectMetadataResult', schema: UpdateProjectMetadataResultSchema },
+  { name: 'UpdateTopicArgs', schema: UpdateTopicArgsSchema },
+  { name: 'UpdateTopicResult', schema: UpdateTopicResultSchema },
+  { name: 'UpdateWorkstreamArgs', schema: UpdateWorkstreamArgsSchema },
+  { name: 'UpdateWorkstreamResult', schema: UpdateWorkstreamResultSchema },
+  { name: 'DropWorkstreamArgs', schema: DropWorkstreamArgsSchema },
+  { name: 'DropWorkstreamResult', schema: DropWorkstreamResultSchema },
+  { name: 'InspectProjectDirectoryArgs', schema: InspectProjectDirectoryArgsSchema },
+  { name: 'InspectProjectDirectoryResult', schema: InspectProjectDirectoryResultSchema },
+  { name: 'CreateLocalResearchProjectArgs', schema: CreateLocalResearchProjectArgsSchema },
+  { name: 'CreateLocalResearchProjectResult', schema: CreateLocalResearchProjectResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -366,6 +394,42 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'GUI management (V2-UI-0.4 Task 3): create a new Workstream under an existing topic (allocates the next WS-<n> project-wide; writes the minimal workstream.yaml).',
           },
+          {
+            name: 'updateProjectMetadata',
+            signature: 'updateProjectMetadata(args: UpdateProjectMetadataArgs): Promise<UpdateProjectMetadataResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-2): rewrite the provided project metadata fields (title / description / importance / attention mode / target date) of the routed project (read-modify-write; untouched fields stay byte-identical).',
+          },
+          {
+            name: 'updateTopic',
+            signature: 'updateTopic(args: UpdateTopicArgs): Promise<UpdateTopicResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-2): update a topic title / description / importance / attention mode in the routed project (read-modify-write).',
+          },
+          {
+            name: 'updateWorkstream',
+            signature: 'updateWorkstream(args: UpdateWorkstreamArgs): Promise<UpdateWorkstreamResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-2): update a workstream title / summary in the routed project (read-modify-write).',
+          },
+          {
+            name: 'dropWorkstream',
+            signature: 'dropWorkstream(args: DropWorkstreamArgs): Promise<DropWorkstreamResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-2): delete a workstream (its directory + reference) in the routed project; refuses when the workstream has history; clears the current-focus pointer best-effort.',
+          },
+          {
+            name: 'inspectProjectDirectory',
+            signature: 'inspectProjectDirectory(args: InspectProjectDirectoryArgs): Promise<InspectProjectDirectoryResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-2B, plane-level): classify a candidate directory into one of the 4 bind states (existing RC project / git-only / plain directory / incompatible).',
+          },
+          {
+            name: 'createLocalResearchProject',
+            signature: 'createLocalResearchProject(args: CreateLocalResearchProjectArgs): Promise<CreateLocalResearchProjectResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-2B, plane-level): create a fresh local research project end-to-end (mkdir → git init → tree scaffold → metadata → registry commit; the registry commit is LAST — a step failure returns a three-stage failure DTO, no rollback).',
+          },
         ],
         types: [
           {
@@ -500,6 +564,38 @@ export const TYPERT: TypertHostManifest = {
             name: 'CreateWorkstreamResult',
             declaration:
               'interface CreateWorkstreamResult { readonly workstreamId: string; readonly topicId: string; readonly title: string; readonly path: string; readonly createdAt: number }',
+          },
+          // V2-UI-0.4 UI-2: the 4 hierarchy update/drop management RPC result
+          // types + the 2 local-project management RPC result types.
+          {
+            name: 'UpdateProjectMetadataResult',
+            declaration:
+              'interface UpdateProjectMetadataResult { readonly projectId: string; readonly title: string; readonly updatedAt: number }',
+          },
+          {
+            name: 'UpdateTopicResult',
+            declaration:
+              'interface UpdateTopicResult { readonly topicId: string; readonly title: string; readonly updatedAt: number }',
+          },
+          {
+            name: 'UpdateWorkstreamResult',
+            declaration:
+              'interface UpdateWorkstreamResult { readonly workstreamId: string; readonly topicId: string; readonly title: string; readonly updatedAt: number }',
+          },
+          {
+            name: 'DropWorkstreamResult',
+            declaration:
+              'interface DropWorkstreamResult { readonly workstreamId: string; readonly topicId: string; readonly currentFocusCleared: boolean }',
+          },
+          {
+            name: 'InspectProjectDirectoryResult',
+            declaration:
+              'interface InspectProjectDirectoryResult { readonly wsPath: string; readonly state: "RC_PROJECT" | "GIT_ONLY" | "PLAIN_DIR" | "INCOMPATIBLE"; readonly message: string; readonly detail: string | null; readonly hasGitRepo: boolean; readonly hasResearchTree: boolean; readonly treeValid: boolean; readonly alreadyManaged: boolean; readonly projectId?: string; readonly title?: string }',
+          },
+          {
+            name: 'CreateLocalResearchProjectResult',
+            declaration:
+              'type CreateLocalResearchProjectResult = { ok: true; readonly projectId: string; readonly treePath: string; readonly registryPath: string | null; readonly dbMigrated: boolean } | { ok: false; readonly code: "LP_MKDIR" | "LP_GIT_INIT" | "LP_SCAFFOLD" | "LP_METADATA" | "LP_REGISTER"; readonly failedStep: "mkdir" | "gitInit" | "scaffold" | "metadata" | "register"; readonly completedSteps: ("mkdir" | "gitInit" | "scaffold" | "metadata" | "register")[]; readonly partialChangeNote: string; readonly detail: string }',
           },
         ],
       },

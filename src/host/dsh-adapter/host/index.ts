@@ -157,9 +157,11 @@ import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   AckMissingReminderArgsSchema,
   BindProjectArgsSchema,
+  CreateLocalResearchProjectArgsSchema,
   CreateTopicArgsSchema,
   CreateWorkstreamArgsSchema,
   DismissPlanForkArgsSchema,
+  DropWorkstreamArgsSchema,
   GetGitHistoryArgsSchema,
   GetCurrentFocusArgsSchema,
   GetHubOverviewArgsSchema,
@@ -167,6 +169,7 @@ import {
   GetResearchPlaneStateArgsSchema,
   GetTopicArgsSchema,
   GetWorkstreamArgsSchema,
+  InspectProjectDirectoryArgsSchema,
   QueryHistoryArgsSchema,
   ReorderPlanArgsSchema,
   RescanArgsSchema,
@@ -178,11 +181,16 @@ import {
   SetHubArgsSchema,
   UnbindProjectArgsSchema,
   UpdateInterventionStateArgsSchema,
+  UpdateProjectMetadataArgsSchema,
+  UpdateTopicArgsSchema,
+  UpdateWorkstreamArgsSchema,
   RegisterInteractionArgsSchema,
   type AckMissingReminderArgs,
   type AckMissingReminderResult,
   type BindProjectArgs,
   type BindProjectResult,
+  type CreateLocalResearchProjectArgs,
+  type CreateLocalResearchProjectResult,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
@@ -190,6 +198,8 @@ import {
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
+  type DropWorkstreamArgs,
+  type DropWorkstreamResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
   type GetCurrentFocusArgs,
@@ -202,6 +212,8 @@ import {
   type GetTopicArgs,
   type GetWorkstreamArgs,
   type HubOverviewResult,
+  type InspectProjectDirectoryArgs,
+  type InspectProjectDirectoryResult,
   type PingResult,
   type ProjectSnapshot,
   type QueryHistoryArgs,
@@ -229,6 +241,12 @@ import {
   type UnbindProjectResult,
   type UpdateInterventionStateArgs,
   type UpdateInterventionStateResult,
+  type UpdateProjectMetadataArgs,
+  type UpdateProjectMetadataResult,
+  type UpdateTopicArgs,
+  type UpdateTopicResult,
+  type UpdateWorkstreamArgs,
+  type UpdateWorkstreamResult,
   type WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
 import {
@@ -243,6 +261,10 @@ import {
   ProductionResearchPlaneMutationServices,
   type ResearchPlaneMutationServices,
 } from './plane-mutation-services.js'
+import {
+  ProductionLocalProjectServices,
+  type LocalProjectServices,
+} from './local-project-services.js'
 import { HostSessionAdapter, type SessionHostContext } from '../session.js'
 import {
   assertMinDshVersion,
@@ -481,6 +503,21 @@ export class ResearchControlService extends TypertRemoteService {
   private planeMutationServices: ResearchPlaneMutationServices | undefined
 
   /**
+   * UI-2B (design §8.7): the local-project creation port
+   * (inspectProjectDirectory / createLocalResearchProject — the
+   * Create/Bind journeys) — ONE instance for the whole plane, composed
+   * in `[Service.init]` next to the mutation port over the SAME live
+   * plane fields (the onboarding path — callable on the EMPTY plane);
+   * its register step forwards to the bindProject ladder (registry
+   * COMMIT LAST + re-init + the fresh-state post-check). Tests inject
+   * a stub through the optional 6th constructor argument (the seam
+   * pattern extended). `undefined` only before init —
+   * `requireLocalProjectServices` fails loud (the same spike-mode guard
+   * shape). Same proxy rule as {@link plane} (TS `private`, not `#`).
+   */
+  private localProjectServices: LocalProjectServices | undefined
+
+  /**
    * WP-4.1a / V2-T2.2: the RPC service port the 13 `@Remote` methods
    * forward to. V2-T2.2: the PRODUCTION ports live in
    * {@link projectRpcs} (one per plane project — the §12.1 routing map,
@@ -522,6 +559,12 @@ export class ResearchControlService extends TypertRemoteService {
    *  production fibers pass nothing — `[Service.init]` composes the
    *  production implementation with its re-init hook over the SAME live
    *  plane fields as the read port).
+   * @param localProjectServices - UI-2B test seam: a stub for the
+   *  local-project creation port (the inspect / create pair, design
+   *  §8.7; production fibers pass nothing — `[Service.init]` composes
+   *  the production implementation over the SAME live plane fields as
+   *  the mutation port, with its register step forwarding to the
+   *  bindProject ladder).
    */
   constructor(
     ctx: Context,
@@ -529,12 +572,14 @@ export class ResearchControlService extends TypertRemoteService {
     rpcServices?: ResearchRpcServices,
     planeServices?: ResearchPlaneServices,
     planeMutationServices?: ResearchPlaneMutationServices,
+    localProjectServices?: LocalProjectServices,
   ) {
     super(ctx, 'researchControl')
     this.#config = config
     this.rpc = rpcServices
     this.planeServices = planeServices
     this.planeMutationServices = planeMutationServices
+    this.localProjectServices = localProjectServices
     // Cordis 管不到的资源 teardown 占位：SQLite 连接、file watcher（后续 WP）。
     // 注册本身即逆 effect：fiber 卸载时随注册自动回滚（DSH_ADAPTER §4 要点 2）。
     ctx.effect(() => () => {
@@ -708,6 +753,20 @@ export class ResearchControlService extends TypertRemoteService {
         this.projectWirings?.get(projectId)?.close()
       },
     })
+    // UI-2B (design §8.7): the local-project creation port (the
+    // Create/Bind journeys) — composed in EVERY mode (the empty plane
+    // included — it is the onboarding path, the mutation port's twin),
+    // over the SAME live fields; its register step forwards to the
+    // bindProject ladder (registry COMMIT LAST + re-init + the
+    // fresh-state post-check — local-project-services.ts).
+    this.localProjectServices = new ProductionLocalProjectServices({
+      getPlane: () => this.plane,
+      listWorkspacePaths: (): readonly string[] =>
+        (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry.list().map((w) => w.path),
+      dirNames: () => getResearchDirNames(this.ctx),
+      declarativeDir: join(schemaRoot, 'declarative'),
+      bindProject: (args) => this.requirePlaneMutationServices().bindProject(args),
+    })
     if (plane.wirings.size > 0) {
       // ONE disposer for the whole graph (DSH_ADAPTER §9: `[Service.init]`
       // open, `ctx.effect` close — the storage-sqlite register/close
@@ -726,6 +785,7 @@ export class ResearchControlService extends TypertRemoteService {
           this.plane = undefined
           this.planeServices = undefined
           this.planeMutationServices = undefined
+          this.localProjectServices = undefined
           this.#wiring = undefined
         }
       })
@@ -992,8 +1052,12 @@ export class ResearchControlService extends TypertRemoteService {
 
   /* ------------------------------------------------------------------ *
    * UI-0.4 — the GUI management face (D §7.2, incremental — slice 1:
-   * Current Focus, R-01; slice 2: the hierarchy create pair, Task 3).
-   * Same decode-first + requireRpc routing as the frozen 13; the USER
+   * Current Focus, R-01; slice 2: the hierarchy create pair, Task 3;
+   * V2-UI-0.4 UI-2: the 4 hierarchy update/drop RPCs — project-routed
+   * like the rest — and the 2 local-project RPCs, UI-2B, which are
+   * PLANE-LEVEL: they route to requireLocalProjectServices instead of
+   * requireRpc, because their target workspace is not a project yet).
+   * Same decode-first routing as the frozen 13; the USER
    * lane is the RPC face itself (R-01: no actor parameter).
    *
    * §7.3 conformance audit (per-method hop map — comments only; the
@@ -1023,6 +1087,25 @@ export class ResearchControlService extends TypertRemoteService {
    *        - createWorkstream : the topic membership gate
    *          (HIER_TOPIC_NOT_FOUND) BEFORE any allocation / write ->
    *          the atomic write; same carrier.
+   *        - updateProjectMetadata / updateTopic / updateWorkstream
+   *          (UI-2A) : the RMW spine over the target yaml — the
+   *          provided fields only, the rest byte-preserved; gates run
+   *          BEFORE any write (HIER_* codes); same carrier.
+   *        - dropWorkstream (UI-2A) : the HAS_HISTORY refusal BEFORE
+   *          the whole-directory removal -> the best-effort
+   *          current-focus clear; same carrier.
+   *   3b. UI-2B (plane-level — the local-project port, not requireRpc):
+   *        - inspectProjectDirectory : the read-only four-state
+   *          classification (RC_PROJECT / GIT_ONLY / PLAIN_DIR /
+   *          INCOMPATIBLE; the INCOMPATIBLE reason rides `detail` —
+   *          read-only, no auto-repair); the treeDir is resolved
+   *          HOST-side from the settings, never from the wire.
+   *        - createLocalResearchProject : pre-checks THROW (the
+   *          PLANE_* rungs + LP_INPUT / LP_PARENT_INVALID /
+   *          LP_DIR_EXISTS — gateway carriers, no partial change); a
+   *          step failure RETURNS the ok:false result arm (the
+   *          three-stage contract — failed step + completed steps +
+   *          partial-change note; no rollback engine).
    *   4. INVALIDATION: a DOCUMENTED NO-OP ON THE HOST — there is no
    *      host-side invalidation bus and nothing host-side to invalidate:
    *      every read is a FRESH load (rpc-services.ts §27 header: "the
@@ -1058,6 +1141,62 @@ export class ResearchControlService extends TypertRemoteService {
     return this.requireRpc(decoded.projectId).createWorkstream(decoded)
   }
 
+  @Remote('updateProjectMetadata')
+  async updateProjectMetadata(args: unknown): Promise<UpdateProjectMetadataResult> {
+    const decoded = UpdateProjectMetadataArgsSchema.parse(args) satisfies UpdateProjectMetadataArgs
+    return this.requireRpc(decoded.projectId).updateProjectMetadata(decoded)
+  }
+
+  @Remote('updateTopic')
+  async updateTopic(args: unknown): Promise<UpdateTopicResult> {
+    const decoded = UpdateTopicArgsSchema.parse(args) satisfies UpdateTopicArgs
+    return this.requireRpc(decoded.projectId).updateTopic(decoded)
+  }
+
+  @Remote('updateWorkstream')
+  async updateWorkstream(args: unknown): Promise<UpdateWorkstreamResult> {
+    const decoded = UpdateWorkstreamArgsSchema.parse(args) satisfies UpdateWorkstreamArgs
+    return this.requireRpc(decoded.projectId).updateWorkstream(decoded)
+  }
+
+  @Remote('dropWorkstream')
+  async dropWorkstream(args: unknown): Promise<DropWorkstreamResult> {
+    const decoded = DropWorkstreamArgsSchema.parse(args) satisfies DropWorkstreamArgs
+    return this.requireRpc(decoded.projectId).dropWorkstream(decoded)
+  }
+
+  /* ------------------------------------------------------------------ *
+   * V2-UI-0.4 UI-2B — the local-project face (D §8.3): PLANE-LEVEL,
+   * not project-routed (the target workspace is not a project yet):
+   * decode first, then the local-project port. The configured tree
+   * directory name is resolved HOST-side (getResearchDirNames) — the
+   * wire carries only the workspace path, so a stale client can never
+   * ship a stale tree name.
+   * ------------------------------------------------------------------ */
+
+  @Remote('inspectProjectDirectory')
+  async inspectProjectDirectory(args: unknown): Promise<InspectProjectDirectoryResult> {
+    const decoded = InspectProjectDirectoryArgsSchema.parse(args) satisfies InspectProjectDirectoryArgs
+    return this.requireLocalProjectServices().inspectProjectDirectory({
+      wsPath: decoded.wsPath,
+      treeDir: getResearchDirNames(this.ctx).treeDir,
+    })
+  }
+
+  @Remote('createLocalResearchProject')
+  async createLocalResearchProject(args: unknown): Promise<CreateLocalResearchProjectResult> {
+    const decoded = CreateLocalResearchProjectArgsSchema.parse(args) satisfies CreateLocalResearchProjectArgs
+    return this.requireLocalProjectServices().createLocalResearchProject({
+      wsPath: decoded.wsPath,
+      treeDir: getResearchDirNames(this.ctx).treeDir,
+      title: decoded.title,
+      description: decoded.description,
+      importance: decoded.importance,
+      attentionMode: decoded.attentionMode,
+      targetDate: decoded.targetDate,
+    })
+  }
+
   /**
    * The plane-mutation port guard (V2-T3.2b — the mutation twin of
    * {@link requirePlaneServices}): a constructor-injected stub (TESTS
@@ -1073,6 +1212,26 @@ export class ResearchControlService extends TypertRemoteService {
       throw new Error(
         'the research control plane is not initialized (spike mode) — the plane mutation RPCs ' +
           'require [Service.init] (the discovered plane state); ping stays available',
+      )
+    }
+    return stub
+  }
+
+  /**
+   * The local-project port guard (UI-2B — the mutation port's twin): a
+   * constructor-injected stub (TESTS only) always wins; pre-init (plane
+   * not discovered yet) fails loud (the gateway carries the message as
+   * an `ok: false` failure; `ping` still serves). The port is composed
+   * in EVERY init mode (the empty plane included — the onboarding
+   * face), so a non-undefined field always has a usable target once
+   * init has run.
+   */
+  private requireLocalProjectServices(): LocalProjectServices {
+    const stub = this.localProjectServices
+    if (stub === undefined) {
+      throw new Error(
+        'the research control plane is not initialized (spike mode) — the local project RPCs require ' +
+          '[Service.init] (the discovered plane state); ping stays available',
       )
     }
     return stub

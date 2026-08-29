@@ -257,8 +257,8 @@ describe('V2-T3.1 descriptor mirror consistency — the 9 plane descriptors', ()
     }
   })
 
-  it('V2-T3.2b + UI-0.4: the REGISTERED face is the frozen 14 + all 9 plane RPCs + the 4 GUI management RPCs (the 6 change-family RPCs registered with their @Remote bodies)', () => {
-    expect(REGISTERED_RESEARCH_INVOCATIONS).toHaveLength(27)
+  it('V2-T3.2b + UI-0.4 + UI-2: the REGISTERED face is the frozen 14 + all 9 plane RPCs + the 10 GUI management RPCs (the 6 change-family RPCs registered with their @Remote bodies)', () => {
+    expect(REGISTERED_RESEARCH_INVOCATIONS).toHaveLength(33)
     expect(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,

@@ -100,10 +100,14 @@ import type {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  CreateLocalResearchProjectArgs,
+  CreateLocalResearchProjectResult,
   GetPortfolioInterventionsArgs,
   GetPortfolioInterventionsResult,
   GetResearchPlaneStateResult,
   HubOverviewResult,
+  InspectProjectDirectoryArgs,
+  InspectProjectDirectoryResult,
   PlaneSessionDto,
   PortfolioInterventionItemDto,
   RescanArgs,
@@ -205,6 +209,22 @@ export interface ResearchShellProps {
    * renders). Rejects on any failure (the card shows the error and stays).
    */
   readonly bindProject: (args: BindProjectArgs) => Promise<BindProjectResult>
+  /**
+   * V2-UI-0.4 UI-2 — the injected 绑定已有目录 (Bind) inspect face
+   * (UI-2B, plane-level). OPTIONAL: omitted → the OnboardingCard does not
+   * offer the Bind journey (the T4.2 card stays as-is — tests + legacy
+   * mounts). Resolves the wire result; rejects on any failure (the
+   * journey's error line responds — NOTE-4 carrier match).
+   */
+  readonly inspectProjectDirectory?: (args: InspectProjectDirectoryArgs) => Promise<InspectProjectDirectoryResult>
+  /**
+   * V2-UI-0.4 UI-2 — the injected 新建研究项目 (Create) initialize face
+   * (UI-2B, plane-level). Same OPTIONAL contract as the inspect face.
+   * Resolves the strict result union (success arm / the ok:false
+   * three-stage failure arm — the step failure RESOLVES, it does not
+   * reject); pre-check faults REJECT (the NOTE-4 carrier in the message).
+   */
+  readonly createLocalResearchProject?: (args: CreateLocalResearchProjectArgs) => Promise<CreateLocalResearchProjectResult>
   /**
    * The injected 恢复 mutation (design §4 MISSING 处置 → `rescan`, §12 row
    * 8). The MISSING modal's 恢复 action re-runs discovery & reconciliation
@@ -671,12 +691,26 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           dirNames={plane.dirNames}
           setHub={props.setHub}
           bindProject={props.bindProject}
+          inspectProjectDirectory={props.inspectProjectDirectory}
+          createLocalResearchProject={props.createLocalResearchProject}
           onApplied={refresh}
         />
       )
       break
     case 'NO_CWD':
-      branch = <OnboardingCard narrowed wsPath={null} hub={plane.hub} dirNames={plane.dirNames} setHub={props.setHub} bindProject={props.bindProject} onApplied={refresh} />
+      branch = (
+        <OnboardingCard
+          narrowed
+          wsPath={null}
+          hub={plane.hub}
+          dirNames={plane.dirNames}
+          setHub={props.setHub}
+          bindProject={props.bindProject}
+          inspectProjectDirectory={props.inspectProjectDirectory}
+          createLocalResearchProject={props.createLocalResearchProject}
+          onApplied={refresh}
+        />
+      )
       break
     default: {
       // Exhaustive pin: the §5 role union is closed — a new role without a

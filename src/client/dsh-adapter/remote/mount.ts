@@ -35,9 +35,13 @@ import type {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  CreateLocalResearchProjectArgs,
+  CreateLocalResearchProjectResult,
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
+  DropWorkstreamArgs,
+  DropWorkstreamResult,
   GetCurrentFocusArgs,
   GetCurrentFocusResult,
   GetGitHistoryArgs,
@@ -50,6 +54,8 @@ import type {
   GetTopicArgs,
   GetWorkstreamArgs,
   HubOverviewResult,
+  InspectProjectDirectoryArgs,
+  InspectProjectDirectoryResult,
   PingResult,
   ProjectSnapshot,
   QueryHistoryArgs,
@@ -77,6 +83,12 @@ import type {
   UnbindProjectResult,
   UpdateInterventionStateArgs,
   UpdateInterventionStateResult,
+  UpdateProjectMetadataArgs,
+  UpdateProjectMetadataResult,
+  UpdateTopicArgs,
+  UpdateTopicResult,
+  UpdateWorkstreamArgs,
+  UpdateWorkstreamResult,
   WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
 import { researchRemotes } from './contribution.js'
@@ -265,5 +277,33 @@ export const researchRpc = {
   },
   async getCurrentFocus(args: GetCurrentFocusArgs): Promise<RemoteResult<GetCurrentFocusResult>> {
     return requireNamespace().getCurrentFocus(args)
+  },
+  // V2-UI-0.4 UI-2: the 6 GUI management RPCs — the 4 hierarchy
+  // update/drop faces (UI-2A, project-routed on the host) + the 2
+  // local-project faces (UI-2B, plane-level on the host). Thin bodies:
+  // the gateway folds host faults into RemoteResult.error.
+  async updateProjectMetadata(
+    args: UpdateProjectMetadataArgs,
+  ): Promise<RemoteResult<UpdateProjectMetadataResult>> {
+    return requireNamespace().updateProjectMetadata(args)
+  },
+  async updateTopic(args: UpdateTopicArgs): Promise<RemoteResult<UpdateTopicResult>> {
+    return requireNamespace().updateTopic(args)
+  },
+  async updateWorkstream(args: UpdateWorkstreamArgs): Promise<RemoteResult<UpdateWorkstreamResult>> {
+    return requireNamespace().updateWorkstream(args)
+  },
+  async dropWorkstream(args: DropWorkstreamArgs): Promise<RemoteResult<DropWorkstreamResult>> {
+    return requireNamespace().dropWorkstream(args)
+  },
+  async inspectProjectDirectory(
+    args: InspectProjectDirectoryArgs,
+  ): Promise<RemoteResult<InspectProjectDirectoryResult>> {
+    return requireNamespace().inspectProjectDirectory(args)
+  },
+  async createLocalResearchProject(
+    args: CreateLocalResearchProjectArgs,
+  ): Promise<RemoteResult<CreateLocalResearchProjectResult>> {
+    return requireNamespace().createLocalResearchProject(args)
   },
 }

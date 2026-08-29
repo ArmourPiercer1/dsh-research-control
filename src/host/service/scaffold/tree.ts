@@ -58,7 +58,7 @@
  * for arbitrary display names).
  */
 
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { stringify } from 'yaml'
 
@@ -287,13 +287,20 @@ export function scaffoldResearchTree(input: ScaffoldTreeInput): ScaffoldTreeResu
   }
 
   // ── the clobber guard (idempotent rejection — the tree location is taken) ──
+  // An EMPTY directory is scaffoldable: the create chain's own mkdir step
+  // (D §8.5 step order) leaves the bare tree dir behind before this step
+  // runs. A location WITH content — a populated directory or a plain file —
+  // is an existing tree location → refuse.
   const treePath = join(input.wsPath, input.treeDir)
   if (existsSync(treePath)) {
-    throw new ScaffoldError(
-      'SCAFFOLD_TREE_EXISTS',
-      `a research tree already exists at ${treePath} — the scaffold never clobbers an ` +
-        'existing tree (use the existing tree instead)',
-    )
+    const occupied = statSync(treePath).isDirectory() ? readdirSync(treePath).length > 0 : true
+    if (occupied) {
+      throw new ScaffoldError(
+        'SCAFFOLD_TREE_EXISTS',
+        `a research tree already exists at ${treePath} — the scaffold never clobbers an ` +
+          'existing tree (use the existing tree instead)',
+      )
+    }
   }
 
   // ── the project id (explicit + validated, or allocated) ──

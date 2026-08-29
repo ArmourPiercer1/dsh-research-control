@@ -60,7 +60,10 @@
  */
 
 import type {
+  CreateLocalResearchProjectResult,
   DismissPlanForkResult,
+  DropWorkstreamResult,
+  InspectProjectDirectoryResult,
   RegisterInteractionResult,
   ReorderPlanResult,
   RestoreDeclarativeFileResult,
@@ -68,6 +71,9 @@ import type {
   SetCurrentFocusResult,
   SelectPlanForkResult,
   UpdateInterventionStateResult,
+  UpdateProjectMetadataResult,
+  UpdateTopicResult,
+  UpdateWorkstreamResult,
 } from '../../shared/rpc-contracts.js'
 import {
   type ResearchStoreState,
@@ -76,9 +82,12 @@ import {
 } from './model.js'
 
 /**
- * The eight client-side mutations: the seven of the frozen 13-RPC list
- * plus `setCurrentFocus` (UI-0.4, R-01 — the GUI management face;
- * `getCurrentFocus` is a query, not a mutation).
+ * The fourteen client-side mutations: the eight of the frozen 13-RPC
+ * list (the seven WP-4.1b mutations + `setCurrentFocus`, UI-0.4 R-01 —
+ * `getCurrentFocus` is a query, not a mutation) plus the six V2-UI-0.4
+ * UI-2 GUI management faces (the 4 hierarchy update/drop RPCs, UI-2A,
+ * and the 2 local-project RPCs, UI-2B — `inspectProjectDirectory` is a
+ * query surfaced for uniformity; its rule invalidates nothing).
  */
 export type MutationId =
   | 'reorderPlan'
@@ -89,6 +98,12 @@ export type MutationId =
   | 'saveResearchCheckpoint'
   | 'restoreDeclarativeFile'
   | 'setCurrentFocus'
+  | 'updateProjectMetadata'
+  | 'updateTopic'
+  | 'updateWorkstream'
+  | 'dropWorkstream'
+  | 'createLocalResearchProject'
+  | 'inspectProjectDirectory'
 
 export const MUTATION_IDS: readonly MutationId[] = [
   'reorderPlan',
@@ -99,6 +114,12 @@ export const MUTATION_IDS: readonly MutationId[] = [
   'saveResearchCheckpoint',
   'restoreDeclarativeFile',
   'setCurrentFocus',
+  'updateProjectMetadata',
+  'updateTopic',
+  'updateWorkstream',
+  'dropWorkstream',
+  'createLocalResearchProject',
+  'inspectProjectDirectory',
 ]
 
 /** One registry rule: pure (result, state) -> affected global slice keys. */
@@ -120,6 +141,12 @@ export const INVALIDATE_REGISTRY: {
   readonly saveResearchCheckpoint: InvalidationRule<SaveResearchCheckpointResult>
   readonly restoreDeclarativeFile: InvalidationRule<RestoreDeclarativeFileResult>
   readonly setCurrentFocus: InvalidationRule<SetCurrentFocusResult>
+  readonly updateProjectMetadata: InvalidationRule<UpdateProjectMetadataResult>
+  readonly updateTopic: InvalidationRule<UpdateTopicResult>
+  readonly updateWorkstream: InvalidationRule<UpdateWorkstreamResult>
+  readonly dropWorkstream: InvalidationRule<DropWorkstreamResult>
+  readonly createLocalResearchProject: InvalidationRule<CreateLocalResearchProjectResult>
+  readonly inspectProjectDirectory: InvalidationRule<InspectProjectDirectoryResult>
 } = {
   reorderPlan: (result, _state) => [sliceKey('workstreams', result.workstreamId)],
 
@@ -159,6 +186,43 @@ export const INVALIDATE_REGISTRY: {
   // updateInterventionState / registerInteraction): it refetches exactly the
   // caller's CF slice, which the store skips when it is still idle.
   setCurrentFocus: (result, _state) => [sliceKey('currentFocus', result.workstreamId)],
+
+  // V2-UI-0.4 UI-2 (UI-2A): the four hierarchy update/drop mutations.
+  // updateProjectMetadata: the RMW merge rewrote project.yaml — the
+  // `project` slice (brief + metadata) is the affected cache.
+  updateProjectMetadata: (_result, _state) => ['project'],
+
+  // updateTopic: only the topic's own DTO changes (the project page's
+  // topic cards re-render from the project slice on its next load; the
+  // topic page slice is the one that must refresh NOW).
+  updateTopic: (result, _state) => [sliceKey('topics', result.topicId)],
+
+  // updateWorkstream: title/summary live in the workstream DTO only.
+  updateWorkstream: (result, _state) => [sliceKey('workstreams', result.workstreamId)],
+
+  // dropWorkstream: the ws slice goes away (its next load will fault —
+  // the view handles the gone entity), the owning topic's card list
+  // changes, and the dashboard's aggregates change. The result carries
+  // the topicId (no cache lookup needed, unlike select/dismiss).
+  dropWorkstream: (result, _state) => [
+    sliceKey('workstreams', result.workstreamId),
+    sliceKey('topics', result.topicId),
+    'dashboard',
+  ],
+
+  // V2-UI-0.4 UI-2 (UI-2B): the two local-project faces.
+  // createLocalResearchProject: on the SUCCESS arm the plane's
+  // registration set changed — the dashboard (project aggregates) is
+  // the only store slice it feeds. The FAILURE arm left a partial
+  // change but no registration — nothing in the store reflects it
+  // (the wizard renders the note; the plane-state re-fetch is the
+  // shell's job, outside this store).
+  createLocalResearchProject: (result, _state) => (result.ok ? ['dashboard'] : []),
+
+  // inspectProjectDirectory: a pure query (reads, never writes) — no
+  // cache can be stale because of it. The rule exists so the store
+  // face is uniform (every mutation id has a rule).
+  inspectProjectDirectory: (_result, _state) => [],
 }
 
 /**

@@ -7646,7 +7646,7 @@ function unavailable$2(schemaDir, errors) {
 * 有明确必填语义, 这里没有）。
 */
 const INTERVENTION_TABLE = "intervention";
-const DDL$3 = `
+const DDL$4 = `
 CREATE TABLE IF NOT EXISTS ${INTERVENTION_TABLE} (
   id              TEXT    NOT NULL PRIMARY KEY,
   title           TEXT    NOT NULL,
@@ -7688,7 +7688,7 @@ CREATE TRIGGER IF NOT EXISTS intervention_no_content_update
 `;
 /** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
 function interventionDdl() {
-	return DDL$3;
+	return DDL$4;
 }
 const SQL_INSERT_INTERVENTION = `
 INSERT INTO ${INTERVENTION_TABLE} (id, title, detail, origin, workstream_ids, source_refs, status, created_by, created_at, closed_at, resolution_note)
@@ -8321,7 +8321,7 @@ function assertActorShape(actor, context) {
 //#region src/host/service/actions/schema.ts
 const NEXT_ACTION_TABLE = "next_action";
 const BLOCKER_TABLE = "blocker";
-const DDL$2 = `
+const DDL$3 = `
 CREATE TABLE IF NOT EXISTS ${NEXT_ACTION_TABLE} (
   id                  TEXT    NOT NULL PRIMARY KEY,
   workstream_id       TEXT,                         -- 可选（§9.3 ❌）
@@ -8431,7 +8431,7 @@ CREATE TRIGGER IF NOT EXISTS blocker_cleared_at_immutable
 `;
 /** Full DDL (idempotent — re-applied on every store open, 同 WP-3.1 先例). */
 function actionsDdl() {
-	return DDL$2;
+	return DDL$3;
 }
 const SQL_INSERT_NEXT_ACTION = `
 INSERT INTO ${NEXT_ACTION_TABLE} (id, workstream_id, statement, rationale, status, promoted_to_task_id, created_by, created_at)
@@ -11152,6 +11152,326 @@ function assertTypedRefArray(refs, what) {
 		});
 	}
 }
+//#endregion
+//#region src/host/service/current-focus/types.ts
+var CurrentFocusError = class extends Error {
+	code;
+	constructor(init) {
+		super(init.message, init.cause === void 0 ? void 0 : { cause: init.cause });
+		this.name = "CurrentFocusError";
+		this.code = init.code;
+	}
+};
+function isCurrentFocusError(error) {
+	return error instanceof CurrentFocusError;
+}
+//#endregion
+//#region src/host/service/current-focus/schema.ts
+/**
+* UI0 (R-01) — `current_focus` 表: DDL + 行↔记录映射 + SQL（纯数据, 零 I/O）。
+*
+* 表（冻结语义, 逐字 — 三列, 无第四列）:
+*   - `current_focus` — PK `workstream_id`（Workstream 级单值指针; 每个
+*     Workstream 至多一行 — 单值约束由 PK 钉死）; `plan_item_id` = 该
+*     Workstream **当前 canonical Plan** 中的一个 Task/Gate/Milestone
+*     item id（成员校验在 service 边界 — 本表不 join、不 CHECK 第二
+*     真源）; `updated_at` = epoch ms（A-3 时间边界）。
+*
+* **不建第二套 truth**: 标题 / item kind / project id / execution state /
+* validation state / user note / revision history 一律**不入表** — 它们
+* 各有自己的真源（plan.yaml + 声明式定义文件 / Run / validation 模块 /
+* 用户注记面）, 读取时从真源取。本表只存指针三列。
+*
+* DatabaseSync 封装模式（同 WP-3.1 planfork / WP-3.5 intervention /
+* WP-5.2 actions 先例）:
+*   1. DB 文件 open/初始化归 WP-2.1 `openDatabase`（wiring 装配 — 后续
+*      集成任务; 本任务不接 wiring）;
+*   2. 本模块 DDL 在连接上以幂等 `IF NOT EXISTS` 应用
+*     （`CurrentFocusStore` 构造时经注入 `PlanForkDb.exec` — 驱动是
+*      注入的 I/O, 零 sqlite import, ARCHITECTURE §2.2）;
+*   3. 多连接 WAL 共存, 写经文件锁串行化（busy_timeout 同 store 默认）。
+*
+* 行形状（唯一映射）= `CurrentFocusRecord`（types.ts）: 列名 snake_case
+* ↔ 记录键 camelCase, 逐列校验（corrupt 行 ⇒ CF_STORE — 不猜、不修）。
+*
+* 写入面: 只有 UPSERT（set = 不存在则创建 / 已存在则覆盖）+ DELETE
+* （clear = 用户显式清除 / revalidate 发现目标被移出 canonical Plan
+* 时的自动清除）。无状态机、无事件、无触发器 — 指针是 operational
+* 偏好缓存, 不是 identity 行（§15 通则 / INV-HIST-7 的 no-delete 约束
+* 不适用: 清除是产品语义本身）。
+*/
+const CURRENT_FOCUS_TABLE = "current_focus";
+const DDL$2 = `
+CREATE TABLE IF NOT EXISTS ${CURRENT_FOCUS_TABLE} (
+  workstream_id TEXT PRIMARY KEY,
+  plan_item_id  TEXT NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+`;
+/** Full DDL (idempotent — re-applied on every store open, 同 planfork /
+*  flooding / actions 先例). */
+function currentFocusDdl() {
+	return DDL$2;
+}
+/** Get — 按 workstream_id 查单行（PK 查找; 无行 ⇒ undefined）。 */
+const SQL_GET_CURRENT_FOCUS = `
+SELECT workstream_id, plan_item_id, updated_at
+FROM ${CURRENT_FOCUS_TABLE}
+WHERE workstream_id = ?
+`;
+/**
+* Set / Replace — UPSERT: 不存在则创建, 已存在则覆盖为新目标
+* （`ON CONFLICT(workstream_id) DO UPDATE` — 同 WP-2.9 attention
+* upsert 先例; 单语句原子, PK 冲突即覆盖, 无中间态）。
+*/
+const SQL_UPSERT_CURRENT_FOCUS = `
+INSERT INTO ${CURRENT_FOCUS_TABLE} (workstream_id, plan_item_id, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT(workstream_id) DO UPDATE SET
+  plan_item_id = excluded.plan_item_id,
+  updated_at   = excluded.updated_at
+`;
+/** Clear — 按 workstream_id 删除（返回受影响行数: 1 = 删了, 0 = 无行）。 */
+const SQL_DELETE_CURRENT_FOCUS = `
+DELETE FROM ${CURRENT_FOCUS_TABLE}
+WHERE workstream_id = ?
+`;
+/**
+* Map one `current_focus` row to a `CurrentFocusRecord` (column order =
+* DDL). A corrupt row (non-string id / non-integer stamp) is a hard
+* CF_STORE failure — the row is user data the module wrote itself;
+* nothing here repairs it.
+*/
+function rowToCurrentFocus(row) {
+	const workstreamId = row.workstream_id;
+	if (typeof workstreamId !== "string" || workstreamId.length === 0) throw new CurrentFocusError({
+		code: "CF_STORE",
+		message: `current_focus.workstream_id: expected a non-empty string (got ${JSON.stringify(workstreamId)})`
+	});
+	const planItemId = row.plan_item_id;
+	if (typeof planItemId !== "string" || planItemId.length === 0) throw new CurrentFocusError({
+		code: "CF_STORE",
+		message: `current_focus.plan_item_id: expected a non-empty string (got ${JSON.stringify(planItemId)})`
+	});
+	const updatedAt = row.updated_at;
+	if (typeof updatedAt !== "number" || !Number.isInteger(updatedAt)) throw new CurrentFocusError({
+		code: "CF_STORE",
+		message: `current_focus.updated_at: expected an integer epoch-ms stamp (got ${JSON.stringify(updatedAt)})`
+	});
+	return {
+		workstreamId,
+		planItemId,
+		updatedAt
+	};
+}
+//#endregion
+//#region src/host/service/current-focus/store.ts
+/**
+* Assert an id-shaped boundary argument（形状面: 非空、非纯空白字符串 —
+* 精确指名失败项; 域 id 模式不在此钉 — 冻结 DDL 无 CHECK, 成员语义归
+* service 的 canonical 校验）。
+*/
+function assertId$1(operation, what, value) {
+	if (typeof value !== "string" || value.trim().length === 0) throw new CurrentFocusError({
+		code: "CF_INPUT",
+		message: `${operation}: ${what} must be a non-empty string (got ${JSON.stringify(value)})`
+	});
+}
+var CurrentFocusStore = class {
+	#db;
+	#now;
+	constructor(options) {
+		if (options.db === void 0 || typeof options.db.exec !== "function" || typeof options.db.run !== "function") throw new CurrentFocusError({
+			code: "CF_INPUT",
+			message: "db: the injected operational-DB face (exec/run/get/all/transaction) is required"
+		});
+		this.#db = options.db;
+		this.#now = options.now ?? Date.now;
+		this.#db.exec(currentFocusDdl());
+	}
+	/**
+	* Get the workstream's pointer. Returns `undefined` when the
+	* workstream has no pointer — including the case where the
+	* operational DB itself is lost / empty (a Current Focus is a
+	* preference cache, not a source of truth: the degradation IS the
+	* semantics, no error, no re-derivation).
+	*/
+	get(workstreamId) {
+		assertId$1("get", "workstreamId", workstreamId);
+		try {
+			const row = this.#db.get(SQL_GET_CURRENT_FOCUS, workstreamId);
+			return row === void 0 ? void 0 : rowToCurrentFocus(row);
+		} catch (cause) {
+			throw this.#wrap("get", cause);
+		}
+	}
+	/**
+	* Set / Replace the workstream's pointer（USER 语义 — 不存在则创建,
+	* 已存在则覆盖为新目标）。`updatedAt` = 注入时钟采样（写时戳）。
+	* Returns the row AS WRITTEN (read back on this connection after the
+	* UPSERT committed).
+	*/
+	set(workstreamId, planItemId) {
+		assertId$1("set", "workstreamId", workstreamId);
+		assertId$1("set", "planItemId", planItemId);
+		const updatedAt = this.#now();
+		try {
+			this.#db.run(SQL_UPSERT_CURRENT_FOCUS, workstreamId, planItemId, updatedAt);
+			const row = this.#db.get(SQL_GET_CURRENT_FOCUS, workstreamId);
+			if (row === void 0) throw new CurrentFocusError({
+				code: "CF_STORE",
+				message: `set: row for workstream ${JSON.stringify(workstreamId)} is missing after UPSERT (concurrent delete?)`
+			});
+			return rowToCurrentFocus(row);
+		} catch (cause) {
+			throw this.#wrap("set", cause);
+		}
+	}
+	/**
+	* Clear the workstream's pointer. Returns whether a row was deleted
+	* (true) or there was none to delete (false — not an error: clearing
+	* an absent pointer is a no-op).
+	*/
+	clear(workstreamId) {
+		assertId$1("clear", "workstreamId", workstreamId);
+		try {
+			return this.#db.run(SQL_DELETE_CURRENT_FOCUS, workstreamId) > 0;
+		} catch (cause) {
+			throw this.#wrap("clear", cause);
+		}
+	}
+	/** 边界结构化错误原样穿透（caller-owned）; 驱动/SQL 失败包 CF_STORE
+	*  （message 穿透 cause 原文 — 上层结构化错误（如 WIRING_CLOSED）的
+	*  WHY + remedy 对用户可见, 不被本层吞掉）. */
+	#wrap(context, cause) {
+		if (isCurrentFocusError(cause)) return cause;
+		return new CurrentFocusError({
+			code: "CF_STORE",
+			message: `${context}: ${cause instanceof Error ? cause.message : String(cause)}`,
+			cause
+		});
+	}
+};
+//#endregion
+//#region src/host/service/current-focus/service.ts
+/**
+* UI0 (R-01) — `CurrentFocusService`: Current Focus 的 USER 业务面
+* （set / clear / get / revalidate — 语义门在此层, 行侧机械动作归 store）。
+*
+* 语义（冻结, 逐条）:
+*   - **Set**（不存在则创建）/ **Replace**（已存在则覆盖为新目标）/
+*     **Clear** / **Get** — USER 语义命名（Agent 可读不可写: 本任务无
+*     读 RPC、无 agent 面; 不出现 `agent_xxx` 命名, 也不暴露任何写
+*     路径给 agent — 无 tool、无 RPC）;
+*   - **canonical 成员门**（`set`）: 目标必须属于该 Workstream 的当前
+*     canonical Plan（经注入的 `canonicalPlanItemIds` provider 读取 —
+*     本任务通过注入接口与 `loadPlan()` 解耦, 不直读 .research/**、不拼
+*     Git 命令）; 不在 ⇒ 结构化拒绝 `CF_NOT_CANONICAL`（message 含
+*     workstreamId + planItemId + 「not in the canonical plan」）, 不
+*     静默; **provider 抛错原样透传**（不包装成 CF_* — provider 是
+*     plan 侧的既有真源, 它的错误语义由它自己拥有）;
+*   - **Plan mutation 后的再校验**（`revalidate`）: 无记录 ⇒ `absent`;
+*     目标仍在 canonical ⇒ `retained`（**不重写行** — updatedAt 不变）;
+*     目标已被移出 ⇒ 自动清除 ⇒ `cleared`;
+*   - execution / validation / Run / Blocker / Objective 的任何变化都**不**
+*     自动修改 Current Focus: 本模块没有这些路径, 也**不**为它们留任何
+*     钩子（无 listener、无 event 订阅、无 side-channel 参数）;
+*   - operational DB 丢失 ⇒ get 退化 `undefined`（store 层如实读, 本层
+*     不猜、不重建）。
+*
+* 层纪律（ARCHITECTURE §2.2）: 本文件**无** SQL、**无** fs、**无**
+* Git、**无** HistoryEvent（不产生 / 不追加任何事件行 — Current Focus
+* 的 set/clear 无冻结事件目录条目, 不落事件 = 不虚构）。
+*/
+/** 边界形状面（同 store 的 assertId: 非空、非纯空白字符串）。 */
+function assertId(operation, what, value) {
+	if (typeof value !== "string" || value.trim().length === 0) throw new CurrentFocusError({
+		code: "CF_INPUT",
+		message: `${operation}: ${what} must be a non-empty string (got ${JSON.stringify(value)})`
+	});
+}
+var CurrentFocusService = class {
+	#store;
+	#canonicalPlanItemIds;
+	/** The service's clock floor (sampled once at construction — see the
+	*  options doc; the set-path stamp-coherence guard compares against
+	*  it, so a `set` consumes the shared clock exactly ONCE, at the
+	*  store's stamp). */
+	#nowFloor;
+	constructor(options) {
+		if (options.store === void 0 || typeof options.store.get !== "function" || typeof options.store.set !== "function" || typeof options.store.clear !== "function") throw new CurrentFocusError({
+			code: "CF_INPUT",
+			message: "store: a CurrentFocusStore (get/set/clear face) is required"
+		});
+		if (options.canonicalPlanItemIds === void 0 || typeof options.canonicalPlanItemIds !== "function") throw new CurrentFocusError({
+			code: "CF_INPUT",
+			message: "canonicalPlanItemIds: a (workstreamId) => readonly string[] canonical-plan provider is required"
+		});
+		const now = options.now ?? Date.now;
+		this.#store = options.store;
+		this.#canonicalPlanItemIds = options.canonicalPlanItemIds;
+		this.#nowFloor = now();
+	}
+	/**
+	* Get the workstream's Current Focus（USER 读面）。`undefined` = 无
+	* 指针（含 operational DB 丢失的退化 — 语义即无, 不报错）。
+	*/
+	get(workstreamId) {
+		assertId("get", "workstreamId", workstreamId);
+		return this.#store.get(workstreamId);
+	}
+	/**
+	* Set / Replace the workstream's Current Focus（USER 写面 — 不存在则
+	* 创建, 已存在则覆盖为新目标; 单值 — 覆盖即替换）。
+	*
+	* 门序: 输入形状（CF_INPUT）→ canonical 成员（CF_NOT_CANONICAL, 拒绝
+	* 不落行）→ store 落库。canonical provider 的异常**原样透传**。
+	*/
+	set(workstreamId, planItemId) {
+		assertId("set", "workstreamId", workstreamId);
+		assertId("set", "planItemId", planItemId);
+		if (!this.#canonicalPlanItemIds(workstreamId).includes(planItemId)) throw new CurrentFocusError({
+			code: "CF_NOT_CANONICAL",
+			message: `set: plan item ${JSON.stringify(planItemId)} is not in the canonical plan of workstream ${JSON.stringify(workstreamId)} (a Current Focus target must be a Task/Gate/Milestone of that workstream's current canonical plan)`
+		});
+		const t0 = this.#nowFloor;
+		const record = this.#store.set(workstreamId, planItemId);
+		if (record.updatedAt < t0) throw new CurrentFocusError({
+			code: "CF_STORE",
+			message: `set: store stamp ${record.updatedAt} precedes the service clock floor ${t0} (the store and the service must share one injected clock)`
+		});
+		return record;
+	}
+	/**
+	* Clear the workstream's Current Focus（USER 清除面）。Returns whether
+	* a pointer was cleared (false = there was none — a no-op, not an
+	* error).
+	*/
+	clear(workstreamId) {
+		assertId("clear", "workstreamId", workstreamId);
+		return this.#store.clear(workstreamId);
+	}
+	/**
+	* Reconcile the pointer against the CURRENT canonical Plan after a
+	* Plan mutation（调用时机 = plan mutation 提交后的 wiring 钩子 —
+	* 后续集成任务; 本任务只交付该行为）:
+	*
+	*   - no pointer            ⇒ `{ outcome: 'absent' }`   （无记录可校验）
+	*   - target still canonical⇒ `{ outcome: 'retained' }` （**不重写行**
+	*                                          — updatedAt 原样不动）
+	*   - target evicted        ⇒ auto-clear ⇒ `{ outcome: 'cleared' }`
+	*
+	* canonical provider 的异常原样透传。
+	*/
+	revalidate(workstreamId) {
+		assertId("revalidate", "workstreamId", workstreamId);
+		const record = this.#store.get(workstreamId);
+		if (record === void 0) return { outcome: "absent" };
+		if (this.#canonicalPlanItemIds(workstreamId).includes(record.planItemId)) return { outcome: "retained" };
+		this.#store.clear(workstreamId);
+		return { outcome: "cleared" };
+	}
+};
 //#endregion
 //#region src/host/service/intervention/types.ts
 /**
@@ -22122,6 +22442,11 @@ function createHostWiring(options) {
 			}))
 		});
 		logger?.info("investigator", "the production investigator face is wired (launcher port bound + analysis_record face + all-read transient reader — WP-7.4 / G7 S1)");
+		const currentFocus = new CurrentFocusService({
+			store: new CurrentFocusStore({ db: adaptDatabaseSync(openSecondConnection("current-focus")) }),
+			canonicalPlanItemIds: (wsId) => planProvider.load(wsId).ordered_items,
+			now
+		});
 		const contentHashCapturer = makeContentHashCapturer(researchRoot);
 		const loadPolicy = () => {
 			const result = loadPlanForkPolicy(reader, researchRoot, declarativeDir);
@@ -22225,6 +22550,7 @@ function createHostWiring(options) {
 			analysisTransient,
 			startup,
 			integrity: gate,
+			currentFocus,
 			externalState,
 			createPlanFork: async (params) => {
 				const view = planProvider.load(params.workstreamId);

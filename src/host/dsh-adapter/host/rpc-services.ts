@@ -67,6 +67,8 @@ import {
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
+  type GetCurrentFocusArgs,
+  type GetCurrentFocusResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
   type GetTopicArgs,
@@ -90,6 +92,8 @@ import {
   type SaveResearchCheckpointResult,
   type SelectPlanForkArgs,
   type SelectPlanForkResult,
+  type SetCurrentFocusArgs,
+  type SetCurrentFocusResult,
   type TopologyEdgeDto,
   type TopicCardDto,
   type TopicSnapshot,
@@ -98,6 +102,7 @@ import {
   type WorkstreamCardDto,
   type WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
+import { isCurrentFocusError } from '../../service/current-focus/index.js'
 import {
   adaptDatabaseSync,
   type HostWiring,
@@ -175,6 +180,22 @@ export interface ResearchRpcServices {
   saveResearchCheckpoint(args: SaveResearchCheckpointArgs): Promise<SaveResearchCheckpointResult>
   getGitHistory(args: GetGitHistoryArgs): Promise<GetGitHistoryResult>
   restoreDeclarativeFile(args: RestoreDeclarativeFileArgs): Promise<RestoreDeclarativeFileResult>
+  /**
+   * UI-0.4 (R-01): USER mutation — point the workstream's current-focus
+   * operational pointer at the given canonical Plan member. The
+   * canonical-membership gate runs service-side BEFORE any row write
+   * (CF_NOT_CANONICAL — the frozen DDL stays a plain 3-column table).
+   * The RPC face IS the USER lane (R-01: no actor parameter, the host
+   * gateway bounds who may call it). Returns the canonical record
+   * (id + `updatedAt` version) for client invalidation.
+   */
+  setCurrentFocus(args: SetCurrentFocusArgs): SetCurrentFocusResult
+  /**
+   * UI-0.4 (R-01): read back the workstream's current-focus pointer.
+   * `focus: null` = never set / auto-cleared after the target left the
+   * canonical Plan (the R-01 eviction rule).
+   */
+  getCurrentFocus(args: GetCurrentFocusArgs): GetCurrentFocusResult
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -360,6 +381,70 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       externalState: () => ({ workstreams: options.wiring.externalState().workstreams }),
       now: this.#now,
     })
+  }
+
+  /**
+   * UI-0.4 (R-01): map the service's CF_* error family onto the wire
+   * error carrier. The gateway folds a host error to
+   * `{ ok: false, error: <message> }` — the `[CODE]` prefix in the
+   * message is the machine-matchable carrier (the PLANE_* precedent).
+   * Non-CF errors propagate untouched (the kernel's own messages).
+   */
+  #mapCurrentFocusError(e: unknown): unknown {
+    if (isCurrentFocusError(e)) {
+      return new Error(`[research-control] ${e.code}: ${e.message}`, { cause: e })
+    }
+    return e
+  }
+
+  /**
+   * UI-0.4 (R-01): BEST-EFFORT current-focus revalidation after a
+   * committed Plan mutation (reorderPlan / selectPlanFork). Auto-clears
+   * the pointer when its target has left the canonical Plan. Never
+   * propagates: the mutation contract (plan.yaml + ledger + result
+   * DTO) is already complete, and a cross-domain invalidation failure
+   * must not poison a succeeded mutation (D §6.5) — at worst the
+   * pointer stays stale until the next revalidation, and the log line
+   * below is loud.
+   */
+  #revalidateCurrentFocus(workstreamId: string): void {
+    try {
+      this.#wiring.currentFocus.revalidate(workstreamId)
+    } catch (e) {
+      this.#logger.error('current-focus-revalidate', {
+        workstreamId,
+        message:
+          'current-focus revalidate (best-effort) failed — the plan mutation stands; ' +
+          `the pointer may be stale until the next revalidation: ${e instanceof Error ? e.message : String(e)}`,
+      })
+    }
+  }
+
+  setCurrentFocus(args: SetCurrentFocusArgs): SetCurrentFocusResult {
+    // The service owns the semantics: CF_INPUT shape gate → the
+    // canonical-membership gate (BEFORE any row write) → the UPSERT.
+    // The RPC face IS the USER lane (R-01) — no actor to forward.
+    try {
+      const record = this.#wiring.currentFocus.set(args.workstreamId, args.planItemId)
+      return {
+        workstreamId: record.workstreamId,
+        planItemId: record.planItemId,
+        updatedAt: record.updatedAt,
+      }
+    } catch (e) {
+      throw this.#mapCurrentFocusError(e)
+    }
+  }
+
+  getCurrentFocus(args: GetCurrentFocusArgs): GetCurrentFocusResult {
+    const record = this.#wiring.currentFocus.get(args.workstreamId)
+    return {
+      workstreamId: args.workstreamId,
+      focus:
+        record === undefined
+          ? null
+          : { planItemId: record.planItemId, updatedAt: record.updatedAt },
+    }
   }
 
   /** Close the user-surface connection (idempotent; `ctx.effect`-owned). */
@@ -707,6 +792,14 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
           (cause instanceof Error ? cause.message : String(cause)),
       )
     }
+    // UI-0.4 (R-01): the frozen reorder guard is membership + dedup
+    // only — a STRICT SUBSET of the current items passes it (the kernel
+    // savePlan writes it), so a subset reorder can evict the current-
+    // focus target from the canonical plan. The post-commit revalidate
+    // is the R-01 auto-clear enforcement on that live path (best-effort
+    // — the mutation contract stands; a same-set reorder retains the
+    // pointer without rewriting the row).
+    this.#revalidateCurrentFocus(args.workstreamId)
     return {
       workstreamId: args.workstreamId,
       orderedItemIds: [...args.orderedItemIds],
@@ -721,6 +814,11 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     // with the NEW closure OIDs) → compensation on DB failure. It
     // re-asserts actor.kind === USER (INV-PERM-2).
     const outcome = await this.#select.select(args.planForkId, USER_ACTOR)
+    // UI-0.4 (R-01): a SELECTED fork rewrites plan.yaml with a NEW
+    // closure (items can be added/removed) — the current-focus target
+    // may have left the canonical Plan; revalidate enforces the
+    // auto-clear (best-effort — the selection outcome stands).
+    this.#revalidateCurrentFocus(outcome.workstreamId)
     return {
       planForkId: outcome.pfId,
       workstreamId: outcome.workstreamId,

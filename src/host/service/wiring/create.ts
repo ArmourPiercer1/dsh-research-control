@@ -83,6 +83,10 @@ import {
 } from '../../service/actions/index.js'
 import { ReportingService } from '../../service/reporting/index.js'
 import {
+  CurrentFocusService,
+  CurrentFocusStore,
+} from '../current-focus/index.js'
+import {
   InterventionService,
   InterventionLifecycleStore,
 } from '../../service/intervention/index.js'
@@ -265,6 +269,13 @@ export interface HostWiring {
    * (`integrity.git` — never rejects). See startup-integrity.ts.
    */
   readonly integrity: StartupIntegrityGate
+  /** UI-0.4 (R-01): the Current Focus service — the USER's single-value
+   *  operational pointer per workstream (the 5th second connection over
+   *  research.sqlite). The dsh-adapter's GUI management face
+   *  (setCurrentFocus / getCurrentFocus) resolves through it; the
+   *  canonical membership gate is backed by the live plan provider
+   *  (step 9). Agent read-only; no HistoryEvent coupling (R-01). */
+  readonly currentFocus: CurrentFocusService
   /** The live declarative snapshot (mutated by the realize flip — the
    *  runbinding `externalState` seam reads it per operation). */
   externalState(): RunBindingExternalState
@@ -901,6 +912,24 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     )
 
     // ---------------------------------------------------------------- *
+    // 11f. The Current Focus service (UI-0.4 / R-01 — the USER's
+    //      single-value operational pointer per workstream): the 5th
+    //      second connection over research.sqlite (same WAL file — the
+    //      planfork/intervention/inbox/analysis pattern; disposer
+    //      registered by `openSecondConnection`) + the current_focus
+    //      table (idempotent DDL in the store ctor) + the canonical
+    //      membership provider over the LIVE plan provider (step 9).
+    //      The dsh-adapter exposes it through the GUI management RPC
+    //      face (setCurrentFocus / getCurrentFocus).
+    // ---------------------------------------------------------------- *
+    const cfDb = openSecondConnection('current-focus')
+    const currentFocus = new CurrentFocusService({
+      store: new CurrentFocusStore({ db: adaptDatabaseSync(cfDb) }),
+      canonicalPlanItemIds: (wsId: string) => planProvider.load(wsId).ordered_items,
+      now,
+    })
+
+    // ---------------------------------------------------------------- *
     // 12. The agent tool face (WP-3.3) — deps composed from the LIVE
     //     services. The dsh-adapter registers each definition (DSH_ADAPTER
     //     §10.1); this layer only builds them (no ctx, no DSH).
@@ -1039,6 +1068,7 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       analysisTransient,
       startup,
       integrity: gate,
+      currentFocus,
       externalState,
       createPlanFork: async (params): Promise<PlanForkRecord> => {
         const view = planProvider.load(params.workstreamId)

@@ -802,5 +802,32 @@ interface AckMissingReminderArgs {
 interface AckMissingReminderResult {
   readonly acknowledged: true;
 }
+interface SetCurrentFocusArgs {
+  readonly workstreamId: string;
+  /** The target canonical Plan member id (T/G/M). */
+  readonly planItemId: string;
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it). */
+  readonly projectId?: string;
+}
+interface SetCurrentFocusResult {
+  readonly workstreamId: string;
+  readonly planItemId: string;
+  /** The row write stamp (epoch ms) — the client invalidation version. */
+  readonly updatedAt: number;
+}
+interface GetCurrentFocusArgs {
+  readonly workstreamId: string;
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string;
+}
+interface GetCurrentFocusResult {
+  readonly workstreamId: string;
+  /** `null` = no pointer for this workstream (never set / auto-cleared
+   *  when the target left the canonical Plan). */
+  readonly focus: {
+    readonly planItemId: string;
+    readonly updatedAt: number;
+  } | null;
+}
 //#endregion
-export { RestoreProjectArgs as A, UnbindProjectArgs as B, RegisterInteractionResult as C, RescanResult as D, RescanArgs as E, SelectPlanForkResult as F, UpdateInterventionStateArgs as H, SetHubArgs as I, SetHubResult as L, SaveResearchCheckpointArgs as M, SaveResearchCheckpointResult as N, RestoreDeclarativeFileArgs as O, SelectPlanForkArgs as P, TopicSnapshot as R, RegisterInteractionArgs as S, ReorderPlanResult as T, UpdateInterventionStateResult as U, UnbindProjectResult as V, WorkstreamSnapshot as W, HubOverviewResult as _, DashboardSnapshot as a, QueryHistoryArgs as b, GetGitHistoryArgs as c, GetPortfolioInterventionsArgs as d, GetPortfolioInterventionsResult as f, GetWorkstreamArgs as g, GetTopicArgs as h, BindProjectResult as i, RestoreProjectResult as j, RestoreDeclarativeFileResult as k, GetGitHistoryResult as l, GetResearchPlaneStateResult as m, AckMissingReminderResult as n, DismissPlanForkArgs as o, GetResearchPlaneStateArgs as p, BindProjectArgs as r, DismissPlanForkResult as s, AckMissingReminderArgs as t, GetHubOverviewArgs as u, PingResult as v, ReorderPlanArgs as w, QueryHistoryResult as x, ProjectSnapshot as y, TypertContributionMirror as z };
+export { RestoreDeclarativeFileArgs as A, SetHubArgs as B, QueryHistoryResult as C, ReorderPlanResult as D, ReorderPlanArgs as E, SaveResearchCheckpointResult as F, UnbindProjectResult as G, TopicSnapshot as H, SelectPlanForkArgs as I, WorkstreamSnapshot as J, UpdateInterventionStateArgs as K, SelectPlanForkResult as L, RestoreProjectArgs as M, RestoreProjectResult as N, RescanArgs as O, SaveResearchCheckpointArgs as P, SetCurrentFocusArgs as R, QueryHistoryArgs as S, RegisterInteractionResult as T, TypertContributionMirror as U, SetHubResult as V, UnbindProjectArgs as W, GetTopicArgs as _, DashboardSnapshot as a, PingResult as b, GetCurrentFocusArgs as c, GetGitHistoryResult as d, GetHubOverviewArgs as f, GetResearchPlaneStateResult as g, GetResearchPlaneStateArgs as h, BindProjectResult as i, RestoreDeclarativeFileResult as j, RescanResult as k, GetCurrentFocusResult as l, GetPortfolioInterventionsResult as m, AckMissingReminderResult as n, DismissPlanForkArgs as o, GetPortfolioInterventionsArgs as p, UpdateInterventionStateResult as q, BindProjectArgs as r, DismissPlanForkResult as s, AckMissingReminderArgs as t, GetGitHistoryArgs as u, GetWorkstreamArgs as v, RegisterInteractionArgs as w, ProjectSnapshot as x, HubOverviewResult as y, SetCurrentFocusResult as z };

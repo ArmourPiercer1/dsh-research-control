@@ -34,6 +34,7 @@ import {
   AckMissingReminderArgsSchema,
   AckMissingReminderResultSchema,
   ALL_RESEARCH_INVOCATIONS,
+  RESEARCH_MANAGEMENT_RPC_METHODS,
   REGISTERED_RESEARCH_INVOCATIONS,
   type BindProjectArgs,
   BindProjectArgsSchema,
@@ -256,8 +257,8 @@ describe('V2-T3.1 descriptor mirror consistency — the 9 plane descriptors', ()
     }
   })
 
-  it('V2-T3.2b: the REGISTERED face is the frozen 14 + all 9 plane RPCs (the 6 change-family RPCs registered with their @Remote bodies)', () => {
-    expect(REGISTERED_RESEARCH_INVOCATIONS).toHaveLength(23)
+  it('V2-T3.2b + UI-0.4: the REGISTERED face is the frozen 14 + all 9 plane RPCs + the 2 GUI management RPCs (the 6 change-family RPCs registered with their @Remote bodies)', () => {
+    expect(REGISTERED_RESEARCH_INVOCATIONS).toHaveLength(25)
     expect(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,
@@ -270,6 +271,7 @@ describe('V2-T3.1 descriptor mirror consistency — the 9 plane descriptors', ()
       'restoreProject',
       'rescan',
       'ackMissingReminder',
+      ...RESEARCH_MANAGEMENT_RPC_METHODS,
     ])
     // The 6 change-family plane RPCs ARE registered now: each descriptor
     // pairs with a live @Remote body in the host service (design §12),
@@ -277,6 +279,10 @@ describe('V2-T3.1 descriptor mirror consistency — the 9 plane descriptors', ()
     const registered = new Set(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method))
     for (const name of RESEARCH_PLANE_RPC_METHODS) {
       expect(registered.has(name), `plane method ${name} must be registered`).toBe(true)
+    }
+    // The management face is disjoint from the frozen + plane faces too.
+    for (const name of RESEARCH_MANAGEMENT_RPC_METHODS) {
+      expect(registered.has(name), `management method ${name} must be registered`).toBe(true)
     }
   })
 })

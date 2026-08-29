@@ -1,4 +1,4 @@
-import { A as RestoreProjectArgs, B as UnbindProjectArgs, C as RegisterInteractionResult, D as RescanResult, E as RescanArgs, F as SelectPlanForkResult, H as UpdateInterventionStateArgs, I as SetHubArgs, L as SetHubResult, M as SaveResearchCheckpointArgs, N as SaveResearchCheckpointResult, O as RestoreDeclarativeFileArgs, P as SelectPlanForkArgs, R as TopicSnapshot, S as RegisterInteractionArgs, T as ReorderPlanResult, U as UpdateInterventionStateResult, V as UnbindProjectResult, W as WorkstreamSnapshot, _ as HubOverviewResult, a as DashboardSnapshot, b as QueryHistoryArgs, c as GetGitHistoryArgs, d as GetPortfolioInterventionsArgs, f as GetPortfolioInterventionsResult, g as GetWorkstreamArgs, h as GetTopicArgs, i as BindProjectResult, j as RestoreProjectResult, k as RestoreDeclarativeFileResult, l as GetGitHistoryResult, m as GetResearchPlaneStateResult, n as AckMissingReminderResult, o as DismissPlanForkArgs, p as GetResearchPlaneStateArgs, r as BindProjectArgs, s as DismissPlanForkResult, t as AckMissingReminderArgs, u as GetHubOverviewArgs, v as PingResult, w as ReorderPlanArgs, x as QueryHistoryResult, y as ProjectSnapshot } from "./rpc-contracts-CbDhPjb3.js";
+import { A as RestoreDeclarativeFileArgs, B as SetHubArgs, C as QueryHistoryResult, D as ReorderPlanResult, E as ReorderPlanArgs, F as SaveResearchCheckpointResult, G as UnbindProjectResult, H as TopicSnapshot, I as SelectPlanForkArgs, J as WorkstreamSnapshot, K as UpdateInterventionStateArgs, L as SelectPlanForkResult, M as RestoreProjectArgs, N as RestoreProjectResult, O as RescanArgs, P as SaveResearchCheckpointArgs, R as SetCurrentFocusArgs, S as QueryHistoryArgs, T as RegisterInteractionResult, V as SetHubResult, W as UnbindProjectArgs, _ as GetTopicArgs, a as DashboardSnapshot, b as PingResult, c as GetCurrentFocusArgs, d as GetGitHistoryResult, f as GetHubOverviewArgs, g as GetResearchPlaneStateResult, h as GetResearchPlaneStateArgs, i as BindProjectResult, j as RestoreDeclarativeFileResult, k as RescanResult, l as GetCurrentFocusResult, m as GetPortfolioInterventionsResult, n as AckMissingReminderResult, o as DismissPlanForkArgs, p as GetPortfolioInterventionsArgs, q as UpdateInterventionStateResult, r as BindProjectArgs, s as DismissPlanForkResult, t as AckMissingReminderArgs, u as GetGitHistoryArgs, v as GetWorkstreamArgs, w as RegisterInteractionArgs, x as ProjectSnapshot, y as HubOverviewResult, z as SetCurrentFocusResult } from "./rpc-contracts-CpXnitc5.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import s from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
@@ -36,6 +36,22 @@ interface ResearchRpcServices {
   saveResearchCheckpoint(args: SaveResearchCheckpointArgs): Promise<SaveResearchCheckpointResult>;
   getGitHistory(args: GetGitHistoryArgs): Promise<GetGitHistoryResult>;
   restoreDeclarativeFile(args: RestoreDeclarativeFileArgs): Promise<RestoreDeclarativeFileResult>;
+  /**
+   * UI-0.4 (R-01): USER mutation — point the workstream's current-focus
+   * operational pointer at the given canonical Plan member. The
+   * canonical-membership gate runs service-side BEFORE any row write
+   * (CF_NOT_CANONICAL — the frozen DDL stays a plain 3-column table).
+   * The RPC face IS the USER lane (R-01: no actor parameter, the host
+   * gateway bounds who may call it). Returns the canonical record
+   * (id + `updatedAt` version) for client invalidation.
+   */
+  setCurrentFocus(args: SetCurrentFocusArgs): SetCurrentFocusResult;
+  /**
+   * UI-0.4 (R-01): read back the workstream's current-focus pointer.
+   * `focus: null` = never set / auto-cleared after the target left the
+   * canonical Plan (the R-01 eviction rule).
+   */
+  getCurrentFocus(args: GetCurrentFocusArgs): GetCurrentFocusResult;
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -303,6 +319,8 @@ declare class ResearchControlService extends TypertRemoteService {
   restoreProject(args: unknown): Promise<RestoreProjectResult>;
   rescan(args: unknown): Promise<RescanResult>;
   ackMissingReminder(args: unknown): Promise<AckMissingReminderResult>;
+  setCurrentFocus(args: unknown): Promise<SetCurrentFocusResult>;
+  getCurrentFocus(args: unknown): Promise<GetCurrentFocusResult>;
   /**
    * The plane-mutation port guard (V2-T3.2b — the mutation twin of
    * {@link requirePlaneServices}): a constructor-injected stub (TESTS

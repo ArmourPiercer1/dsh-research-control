@@ -1377,7 +1377,7 @@ function argsParameter(argsSymbol: string, schema: TypertSchemaLike): Invocation
   }
 }
 
-function descriptor(method: ResearchRpcMethod | ResearchPlaneRpcMethod, parameters: readonly InvocationParameterMirror[], resultSymbol: string, resultSchema: TypertSchemaLike): InvocationDescriptorMirror {
+function descriptor(method: ResearchRpcMethod | ResearchPlaneRpcMethod | ResearchManagementRpcMethod, parameters: readonly InvocationParameterMirror[], resultSymbol: string, resultSchema: TypertSchemaLike): InvocationDescriptorMirror {
   return {
     id: `${RESEARCH_CONTROL_NAMESPACE}#${RESEARCH_CONTROL_NAMESPACE}/${method}`,
     service: RESEARCH_CONTROL_NAMESPACE,
@@ -2211,6 +2211,137 @@ export const ackMissingReminderInvocation: InvocationDescriptorMirror = descript
   AckMissingReminderResultSchema,
 )
 
+/* ===================================================================== *
+ * V2-UI-0.4 — GUI management face（增量 management RPC surface, D §7.2）
+ *
+ * The first slice of the incremental GUI management face (「不要一次性
+ * 设计所有 RPC」— D §6.5): Current Focus (R-01 — the user-owned,
+ * workstream-scoped, single-value operational pointer).
+ *
+ * D §6.5 conventions (frozen for every later management RPC):
+ *  - explicit `projectId` on every request (multi-project plane — no
+ *    implicit wiring; §12.1 resolution via the host's `requireRpc`);
+ *  - workstream-scoped mutations carry `workstreamId`;
+ *  - the USER mutation actor is established by the host (the RPC face
+ *    IS the USER lane — the service exposes no agent-facing surface);
+ *  - structured error codes in the message (the gateway folds a host
+ *    error to `{ ok: false, error: <message> }` — the `[CODE]` prefix
+ *    is the machine-matchable wire carrier, the PLANE_* precedent);
+ *  - a mutation returns the canonical record (id + version) for client
+ *    invalidation;
+ *  - the client never submits raw YAML (Merge Contract excepted — a
+ *    later slice).
+ * ===================================================================== */
+
+/** The GUI management RPC method names (order preserved; purely
+ *  additive — the frozen 13 / frozen 14 / plane 9 lists stay
+ *  byte-identical). */
+export const RESEARCH_MANAGEMENT_RPC_METHODS = [
+  'setCurrentFocus',
+  'getCurrentFocus',
+] as const
+
+export type ResearchManagementRpcMethod = (typeof RESEARCH_MANAGEMENT_RPC_METHODS)[number]
+
+/* -------------------------------------------------------------------- *
+ * setCurrentFocus — USER mutation (the R-01 operational pointer)
+ * -------------------------------------------------------------------- */
+
+export interface SetCurrentFocusArgs {
+  readonly workstreamId: string
+  /** The target canonical Plan member id (T/G/M). */
+  readonly planItemId: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it). */
+  readonly projectId?: string
+}
+
+export const SetCurrentFocusArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    /** Canonical Plan member ids have no dedicated frozen id pattern —
+     *  the same bare-string convention as `reorderPlan`'s
+     *  `orderedItemIds`; membership is validated service-side
+     *  (CF_NOT_CANONICAL), never by a wire regex. */
+    planItemId: z.string().min(1),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface SetCurrentFocusResult {
+  readonly workstreamId: string
+  readonly planItemId: string
+  /** The row write stamp (epoch ms) — the client invalidation version. */
+  readonly updatedAt: number
+}
+
+export const SetCurrentFocusResultSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    planItemId: z.string().min(1),
+    updatedAt: epochMs,
+  })
+  .strict()
+
+export const setCurrentFocusInvocation: InvocationDescriptorMirror = descriptor(
+  'setCurrentFocus',
+  [argsParameter('SetCurrentFocusArgs', SetCurrentFocusArgsSchema)],
+  'SetCurrentFocusResult',
+  SetCurrentFocusResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * getCurrentFocus — the refetch read face (D §7.5 e2e chain's
+ * 「refetch」 step; the frozen `WorkstreamSnapshot` cannot gain the
+ * field, so the pointer reads through its own RPC)
+ * -------------------------------------------------------------------- */
+
+export interface GetCurrentFocusArgs {
+  readonly workstreamId: string
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string
+}
+
+export const GetCurrentFocusArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface GetCurrentFocusResult {
+  readonly workstreamId: string
+  /** `null` = no pointer for this workstream (never set / auto-cleared
+   *  when the target left the canonical Plan). */
+  readonly focus: { readonly planItemId: string; readonly updatedAt: number } | null
+}
+
+export const GetCurrentFocusResultSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    focus: z
+      .object({
+        planItemId: z.string().min(1),
+        updatedAt: epochMs,
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict()
+
+export const getCurrentFocusInvocation: InvocationDescriptorMirror = descriptor(
+  'getCurrentFocus',
+  [argsParameter('GetCurrentFocusArgs', GetCurrentFocusArgsSchema)],
+  'GetCurrentFocusResult',
+  GetCurrentFocusResultSchema,
+)
+
+/** The GUI management invocation descriptors (appended to the registered
+ *  face at the end — the frozen 14 + plane 9 entries stay untouched). */
+export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
+  setCurrentFocusInvocation,
+  getCurrentFocusInvocation,
+]
+
 /**
  * The 9 V2 plane invocation descriptors (order = the design §12 table).
  * CONTRACT-ONLY in T3.1: both artifact faces gain these together with
@@ -2247,6 +2378,11 @@ export const RESEARCH_PLANE_INVOCATIONS: readonly InvocationDescriptorMirror[] =
  * ping) — the descriptors above land in this face with their @Remote
  * bodies (registering a descriptor without its method would break the
  * gateway dispatch).
+ *
+ * UI-0.4 appends the 2 GUI management RPCs ({@link
+ * RESEARCH_MANAGEMENT_INVOCATIONS}: setCurrentFocus / getCurrentFocus)
+ * — the incremental management face grows by slice (D §6.5); the
+ * registered face is now 24 business RPCs (25 with ping).
  */
 export const REGISTERED_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
   ...ALL_RESEARCH_INVOCATIONS,
@@ -2259,4 +2395,5 @@ export const REGISTERED_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirro
   restoreProjectInvocation,
   rescanInvocation,
   ackMissingReminderInvocation,
+  ...RESEARCH_MANAGEMENT_INVOCATIONS,
 ]

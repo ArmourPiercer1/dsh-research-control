@@ -137,6 +137,75 @@ export async function nodePing(
 }
 
 /**
+ * Node-side (non-browser) unary roundtrip against the live typert gateway
+ * for one claimed `researchControl/<method>` endpoint. Wire contract (host
+ * api/gateway + apiproxy, verified on the wire; the t61 `rescan` precedent):
+ * POST /api/researchControl/<method>, body = client-request envelope whose
+ * payload is `{args: {args: <args>}}` — the gateway unwraps the OUTER
+ * `payload.args` as the args object and matches its FIELDS against the
+ * descriptor's parameter names; every V2 face method's single parameter is
+ * NAMED `args` (itself the plain-object DTO), hence the double nesting
+ * (ping takes no parameters and stays the flat `{args: {}}` in nodePing).
+ *
+ * Response: server-response envelope with result `{ok:true, value}` (value =
+ * the method's result DTO) or, when the host method throws, the folded
+ * `{ok:false, error:{code:'internal', message}}` — the message carries the
+ * structured `[CODE]` prefix, the machine-matchable error carrier (design
+ * D §6.5: the gateway folds host errors to the message).
+ */
+export interface NodeRpcOutcome {
+  status: number
+  ok: boolean
+  /** Present when ok (the method's result DTO). */
+  value?: Record<string, unknown>
+  /** Present when !ok (the folded transport error; message carries [CODE]). */
+  error?: { code: string; message: string }
+  /** Raw body text when the response was not the JSON envelope (e.g. 404
+   *  with the plugin unloaded). */
+  raw?: string
+}
+
+export async function nodeRpc(
+  baseURL: string,
+  method: string,
+  args: Record<string, unknown> = {},
+  rpcId = 'e2e-node',
+): Promise<NodeRpcOutcome> {
+  const res = await fetch(new URL(`/api/researchControl/${method}`, baseURL), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request',
+      rpcId,
+      method: `researchControl/${method}`,
+      payload: { args: { args } },
+    }),
+  })
+  const text = await res.text()
+  let body: Record<string, unknown>
+  try {
+    body = JSON.parse(text) as Record<string, unknown>
+  } catch {
+    return { status: res.status, ok: false, raw: text }
+  }
+  const result = (body.result ?? {}) as {
+    ok?: boolean
+    value?: Record<string, unknown>
+    error?: { code: string; message: string }
+  }
+  if (result.ok === true) {
+    return { status: res.status, ok: true, value: result.value ?? {} }
+  }
+  return {
+    status: res.status,
+    ok: false,
+    error: result.error
+      ? { code: result.error.code, message: result.error.message }
+      : { code: 'unknown', message: text },
+  }
+}
+
+/**
  * Browser-context ping roundtrip (U2: the client half issues the call itself,
  * no custom /api proxy endpoint — the gateway intercept is the only path).
  * Runs the identical envelope inside the page origin.

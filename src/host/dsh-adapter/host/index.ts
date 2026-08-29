@@ -159,6 +159,7 @@ import {
   BindProjectArgsSchema,
   DismissPlanForkArgsSchema,
   GetGitHistoryArgsSchema,
+  GetCurrentFocusArgsSchema,
   GetHubOverviewArgsSchema,
   GetPortfolioInterventionsArgsSchema,
   GetResearchPlaneStateArgsSchema,
@@ -171,6 +172,7 @@ import {
   RestoreProjectArgsSchema,
   SaveResearchCheckpointArgsSchema,
   SelectPlanForkArgsSchema,
+  SetCurrentFocusArgsSchema,
   SetHubArgsSchema,
   UnbindProjectArgsSchema,
   UpdateInterventionStateArgsSchema,
@@ -184,6 +186,8 @@ import {
   type DismissPlanForkResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
+  type GetCurrentFocusArgs,
+  type GetCurrentFocusResult,
   type GetHubOverviewArgs,
   type GetPortfolioInterventionsArgs,
   type GetPortfolioInterventionsResult,
@@ -210,6 +214,8 @@ import {
   type SaveResearchCheckpointResult,
   type SelectPlanForkArgs,
   type SelectPlanForkResult,
+  type SetCurrentFocusArgs,
+  type SetCurrentFocusResult,
   type SetHubArgs,
   type SetHubResult,
   type TopicSnapshot,
@@ -976,6 +982,25 @@ export class ResearchControlService extends TypertRemoteService {
     return await this.requirePlaneMutationServices().ackMissingReminder(
       AckMissingReminderArgsSchema.parse(args) satisfies AckMissingReminderArgs,
     )
+  }
+
+  /* ------------------------------------------------------------------ *
+   * UI-0.4 — the GUI management face (D §7.2, incremental — the first
+   * slice: Current Focus, R-01). Same decode-first + requireRpc routing
+   * as the frozen 13; the USER lane is the RPC face itself (R-01: no
+   * actor parameter).
+   * ------------------------------------------------------------------ */
+
+  @Remote('setCurrentFocus')
+  async setCurrentFocus(args: unknown): Promise<SetCurrentFocusResult> {
+    const decoded = SetCurrentFocusArgsSchema.parse(args) satisfies SetCurrentFocusArgs
+    return this.requireRpc(decoded.projectId).setCurrentFocus(decoded)
+  }
+
+  @Remote('getCurrentFocus')
+  async getCurrentFocus(args: unknown): Promise<GetCurrentFocusResult> {
+    const decoded = GetCurrentFocusArgsSchema.parse(args) satisfies GetCurrentFocusArgs
+    return this.requireRpc(decoded.projectId).getCurrentFocus(decoded)
   }
 
   /**

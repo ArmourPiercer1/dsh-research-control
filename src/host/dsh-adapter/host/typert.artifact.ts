@@ -47,6 +47,8 @@ import {
   DismissPlanForkResultSchema,
   GetGitHistoryArgsSchema,
   GetGitHistoryResultSchema,
+  GetCurrentFocusArgsSchema,
+  GetCurrentFocusResultSchema,
   GetHubOverviewArgsSchema,
   GetPortfolioInterventionsArgsSchema,
   GetPortfolioInterventionsResultSchema,
@@ -75,6 +77,8 @@ import {
   SaveResearchCheckpointResultSchema,
   SelectPlanForkArgsSchema,
   SelectPlanForkResultSchema,
+  SetCurrentFocusArgsSchema,
+  SetCurrentFocusResultSchema,
   SetHubArgsSchema,
   SetHubResultSchema,
   TopicSnapshotSchema,
@@ -152,6 +156,10 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'RescanResult', schema: RescanResultSchema },
   { name: 'AckMissingReminderArgs', schema: AckMissingReminderArgsSchema },
   { name: 'AckMissingReminderResult', schema: AckMissingReminderResultSchema },
+  { name: 'SetCurrentFocusArgs', schema: SetCurrentFocusArgsSchema },
+  { name: 'SetCurrentFocusResult', schema: SetCurrentFocusResultSchema },
+  { name: 'GetCurrentFocusArgs', schema: GetCurrentFocusArgsSchema },
+  { name: 'GetCurrentFocusResult', schema: GetCurrentFocusResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -322,6 +330,18 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'Plane-level: acknowledge a MISSING-project reminder (design §4/§7.1).',
           },
+          {
+            name: 'setCurrentFocus',
+            signature: 'setCurrentFocus(args: SetCurrentFocusArgs): Promise<SetCurrentFocusResult>',
+            kind: 'method',
+            summary: 'GUI management (UI-0.4 / R-01): point the workstream current-focus pointer at a canonical Plan member.',
+          },
+          {
+            name: 'getCurrentFocus',
+            signature: 'getCurrentFocus(args: GetCurrentFocusArgs): Promise<GetCurrentFocusResult>',
+            kind: 'method',
+            summary: 'GUI management (UI-0.4 / R-01): read back the workstream current-focus pointer (null when absent).',
+          },
         ],
         types: [
           {
@@ -435,6 +455,16 @@ export const TYPERT: TypertHostManifest = {
           {
             name: 'AckMissingReminderResult',
             declaration: 'interface AckMissingReminderResult { readonly acknowledged: true }',
+          },
+          {
+            name: 'SetCurrentFocusResult',
+            declaration:
+              'interface SetCurrentFocusResult { readonly workstreamId: string; readonly planItemId: string; readonly updatedAt: number }',
+          },
+          {
+            name: 'GetCurrentFocusResult',
+            declaration:
+              'interface GetCurrentFocusResult { readonly workstreamId: string; readonly focus: { planItemId: string; updatedAt: number } | null }',
           },
         ],
       },

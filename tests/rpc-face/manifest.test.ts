@@ -29,6 +29,8 @@ import {
   DashboardSnapshotSchema,
   DismissPlanForkArgsSchema,
   DismissPlanForkResultSchema,
+  GetCurrentFocusArgsSchema,
+  GetCurrentFocusResultSchema,
   GetGitHistoryArgsSchema,
   GetGitHistoryResultSchema,
   GetHubOverviewArgsSchema,
@@ -44,6 +46,7 @@ import {
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
   RESEARCH_CONTROL_PACKAGE,
+  RESEARCH_MANAGEMENT_INVOCATIONS,
   RESEARCH_RPC_INVOCATIONS,
   RESEARCH_RPC_METHODS,
   pingInvocation,
@@ -59,6 +62,8 @@ import {
   RestoreProjectResultSchema,
   SaveResearchCheckpointArgsSchema,
   SaveResearchCheckpointResultSchema,
+  SetCurrentFocusArgsSchema,
+  SetCurrentFocusResultSchema,
   SetHubArgsSchema,
   SetHubResultSchema,
   SelectPlanForkArgsSchema,
@@ -101,9 +106,14 @@ import { validateTypertManifest } from './loader-validation.js'
 
 const pingFixture = { ok: true, service: 'researchControl', time: 1755000000000 }
 
-/** The 23 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
- *  V2-T3.2b: the 6 change-family plane RPCs appended after the frozen 14),
- *  each with its wire-valid result fixture. */
+/** UI-0.4 — wire-valid result fixtures for the 2 GUI management RPCs. */
+const setCurrentFocusFixture = { workstreamId: 'WS-1', planItemId: 'T-1', updatedAt: 1755000001000 }
+const getCurrentFocusFixture = { workstreamId: 'WS-1', focus: { planItemId: 'T-1', updatedAt: 1755000001000 } }
+
+/** The 25 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
+ *  V2-T3.2b: the 6 change-family plane RPCs + UI-0.4: the 2 GUI
+ *  management RPCs, appended after the frozen 14), each with its
+ *  wire-valid result fixture. */
 const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = [
   { method: 'ping', resultFixture: pingFixture },
   { method: 'getDashboard', resultFixture: DASHBOARD_FIXTURE },
@@ -128,10 +138,13 @@ const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = 
   { method: 'restoreProject', resultFixture: RESTORE_PROJECT_FIXTURE },
   { method: 'rescan', resultFixture: RESCAN_FIXTURE },
   { method: 'ackMissingReminder', resultFixture: ACK_MISSING_REMINDER_FIXTURE },
+  { method: 'setCurrentFocus', resultFixture: setCurrentFocusFixture },
+  { method: 'getCurrentFocus', resultFixture: getCurrentFocusFixture },
 ]
 
-/** The args-schema identity table (20 parameterized RPCs: the frozen 11
- *  + the 9 plane RPCs — every one carries a strict args object). */
+/** The args-schema identity table (22 parameterized RPCs: the frozen 11
+ *  + the 9 plane RPCs + the 2 GUI management RPCs — every one carries a
+ *  strict args object). */
 const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getTopic: GetTopicArgsSchema,
   getWorkstream: GetWorkstreamArgsSchema,
@@ -153,6 +166,8 @@ const argsSchemaTable: Readonly<Record<string, unknown>> = {
   restoreProject: RestoreProjectArgsSchema,
   rescan: RescanArgsSchema,
   ackMissingReminder: AckMissingReminderArgsSchema,
+  setCurrentFocus: SetCurrentFocusArgsSchema,
+  getCurrentFocus: GetCurrentFocusArgsSchema,
 }
 
 /** Narrow a descriptor codec to its strict arm. */
@@ -161,13 +176,13 @@ function strictCodec(codec: TypertCodec): Extract<TypertCodec, { mode: 'strict' 
   return codec
 }
 
-describe('WP-4.1a manifest — the full 23-endpoint registered face (V2-T3.2a + V2-T3.2b)', () => {
+describe('WP-4.1a manifest — the full 25-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4)', () => {
   it('TYPERT passes the mirrored loader validation (validateTypertManifest semantics)', () => {
     expect(() => validateTypertManifest(RESEARCH_CONTROL_PACKAGE, TYPERT)).not.toThrow()
   })
 
-  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs, in order', () => {
-    expect(TYPERT.invocations).toHaveLength(23)
+  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 2 GUI management RPCs, in order', () => {
+    expect(TYPERT.invocations).toHaveLength(25)
     expect(TYPERT.invocations.map((i) => i.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,
@@ -180,13 +195,18 @@ describe('WP-4.1a manifest — the full 23-endpoint registered face (V2-T3.2a + 
       'restoreProject',
       'rescan',
       'ackMissingReminder',
+      'setCurrentFocus',
+      'getCurrentFocus',
     ])
     // The host manifest re-exports the SHARED descriptors (identity):
     // index 0 is the shared ping descriptor, indices 1..13 are the shared
-    // RESEARCH_RPC_INVOCATIONS in order.
+    // RESEARCH_RPC_INVOCATIONS in order, indices 23..24 are the shared
+    // RESEARCH_MANAGEMENT_INVOCATIONS in order.
     expect(TYPERT.invocations[0]).toBe(pingInvocation)
     expect(TYPERT.invocations[1]).toBe(RESEARCH_RPC_INVOCATIONS[0])
     expect(TYPERT.invocations[13]).toBe(RESEARCH_RPC_INVOCATIONS[12])
+    expect(TYPERT.invocations[23]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[0])
+    expect(TYPERT.invocations[24]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[1])
   })
 
   it('every invocation carries the id grammar + direct receiver + strict codecs', () => {
@@ -242,6 +262,8 @@ describe('WP-4.1a manifest — the full 23-endpoint registered face (V2-T3.2a + 
       restoreProject: RestoreProjectResultSchema,
       rescan: RescanResultSchema,
       ackMissingReminder: AckMissingReminderResultSchema,
+      setCurrentFocus: SetCurrentFocusResultSchema,
+      getCurrentFocus: GetCurrentFocusResultSchema,
     }
     for (const { method, resultFixture } of endpointFixtures) {
       const invocation = (TYPERT.invocations as readonly InvocationDescriptorMirror[]).find(
@@ -260,10 +282,10 @@ describe('WP-4.1a manifest — the full 23-endpoint registered face (V2-T3.2a + 
     }
   })
 
-  it('TYPERT.schemas covers the full contract: ping + 20 args + 22 results, live zod instances, unique names', () => {
+  it('TYPERT.schemas covers the full contract: ping + 22 args + 24 results, live zod instances, unique names', () => {
     const names = TYPERT.schemas.map((s) => s.name)
-    expect(names).toHaveLength(43)
-    expect(new Set(names).size).toBe(43)
+    expect(names).toHaveLength(47)
+    expect(new Set(names).size).toBe(47)
     for (const s of TYPERT.schemas) {
       expect('_zod' in (s.schema as object), `${s.name} must be a live zod v4 instance`).toBe(true)
     }
@@ -290,12 +312,14 @@ describe('WP-4.1a manifest — the full 23-endpoint registered face (V2-T3.2a + 
       'RestoreProjectArgs', 'RestoreProjectResult',
       'RescanArgs', 'RescanResult',
       'AckMissingReminderArgs', 'AckMissingReminderResult',
+      'SetCurrentFocusArgs', 'SetCurrentFocusResult',
+      'GetCurrentFocusArgs', 'GetCurrentFocusResult',
     ]) {
       expect(names, `missing schema entry ${expected}`).toContain(expected)
     }
   })
 
-  it('the model carries the full 23-member service face', () => {
+  it('the model carries the full 25-member service face', () => {
     const [service] = TYPERT.model.services
     expect(TYPERT.model.events).toEqual([])
     expect(TYPERT.model.objects).toEqual([])
@@ -313,6 +337,8 @@ describe('WP-4.1a manifest — the full 23-endpoint registered face (V2-T3.2a + 
       'restoreProject',
       'rescan',
       'ackMissingReminder',
+      'setCurrentFocus',
+      'getCurrentFocus',
     ])
     for (const member of service.members) {
       expect(member.kind).toBe('method')
@@ -325,12 +351,14 @@ describe('WP-4.1a manifest — the full 23-endpoint registered face (V2-T3.2a + 
     expect(service.types.map((t) => t.name)).toContain('BindProjectResult')
     expect(service.types.map((t) => t.name)).toContain('RescanResult')
     expect(service.types.map((t) => t.name)).toContain('AckMissingReminderResult')
+    expect(service.types.map((t) => t.name)).toContain('SetCurrentFocusResult')
+    expect(service.types.map((t) => t.name)).toContain('GetCurrentFocusResult')
   })
 
-  it('③ the client contribution exports the SAME 23 strict descriptor objects (no drift)', () => {
+  it('③ the client contribution exports the SAME 25 strict descriptor objects (no drift)', () => {
     expect(researchRemotes.package).toBe(RESEARCH_CONTROL_PACKAGE)
-    expect(researchRemotes.descriptors).toHaveLength(23)
-    for (let i = 0; i < 23; i += 1) {
+    expect(researchRemotes.descriptors).toHaveLength(25)
+    for (let i = 0; i < 25; i += 1) {
       expect(researchRemotes.descriptors[i], `descriptor ${i} identity`).toBe(TYPERT.invocations[i])
     }
     // And the first (ping) remains the WP-0.3 shared object.

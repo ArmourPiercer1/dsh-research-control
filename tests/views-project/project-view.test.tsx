@@ -338,8 +338,11 @@ describe('UI-3 — Recent History (judgment #9)', () => {
 
   it('renders the entries in the given order with ws label + event type', () => {
     // the VIEW renders the merged entries verbatim — the merge +
-    // occurredAt-desc ordering is the CONTAINER's contract (pinned in
-    // tests/stores + the e2e drill). The entries arrive pre-sorted.
+    // occurredAt-desc ordering is the CONTAINER's contract, pinned in
+    // tests/views-project/project-container.test.tsx (UI-3 FR7 — the
+    // Recent History container: tail-3 per window, the strict merge
+    // order, the 20-workstream cap, the failed-topic and empty faces).
+    // The entries arrive pre-sorted.
     const T0 = 1755000000000
     const { container } = renderView(PROJECT_PAGE_FIXTURE, {
       recentHistory: {

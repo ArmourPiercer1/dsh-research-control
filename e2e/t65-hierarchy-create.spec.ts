@@ -22,6 +22,10 @@
  *
  * 状态：线级已复跑 — live 6/6 on the main agent's 3180 instance (v2-t65
  * fixture: pristine TPC-1 + WS-1..WS-3; allocation chain TPC-2/TPC-3/WS-4).
+ * Re-run (2026-08-29, BL-06 window): live 6/6 again — recast pristine tree
+ * (t64 tree minus WS-4) + fresh hub DB + the committed 0d9f7ad lib,
+ * confirming the monotonic chain across a second materialization of this
+ * fixture.
  * The fresh-materialization requirement above is load-bearing: created
  * nodes persist on disk, the chain is monotonic, and ids are never reused.
  * Post-live-run, two spec-side harness defects were fixed (a mis-sorted

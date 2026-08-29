@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   DashboardSnapshot,
   DismissPlanForkResult,
+  GetCurrentFocusResult,
   GetGitHistoryResult,
   ProjectSnapshot,
   QueryHistoryResult,
@@ -16,6 +17,7 @@ import type {
   RestoreDeclarativeFileResult,
   SaveResearchCheckpointResult,
   SelectPlanForkResult,
+  SetCurrentFocusResult,
   TopicSnapshot,
   UpdateInterventionStateResult,
   WorkstreamSnapshot,
@@ -56,7 +58,8 @@ const ready = <T>(data: T): SliceState<T> => ({
 /**
  * A fully-populated state: every slice family holds ready entries
  * (dashboard, project, TPC-1, WS-1 [topicId TPC-1], one history window,
- * one gitHistory window) — the maximal cache the rules must address.
+ * one gitHistory window, one current-focus pointer) — the maximal cache
+ * the rules must address.
  */
 function populatedState(): ResearchStoreState {
   return {
@@ -69,6 +72,15 @@ function populatedState(): ResearchStoreState {
       ['path=.research/project.yaml|baseline=|max=|skip=', ready<GetGitHistoryResult>(GIT_HISTORY_FIXTURE)],
       ['path=|baseline=|max=10|skip=0', ready<GetGitHistoryResult>(GIT_HISTORY_FIXTURE)],
     ]),
+    currentFocus: new Map([
+      [
+        'WS-1',
+        ready<GetCurrentFocusResult>({
+          workstreamId: 'WS-1',
+          focus: { planItemId: 'T-1', updatedAt: 1755000000000 },
+        }),
+      ],
+    ]),
   }
 }
 
@@ -79,6 +91,11 @@ const UPDATE_IV: UpdateInterventionStateResult = UPDATE_INTERVENTION_FIXTURE
 const REGISTER: RegisterInteractionResult = REGISTER_INTERACTION_FIXTURE
 const CHECKPOINT: SaveResearchCheckpointResult = CHECKPOINT_FIXTURE
 const RESTORE: RestoreDeclarativeFileResult = RESTORE_FIXTURE
+const SET_FOCUS: SetCurrentFocusResult = {
+  workstreamId: 'WS-1',
+  planItemId: 'T-1',
+  updatedAt: 1755000001000,
+}
 
 describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
   it('reorderPlan → the workstream slice ONLY (plan order; history never — ledger, not events)', () => {
@@ -156,6 +173,16 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
     const keys = INVALIDATE_REGISTRY.restoreDeclarativeFile(RESTORE, initialResearchStoreState())
     expect(new Set(keys)).toEqual(new Set(['dashboard', 'project']))
   })
+
+  it('setCurrentFocus → the RESULT workstream\'s currentFocus slice ONLY (UI-0.4, R-01)', () => {
+    const keys = INVALIDATE_REGISTRY.setCurrentFocus(SET_FOCUS, populatedState())
+    expect(keys).toEqual(['currentFocus:WS-1'])
+  })
+
+  it('setCurrentFocus is state-independent: idle CF cache yields the SAME key', () => {
+    const keys = INVALIDATE_REGISTRY.setCurrentFocus(SET_FOCUS, initialResearchStoreState())
+    expect(keys).toEqual(['currentFocus:WS-1'])
+  })
 })
 
 describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
@@ -167,6 +194,7 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     ['registerInteraction', state => INVALIDATE_REGISTRY.registerInteraction(REGISTER, state)],
     ['saveResearchCheckpoint', state => INVALIDATE_REGISTRY.saveResearchCheckpoint(CHECKPOINT, state)],
     ['restoreDeclarativeFile', state => INVALIDATE_REGISTRY.restoreDeclarativeFile(RESTORE, state)],
+    ['setCurrentFocus', state => INVALIDATE_REGISTRY.setCurrentFocus(SET_FOCUS, state)],
   ]
 
   it('NO rule invalidates a history window (WS logs are append-only; none of the 13 RPCs appends)', () => {
@@ -191,13 +219,15 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     for (const [, rule] of ALL) {
       for (const key of rule(state)) {
         const prefix = key.includes(':') ? key.slice(0, key.indexOf(':')) : key
-        expect(['dashboard', 'project', 'topics', 'workstreams', 'history', 'gitHistory']).toContain(prefix)
+        expect(
+          ['dashboard', 'project', 'topics', 'workstreams', 'history', 'gitHistory', 'currentFocus'],
+        ).toContain(prefix)
       }
     }
   })
 
-  it('MUTATION_IDS is exactly the registry key set (7 mutations of the frozen 13-RPC list)', () => {
+  it('MUTATION_IDS is exactly the registry key set (7 frozen-13 mutations + the UI-0.4 focus setter)', () => {
     expect([...MUTATION_IDS].sort()).toEqual(Object.keys(INVALIDATE_REGISTRY).sort())
-    expect(MUTATION_IDS).toHaveLength(7)
+    expect(MUTATION_IDS).toHaveLength(8)
   })
 })

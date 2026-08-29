@@ -1,7 +1,9 @@
 /**
  * The research client store (WP-4.1b) — the ONE top-level factory
- * `createResearchStore()` composing the six query slices, the seven
- * mutation actions, and the refresh loop (task brief items 1-2, 4).
+ * `createResearchStore()` composing the query slices (the six WP-4.1b
+ * slices + the `currentFocus` slice family, UI-0.4 R-01), the mutation
+ * actions (the seven WP-4.1b mutations + `setCurrentFocus`, UI-0.4), and
+ * the refresh loop (task brief items 1-2, 4).
  *
  * DSH_ADAPTER §6 compliance (hard rules, client side):
  *  - **factory, not handle**: `createResearchStore` is an exported
@@ -42,6 +44,8 @@ import {
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
+  type GetCurrentFocusArgs,
+  type GetCurrentFocusResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
   type ProjectSnapshot,
@@ -55,6 +59,8 @@ import {
   type RestoreDeclarativeFileResult,
   type SaveResearchCheckpointArgs,
   type SaveResearchCheckpointResult,
+  type SetCurrentFocusArgs,
+  type SetCurrentFocusResult,
   type SelectPlanForkArgs,
   type SelectPlanForkResult,
   type TopicSnapshot,
@@ -131,7 +137,7 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
   /** The current snapshot (same reference semantics as `getSnapshot`). */
   getState(): ResearchStoreState
 
-  /* -- the six query slices (lazy; snapshot cache; loading/ready/error) -- */
+  /* -- the query slices (lazy; snapshot cache; loading/ready/error) -- */
 
   /** Fetch the Home/Portfolio Dashboard snapshot (§27.1). */
   loadDashboard(): Promise<void>
@@ -145,8 +151,17 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
   loadHistory(args: QueryHistoryArgs): Promise<void>
   /** Fetch one Git version/diff window (checkpoint face); cached per canonical query. */
   loadGitHistory(args: GetGitHistoryArgs): Promise<void>
+  /**
+   * Read back the workstream's current-focus pointer (UI-0.4, R-01);
+   * cached per `workstreamId` (the `currentFocus` slice family, load +
+   * cache + stale-while-revalidate like the other families). The frozen
+   * `WorkstreamSnapshot` cannot carry the pointer (rpc-contracts
+   * §getCurrentFocus note), so this read owns its slice — a view selects
+   * the value from `state.currentFocus.get(workstreamId)`.
+   */
+  getCurrentFocus(args: GetCurrentFocusArgs): Promise<void>
 
-  /* -- the seven mutation actions: resolve with the host result; on OK,
+  /* -- the mutation actions: resolve with the host result; on OK,
           invalidate per the registry + refetch the affected slices; a
           business fault (ok:false) rejects with `ResearchRpcError`, a
           transport fault (not mounted, arity, network) re-throws -- */
@@ -158,6 +173,16 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
   registerInteraction(args: RegisterInteractionArgs): Promise<RegisterInteractionResult>
   saveResearchCheckpoint(args: SaveResearchCheckpointArgs): Promise<SaveResearchCheckpointResult>
   restoreDeclarativeFile(args: RestoreDeclarativeFileArgs): Promise<RestoreDeclarativeFileResult>
+  /**
+   * Set the workstream's current-focus pointer (UI-0.4, R-01 — the USER
+   * mutation). On OK, refetches per the registry: the `currentFocus`
+   * slice of the mutated workstream (no other existing slice's DTO
+   * carries focus data — the frozen WorkstreamSnapshot cannot gain the
+   * field — so the CF slice is the whole store-level invalidation today;
+   * the focus surfaces — header / future strip / graph — are UI-4 work
+   * selecting from this slice).
+   */
+  setCurrentFocus(args: SetCurrentFocusArgs): Promise<SetCurrentFocusResult>
 
   /* -- the refresh loop (ARCHITECTURE §8 items 3/4) -- */
 
@@ -183,7 +208,14 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
  * -------------------------------------------------------------------- */
 
 /** The slice family (state field name) plus its payload type. */
-type SliceFamily = 'dashboard' | 'project' | 'topics' | 'workstreams' | 'history' | 'gitHistory'
+type SliceFamily =
+  | 'dashboard'
+  | 'project'
+  | 'topics'
+  | 'workstreams'
+  | 'history'
+  | 'gitHistory'
+  | 'currentFocus'
 
 interface FamilyData {
   dashboard: DashboardSnapshot
@@ -192,6 +224,7 @@ interface FamilyData {
   workstreams: WorkstreamSnapshot
   history: QueryHistoryResult
   gitHistory: GetGitHistoryResult
+  currentFocus: GetCurrentFocusResult
 }
 
 /** Unwrap an `RpcResult`: business fault → `ResearchRpcError`; OK → the value. */
@@ -332,6 +365,13 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
         const args = lastArgs.get(sliceKey('gitHistory', localKey)) as GetGitHistoryArgs
         return loadQuery('gitHistory', localKey, args, () => rpc.getGitHistory(args))
       }
+      case 'currentFocus':
+        // The CF slice is keyed by the bare workstreamId (the optional
+        // `projectId` routing is left to the plane default — same as the
+        // other per-id slices above).
+        return loadQuery('currentFocus', localKey, { workstreamId: localKey }, () =>
+          rpc.getCurrentFocus({ workstreamId: localKey }),
+        )
     }
   }
 
@@ -355,7 +395,7 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     const keys: SliceKey[] = []
     if (state.dashboard.status !== 'idle') keys.push('dashboard')
     if (state.project.status !== 'idle') keys.push('project')
-    for (const family of ['topics', 'workstreams', 'history', 'gitHistory'] as const) {
+    for (const family of ['topics', 'workstreams', 'history', 'gitHistory', 'currentFocus'] as const) {
       for (const [localKey, slice] of state[family]) {
         if (slice.status !== 'idle') keys.push(sliceKey(family, localKey))
       }
@@ -370,7 +410,7 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     subscribe: listener => base.subscribe(listener),
     getState: () => base.getState(),
 
-    /* the six query slices */
+    /* the query slices */
 
     loadDashboard: () => loadQuery('dashboard', '', null, () => rpc.getDashboard()),
     loadProject: () => loadQuery('project', '', null, () => rpc.getProject()),
@@ -379,8 +419,12 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
       loadQuery('workstreams', workstreamId, { workstreamId }, () => rpc.getWorkstream({ workstreamId })),
     loadHistory: (args: QueryHistoryArgs) => loadQuery('history', historyKey(args), args, () => rpc.queryHistory(args)),
     loadGitHistory: (args: GetGitHistoryArgs) => loadQuery('gitHistory', gitHistoryKey(args), args, () => rpc.getGitHistory(args)),
+    // UI-0.4 (R-01): the current-focus read — its own slice family, the
+    // same load + cache + stale-while-revalidate machinery as the rest.
+    getCurrentFocus: (args: GetCurrentFocusArgs) =>
+      loadQuery('currentFocus', args.workstreamId, args, () => rpc.getCurrentFocus(args)),
 
-    /* the seven mutation actions */
+    /* the mutation actions */
 
     async reorderPlan(args: ReorderPlanArgs): Promise<ReorderPlanResult> {
       const value = okValue(await rpc.reorderPlan(args))
@@ -421,6 +465,15 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     async restoreDeclarativeFile(args: RestoreDeclarativeFileArgs): Promise<RestoreDeclarativeFileResult> {
       const value = okValue(await rpc.restoreDeclarativeFile(args))
       await refetchKeys(INVALIDATE_REGISTRY.restoreDeclarativeFile(value, base.getState()))
+      return value
+    },
+
+    // UI-0.4 (R-01): the current-focus mutation — the same okValue →
+    // INVALIDATE_REGISTRY → refetchKeys idiom as the seven above. No
+    // optimistic update: the slice moves only on the refetch's good read.
+    async setCurrentFocus(args: SetCurrentFocusArgs): Promise<SetCurrentFocusResult> {
+      const value = okValue(await rpc.setCurrentFocus(args))
+      await refetchKeys(INVALIDATE_REGISTRY.setCurrentFocus(value, base.getState()))
       return value
     },
 

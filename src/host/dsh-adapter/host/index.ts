@@ -995,6 +995,43 @@ export class ResearchControlService extends TypertRemoteService {
    * Current Focus, R-01; slice 2: the hierarchy create pair, Task 3).
    * Same decode-first + requireRpc routing as the frozen 13; the USER
    * lane is the RPC face itself (R-01: no actor parameter).
+   *
+   * §7.3 conformance audit (per-method hop map — comments only; the
+   * bodies below are exactly the frozen-13 idiom):
+   *
+   *   1. DECODE (strict, FIRST): <Method>ArgsSchema.parse(args) — the
+   *      wire delivers `unknown`; a shape fault folds into the gateway
+   *      ok:false carrier before any project work (the frozen schemas
+   *      are the only decode; no per-method hand-rolled checks).
+   *   2. ROUTE: requireRpc(decoded.projectId) — the §12.1 rule (explicit
+   *      id -> that project, absent / not active -> clear error; omitted
+   *      -> the single active project, several -> clear error). Selects
+   *      the PER-PROJECT wiring (db handle + composed services) for the
+   *      remaining hops.
+   *   3. SEMANTICS (service-owned, rpc-services.ts — gates run BEFORE
+   *      any write; each returns the frozen result DTO, change facts
+   *      only, no snapshots / no host-internal state):
+   *        - setCurrentFocus  : CF_INPUT shape gate -> canonical
+   *          membership gate -> UPSERT (the R-01 pointer row); faults
+   *          ride the `#mapCurrentFocusError` [research-control]
+   *          carrier (CF_* codes).
+   *        - getCurrentFocus  : the same mapping (BL-03 mirror of the
+   *          set path); the store get is a fresh SQL SELECT per call —
+   *          a preference cache by design, no host-side cache.
+   *        - createTopic      : the HIER_TOPIC_EXISTS probe -> the
+   *          atomic write; faults ride `#mapHierarchyError`.
+   *        - createWorkstream : the topic membership gate
+   *          (HIER_TOPIC_NOT_FOUND) BEFORE any allocation / write ->
+   *          the atomic write; same carrier.
+   *   4. INVALIDATION: a DOCUMENTED NO-OP ON THE HOST — there is no
+   *      host-side invalidation bus and nothing host-side to invalidate:
+   *      every read is a FRESH load (rpc-services.ts §27 header: "the
+   *      file is the truth, no cache"; getWorkstream re-runs #loadTree
+   *      per call; getCurrentFocus is a fresh SQL SELECT), so a
+   *      committed write is observable on the VERY NEXT read.
+   *      Client-side invalidation is the client store's
+   *      INVALIDATE_REGISTRY refetch pass (client/stores/registry.ts)
+   *      — a client hop, not a host one.
    * ------------------------------------------------------------------ */
 
   @Remote('setCurrentFocus')

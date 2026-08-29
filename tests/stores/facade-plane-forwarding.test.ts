@@ -1,5 +1,6 @@
 /**
- * V2-T4.1 — facade forwarding tests for the 9 PLANE RPCs (design §12).
+ * V2-T4.1 — facade forwarding tests for the 9 PLANE RPCs (design §12)
+ * + the 2 GUI management RPCs (UI-0.4, R-01 — the current-focus pair).
  *
  * The frozen 14-method face is pinned by tests/stores/facade-forwarding.ts
  * (untouched — the 13 frozen RPCs are add-only). This file pins the NEW
@@ -8,7 +9,8 @@
  * (`mountResearchRemotes`) against a FAKE `remote` service (a plain object,
  * no cordis). Per the plan §5 gate (每个新 RPC: 一条成功路径 + 至少一条
  * 拒绝路径):
- *  ① the pre-mount guard: all 9 plane methods reject loudly with
+ *  ① the pre-mount guard: all 11 (9 plane + 2 GUI management) methods
+ *    reject loudly with
  *    「not mounted」;
  *  ② forwarding (success path): after mount, every plane method forwards
  *    its `args` VERBATIM to the namespace stub and passes the resolved
@@ -28,6 +30,8 @@ import {
   type AckMissingReminderResult,
   type BindProjectArgs,
   type BindProjectResult,
+  type GetCurrentFocusArgs,
+  type GetCurrentFocusResult,
   type GetHubOverviewArgs,
   type GetPortfolioInterventionsArgs,
   type GetPortfolioInterventionsResult,
@@ -38,6 +42,8 @@ import {
   type RescanResult,
   type RestoreProjectArgs,
   type RestoreProjectResult,
+  type SetCurrentFocusArgs,
+  type SetCurrentFocusResult,
   type SetHubArgs,
   type SetHubResult,
   type UnbindProjectArgs,
@@ -101,6 +107,13 @@ const RESCAN_RESULT: RescanResult = {
   registry: [],
 }
 const ACK_RESULT: AckMissingReminderResult = { acknowledged: true }
+// UI-0.4 (R-01): the GUI management face (current-focus pair).
+const SET_FOCUS_RESULT: SetCurrentFocusResult = {
+  workstreamId: 'WS-1',
+  planItemId: 'T-1',
+  updatedAt: 1755000001000,
+}
+const GET_FOCUS_RESULT: GetCurrentFocusResult = { workstreamId: 'WS-1', focus: null }
 
 /** One entry per plane facade method: the distinctive args + expected result. */
 interface PlaneCase {
@@ -155,6 +168,18 @@ const CASES: PlaneCase[] = [
     args: { projectId: 'PRJ-1' } satisfies AckMissingReminderArgs,
     result: { ok: true, value: ACK_RESULT },
   },
+  // UI-0.4 (R-01): the GUI management face — project-routed like the rest
+  // of the management face (projectId optional, §12.1 resolution).
+  {
+    method: 'setCurrentFocus',
+    args: { workstreamId: 'WS-1', planItemId: 'T-1' } satisfies SetCurrentFocusArgs,
+    result: { ok: true, value: SET_FOCUS_RESULT },
+  },
+  {
+    method: 'getCurrentFocus',
+    args: { workstreamId: 'WS-1' } satisfies GetCurrentFocusArgs,
+    result: { ok: true, value: GET_FOCUS_RESULT },
+  },
 ]
 
 interface Recorded {
@@ -162,7 +187,7 @@ interface Recorded {
   readonly args: unknown
 }
 
-/** Build the fake `remote` service: $mount + the 9-stub plane namespace. */
+/** Build the fake `remote` service: $mount + the 11-stub plane + management namespace. */
 function buildFakeRemote(recorded: Recorded[], mountCalls: unknown[]) {
   const namespace: Record<string, (...a: unknown[]) => Promise<RemoteResult<never>>> = {}
   for (const c of CASES) {
@@ -183,7 +208,7 @@ function buildFakeRemote(recorded: Recorded[], mountCalls: unknown[]) {
 const facade = researchRpc as unknown as Record<string, (args?: unknown) => Promise<unknown>>
 
 describe('① pre-mount guard (fresh module state, runs before any mount here)', () => {
-  it('ALL 9 plane facade methods reject loudly with「not mounted」', async () => {
+  it('ALL 11 facade methods (9 plane + 2 GUI management) reject loudly with「not mounted」', async () => {
     unmountResearchRemotes()
     for (const c of CASES) {
       await expect(facade[c.method](c.args), `facade ${c.method} pre-mount`).rejects.toThrow(
@@ -194,7 +219,7 @@ describe('① pre-mount guard (fresh module state, runs before any mount here)',
 })
 
 describe('② forwarding after mount', () => {
-  it('every plane method forwards its args VERBATIM and passes the result through unchanged', async () => {
+  it('every plane + GUI management method forwards its args VERBATIM and passes the result through unchanged', async () => {
     const recorded: Recorded[] = []
     const mountCalls: unknown[] = []
     const ctx = { remote: buildFakeRemote(recorded, mountCalls) } as unknown as RemoteContext
@@ -218,7 +243,7 @@ describe('② forwarding after mount', () => {
 })
 
 describe('③ unmount restores the loud guard', () => {
-  it('post-unmount, all 9 plane methods reject loudly again', async () => {
+  it('post-unmount, all 11 methods (9 plane + 2 GUI management) reject loudly again', async () => {
     const recorded: Recorded[] = []
     const mountCalls: unknown[] = []
     const ctx = { remote: buildFakeRemote(recorded, mountCalls) } as unknown as RemoteContext

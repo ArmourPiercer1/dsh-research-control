@@ -19,7 +19,10 @@
  *  - `topics:<topicId>` / `workstreams:<workstreamId>` — id keys;
  *  - `history:<canonicalQuery>` — the `queryHistory` window (args
  *    canonicalized so re-issuing the same window hits the cache);
- *  - `gitHistory:<canonicalQuery>` — the `getGitHistory` window.
+ *  - `gitHistory:<canonicalQuery>` — the `getGitHistory` window;
+ *  - `currentFocus:<workstreamId>` — the R-01 current-focus pointer
+ *    (UI-0.4; the frozen WorkstreamSnapshot cannot carry it, see the
+ *    state field below).
  *
  * The GLOBAL slice key (used by the invalidate registry) is
  * `<slice>:<local key>`; `parseSliceKey` is its exact inverse.
@@ -29,6 +32,7 @@ import type {
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
+  GetCurrentFocusResult,
   GetGitHistoryArgs,
   GetGitHistoryResult,
   GetTopicArgs,
@@ -58,6 +62,7 @@ export type {
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
+  GetCurrentFocusResult,
   GetGitHistoryArgs,
   GetGitHistoryResult,
   GetTopicArgs,
@@ -142,6 +147,13 @@ export interface ResearchStoreState {
   readonly history: ReadonlyMap<string, SliceState<QueryHistoryResult>>
   /** Keyed by the canonical `getGitHistory` window (see `gitHistoryKey`). */
   readonly gitHistory: ReadonlyMap<string, SliceState<GetGitHistoryResult>>
+  /**
+   * Keyed by `workstreamId` (UI-0.4, R-01). The current-focus pointer:
+   * the frozen `WorkstreamSnapshot` cannot carry it (rpc-contracts
+   * §getCurrentFocus note), so the pointer lives in its OWN slice family
+   * instead of riding the workstream slice.
+   */
+  readonly currentFocus: ReadonlyMap<string, SliceState<GetCurrentFocusResult>>
 }
 
 /** The initial store snapshot: all slices idle, all maps empty. */
@@ -153,6 +165,7 @@ export function initialResearchStoreState(): ResearchStoreState {
     workstreams: new Map(),
     history: new Map(),
     gitHistory: new Map(),
+    currentFocus: new Map(),
   }
 }
 
@@ -186,9 +199,24 @@ export type RpcResult<T> =
  * -------------------------------------------------------------------- */
 
 /** The slice names (the global-key prefixes; also the state field names). */
-export type SliceName = 'dashboard' | 'project' | 'topics' | 'workstreams' | 'history' | 'gitHistory'
+export type SliceName =
+  | 'dashboard'
+  | 'project'
+  | 'topics'
+  | 'workstreams'
+  | 'history'
+  | 'gitHistory'
+  | 'currentFocus'
 
-export const SLICE_NAMES: readonly SliceName[] = ['dashboard', 'project', 'topics', 'workstreams', 'history', 'gitHistory']
+export const SLICE_NAMES: readonly SliceName[] = [
+  'dashboard',
+  'project',
+  'topics',
+  'workstreams',
+  'history',
+  'gitHistory',
+  'currentFocus',
+]
 
 /**
  * The global slice key: `<slice>:<local key>`. Singleton slices use the
@@ -202,6 +230,7 @@ export type SliceKey =
   | `workstreams:${string}`
   | `history:${string}`
   | `gitHistory:${string}`
+  | `currentFocus:${string}`
 
 /** Compose a global slice key. */
 export function sliceKey(slice: SliceName, localKey: string): SliceKey {

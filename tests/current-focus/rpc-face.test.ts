@@ -37,6 +37,11 @@ import {
   makeProjectWs,
   mountHost,
 } from '../rpc-plane/helpers.js'
+import {
+  CurrentFocusError,
+  type CurrentFocusService,
+} from '../../src/host/service/current-focus/index.js'
+import type { HostWiring } from '../../src/host/service/wiring/index.js'
 
 /** WS-1's canonical item set (the fixture tree's plan.yaml, VERBATIM). */
 const ORDER = ['G-1', 'T-1', 'T-2', 'T-3', 'M-1', 'T-4', 'G-2']
@@ -217,6 +222,53 @@ describe('UI-0.4 — restart retention + multi-project routing', () => {
         focus: { planItemId: 'G-1', updatedAt: set.updatedAt },
       })
       expect((await h.svc.getCurrentFocus({ workstreamId: 'WS-1', projectId: 'PRJ-1' })).focus).toBeNull()
+    } finally {
+      disposeFiber(h)
+    }
+  })
+
+  it('BL-03 (UI-1): a CF_STORE fault from currentFocus.get rides the [research-control] CF_STORE carrier; a non-CF error passes through untouched', async () => {
+    // Whitebox seam (the stale-precheck suite's fake-wiring constructor
+    // precedent — `projectWirings` is a TS-private plain field): swap the
+    // routed wiring's currentFocus service for a failing stub. The RPC
+    // body (rpc-services.ts getCurrentFocus) is what is under test — the
+    // real store's CF_STORE paths (bad row / closed handle) are covered by
+    // tests/current-focus/schema.test.ts.
+    freshDshHome()
+    const ws = makeProjectWs('PRJ-1')
+    const h = mountHost([ws])
+    try {
+      await initPlane(h)
+      const wirings = (h.svc as unknown as { projectWirings: Map<string, HostWiring> }).projectWirings
+      const wiring = wirings.get('PRJ-1')
+      expect(wiring, 'the PRJ-1 wiring must be composed by init').toBeDefined()
+      const real = wiring!.currentFocus
+      const failWith = (error: unknown): CurrentFocusService =>
+        ({
+          set: real.set.bind(real),
+          clear: real.clear.bind(real),
+          revalidate: real.revalidate.bind(real),
+          get: () => {
+            throw error
+          },
+        }) as unknown as CurrentFocusService
+
+      // Corner 1: a CF-family fault (CF_STORE) → the wire carrier
+      // `[research-control] CF_STORE: <message>` (same mapper as
+      // setCurrentFocus — #mapCurrentFocusError).
+      const w = wiring as unknown as { currentFocus: CurrentFocusService }
+      w.currentFocus = failWith(
+        new CurrentFocusError({ code: 'CF_STORE', message: 'get: injected closed-handle fault' }),
+      )
+      await expect(h.svc.getCurrentFocus({ workstreamId: 'WS-1' })).rejects.toThrow(
+        '[research-control] CF_STORE: get: injected closed-handle fault',
+      )
+
+      // Corner 2: a non-CF fault propagates UNTOUCHED — the kernel's own
+      // message, no prefix, the SAME instance.
+      const plain = new Error('injected non-CF fault')
+      w.currentFocus = failWith(plain)
+      await expect(h.svc.getCurrentFocus({ workstreamId: 'WS-1' })).rejects.toBe(plain)
     } finally {
       disposeFiber(h)
     }

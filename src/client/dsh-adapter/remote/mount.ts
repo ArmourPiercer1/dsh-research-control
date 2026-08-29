@@ -38,6 +38,8 @@ import type {
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
+  GetCurrentFocusArgs,
+  GetCurrentFocusResult,
   GetGitHistoryArgs,
   GetGitHistoryResult,
   GetHubOverviewArgs,
@@ -66,6 +68,8 @@ import type {
   SaveResearchCheckpointResult,
   SelectPlanForkArgs,
   SelectPlanForkResult,
+  SetCurrentFocusArgs,
+  SetCurrentFocusResult,
   SetHubArgs,
   SetHubResult,
   TopicSnapshot,
@@ -164,6 +168,8 @@ function requireNamespace(): TypertRemoteNamespaceMap['researchControl'] {
  * createXXXStore factories on top of this facade). V2-T4.1: + the 9 plane
  * RPCs (design §12 rows 1-6/8/9 — the V2 tab shell drives row 1, the P5
  * pages the rest; same conventions, PLANE-LEVEL, not per-project).
+ * UI-0.4: + the 2 GUI management RPCs (the current-focus pair, R-01 —
+ * project-routed like the rest of the management face).
  */
 export const researchRpc = {
   async ping(): Promise<RemoteResult<PingResult>> {
@@ -250,5 +256,14 @@ export const researchRpc = {
     args: AckMissingReminderArgs,
   ): Promise<RemoteResult<AckMissingReminderResult>> {
     return requireNamespace().ackMissingReminder(args)
+  },
+  // UI-0.4 (R-01): the GUI management face — the current-focus pair.
+  async setCurrentFocus(
+    args: SetCurrentFocusArgs,
+  ): Promise<RemoteResult<SetCurrentFocusResult>> {
+    return requireNamespace().setCurrentFocus(args)
+  },
+  async getCurrentFocus(args: GetCurrentFocusArgs): Promise<RemoteResult<GetCurrentFocusResult>> {
+    return requireNamespace().getCurrentFocus(args)
   },
 }

@@ -45,6 +45,12 @@
  * |                        | `.research/**` file, so every declarative-tree projection may change |
  * |                        | (dashboard/project topic cards read the tree too: title +            |
  * |                        | workstreamCount) and the git log/diff face of that path moves.       |
+ * | setCurrentFocus (UI-0.4)| `currentFocus:<ws>` ONLY — the pointer is an operational row and NO  |
+ * | (R-01)                  | existing slice's DTO carries focus data (the frozen                  |
+ * |                        | WorkstreamSnapshot cannot gain the field — rpc-contracts             |
+ * |                        | §getCurrentFocus note), so the CF slice is the whole store-level     |
+ * |                        | invalidation today; the focus surfaces (header / future strip /      |
+ * |                        | graph) are UI-4 work selecting from the `currentFocus` slice.        |
  *
  * History slices (`history:*`) are intentionally NEVER invalidated by a
  * client mutation: the WS event log is append-only and none of the 13
@@ -59,6 +65,7 @@ import type {
   ReorderPlanResult,
   RestoreDeclarativeFileResult,
   SaveResearchCheckpointResult,
+  SetCurrentFocusResult,
   SelectPlanForkResult,
   UpdateInterventionStateResult,
 } from '../../shared/rpc-contracts.js'
@@ -68,7 +75,11 @@ import {
   sliceKey,
 } from './model.js'
 
-/** The seven client-side mutations of the frozen 13-RPC list. */
+/**
+ * The eight client-side mutations: the seven of the frozen 13-RPC list
+ * plus `setCurrentFocus` (UI-0.4, R-01 — the GUI management face;
+ * `getCurrentFocus` is a query, not a mutation).
+ */
 export type MutationId =
   | 'reorderPlan'
   | 'selectPlanFork'
@@ -77,6 +88,7 @@ export type MutationId =
   | 'registerInteraction'
   | 'saveResearchCheckpoint'
   | 'restoreDeclarativeFile'
+  | 'setCurrentFocus'
 
 export const MUTATION_IDS: readonly MutationId[] = [
   'reorderPlan',
@@ -86,6 +98,7 @@ export const MUTATION_IDS: readonly MutationId[] = [
   'registerInteraction',
   'saveResearchCheckpoint',
   'restoreDeclarativeFile',
+  'setCurrentFocus',
 ]
 
 /** One registry rule: pure (result, state) -> affected global slice keys. */
@@ -106,6 +119,7 @@ export const INVALIDATE_REGISTRY: {
   readonly registerInteraction: InvalidationRule<RegisterInteractionResult>
   readonly saveResearchCheckpoint: InvalidationRule<SaveResearchCheckpointResult>
   readonly restoreDeclarativeFile: InvalidationRule<RestoreDeclarativeFileResult>
+  readonly setCurrentFocus: InvalidationRule<SetCurrentFocusResult>
 } = {
   reorderPlan: (result, _state) => [sliceKey('workstreams', result.workstreamId)],
 
@@ -137,6 +151,14 @@ export const INVALIDATE_REGISTRY: {
     ...[...state.workstreams.keys()].map(key => sliceKey('workstreams', key)),
     ...[...state.gitHistory.keys()].map(key => sliceKey('gitHistory', key)),
   ],
+
+  // UI-0.4 (R-01): the focus pointer is an operational row. No other slice's
+  // DTO carries focus data (the frozen WorkstreamSnapshot cannot gain the
+  // field), so the `currentFocus:<ws>` slice is the WHOLE store-level
+  // invalidation today. The rule is state-independent (like
+  // updateInterventionState / registerInteraction): it refetches exactly the
+  // caller's CF slice, which the store skips when it is still idle.
+  setCurrentFocus: (result, _state) => [sliceKey('currentFocus', result.workstreamId)],
 }
 
 /**

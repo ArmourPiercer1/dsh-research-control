@@ -218,6 +218,10 @@ export function makeHistoryFacade(log: readonly HistoryEventDto[]): HistoryFacad
       restoreProject: notUsed('restoreProject'),
       rescan: notUsed('rescan'),
       ackMissingReminder: notUsed('ackMissingReminder'),
+      // UI-1: the GUI management CF pair joins the facade surface (same
+      // must-not-be-called contract — the history view never calls them).
+      setCurrentFocus: notUsed('setCurrentFocus'),
+      getCurrentFocus: notUsed('getCurrentFocus'),
     } as ResearchRpcFacade,
     calls,
     nextControlled: () => {
@@ -267,6 +271,9 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     restoreProject: notUsed('restoreProject'),
     rescan: notUsed('rescan'),
     ackMissingReminder: notUsed('ackMissingReminder'),
+    // UI-1: the GUI management CF pair (same must-not-be-called contract).
+    setCurrentFocus: notUsed('setCurrentFocus'),
+    getCurrentFocus: notUsed('getCurrentFocus'),
   } as ResearchRpcFacade
 }
 

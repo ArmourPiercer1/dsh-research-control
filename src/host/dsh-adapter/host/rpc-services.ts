@@ -471,13 +471,23 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
   }
 
   getCurrentFocus(args: GetCurrentFocusArgs): GetCurrentFocusResult {
-    const record = this.#wiring.currentFocus.get(args.workstreamId)
-    return {
-      workstreamId: args.workstreamId,
-      focus:
-        record === undefined
-          ? null
-          : { planItemId: record.planItemId, updatedAt: record.updatedAt },
+    // BL-03 (UI-1): the read face gets the SAME error mapping as
+    // `setCurrentFocus` (mirror of :457-471) — a CF_* fault from
+    // `currentFocus.get` (CF_STORE: bad row / closed handle — the CF_INPUT
+    // shape gate is decoded away earlier at the @Remote zod layer,
+    // host/index.ts) rides the same `[research-control] <CODE>: <message>`
+    // carrier; non-CF errors propagate untouched.
+    try {
+      const record = this.#wiring.currentFocus.get(args.workstreamId)
+      return {
+        workstreamId: args.workstreamId,
+        focus:
+          record === undefined
+            ? null
+            : { planItemId: record.planItemId, updatedAt: record.updatedAt },
+      }
+    } catch (e) {
+      throw this.#mapCurrentFocusError(e)
     }
   }
 

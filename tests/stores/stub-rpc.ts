@@ -52,6 +52,11 @@ import type {
   RescanResult,
   AckMissingReminderArgs,
   AckMissingReminderResult,
+  // UI-0.4 (R-01): the GUI management face (current-focus pair).
+  GetCurrentFocusArgs,
+  GetCurrentFocusResult,
+  SetCurrentFocusArgs,
+  SetCurrentFocusResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -146,7 +151,7 @@ const DEFAULTS: Record<string, () => unknown> = {
   restoreDeclarativeFile: () => ({ ok: true, value: RESTORE_FIXTURE }),
   // V2-T4.1: wire-valid minimal defaults for the 9 plane methods (the
   // store suite never exercises them by default — they exist so the stub
-  // structurally satisfies the 23-method `ResearchRpcFacade` face).
+  // structurally satisfies the full `ResearchRpcFacade` face).
   getResearchPlaneState: () => ({
     ok: true,
     value: {
@@ -191,6 +196,14 @@ const DEFAULTS: Record<string, () => unknown> = {
     },
   }),
   ackMissingReminder: () => ({ ok: true, value: { acknowledged: true } }),
+  // UI-0.4 (R-01): wire-valid minimal defaults for the GUI management
+  // pair — LOCAL to this stub (the CF face has no entries in
+  // tests/rpc-face/fixtures.ts); the store suite overrides per-test.
+  setCurrentFocus: () => ({
+    ok: true,
+    value: { workstreamId: 'WS-1', planItemId: 'T-1', updatedAt: 1755000001000 },
+  }),
+  getCurrentFocus: () => ({ ok: true, value: { workstreamId: 'WS-1', focus: null } }),
 }
 
 /**
@@ -266,6 +279,13 @@ export function makeStubRpc(): StubRpc {
     rescan: async (args: RescanArgs) => deliverArgs<RemoteResult<RescanResult>>('rescan', args),
     ackMissingReminder: async (args: AckMissingReminderArgs) =>
       deliverArgs<RemoteResult<AckMissingReminderResult>>('ackMissingReminder', args),
+    // UI-0.4 (R-01): the GUI management face — deliberately NOT in
+    // FACADE_METHODS (that list tracks the frozen 14; same convention
+    // as the 9 plane methods).
+    setCurrentFocus: async (args: SetCurrentFocusArgs) =>
+      deliverArgs<RemoteResult<SetCurrentFocusResult>>('setCurrentFocus', args),
+    getCurrentFocus: async (args: GetCurrentFocusArgs) =>
+      deliverArgs<RemoteResult<GetCurrentFocusResult>>('getCurrentFocus', args),
   }
 
   return {

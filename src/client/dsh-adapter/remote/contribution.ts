@@ -41,9 +41,15 @@ import {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  CreateTopicArgs,
+  CreateTopicResult,
+  CreateWorkstreamArgs,
+  CreateWorkstreamResult,
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
+  GetCurrentFocusArgs,
+  GetCurrentFocusResult,
   GetGitHistoryArgs,
   GetGitHistoryResult,
   GetHubOverviewArgs,
@@ -72,6 +78,8 @@ import {
   RestoreProjectResult,
   SaveResearchCheckpointArgs,
   SaveResearchCheckpointResult,
+  SetCurrentFocusArgs,
+  SetCurrentFocusResult,
   SetHubArgs,
   SetHubResult,
   SelectPlanForkArgs,
@@ -135,6 +143,20 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/ackMissingReminder': (
       args: AckMissingReminderArgs,
     ) => Promise<RemoteResult<AckMissingReminderResult>>
+    // UI-0.4: the GUI management face — the current-focus pair (R-01) +
+    // the hierarchy create pair (Task 3), project-routed.
+    'researchControl/setCurrentFocus': (
+      args: SetCurrentFocusArgs,
+    ) => Promise<RemoteResult<SetCurrentFocusResult>>
+    'researchControl/getCurrentFocus': (
+      args: GetCurrentFocusArgs,
+    ) => Promise<RemoteResult<GetCurrentFocusResult>>
+    'researchControl/createTopic': (
+      args: CreateTopicArgs,
+    ) => Promise<RemoteResult<CreateTopicResult>>
+    'researchControl/createWorkstream': (
+      args: CreateWorkstreamArgs,
+    ) => Promise<RemoteResult<CreateWorkstreamResult>>
   }
 
   interface TypertRemoteNamespaceMap {
@@ -145,7 +167,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
    * Mounted namespace methods for `researchControl` (generator-named
    * interface). WP-4.1a: ping (WP-0.3 diagnostic) + the 13 §7.1 RPCs;
    * V2-T3.2a: + the 3 read-only plane RPCs (design §12 rows 1-3);
-   * V2-T3.2b: + the 6 change-family plane RPCs (design §12 rows 4-6/8/9).
+   * V2-T3.2b: + the 6 change-family plane RPCs (design §12 rows 4-6/8/9);
+   * UI-0.4: + the 4 GUI management RPCs (the current-focus pair, R-01,
+   * and the hierarchy create pair, Task 3 — project-routed).
    */
   interface TypertRemoteNamespace$726573656172636f6e74726f6c {
     ping: () => Promise<RemoteResult<PingResult>>
@@ -187,6 +211,14 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     ackMissingReminder: (
       args: AckMissingReminderArgs,
     ) => Promise<RemoteResult<AckMissingReminderResult>>
+    // UI-0.4: the GUI management face — the current-focus pair (R-01) +
+    // the hierarchy create pair (Task 3), project-routed.
+    setCurrentFocus: (args: SetCurrentFocusArgs) => Promise<RemoteResult<SetCurrentFocusResult>>
+    getCurrentFocus: (args: GetCurrentFocusArgs) => Promise<RemoteResult<GetCurrentFocusResult>>
+    createTopic: (args: CreateTopicArgs) => Promise<RemoteResult<CreateTopicResult>>
+    createWorkstream: (
+      args: CreateWorkstreamArgs,
+    ) => Promise<RemoteResult<CreateWorkstreamResult>>
   }
 }
 
@@ -195,8 +227,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
  * `descriptors` is the SAME object set as `TYPERT.invocations` on the
  * host face (the shared `REGISTERED_RESEARCH_INVOCATIONS` — ping + the
  * 13 WP-4.1a descriptors + the 3 read-only plane descriptors, V2-T3.2a
- * + the 6 change-family plane descriptors, V2-T3.2b — the 23-endpoint
- * face), strict codecs included.
+ * + the 6 change-family plane descriptors, V2-T3.2b + the 4 GUI
+ * management descriptors, UI-0.4: the current-focus pair (R-01) and the
+ * hierarchy create pair (Task 3) — the hand-written map above mirrors
+ * the SAME face by category), strict codecs included.
  */
 export const researchRemotes: TypertRemoteContribution = {
   package: RESEARCH_CONTROL_PACKAGE,

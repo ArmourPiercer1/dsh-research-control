@@ -32,12 +32,13 @@
  *  - CASE 5 non-canonical reject: setCurrentFocus(WS-1, T-9) → ok:false with
  *    the `[research-control] CF_NOT_CANONICAL` carrier in the error message
  *    (D §6.5 machine matching), and the pointer is UNCHANGED (a failed set
- *    wrote no row).
- *
- * Eviction-via-wire (auto-clear on canonical eviction) stays out of this
- * spec on purpose: it needs a plan mutation to evict an item — that is Task
- * 3's hierarchy CRUD; the eviction contract is covered at the unit /
- * integration layer (`tests/current-focus/`).
+ *    wrote no row);
+ *  - CASE 6 live eviction (BL-04 close): a strict-SUBSET reorderPlan that
+ *    drops the current pointer target (T-2) is legal — the frozen guard is
+ *    membership + dedup only, no cardinality check; the post-commit
+ *    revalidation auto-clears the pointer (R-01) and getCurrentFocus then
+ *    reads focus:null, proving the eviction contract end-to-end over the
+ *    live gateway wire (face layer: tests/current-focus/rpc-face.test.ts).
  */
 import { expect, test } from '@playwright/test'
 import { nodeRpc } from './helpers'
@@ -149,5 +150,30 @@ test.describe('V2-UI-0.4 — current focus RPC over the live gateway (Task 2 / R
     // A failed set wrote no row: the pointer from CASE 4 stands.
     const got = await getCurrentFocus('t64-c5b')
     expect(got.focus?.planItemId, 'the failed set did not move the pointer').toBe('T-2')
+  })
+
+  test('CASE 6 — live eviction: a SUBSET reorderPlan drops the pointer target → focus reads null (R-01 auto-clear; BL-04)', async () => {
+    // The frozen reorder guard is membership + dedup only (no cardinality
+    // check), so a strict subset of WS-1's eight canonical items that DROPS
+    // T-2 (the pointer from CASE 4) is accepted and written. The post-commit
+    // revalidation (fresh disk read) auto-clears the pointer — the same R-01
+    // path the face test proves at the service layer
+    // (tests/current-focus/rpc-face.test.ts), here end-to-end over the live
+    // gateway wire (BL-04, UI0-Task2 review follow-up).
+    const subset = ['G-1', 'T-1', 'T-5', 'T-3', 'T-4', 'M-1', 'G-2'] // T-2 dropped
+    const out = await nodeRpc(BASE_URL, 'reorderPlan', { workstreamId: WS, orderedItemIds: subset }, 't64-c6a')
+    expect(out.status, `reorderPlan HTTP ${out.status}: ${out.raw ?? ''}`).toBe(200)
+    expect(out.ok, `reorderPlan failed: ${out.error?.message ?? out.raw ?? ''}`).toBe(true)
+    // Strict reparse of the frozen ReorderPlanResult (exact key set + shapes).
+    const v = out.value as Record<string, unknown>
+    expect(Object.keys(v).sort()).toEqual(['managementActionId', 'orderedItemIds', 'planPath', 'workstreamId'])
+    expect(v.workstreamId).toBe(WS)
+    expect(v.orderedItemIds, 'the kernel wrote the subset as the new canonical order').toEqual(subset)
+    expect(typeof v.planPath, 'planPath must be a string').toBe('string')
+    expect(v.managementActionId).toMatch(/^MA-[1-9][0-9]*$/)
+    // The auto-cleared pointer reads absent — exactly like CASE 1's never-set state.
+    const got = await getCurrentFocus('t64-c6b')
+    expect(got.workstreamId).toBe(WS)
+    expect(got.focus, 'evicted target reads null — R-01 auto-clear over the live wire').toBeNull()
   })
 })

@@ -11,8 +11,10 @@ import { describe, expect, it } from 'vitest'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import {
   type DashboardSnapshot,
+  type GetCurrentFocusResult,
   type GetGitHistoryArgs,
   type QueryHistoryArgs,
+  type SetCurrentFocusResult,
 } from '../../src/shared/rpc-contracts.js'
 import {
   DASHBOARD_FIXTURE,
@@ -50,7 +52,7 @@ function freshStore(stub: StubRpc): ResearchStore {
 }
 
 describe('createResearchStore — factory & face', () => {
-  it('exports the full face (observable + 6 loads + 7 mutations + refresh loop)', () => {
+  it('exports the full face (observable + 7 loads + 8 mutations + refresh loop)', () => {
     const store = freshStore(makeStubRpc())
     for (const name of [
       'getSnapshot',
@@ -62,6 +64,7 @@ describe('createResearchStore — factory & face', () => {
       'loadWorkstream',
       'loadHistory',
       'loadGitHistory',
+      'getCurrentFocus',
       'reorderPlan',
       'selectPlanFork',
       'dismissPlanFork',
@@ -69,6 +72,7 @@ describe('createResearchStore — factory & face', () => {
       'registerInteraction',
       'saveResearchCheckpoint',
       'restoreDeclarativeFile',
+      'setCurrentFocus',
       'refresh',
       'onRefetch',
     ]) {
@@ -85,6 +89,7 @@ describe('createResearchStore — factory & face', () => {
     expect(state.workstreams.size).toBe(0)
     expect(state.history.size).toBe(0)
     expect(state.gitHistory.size).toBe(0)
+    expect(state.currentFocus.size).toBe(0)
     expect(store.getSnapshot()).toBe(state)
     expect(store.getSnapshot()).toBe(state)
   })
@@ -398,6 +403,186 @@ describe('mutations — resolve with the host result, then invalidate/refetch', 
     expect(caught).toBeInstanceOf(Error)
     expect(caught).not.toBeInstanceOf(ResearchRpcError)
     expect((caught as Error).message).toBe('gateway down')
+  })
+})
+
+describe('current focus (UI-0.4, R-01) — the CF slice family + its mutation', () => {
+  // LOCAL fixtures: the CF face has no entries in tests/rpc-face/fixtures.ts
+  // (the stub defaults mirror the FOCUS_T1 / SET_FOCUS_RESULT shapes).
+  const FOCUS_T1: GetCurrentFocusResult = {
+    workstreamId: 'WS-1',
+    focus: { planItemId: 'T-1', updatedAt: 1755000001000 },
+  }
+  const FOCUS_T2: GetCurrentFocusResult = {
+    workstreamId: 'WS-2',
+    focus: { planItemId: 'T-2', updatedAt: 1755000002000 },
+  }
+  const FOCUS_T2_WS1: GetCurrentFocusResult = {
+    workstreamId: 'WS-1',
+    focus: { planItemId: 'T-2', updatedAt: 1755000002000 },
+  }
+  const SET_FOCUS_RESULT: SetCurrentFocusResult = {
+    workstreamId: 'WS-1',
+    planItemId: 'T-1',
+    updatedAt: 1755000001000,
+  }
+  const SET_FOCUS_WS2: SetCurrentFocusResult = {
+    workstreamId: 'WS-2',
+    planItemId: 'T-2',
+    updatedAt: 1755000002000,
+  }
+  /** Wrap a raw DTO as the ok-RemoteResult the stub `set` seam expects. */
+  const okFocus = (value: GetCurrentFocusResult): RemoteResult<GetCurrentFocusResult> => ({
+    ok: true,
+    value,
+  })
+
+  it('getCurrentFocus: idle → loading → ready, the wire DTO BY REFERENCE; args pass through', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    stub.set('getCurrentFocus', okFocus(FOCUS_T1))
+    const transitions: string[] = []
+    store.subscribe(() =>
+      transitions.push(store.getState().currentFocus.get('WS-1')?.status ?? 'absent'),
+    )
+
+    const p = store.getCurrentFocus({ workstreamId: 'WS-1' })
+    expect(store.getState().currentFocus.get('WS-1')?.status).toBe('loading')
+    await p
+    const slice = store.getState().currentFocus.get('WS-1')!
+    expect(slice.status).toBe('ready')
+    expect(slice.data).toBe(FOCUS_T1)
+    expect(slice.error).toBeNull()
+    expect(typeof slice.updatedAt).toBe('number')
+    expect(transitions).toEqual(['loading', 'ready'])
+    expect(stub.countOf('getCurrentFocus')).toBe(1)
+    expect(stub.callsTo('getCurrentFocus')[0]!.args).toEqual({ workstreamId: 'WS-1' })
+  })
+
+  it('setCurrentFocus business fault: ResearchRpcError (CF code); slice untouched, NO refetch', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    stub.set('getCurrentFocus', okFocus(FOCUS_T1))
+    await store.getCurrentFocus({ workstreamId: 'WS-1' })
+    const before = store.getState().currentFocus.get('WS-1')!
+    stub.set('setCurrentFocus', {
+      ok: false,
+      error: {
+        code: 'CF_NOT_CANONICAL',
+        message: '[research-control] CF_NOT_CANONICAL: T-9 is not a canonical item of WS-1',
+        details: {},
+      },
+    })
+    let caught: unknown
+    try {
+      await store.setCurrentFocus({ workstreamId: 'WS-1', planItemId: 'T-9' })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(ResearchRpcError)
+    expect((caught as ResearchRpcError).code).toBe('CF_NOT_CANONICAL')
+    expect((caught as ResearchRpcError).message).toContain('[research-control] CF_NOT_CANONICAL')
+    expect(store.getState().currentFocus.get('WS-1')).toBe(before) // ref unchanged
+    expect(stub.countOf('setCurrentFocus')).toBe(1)
+    expect(stub.countOf('getCurrentFocus')).toBe(1) // no refetch after a failed mutation
+  })
+
+  it('stale-while-revalidate: a failed post-set refetch keeps the last good pointer; set resolves', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    stub.set('getCurrentFocus', okFocus(FOCUS_T1))
+    await store.getCurrentFocus({ workstreamId: 'WS-1' })
+    const lastGood = store.getState().currentFocus.get('WS-1')!.data
+    stub.set('getCurrentFocus', {
+      ok: false,
+      error: { code: 'internal', message: 'db closed', details: {} },
+    })
+    stub.set('setCurrentFocus', { ok: true, value: SET_FOCUS_RESULT })
+    const result = await store.setCurrentFocus({ workstreamId: 'WS-1', planItemId: 'T-1' })
+    expect(result).toBe(SET_FOCUS_RESULT)
+    const slice = store.getState().currentFocus.get('WS-1')!
+    expect(slice.status).toBe('error')
+    expect(slice.data).toBe(lastGood) // SWR: the last good pointer is kept
+    expect(slice.error).toBe('internal: db closed')
+  })
+
+  it('concurrent setCurrentFocus: mutations are NOT deduped; each OK set refetches the CF slice once', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    stub.set('getCurrentFocus', okFocus(FOCUS_T1))
+    await store.getCurrentFocus({ workstreamId: 'WS-1' })
+    // the post-set refetches return the pointer AS WRITTEN by each set
+    stub.set('getCurrentFocus', [okFocus(FOCUS_T1), okFocus(FOCUS_T2_WS1)])
+    const a = deferred<SetCurrentFocusResult>()
+    const b = deferred<SetCurrentFocusResult>()
+    stub.set('setCurrentFocus', [a.promise, b.promise])
+
+    const m1 = store.setCurrentFocus({ workstreamId: 'WS-1', planItemId: 'T-1' })
+    const m2 = store.setCurrentFocus({ workstreamId: 'WS-1', planItemId: 'T-2' })
+    expect(stub.countOf('setCurrentFocus')).toBe(2) // mutations never dedupe
+
+    a.resolve({ ok: true, value: SET_FOCUS_RESULT })
+    await m1
+    expect(stub.countOf('getCurrentFocus')).toBe(2) // 1 load + 1 refetch
+
+    b.resolve({
+      ok: true,
+      value: { workstreamId: 'WS-1', planItemId: 'T-2', updatedAt: 1755000002000 },
+    })
+    await m2
+    expect(stub.countOf('getCurrentFocus')).toBe(3) // + the 2nd refetch
+    const slice = store.getState().currentFocus.get('WS-1')!
+    expect(slice.status).toBe('ready')
+    expect(slice.data).toBe(FOCUS_T2_WS1) // the LAST set's pointer wins
+  })
+
+  it('invalidation exactness: a set with the CF slice LOADED logs [set, refetch] and nothing else', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    stub.set('getCurrentFocus', okFocus(FOCUS_T1))
+    await store.loadWorkstream('WS-1')
+    await store.getCurrentFocus({ workstreamId: 'WS-1' })
+    stub.set('setCurrentFocus', { ok: true, value: SET_FOCUS_RESULT })
+    const result = await store.setCurrentFocus({ workstreamId: 'WS-1', planItemId: 'T-1' })
+    expect(result).toBe(SET_FOCUS_RESULT)
+    expect(stub.calls.map(call => call.method)).toEqual([
+      'getWorkstream',
+      'getCurrentFocus',
+      'setCurrentFocus',
+      'getCurrentFocus',
+    ])
+    expect(stub.countOf('getWorkstream')).toBe(1) // the workstream slice is NOT invalidated
+  })
+
+  it('invalidation exactness, idle corner: a set with the CF slice idle makes NO refetch wire call', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    stub.set('setCurrentFocus', { ok: true, value: SET_FOCUS_RESULT })
+    const result = await store.setCurrentFocus({ workstreamId: 'WS-1', planItemId: 'T-1' })
+    expect(result).toBe(SET_FOCUS_RESULT)
+    expect(stub.calls.map(call => call.method)).toEqual(['setCurrentFocus'])
+    expect(store.getState().currentFocus.size).toBe(0) // idle slices are never materialized
+  })
+
+  it('per-workstream key isolation: a WS-2 set refetches ONLY the WS-2 slice; WS-1 keeps its ref', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    stub.set('getCurrentFocus', okFocus(FOCUS_T1))
+    await store.getCurrentFocus({ workstreamId: 'WS-1' })
+    const ws1Before = store.getState().currentFocus.get('WS-1')!
+    stub.set('getCurrentFocus', okFocus(FOCUS_T2))
+    await store.getCurrentFocus({ workstreamId: 'WS-2' })
+    expect(store.getState().currentFocus.size).toBe(2)
+    stub.set('setCurrentFocus', { ok: true, value: SET_FOCUS_WS2 })
+    const result = await store.setCurrentFocus({ workstreamId: 'WS-2', planItemId: 'T-2' })
+    expect(result).toBe(SET_FOCUS_WS2)
+
+    const state = store.getState()
+    expect(state.currentFocus.size).toBe(2)
+    expect(state.currentFocus.get('WS-1')).toBe(ws1Before) // reference stable
+    const refetchCalls = stub.callsTo('getCurrentFocus')
+    expect(refetchCalls[refetchCalls.length - 1]!.args).toEqual({ workstreamId: 'WS-2' })
+    expect(state.currentFocus.get('WS-2')!.data).toBe(FOCUS_T2)
   })
 })
 

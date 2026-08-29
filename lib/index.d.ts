@@ -1,4 +1,4 @@
-import { A as RestoreDeclarativeFileArgs, B as SetHubArgs, C as QueryHistoryResult, D as ReorderPlanResult, E as ReorderPlanArgs, F as SaveResearchCheckpointResult, G as UnbindProjectResult, H as TopicSnapshot, I as SelectPlanForkArgs, J as WorkstreamSnapshot, K as UpdateInterventionStateArgs, L as SelectPlanForkResult, M as RestoreProjectArgs, N as RestoreProjectResult, O as RescanArgs, P as SaveResearchCheckpointArgs, R as SetCurrentFocusArgs, S as QueryHistoryArgs, T as RegisterInteractionResult, V as SetHubResult, W as UnbindProjectArgs, _ as GetTopicArgs, a as DashboardSnapshot, b as PingResult, c as GetCurrentFocusArgs, d as GetGitHistoryResult, f as GetHubOverviewArgs, g as GetResearchPlaneStateResult, h as GetResearchPlaneStateArgs, i as BindProjectResult, j as RestoreDeclarativeFileResult, k as RescanResult, l as GetCurrentFocusResult, m as GetPortfolioInterventionsResult, n as AckMissingReminderResult, o as DismissPlanForkArgs, p as GetPortfolioInterventionsArgs, q as UpdateInterventionStateResult, r as BindProjectArgs, s as DismissPlanForkResult, t as AckMissingReminderArgs, u as GetGitHistoryArgs, v as GetWorkstreamArgs, w as RegisterInteractionArgs, x as ProjectSnapshot, y as HubOverviewResult, z as SetCurrentFocusResult } from "./rpc-contracts-CpXnitc5.js";
+import { A as ReorderPlanArgs, B as SelectPlanForkArgs, C as HubOverviewResult, D as QueryHistoryResult, E as QueryHistoryArgs, F as RestoreDeclarativeFileResult, G as SetHubResult, H as SetCurrentFocusArgs, I as RestoreProjectArgs, J as UnbindProjectArgs, K as TopicSnapshot, L as RestoreProjectResult, M as RescanArgs, N as RescanResult, O as RegisterInteractionArgs, P as RestoreDeclarativeFileArgs, Q as WorkstreamSnapshot, R as SaveResearchCheckpointArgs, S as GetWorkstreamArgs, T as ProjectSnapshot, U as SetCurrentFocusResult, V as SelectPlanForkResult, W as SetHubArgs, X as UpdateInterventionStateArgs, Y as UnbindProjectResult, Z as UpdateInterventionStateResult, _ as GetPortfolioInterventionsArgs, a as CreateTopicArgs, b as GetResearchPlaneStateResult, c as CreateWorkstreamResult, d as DismissPlanForkResult, f as GetCurrentFocusArgs, g as GetHubOverviewArgs, h as GetGitHistoryResult, i as BindProjectResult, j as ReorderPlanResult, k as RegisterInteractionResult, l as DashboardSnapshot, m as GetGitHistoryArgs, n as AckMissingReminderResult, o as CreateTopicResult, p as GetCurrentFocusResult, r as BindProjectArgs, s as CreateWorkstreamArgs, t as AckMissingReminderArgs, u as DismissPlanForkArgs, v as GetPortfolioInterventionsResult, w as PingResult, x as GetTopicArgs, y as GetResearchPlaneStateArgs, z as SaveResearchCheckpointResult } from "./rpc-contracts-P37Lgx6L.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import s from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
@@ -52,6 +52,20 @@ interface ResearchRpcServices {
    * canonical Plan (the R-01 eviction rule).
    */
   getCurrentFocus(args: GetCurrentFocusArgs): GetCurrentFocusResult;
+  /**
+   * V2-UI-0.4 (Task 3): create a new Topic in the routed project —
+   * allocates the next TPC-<n> (max+1, never reused) and writes the
+   * minimal valid file set (`topic.yaml` only). Returns the canonical
+   * record (id + `createdAt` version) for client invalidation.
+   */
+  createTopic(args: CreateTopicArgs): CreateTopicResult;
+  /**
+   * V2-UI-0.4 (Task 3): create a new Workstream under an existing topic
+   * of the routed project — allocates the next WS-<n> project-wide and
+   * writes `workstream.yaml`. The topic must be a node of this project
+   * (HIER_TOPIC_NOT_FOUND otherwise).
+   */
+  createWorkstream(args: CreateWorkstreamArgs): CreateWorkstreamResult;
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -321,6 +335,8 @@ declare class ResearchControlService extends TypertRemoteService {
   ackMissingReminder(args: unknown): Promise<AckMissingReminderResult>;
   setCurrentFocus(args: unknown): Promise<SetCurrentFocusResult>;
   getCurrentFocus(args: unknown): Promise<GetCurrentFocusResult>;
+  createTopic(args: unknown): Promise<CreateTopicResult>;
+  createWorkstream(args: unknown): Promise<CreateWorkstreamResult>;
   /**
    * The plane-mutation port guard (V2-T3.2b — the mutation twin of
    * {@link requirePlaneServices}): a constructor-injected stub (TESTS

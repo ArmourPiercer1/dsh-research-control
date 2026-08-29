@@ -11473,6 +11473,375 @@ var CurrentFocusService = class {
 	}
 };
 //#endregion
+//#region src/host/service/hierarchy/types.ts
+var HierarchyError = class extends Error {
+	code;
+	constructor(init) {
+		super(init.message, init.cause === void 0 ? void 0 : { cause: init.cause });
+		this.name = "HierarchyError";
+		this.code = init.code;
+	}
+};
+//#endregion
+//#region src/host/service/scaffold/tree.ts
+/**
+* The `created_at` carrier (DOMAIN_SCHEMA §1.2 ISO-8601 UTC, second
+* precision — the factory's `2026-08-21T09:00:00Z` style; the frozen
+* `date-time` format accepts both, second precision is the canonical
+* plugin-written form).
+*/
+function isoTimestampUtc(epochMs) {
+	return new Date(epochMs).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+//#endregion
+//#region src/host/service/hierarchy/yaml.ts
+/**
+* V2-UI-0.4 (Task 3) — hierarchy YAML text builders (pure, zero I/O).
+*
+* Determinism discipline (the scaffold `projectYamlText` precedent,
+* `service/scaffold/tree.ts`): `stringify(doc, { lineWidth: 0 })` with
+* insertion-order keys — the key order below is the FROZEN schema's
+* property order restricted to the fields this slice creates (the
+* frozen contract files are read-only; the writers never touch
+* `schema/`).
+*
+* Minimal-file-set discipline (loader phase-0 rules): a fresh topic
+* carries the required `id` / `project_id` / `title` / `created_at` and
+* NOTHING else — `description` only when the caller supplied it,
+* `importance` / `attention_mode` / `objective_refs` deliberately absent
+* (UI-2A exposes no create-time field for them; the loader materializes
+* the schema defaults at read time, so absence is the canonical
+* "unset" state — no fabricated values). A fresh workstream carries
+* `id` / `topic_id` / `title` / `created_at` (+ optional `summary`) —
+* `lifecycle` is absent from the file and materializes to its frozen
+* default PLANNED at load (the factory's no-plan workstreams are the
+* same shape).
+*/
+function topicYamlText(input) {
+	const doc = {
+		id: input.id,
+		project_id: input.projectId,
+		title: input.title
+	};
+	if (input.description !== void 0) doc.description = input.description;
+	doc.created_at = isoTimestampUtc(input.createdAtMs);
+	return stringify(doc, { lineWidth: 0 });
+}
+function workstreamYamlText(input) {
+	const doc = {
+		id: input.id,
+		topic_id: input.topicId,
+		title: input.title
+	};
+	if (input.summary !== void 0) doc.summary = input.summary;
+	doc.created_at = isoTimestampUtc(input.createdAtMs);
+	return stringify(doc, { lineWidth: 0 });
+}
+//#endregion
+//#region src/host/service/hierarchy/service.ts
+/**
+* V2-UI-0.4 (Task 3) — `HierarchyService`: the USER business face of
+* the declarative tree skeleton (createTopic / createWorkstream — the
+* D §8.1 create pair, UI-2A). Semantic gates live in this layer; the
+* mechanical I/O (tree load, atomic write, existence probe) is injected
+* (module doc: the kernel is PURE with respect to I/O).
+*
+* Gate order (frozen per operation):
+*
+*   createTopic:
+*     1. input shape (HIER_INPUT — defense-in-depth: the RPC layer has
+*        already strict-decoded, this re-asserts so the module is safe
+*        standalone);
+*     2. fresh tree load, fail loud on ANY load error (HIER_TREE_BROKEN
+*        — a partial tree could mis-allocate an id);
+*     3. resolve the project id from the loaded project.yaml (it is
+*        REQUIRED at the root — null here would mean the loader missed
+*        its own error ⇒ HIER_TREE_BROKEN);
+*     4. allocate the next TPC-<n> (max+1 over the loaded topic
+*        directories, monotonic, never reused — gaps are burned);
+*     5. pre-write existence probe of `topics/<id>/topic.yaml`
+*        (HIER_TOPIC_EXISTS — closes the load→write TOCTOU window; the
+*        writer's own mkdir+rename would otherwise silently replace a
+*        raced file);
+*     6. atomic write (HIER_WRITE on fs failure, cause preserved).
+*
+*   createWorkstream: same spine, with step 3.5 = the topic membership
+*     gate (HIER_TOPIC_NOT_FOUND — the wiring is per-project, so "the
+*     topic is not a node of THIS tree" IS the cross-project
+*     statement) and step 4 scanning workstream ids PROJECT-WIDE (the
+*     §1.1 uniqueness scope of a WS id is the Project, not the Topic).
+*
+* Deliberately absent (frozen scope of this slice): update / drop /
+* move / merge / bulk / nested / clone (D §8.2); importance /
+* attention_mode / objective_refs / lifecycle / origin_topology_edge_ref
+* are not exposed at create time (no UI field, no fabricated values —
+* the loader materializes schema defaults at read); no git checkpoint
+* (the reorderPlan precedent — mutations never auto-commit,
+* `saveResearchCheckpoint` stays a separate USER action); no DB ledger
+* (the tree IS the truth — no second store).
+*
+* Layer (ARCHITECTURE §2.2): this file has NO fs, NO git, NO DSH
+* imports (INV-PERM-5); the node:fs / node:path usage lives in the
+* wiring's port implementations.
+*/
+function messageOf$1(cause) {
+	return cause instanceof Error ? cause.message : String(cause);
+}
+var HierarchyService = class {
+	#loadTree;
+	#writer;
+	#fileExists;
+	#researchRoot;
+	#now;
+	constructor(options) {
+		if (options.loadTree === void 0 || typeof options.loadTree !== "function") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: "loadTree: a () => HierarchyLoadSnapshot fresh-tree provider is required"
+		});
+		if (options.writer === void 0 || typeof options.writer.writeAtomic !== "function") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: "writer: a PlanFileWriter (writeAtomic face) is required"
+		});
+		if (options.fileExists === void 0 || typeof options.fileExists !== "function") throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: "fileExists: an (absPath) => boolean pre-write probe is required"
+		});
+		if (typeof options.researchRoot !== "string" || options.researchRoot.length === 0) throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: "researchRoot: a non-empty absolute path is required"
+		});
+		this.#loadTree = options.loadTree;
+		this.#writer = options.writer;
+		this.#fileExists = options.fileExists;
+		this.#researchRoot = options.researchRoot;
+		this.#now = options.now ?? Date.now;
+	}
+	/** HIER_INPUT: title must be a 1–200 char string (frozen schema
+	*  `minLength: 1, maxLength: 200`; the wire strict-decode already
+	*  enforced it — this is the standalone-safety re-assertion). */
+	#assertTitle(operation, title) {
+		if (typeof title !== "string" || title.length < 1 || title.length > 200) throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: title must be a 1-200 char string (got ${JSON.stringify(title)})`
+		});
+	}
+	/** HIER_INPUT: the id must be a non-empty string (the wire enforces
+	*  the exact pattern; a malformed value simply misses the membership
+	*  gate below — that, not this, is its structured outcome). */
+	#assertNonEmptyId(operation, what, value) {
+		if (typeof value !== "string" || value.length === 0) throw new HierarchyError({
+			code: "HIER_INPUT",
+			message: `${operation}: ${what} must be a non-empty string (got ${JSON.stringify(value)})`
+		});
+	}
+	/** Fresh load + fail loud (HIER_TREE_BROKEN): a broken/incomplete
+	*  tree refuses creation (an id allocated over a partial scan could
+	*  collide with an invisible node). */
+	#loadOrThrow() {
+		let snapshot;
+		try {
+			snapshot = this.#loadTree();
+		} catch (cause) {
+			throw new HierarchyError({
+				code: "HIER_TREE_BROKEN",
+				message: `fresh tree load failed: ${messageOf$1(cause)}`,
+				cause
+			});
+		}
+		if (snapshot.errors.length > 0) {
+			const first = snapshot.errors[0];
+			const firstText = first ? `${first.file || "(root)"}${first.path ? ` @ ${first.path}` : ""}: ${first.message}` : "";
+			throw new HierarchyError({
+				code: "HIER_TREE_BROKEN",
+				message: `the research tree has ${snapshot.errors.length} load error(s); refusing to create over a broken tree (first: ${firstText})`
+			});
+		}
+		return snapshot;
+	}
+	/** The routed project's id (project.yaml is REQUIRED at the root — a
+	*  null project on a clean load would be a loader contract violation
+	*  ⇒ HIER_TREE_BROKEN, never a guess). */
+	#requireProjectId(snapshot) {
+		const project = snapshot.tree.project;
+		if (project === null) throw new HierarchyError({
+			code: "HIER_TREE_BROKEN",
+			message: "project.yaml is missing or rejected; the project id cannot be resolved"
+		});
+		return project.id;
+	}
+	/**
+	* Allocate the next id of `kind` from the loaded node ids (max+1,
+	* monotonic, gap-preserving, never reused). A node id that does not
+	* parse as its own kind is a loader PATH_RULE violation on a
+	* supposedly-clean tree ⇒ HIER_TREE_BROKEN (fail loud, never skip
+	* silently — a skipped id could re-enter the allocation pool).
+	*/
+	#allocateNext(kind, operation, knownIds) {
+		let maxSequence = 0;
+		for (const id of knownIds) {
+			const parsed = parseId(id);
+			if (parsed === null || (kind === "TPC" ? parsed.kind !== "TOPIC" : parsed.kind !== "WORKSTREAM")) throw new HierarchyError({
+				code: "HIER_TREE_BROKEN",
+				message: `${operation}: node id ${JSON.stringify(id)} does not parse as a ${kind === "TPC" ? "TOPIC" : "WORKSTREAM"} id (loader PATH_RULE violation on a clean tree)`
+			});
+			if (parsed.sequence > maxSequence) maxSequence = parsed.sequence;
+		}
+		return `${kind}-${maxSequence + 1}`;
+	}
+	/** HIER_*_EXISTS: the pre-write probe (TOCTOU close — see types.ts). */
+	#probeFree(operation, label, relPath, existsCode) {
+		const absPath = join(this.#researchRoot, relPath);
+		let exists;
+		try {
+			exists = this.#fileExists(absPath);
+		} catch (cause) {
+			throw new HierarchyError({
+				code: "HIER_WRITE",
+				message: `${operation}: cannot probe ${relPath} before writing: ${messageOf$1(cause)}`,
+				cause
+			});
+		}
+		if (exists) throw new HierarchyError({
+			code: existsCode,
+			message: `${operation}: ${label} already exists at ${relPath} (concurrent creation between load and write) — the id is burned and the existing file is never overwritten`
+		});
+	}
+	/** HIER_WRITE: the atomic write (tmp+rename; the writer's mkdir -p
+	*  creates the node's directory chain). */
+	#write(relPath, content) {
+		try {
+			this.#writer.writeAtomic(join(this.#researchRoot, relPath), content);
+		} catch (cause) {
+			throw new HierarchyError({
+				code: "HIER_WRITE",
+				message: `write of ${relPath} failed: ${messageOf$1(cause)}`,
+				cause
+			});
+		}
+	}
+	/**
+	* Create a new Topic in the routed project (gate order: input shape →
+	* fresh load / fail loud → project id → TPC-<n> allocation →
+	* pre-write probe → atomic write of `topics/<id>/topic.yaml`).
+	*/
+	createTopic(input) {
+		this.#assertTitle("createTopic", input.title);
+		const snapshot = this.#loadOrThrow();
+		const projectId = this.#requireProjectId(snapshot);
+		const topicId = this.#allocateNext("TPC", "createTopic", snapshot.tree.topics.map((t) => t.id));
+		const relPath = `topics/${topicId}/topic.yaml`;
+		this.#probeFree("createTopic", `topic ${topicId}`, relPath, "HIER_TOPIC_EXISTS");
+		const createdAtMs = this.#now();
+		this.#write(relPath, topicYamlText({
+			id: topicId,
+			projectId,
+			title: input.title,
+			description: input.description,
+			createdAtMs
+		}));
+		return {
+			topicId,
+			title: input.title,
+			path: relPath,
+			createdAt: createdAtMs
+		};
+	}
+	/**
+	* Create a new Workstream under an existing topic of the routed
+	* project (gate order: input shape → fresh load / fail loud → topic
+	* membership (HIER_TOPIC_NOT_FOUND) → project-wide WS-<n>
+	* allocation → pre-write probe → atomic write of
+	* `topics/<t>/workstreams/<id>/workstream.yaml`).
+	*/
+	createWorkstream(input) {
+		this.#assertNonEmptyId("createWorkstream", "topicId", input.topicId);
+		this.#assertTitle("createWorkstream", input.title);
+		const snapshot = this.#loadOrThrow();
+		if (snapshot.tree.topics.find((t) => t.id === input.topicId) === void 0) throw new HierarchyError({
+			code: "HIER_TOPIC_NOT_FOUND",
+			message: `createWorkstream: topic ${JSON.stringify(input.topicId)} is not a node of this project's tree (it belongs to another project or does not exist)`
+		});
+		const knownWorkstreamIds = snapshot.tree.topics.flatMap((t) => t.workstreams.map((w) => w.id));
+		const workstreamId = this.#allocateNext("WS", "createWorkstream", knownWorkstreamIds);
+		const relPath = `topics/${input.topicId}/workstreams/${workstreamId}/workstream.yaml`;
+		this.#probeFree("createWorkstream", `workstream ${workstreamId}`, relPath, "HIER_WORKSTREAM_EXISTS");
+		const createdAtMs = this.#now();
+		this.#write(relPath, workstreamYamlText({
+			id: workstreamId,
+			topicId: input.topicId,
+			title: input.title,
+			summary: input.summary,
+			createdAtMs
+		}));
+		return {
+			workstreamId,
+			topicId: input.topicId,
+			title: input.title,
+			path: relPath,
+			createdAt: createdAtMs
+		};
+	}
+};
+//#endregion
+//#region src/host/domain/topology/types.ts
+/**
+* Suffix for the temp file the store's atomic-write protocol uses
+* (`<target>.dshrc-tmp`). Exported so tests can observe the protocol.
+*/
+const TMP_FILE_SUFFIX = ".dshrc-tmp";
+//#endregion
+//#region src/host/service/fs/fs-plan-writer.ts
+/**
+* WP-2.6 (rider 2, G1 观察③) — the production real-fs `PlanFileWriter`.
+*
+* G1 round-1 观察③: 「生产级 real-fs `PlanFileWriter` 尚未入 src（WP-1.7 以
+* 契约文档化协议自供实现完成原子性证明）——属计划内待办，非缺陷」. This file
+* lands that production implementation in the service layer (the fs-backed
+* consumer the WP-1.3 port doc anticipated: 「implemented by the fs-backed
+* service layer in a later WP」, `src/host/domain/plan/types.ts`).
+*
+* The protocol is VERBATIM the documented contract (plan/types.ts
+* `PlanFileWriter`: 「write a tmp file in the same directory, then `rename`
+* over `path` — rename is atomic on POSIX」) — the same protocol the WP-1.7
+* crash tests already proved on real files (`tests/atomic/crash-fs.ts`
+* `plainAtomicWrite` / `RealFsPlanWriter`, TC-DB-001):
+*
+*   1. `mkdir -p` the parent directory (the writer's duty — the kernel
+*      never creates directories);
+*   2. write the FULL new content to `<path>.dshrc-tmp` (same directory —
+*      the suffix is the domain's own `TMP_FILE_SUFFIX` constant, the single
+*      source of truth shared with the topology protocol and the WP-2.6
+*      startup tmp sweep);
+*   3. `rename` the tmp over `path` (atomic on POSIX);
+*   4. on a failed rename: unlink the tmp BEST EFFORT (a cleanup failure
+*      never masks the original error) and propagate the ORIGINAL error
+*      (the store's `writeAtomicOrThrow` maps it to the `WRITE` code).
+*
+* On success `path` holds exactly `content` and no tmp file remains; on
+* failure `path` keeps its previous content (or stays absent) — no partial
+* file is ever observable (the crash points are covered by TC-DB-001).
+*
+* Synchronous by design: the port is synchronous (the domain kernel is),
+* so the real implementation is node:fs sync.
+*/
+/** The production real-fs `PlanFileWriter` (module doc = the protocol). */
+var FsPlanFileWriter = class {
+	/** Atomically write UTF-8 `content` to `path` (tmp+rename). Throws on failure. */
+	writeAtomic(path, content) {
+		const tmp = path + TMP_FILE_SUFFIX;
+		mkdirSync(dirname(path), { recursive: true });
+		writeFileSync(tmp, content, "utf8");
+		try {
+			renameSync(tmp, path);
+		} catch (cause) {
+			try {
+				unlinkSync(tmp);
+			} catch {}
+			throw cause;
+		}
+	}
+};
+//#endregion
 //#region src/host/service/intervention/types.ts
 /**
 * 机械触发种类（WP-3.5 冻结闭集, INV-ATTN-5）→ Intervention origin。
@@ -17672,13 +18041,6 @@ function startedAtOf(mapping, sessionId) {
 	});
 }
 //#endregion
-//#region src/host/domain/topology/types.ts
-/**
-* Suffix for the temp file the store's atomic-write protocol uses
-* (`<target>.dshrc-tmp`). Exported so tests can observe the protocol.
-*/
-const TMP_FILE_SUFFIX = ".dshrc-tmp";
-//#endregion
 //#region src/host/tools/types.ts
 /**
 * Project a service record into a lossless-JSON value (structural deep
@@ -22447,6 +22809,13 @@ function createHostWiring(options) {
 			canonicalPlanItemIds: (wsId) => planProvider.load(wsId).ordered_items,
 			now
 		});
+		const hierarchy = new HierarchyService({
+			loadTree: () => loadResearchTree(reader, researchRoot, declarativeDir),
+			writer: new FsPlanFileWriter(),
+			fileExists: (absPath) => reader.readFile(absPath) !== null,
+			researchRoot,
+			now
+		});
 		const contentHashCapturer = makeContentHashCapturer(researchRoot);
 		const loadPolicy = () => {
 			const result = loadPlanForkPolicy(reader, researchRoot, declarativeDir);
@@ -22551,6 +22920,7 @@ function createHostWiring(options) {
 			startup,
 			integrity: gate,
 			currentFocus,
+			hierarchy,
 			externalState,
 			createPlanFork: async (params) => {
 				const view = planProvider.load(params.workstreamId);

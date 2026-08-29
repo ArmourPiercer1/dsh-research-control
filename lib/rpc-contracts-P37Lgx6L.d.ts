@@ -829,5 +829,40 @@ interface GetCurrentFocusResult {
     readonly updatedAt: number;
   } | null;
 }
+interface CreateTopicArgs {
+  /** 1–200 chars (frozen topic.schema.json). */
+  readonly title: string;
+  /** Omitted = field absent from the written YAML (no default injected). */
+  readonly description?: string;
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it). */
+  readonly projectId?: string;
+}
+interface CreateTopicResult {
+  readonly topicId: string;
+  readonly title: string;
+  /** Root-relative path of the written file (e.g. `topics/TPC-2/topic.yaml`). */
+  readonly path: string;
+  /** `created_at` as epoch ms (the client invalidation version). */
+  readonly createdAt: number;
+}
+interface CreateWorkstreamArgs {
+  readonly topicId: string;
+  /** 1–200 chars (frozen workstream.schema.json). */
+  readonly title: string;
+  /** Omitted = field absent from the written YAML (lifecycle defaults to
+   *  PLANNED by the frozen schema). */
+  readonly summary?: string;
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string;
+}
+interface CreateWorkstreamResult {
+  readonly workstreamId: string;
+  readonly topicId: string;
+  readonly title: string;
+  /** Root-relative path of the written file (e.g. `topics/TPC-1/workstreams/WS-2/workstream.yaml`). */
+  readonly path: string;
+  /** `created_at` as epoch ms. */
+  readonly createdAt: number;
+}
 //#endregion
-export { RestoreDeclarativeFileArgs as A, SetHubArgs as B, QueryHistoryResult as C, ReorderPlanResult as D, ReorderPlanArgs as E, SaveResearchCheckpointResult as F, UnbindProjectResult as G, TopicSnapshot as H, SelectPlanForkArgs as I, WorkstreamSnapshot as J, UpdateInterventionStateArgs as K, SelectPlanForkResult as L, RestoreProjectArgs as M, RestoreProjectResult as N, RescanArgs as O, SaveResearchCheckpointArgs as P, SetCurrentFocusArgs as R, QueryHistoryArgs as S, RegisterInteractionResult as T, TypertContributionMirror as U, SetHubResult as V, UnbindProjectArgs as W, GetTopicArgs as _, DashboardSnapshot as a, PingResult as b, GetCurrentFocusArgs as c, GetGitHistoryResult as d, GetHubOverviewArgs as f, GetResearchPlaneStateResult as g, GetResearchPlaneStateArgs as h, BindProjectResult as i, RestoreDeclarativeFileResult as j, RescanResult as k, GetCurrentFocusResult as l, GetPortfolioInterventionsResult as m, AckMissingReminderResult as n, DismissPlanForkArgs as o, GetPortfolioInterventionsArgs as p, UpdateInterventionStateResult as q, BindProjectArgs as r, DismissPlanForkResult as s, AckMissingReminderArgs as t, GetGitHistoryArgs as u, GetWorkstreamArgs as v, RegisterInteractionArgs as w, ProjectSnapshot as x, HubOverviewResult as y, SetCurrentFocusResult as z };
+export { ReorderPlanArgs as A, SelectPlanForkArgs as B, HubOverviewResult as C, QueryHistoryResult as D, QueryHistoryArgs as E, RestoreDeclarativeFileResult as F, SetHubResult as G, SetCurrentFocusArgs as H, RestoreProjectArgs as I, UnbindProjectArgs as J, TopicSnapshot as K, RestoreProjectResult as L, RescanArgs as M, RescanResult as N, RegisterInteractionArgs as O, RestoreDeclarativeFileArgs as P, WorkstreamSnapshot as Q, SaveResearchCheckpointArgs as R, GetWorkstreamArgs as S, ProjectSnapshot as T, SetCurrentFocusResult as U, SelectPlanForkResult as V, SetHubArgs as W, UpdateInterventionStateArgs as X, UnbindProjectResult as Y, UpdateInterventionStateResult as Z, GetPortfolioInterventionsArgs as _, CreateTopicArgs as a, GetResearchPlaneStateResult as b, CreateWorkstreamResult as c, DismissPlanForkResult as d, GetCurrentFocusArgs as f, GetHubOverviewArgs as g, GetGitHistoryResult as h, BindProjectResult as i, ReorderPlanResult as j, RegisterInteractionResult as k, DashboardSnapshot as l, GetGitHistoryArgs as m, AckMissingReminderResult as n, CreateTopicResult as o, GetCurrentFocusResult as p, TypertContributionMirror as q, BindProjectArgs as r, CreateWorkstreamArgs as s, AckMissingReminderArgs as t, DismissPlanForkArgs as u, GetPortfolioInterventionsResult as v, PingResult as w, GetTopicArgs as x, GetResearchPlaneStateArgs as y, SaveResearchCheckpointResult as z };

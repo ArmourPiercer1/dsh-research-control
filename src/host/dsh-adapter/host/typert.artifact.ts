@@ -42,6 +42,10 @@ import {
   AckMissingReminderResultSchema,
   BindProjectArgsSchema,
   BindProjectResultSchema,
+  CreateTopicArgsSchema,
+  CreateTopicResultSchema,
+  CreateWorkstreamArgsSchema,
+  CreateWorkstreamResultSchema,
   DashboardSnapshotSchema,
   DismissPlanForkArgsSchema,
   DismissPlanForkResultSchema,
@@ -103,12 +107,14 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
 
 /**
  * Every wire schema the face uses, as a live zod v4 instance (the loader
- * requires the `_zod` brand on each `TYPERT.schemas` entry). 43 entries:
+ * requires the `_zod` brand on each `TYPERT.schemas` entry). 51 entries:
  * ping's result + the 13 RPCs' args/results (the two zero-arg queries
  * carry no args schema) + the 3 read-only plane RPCs' args/results
  * (V2-T3.2a) + the 6 change-family plane RPCs' args/results (V2-T3.2b —
  * design §12 rows 4-6/8/9; `RescanResult` rides the shared
- * `PlaneStateSummary` schema, the rescan's result alias).
+ * `PlaneStateSummary` schema, the rescan's result alias) + the 2
+ * current-focus management RPCs' args/results (V2-UI-0.4 slice 1) + the
+ * 2 hierarchy-create management RPCs' args/results (V2-UI-0.4 Task 3).
  */
 const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'PingResult', schema: PingResultSchema },
@@ -160,6 +166,12 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'SetCurrentFocusResult', schema: SetCurrentFocusResultSchema },
   { name: 'GetCurrentFocusArgs', schema: GetCurrentFocusArgsSchema },
   { name: 'GetCurrentFocusResult', schema: GetCurrentFocusResultSchema },
+  // V2-UI-0.4 Task 3: the 2 hierarchy-create management RPCs (D §8.1
+  // UI-2A create pair).
+  { name: 'CreateTopicArgs', schema: CreateTopicArgsSchema },
+  { name: 'CreateTopicResult', schema: CreateTopicResultSchema },
+  { name: 'CreateWorkstreamArgs', schema: CreateWorkstreamArgsSchema },
+  { name: 'CreateWorkstreamResult', schema: CreateWorkstreamResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -342,6 +354,18 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'GUI management (UI-0.4 / R-01): read back the workstream current-focus pointer (null when absent).',
           },
+          {
+            name: 'createTopic',
+            signature: 'createTopic(args: CreateTopicArgs): Promise<CreateTopicResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 Task 3): create a new Topic in the routed project (allocates the next TPC-<n>; writes the minimal topic.yaml).',
+          },
+          {
+            name: 'createWorkstream',
+            signature: 'createWorkstream(args: CreateWorkstreamArgs): Promise<CreateWorkstreamResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 Task 3): create a new Workstream under an existing topic (allocates the next WS-<n> project-wide; writes the minimal workstream.yaml).',
+          },
         ],
         types: [
           {
@@ -465,6 +489,17 @@ export const TYPERT: TypertHostManifest = {
             name: 'GetCurrentFocusResult',
             declaration:
               'interface GetCurrentFocusResult { readonly workstreamId: string; readonly focus: { planItemId: string; updatedAt: number } | null }',
+          },
+          // V2-UI-0.4 Task 3: the 2 hierarchy-create management RPC result types.
+          {
+            name: 'CreateTopicResult',
+            declaration:
+              'interface CreateTopicResult { readonly topicId: string; readonly title: string; readonly path: string; readonly createdAt: number }',
+          },
+          {
+            name: 'CreateWorkstreamResult',
+            declaration:
+              'interface CreateWorkstreamResult { readonly workstreamId: string; readonly topicId: string; readonly title: string; readonly path: string; readonly createdAt: number }',
           },
         ],
       },

@@ -64,6 +64,10 @@ import { join } from 'node:path'
 
 import {
   type CurrentTaskDto,
+  type CreateTopicArgs,
+  type CreateTopicResult,
+  type CreateWorkstreamArgs,
+  type CreateWorkstreamResult,
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
@@ -103,6 +107,7 @@ import {
   type WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
 import { isCurrentFocusError } from '../../service/current-focus/index.js'
+import { isHierarchyError } from '../../service/hierarchy/index.js'
 import {
   adaptDatabaseSync,
   type HostWiring,
@@ -196,6 +201,20 @@ export interface ResearchRpcServices {
    * canonical Plan (the R-01 eviction rule).
    */
   getCurrentFocus(args: GetCurrentFocusArgs): GetCurrentFocusResult
+  /**
+   * V2-UI-0.4 (Task 3): create a new Topic in the routed project —
+   * allocates the next TPC-<n> (max+1, never reused) and writes the
+   * minimal valid file set (`topic.yaml` only). Returns the canonical
+   * record (id + `createdAt` version) for client invalidation.
+   */
+  createTopic(args: CreateTopicArgs): CreateTopicResult
+  /**
+   * V2-UI-0.4 (Task 3): create a new Workstream under an existing topic
+   * of the routed project — allocates the next WS-<n> project-wide and
+   * writes `workstream.yaml`. The topic must be a node of this project
+   * (HIER_TOPIC_NOT_FOUND otherwise).
+   */
+  createWorkstream(args: CreateWorkstreamArgs): CreateWorkstreamResult
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -398,6 +417,21 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
   }
 
   /**
+   * V2-UI-0.4 (Task 3): map the service's HIER_* error family onto the
+   * wire error carrier (same `[research-control] <CODE>: <message>`
+   * shape as the CF_ mapper — the gateway folds a host error to
+   * `{ ok: false, error: <message> }` and the prefix is the
+   * machine-matchable carrier). Non-hierarchy errors propagate
+   * untouched (the kernel's own messages).
+   */
+  #mapHierarchyError(e: unknown): unknown {
+    if (isHierarchyError(e)) {
+      return new Error(`[research-control] ${e.code}: ${e.message}`, { cause: e })
+    }
+    return e
+  }
+
+  /**
    * UI-0.4 (R-01): BEST-EFFORT current-focus revalidation after a
    * committed Plan mutation (reorderPlan / selectPlanFork). Auto-clears
    * the pointer when its target has left the canonical Plan. Never
@@ -444,6 +478,50 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
         record === undefined
           ? null
           : { planItemId: record.planItemId, updatedAt: record.updatedAt },
+    }
+  }
+
+  createTopic(args: CreateTopicArgs): CreateTopicResult {
+    // The service owns the semantics: HIER_INPUT shape gate → the fresh
+    // load (fail-loud HIER_TREE_BROKEN) → the TPC-<n> allocation → the
+    // pre-write probe (HIER_TOPIC_EXISTS) → the atomic write. The RPC
+    // face IS the USER lane — no actor to forward; the `projectId`
+    // routing already selected this per-project wiring (requireRpc,
+    // §12.1).
+    try {
+      const out = this.#wiring.hierarchy.createTopic({
+        title: args.title,
+        description: args.description,
+      })
+      return {
+        topicId: out.topicId,
+        title: out.title,
+        path: out.path,
+        createdAt: out.createdAt,
+      }
+    } catch (e) {
+      throw this.#mapHierarchyError(e)
+    }
+  }
+
+  createWorkstream(args: CreateWorkstreamArgs): CreateWorkstreamResult {
+    // Same spine; the topic membership gate (HIER_TOPIC_NOT_FOUND) runs
+    // inside the service BEFORE any allocation or write.
+    try {
+      const out = this.#wiring.hierarchy.createWorkstream({
+        topicId: args.topicId,
+        title: args.title,
+        summary: args.summary,
+      })
+      return {
+        workstreamId: out.workstreamId,
+        topicId: out.topicId,
+        title: out.title,
+        path: out.path,
+        createdAt: out.createdAt,
+      }
+    } catch (e) {
+      throw this.#mapHierarchyError(e)
     }
   }
 

@@ -17,7 +17,7 @@
  *     entry of the repo `node_modules` + the package self-link — the
  *     unpacked tree has no install of its own), then `node`-import the
  *     BUILT main entry from the extracted bytes: `.` (default-export
- *     service class) + `./typert` (TYPERT manifest, 25 invocations = 24 RPC (13 frozen V1 + 9 plane + 2 GUI management) + ping) +
+ *     service class) + `./typert` (TYPERT manifest, 27 invocations = 26 RPC (13 frozen V1 + 9 plane + 4 GUI management) + ping) +
  *     `./remote` (client contribution). `./client` is a browser CJS
  *     bundle (the `window.__ModuleLoader__` banner runs at require
  *     time) — asserted BY NAME in the list check only, never imported
@@ -205,7 +205,7 @@ try {
         'const typert = await import(process.argv[1] + "/typert")',
         'const T = typert.TYPERT ?? typert.default?.TYPERT',
         'if (!T || !Array.isArray(T.invocations)) throw new Error("./typert: no TYPERT.invocations manifest")',
-        'if (T.invocations.length !== 25) throw new Error("./typert: expected 25 invocations (24 RPC: 13 frozen V1 + 9 plane + 2 GUI management, + ping), got " + T.invocations.length)',
+        'if (T.invocations.length !== 27) throw new Error("./typert: expected 27 invocations (26 RPC: 13 frozen V1 + 9 plane + 4 GUI management, + ping), got " + T.invocations.length)',
         'console.log("./typert: " + T.invocations.length + " invocations, package=" + T.package + ", face=" + T.face)',
         'const remote = await import(process.argv[1] + "/remote")',
         'const C = remote.default',

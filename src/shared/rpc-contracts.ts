@@ -2239,6 +2239,8 @@ export const ackMissingReminderInvocation: InvocationDescriptorMirror = descript
 export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'setCurrentFocus',
   'getCurrentFocus',
+  'createTopic',
+  'createWorkstream',
 ] as const
 
 export type ResearchManagementRpcMethod = (typeof RESEARCH_MANAGEMENT_RPC_METHODS)[number]
@@ -2335,11 +2337,117 @@ export const getCurrentFocusInvocation: InvocationDescriptorMirror = descriptor(
   GetCurrentFocusResultSchema,
 )
 
+/* -------------------------------------------------------------------- *
+ * createTopic — declarative tree mutation (D §8.1 create pair,
+ * UI-2A): allocates the next TPC-<n> in the target project and writes
+ * the minimal valid file set (topic.yaml only — topology.yaml /
+ * workstreams/ are optional per the phase-0 layout rules).
+ * -------------------------------------------------------------------- */
+
+export interface CreateTopicArgs {
+  /** 1–200 chars (frozen topic.schema.json). */
+  readonly title: string
+  /** Omitted = field absent from the written YAML (no default injected). */
+  readonly description?: string
+  /** V2 §12.1: optional multi-project routing target (omitted → the plane resolves it). */
+  readonly projectId?: string
+}
+
+export const CreateTopicArgsSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    description: z.string().optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface CreateTopicResult {
+  readonly topicId: string
+  readonly title: string
+  /** Root-relative path of the written file (e.g. `topics/TPC-2/topic.yaml`). */
+  readonly path: string
+  /** `created_at` as epoch ms (the client invalidation version). */
+  readonly createdAt: number
+}
+
+export const CreateTopicResultSchema = z
+  .object({
+    topicId: idTopic,
+    title: z.string().min(1).max(200),
+    path: z.string().min(1),
+    createdAt: epochMs,
+  })
+  .strict()
+
+export const createTopicInvocation: InvocationDescriptorMirror = descriptor(
+  'createTopic',
+  [argsParameter('CreateTopicArgs', CreateTopicArgsSchema)],
+  'CreateTopicResult',
+  CreateTopicResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * createWorkstream — declarative tree mutation (D §8.1 create pair,
+ * UI-2A): allocates the next WS-<n> in the target project (project-
+ * wide scope, NOT per-topic) and writes workstream.yaml under the
+ * given topic. The target topic must belong to the routed project
+ * (HIER_TOPIC_NOT_FOUND otherwise).
+ * -------------------------------------------------------------------- */
+
+export interface CreateWorkstreamArgs {
+  readonly topicId: string
+  /** 1–200 chars (frozen workstream.schema.json). */
+  readonly title: string
+  /** Omitted = field absent from the written YAML (lifecycle defaults to
+   *  PLANNED by the frozen schema). */
+  readonly summary?: string
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string
+}
+
+export const CreateWorkstreamArgsSchema = z
+  .object({
+    topicId: idTopic,
+    title: z.string().min(1).max(200),
+    summary: z.string().optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface CreateWorkstreamResult {
+  readonly workstreamId: string
+  readonly topicId: string
+  readonly title: string
+  /** Root-relative path of the written file (e.g. `topics/TPC-1/workstreams/WS-2/workstream.yaml`). */
+  readonly path: string
+  /** `created_at` as epoch ms. */
+  readonly createdAt: number
+}
+
+export const CreateWorkstreamResultSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    topicId: idTopic,
+    title: z.string().min(1).max(200),
+    path: z.string().min(1),
+    createdAt: epochMs,
+  })
+  .strict()
+
+export const createWorkstreamInvocation: InvocationDescriptorMirror = descriptor(
+  'createWorkstream',
+  [argsParameter('CreateWorkstreamArgs', CreateWorkstreamArgsSchema)],
+  'CreateWorkstreamResult',
+  CreateWorkstreamResultSchema,
+)
+
 /** The GUI management invocation descriptors (appended to the registered
  *  face at the end — the frozen 14 + plane 9 entries stay untouched). */
 export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
   setCurrentFocusInvocation,
   getCurrentFocusInvocation,
+  createTopicInvocation,
+  createWorkstreamInvocation,
 ]
 
 /**
@@ -2379,10 +2487,11 @@ export const RESEARCH_PLANE_INVOCATIONS: readonly InvocationDescriptorMirror[] =
  * bodies (registering a descriptor without its method would break the
  * gateway dispatch).
  *
- * UI-0.4 appends the 2 GUI management RPCs ({@link
- * RESEARCH_MANAGEMENT_INVOCATIONS}: setCurrentFocus / getCurrentFocus)
- * — the incremental management face grows by slice (D §6.5); the
- * registered face is now 24 business RPCs (25 with ping).
+ * UI-0.4 appends the 4 GUI management RPCs ({@link
+ * RESEARCH_MANAGEMENT_INVOCATIONS}: setCurrentFocus / getCurrentFocus —
+ * slice 1, R-01; createTopic / createWorkstream — Task 3, the D §8.1
+ * create pair) — the incremental management face grows by slice (D
+ * §6.5); the registered face is now 26 business RPCs (27 with ping).
  */
 export const REGISTERED_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
   ...ALL_RESEARCH_INVOCATIONS,

@@ -157,6 +157,8 @@ import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   AckMissingReminderArgsSchema,
   BindProjectArgsSchema,
+  CreateTopicArgsSchema,
+  CreateWorkstreamArgsSchema,
   DismissPlanForkArgsSchema,
   GetGitHistoryArgsSchema,
   GetCurrentFocusArgsSchema,
@@ -181,6 +183,10 @@ import {
   type AckMissingReminderResult,
   type BindProjectArgs,
   type BindProjectResult,
+  type CreateTopicArgs,
+  type CreateTopicResult,
+  type CreateWorkstreamArgs,
+  type CreateWorkstreamResult,
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
@@ -985,10 +991,10 @@ export class ResearchControlService extends TypertRemoteService {
   }
 
   /* ------------------------------------------------------------------ *
-   * UI-0.4 — the GUI management face (D §7.2, incremental — the first
-   * slice: Current Focus, R-01). Same decode-first + requireRpc routing
-   * as the frozen 13; the USER lane is the RPC face itself (R-01: no
-   * actor parameter).
+   * UI-0.4 — the GUI management face (D §7.2, incremental — slice 1:
+   * Current Focus, R-01; slice 2: the hierarchy create pair, Task 3).
+   * Same decode-first + requireRpc routing as the frozen 13; the USER
+   * lane is the RPC face itself (R-01: no actor parameter).
    * ------------------------------------------------------------------ */
 
   @Remote('setCurrentFocus')
@@ -1001,6 +1007,18 @@ export class ResearchControlService extends TypertRemoteService {
   async getCurrentFocus(args: unknown): Promise<GetCurrentFocusResult> {
     const decoded = GetCurrentFocusArgsSchema.parse(args) satisfies GetCurrentFocusArgs
     return this.requireRpc(decoded.projectId).getCurrentFocus(decoded)
+  }
+
+  @Remote('createTopic')
+  async createTopic(args: unknown): Promise<CreateTopicResult> {
+    const decoded = CreateTopicArgsSchema.parse(args) satisfies CreateTopicArgs
+    return this.requireRpc(decoded.projectId).createTopic(decoded)
+  }
+
+  @Remote('createWorkstream')
+  async createWorkstream(args: unknown): Promise<CreateWorkstreamResult> {
+    const decoded = CreateWorkstreamArgsSchema.parse(args) satisfies CreateWorkstreamArgs
+    return this.requireRpc(decoded.projectId).createWorkstream(decoded)
   }
 
   /**

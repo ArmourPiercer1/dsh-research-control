@@ -46,7 +46,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { type ResearchFileReader } from '../../domain/loader/index.js'
+import { loadResearchTree, type ResearchFileReader } from '../../domain/loader/index.js'
 import {
   PlanForkStore,
   loadPlanForkPolicy,
@@ -86,6 +86,12 @@ import {
   CurrentFocusService,
   CurrentFocusStore,
 } from '../current-focus/index.js'
+import {
+  HierarchyService,
+} from '../hierarchy/index.js'
+import {
+  FsPlanFileWriter,
+} from '../fs/index.js'
 import {
   InterventionService,
   InterventionLifecycleStore,
@@ -276,6 +282,18 @@ export interface HostWiring {
    *  canonical membership gate is backed by the live plan provider
    *  (step 9). Agent read-only; no HistoryEvent coupling (R-01). */
   readonly currentFocus: CurrentFocusService
+  /** V2-UI-0.4 (Task 3): the hierarchy service — the USER's declarative
+   *  tree mutation face (createTopic / createWorkstream, D §8.1
+   *  UI-2A). The dsh-adapter's GUI management face resolves through it.
+   *  The tree IS the truth: NO second connection, NO operational store
+   *  (unlike the CF_ pointer) — the injected ports are a FRESH
+   *  `loadResearchTree` per call (no cache: a just-created node is
+   *  visible to the next read without a restart), the atomic tmp+rename
+   *  writer and a pre-write existence probe, all over the routed
+   *  project's `.research/` root. Mutations never auto-checkpoint (the
+   *  reorderPlan precedent — `saveResearchCheckpoint` stays a separate
+   *  USER action). */
+  readonly hierarchy: HierarchyService
   /** The live declarative snapshot (mutated by the realize flip — the
    *  runbinding `externalState` seam reads it per operation). */
   externalState(): RunBindingExternalState
@@ -930,6 +948,32 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     })
 
     // ---------------------------------------------------------------- *
+    // 11g. The hierarchy service (V2-UI-0.4 (Task 3) — the USER's
+    //      declarative tree mutation face, createTopic /
+    //      createWorkstream): NO second connection and NO operational
+    //      store (the tree IS the truth — unlike the CF_ pointer):
+    //      the injected ports are a FRESH `loadResearchTree` per call
+    //      over this wiring's reader (no cache — a just-created node is
+    //      visible to the next read without a restart/rescan), the
+    //      atomic tmp+rename writer (`FsPlanFileWriter` — its mkdir -p
+    //      creates the new node's directory chain, and its
+    //      `.dshrc-tmp` suffix is the one the startup tmp sweep already
+    //      clears) and a pre-write existence probe over the same
+    //      reader (closes the load→write TOCTOU window — the writer's
+    //      own mkdir+rename would otherwise silently replace a raced
+    //      file). The dsh-adapter exposes it through the GUI management
+    //      RPC face (createTopic / createWorkstream); mutations never
+    //      auto-checkpoint (the reorderPlan precedent).
+    // ---------------------------------------------------------------- *
+    const hierarchy = new HierarchyService({
+      loadTree: () => loadResearchTree(reader, researchRoot, declarativeDir),
+      writer: new FsPlanFileWriter(),
+      fileExists: (absPath: string) => reader.readFile(absPath) !== null,
+      researchRoot,
+      now,
+    })
+
+    // ---------------------------------------------------------------- *
     // 12. The agent tool face (WP-3.3) — deps composed from the LIVE
     //     services. The dsh-adapter registers each definition (DSH_ADAPTER
     //     §10.1); this layer only builds them (no ctx, no DSH).
@@ -1069,6 +1113,7 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       startup,
       integrity: gate,
       currentFocus,
+      hierarchy,
       externalState,
       createPlanFork: async (params): Promise<PlanForkRecord> => {
         const view = planProvider.load(params.workstreamId)

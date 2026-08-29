@@ -93,6 +93,7 @@ import {
   REPORTING_ITEM_TABLE,
   SCHEDULED_EVENT_TABLE,
 } from '../../src/host/service/reporting/index.js'
+import { CURRENT_FOCUS_TABLE } from '../../src/host/service/current-focus/index.js'
 import {
   encodePointer,
   SessionLinkService,
@@ -165,6 +166,7 @@ function scanSourceDdlTargets(): string[] {
     REPORTING_ITEM_TABLE,
     SCHEDULED_EVENT_TABLE,
     ANALYSIS_RECORD_TABLE,
+    CURRENT_FOCUS_TABLE,
   }
   const targets = new Set<string>()
   // The trailing `\s*\(` distinguishes REAL DDL (the column list opens on
@@ -190,9 +192,10 @@ function scanSourceDdlTargets(): string[] {
 }
 
 /**
- * All sixteen §15 tables this plugin creates (3 store + 2 runbinding +
+ * All seventeen §15 tables this plugin creates (3 store + 2 runbinding +
  * 2 planfork + 1 flooding + 1 attention + 2 actions (WP-5.2) +
- * 3 reporting (WP-5.3) + 1 inbox (WP-6.4) + 1 analysis (WP-7.3)), sorted.
+ * 3 reporting (WP-5.3) + 1 inbox (WP-6.4) + 1 analysis (WP-7.3) +
+ * 1 current_focus (UI0 R-01)), sorted.
  * The source scan sees every CREATE TABLE in src/ regardless of which init
  * path applies the DDL.
  */
@@ -200,6 +203,7 @@ const ALL_TABLES = [
   'analysis_record',
   'awareness',
   'blocker',
+  'current_focus',
   'derived_state',
   'discovered_session',
   'history_event',
@@ -427,7 +431,7 @@ function textColumns(raw: DatabaseSync, table: string): string[] {
 }
 
 describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned', () => {
-  it('src contains EXACTLY the sixteen known CREATE TABLE targets (no new table can land unreviewed)', () => {
+  it('src contains EXACTLY the seventeen known CREATE TABLE targets (no new table can land unreviewed)', () => {
     expect(scanSourceDdlTargets()).toEqual(ALL_TABLES)
   })
 

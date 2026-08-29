@@ -6,12 +6,25 @@
  * this component is pure props — it imports neither the store layer nor
  * the DSH adapter, only the frozen shared contracts + its CSS module.
  *
+ * V2-UI-0.4 UI-3 (B §7.2 / §9.1): the old one-card-per-topic list is
+ * restructured into EXPANDABLE Topic sections — each section header keeps
+ * the topic title + workstream count and gains the frozen `[Edit]`
+ * `[+ Workstream]` actions (B §9.1); expansion is LAZY (the container
+ * issues `loadTopic` on first expand — plan §24 perf discipline), and the
+ * expanded body shows the topic description / objective summary / WS
+ * cards / the Topology `View topology` shortcut (judgment #10: opens the
+ * existing topic page — topology preview/open only in this slice). The
+ * page gains the two B §7.2 bottom sections: Project Attention (a
+ * visible placeholder — real data lands in UI-8) and Recent History
+ * (judgment #9: lazy on first expand, per-WS latest-3, merged
+ * occurredAt-desc, the `showing first 20 workstreams` note when >20).
+ *
  * §27.2 information architecture (the frozen `ProjectSnapshot` fields ARE
  * the design):
  *  - Project Brief (description);
- *  - Topic list (→ topic view);
  *  - Objective (the objectives list, with the `currentObjectiveRefs`
  *    highlighted as the project's current objectives);
+ *  - Topics / Workstreams (the Topic sections, above);
  *  - importance / attention mode;
  *  - upcoming interactions / reporting (PHASE 5 placeholders — frozen null,
  *    shown with an explicit 「待 Phase 5」 marker, never hidden).
@@ -22,9 +35,15 @@
  * nulls are PHASE placeholders (the DTO comment forbids a fabricated empty
  * list masquerading as data) — reserved with a visible phase marker.
  */
-import type { ReactElement } from 'react'
+import { useId, useState, type ReactElement } from 'react'
 
-import type { ProjectSnapshot } from '../../../shared/rpc-contracts.js'
+import type {
+  HistoryEventDto,
+  ProjectSnapshot,
+  TopicCardDto,
+  TopicSnapshot,
+} from '../../../shared/rpc-contracts.js'
+import { t } from '../../i18n/copy.js'
 
 import styles from './project.module.css'
 
@@ -34,6 +53,32 @@ import styles from './project.module.css'
  * store model types).
  */
 export type ProjectViewStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+/** One Topic section's lazy data face (the container maps the topics
+ *  slice onto it — plain structural types only). */
+export interface TopicSectionFace {
+  readonly status: 'idle' | 'loading' | 'ready' | 'error'
+  readonly data: TopicSnapshot | null
+  readonly error: string | null
+}
+
+/** One Recent History row (a history event + its owning-workstream label). */
+export interface RecentHistoryEntry {
+  readonly event: HistoryEventDto
+  readonly workstreamId: string
+  readonly workstreamTitle: string
+  readonly topicId: string
+}
+
+/** The Recent History section face (`entries` null = not computed yet —
+ *  the section is collapsed or its first expand is still loading the
+ *  lazy per-WS windows). */
+export interface RecentHistoryFace {
+  readonly entries: RecentHistoryEntry[] | null
+  readonly loading: boolean
+  /** True when the project has >20 workstreams (the first-20 note). */
+  readonly truncated: boolean
+}
 
 export interface ProjectPageViewProps {
   /** The project payload (null before the first successful load). */
@@ -51,8 +96,29 @@ export interface ProjectPageViewProps {
    * callback (钻取链 root). Omitted → the back button is NOT rendered.
    */
   readonly onBack?: () => void
-  /** Drill-down: open one topic (the topic view). */
+  /** Drill-down: open one topic (the topic view — the Topology shortcut
+   *  and the pre-UI-3 card click both route here). */
   readonly onOpenTopic: (topicId: string) => void
+  /** The per-topic section data (keyed by topicId; absent = never
+   *  requested). The container maps the store's topics slices onto this. */
+  readonly topicSections: ReadonlyMap<string, TopicSectionFace>
+  /** First expand of a Topic section (the container issues the lazy
+   *  `loadTopic`; collapse is view-local and fetches nothing). */
+  readonly onExpandTopic: (topicId: string) => void
+  /** Re-issue a failed Topic section load. */
+  readonly onRetryTopic: (topicId: string) => void
+  /** The Topic section `[Edit]` action (the container opens the dialog). */
+  readonly onEditTopic: (topicId: string) => void
+  /** The Topic section `[+ Workstream]` action (the container opens the
+   *  dialog). */
+  readonly onAddWorkstream: (topicId: string) => void
+  /** The `+ Topic` action on the section heading (the container opens
+   *  the dialog). */
+  readonly onCreateTopic: () => void
+  /** First expand of Recent History (the container starts the lazy
+   *  per-WS window loads; collapse is view-local). */
+  readonly onExpandRecentHistory: () => void
+  readonly recentHistory: RecentHistoryFace
 }
 
 /** Attention mode → Chinese product copy (DSH_ADAPTER §6: 产品文案中文). */
@@ -69,6 +135,17 @@ const OBJECTIVE_STATUS_LABEL: Record<ProjectSnapshot['objectives'][number]['stat
   DROPPED: '已放弃',
 }
 
+/** Workstream lifecycle → Chinese product copy (the same mapping as the
+ *  workstream views — existing strings, not new copy). */
+const LIFECYCLE_LABEL: Record<
+  TopicSnapshot['workstreams'][number]['lifecycle'],
+  string
+> = {
+  PLANNED: '规划中',
+  REALIZED: '已实现',
+  DROPPED: '已放弃',
+}
+
 /** Format an epoch-ms date as `YYYY-MM-DD` (local time, TZ-stable shape). */
 export function formatEpochDate(ms: number): string {
   const d = new Date(ms)
@@ -78,18 +155,183 @@ export function formatEpochDate(ms: number): string {
 }
 
 /**
+ * One Topic section (B §9.1): collapsed header (title + `[Edit]`
+ * `[+ Workstream]` + WS count) with a lazy expanded body (description /
+ * objective summary / WS cards / Topology shortcut). Pure — all data and
+ * callbacks arrive as props.
+ */
+function TopicSection({
+  card,
+  face,
+  open,
+  onToggle,
+  onRetry,
+  onEdit,
+  onAddWorkstream,
+  onOpenTopic,
+}: {
+  readonly card: TopicCardDto
+  readonly face: TopicSectionFace | undefined
+  readonly open: boolean
+  readonly onToggle: () => void
+  readonly onRetry: () => void
+  readonly onEdit: () => void
+  readonly onAddWorkstream: () => void
+  readonly onOpenTopic: () => void
+}): ReactElement {
+  const bodyId = useId()
+  const failed = face !== undefined && face.data === null && face.status === 'error'
+
+  return (
+    <li className={styles.topicSection} data-topic-id={card.id} data-topic-open={open ? 'true' : 'false'}>
+      <div className={styles.topicSectionHead}>
+        <button
+          type="button"
+          className={styles.topicSectionToggle}
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={onToggle}
+          data-topic-toggle
+        >
+          <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+          <span className={styles.topicTitle}>{card.title}</span>
+        </button>
+        <span className={styles.topicCount}>{card.workstreamCount} 个工作流</span>
+        <span className={styles.topicSectionActions}>
+          <button type="button" className={styles.backButton} onClick={onEdit} data-topic-edit>
+            {t('project.topicEdit')}
+          </button>
+          <button
+            type="button"
+            className={styles.backButton}
+            onClick={onAddWorkstream}
+            data-topic-add-workstream
+          >
+            {t('project.topicAddWorkstream')}
+          </button>
+        </span>
+      </div>
+      {open && (
+        <div className={styles.topicSectionBody} id={bodyId} data-topic-body>
+          {face === undefined || face.data === null ? (
+            failed ? (
+              <div className={styles.failed}>
+                <p className={styles.errorText} role="alert">
+                  加载失败：{face?.error ?? '未知错误'}
+                </p>
+                <button type="button" className={styles.backButton} onClick={onRetry} data-topic-retry>
+                  重试
+                </button>
+              </div>
+            ) : (
+              <p className={styles.loading} role="status">
+                加载中…
+              </p>
+            )
+          ) : (
+            <>
+              {face.data.topic.description !== null && (
+                <p className={styles.brief} data-topic-description>
+                  {face.data.topic.description}
+                </p>
+              )}
+              {face.data.objectives.length > 0 && (
+                <ul className={styles.topicObjList} data-topic-objectives>
+                  {face.data.objectives.map((o) => (
+                    <li key={o.id} className={styles.topicObjRow}>
+                      <span className={styles.objStatement}>{o.statement}</span>
+                      <span className={styles.statusBadge} data-objective-status={o.status}>
+                        {OBJECTIVE_STATUS_LABEL[o.status]}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <h3 className={styles.sectionTitle}>{t('project.topicWorkstreams')}</h3>
+              {face.data.workstreams.length === 0 ? (
+                <p className={styles.empty}>{t('project.noWorkstreams')}</p>
+              ) : (
+                <ul className={styles.wsCardList}>
+                  {face.data.workstreams.map((ws) => (
+                    <li key={ws.id} className={styles.wsCard} data-ws-card data-ws-id={ws.id}>
+                      <div className={styles.wsCardHead}>
+                        <span className={styles.topicTitle}>{ws.title}</span>
+                        <span
+                          className={styles.statusBadge}
+                          data-ws-lifecycle={ws.lifecycle}
+                        >
+                          {LIFECYCLE_LABEL[ws.lifecycle]}
+                        </span>
+                      </div>
+                      {ws.summary !== null && <p className={styles.wsSummary}>{ws.summary}</p>}
+                      <p className={styles.wsMeta}>
+                        {ws.planItemCount} {t('ws.metaPlanItems')} · {ws.openPlanForkCount}{' '}
+                        {t('ws.metaOpenForks')} · {ws.runningRunCount} {t('ws.metaRunning')}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className={styles.topicTopologyRow} data-topic-topology-row>
+                <span>{t('project.topicTopology')}:</span>{' '}
+                <button type="button" className={styles.backButton} onClick={onOpenTopic} data-topic-topology>
+                  {t('project.viewTopology')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
+
+/**
  * Render the §27.2 Project Page from a plain snapshot + status face.
- * @param props - data, status, error, retry/back/navigation callbacks.
+ * @param props - data, status, error, retry/back/navigation callbacks +
+ *   the Topic-section / Recent History faces (UI-3).
  * @returns the view element.
  */
-export function ProjectPageView({
-  data,
-  status,
-  error,
-  onRetry,
-  onBack,
-  onOpenTopic,
-}: ProjectPageViewProps): ReactElement {
+export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
+  const {
+    data,
+    status,
+    error,
+    onRetry,
+    onBack,
+    onOpenTopic,
+    topicSections,
+    onExpandTopic,
+    onRetryTopic,
+    onEditTopic,
+    onAddWorkstream,
+    onCreateTopic,
+    onExpandRecentHistory,
+    recentHistory,
+  } = props
+  // View-local UI state: which Topic sections are open + whether the
+  // Recent History section is open. Both are pure presentation — the
+  // fetches they trigger ride the container callbacks.
+  const [openTopics, setOpenTopics] = useState<ReadonlySet<string>>(new Set())
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  function toggleTopic(topicId: string): void {
+    const opening = !openTopics.has(topicId)
+    setOpenTopics((prev) => {
+      const next = new Set(prev)
+      if (opening) next.add(topicId)
+      else next.delete(topicId)
+      return next
+    })
+    if (opening) onExpandTopic(topicId)
+  }
+
+  function toggleHistory(): void {
+    const opening = !historyOpen
+    setHistoryOpen(opening)
+    if (opening) onExpandRecentHistory()
+  }
+
   // V2-T5.1: the back affordance is OPTIONAL (the project-narrowed 总览
   // renders the project page as ROOT — no previous level; the HUB-drill
   // variant passes the back-to-wall callback).
@@ -147,7 +389,8 @@ export function ProjectPageView({
         </>
       )}
 
-      {/* §27.2 importance / attention mode (+ id / target date meta) */}
+      {/* §27.2 importance / attention mode / meta */}
+      <h2 className={styles.sectionTitle}>项目元数据</h2>
       <ul className={styles.metaList}>
         <li className={styles.metaItem}>编号：{p.id}</li>
         <li className={styles.metaItem}>重要度：{p.importance}</li>
@@ -197,30 +440,95 @@ export function ProjectPageView({
         </ul>
       )}
 
-      {/* §27.2 Topic list (→ topic view) */}
-      <h2 className={styles.sectionTitle}>
-        主题（{data.topics.length}）
-      </h2>
-      {data.topics.length === 0 ? (
-        <p className={styles.empty}>暂无主题</p>
-      ) : (
-        <ul className={styles.topicList}>
-          {data.topics.map((topic) => (
-            <li key={topic.id} className={styles.topicCard}>
-              <button
-                type="button"
-                className={styles.topicButton}
-                onClick={() => onOpenTopic(topic.id)}
-              >
-                <span className={styles.topicTitle}>{topic.title}</span>
-                <span className={styles.topicCount}>{topic.workstreamCount} 个工作流</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* UI-3 (B §7.2 / §9.1) — Topics / Workstreams: the expandable
+          Topic sections (replaces the one-card-per-topic list). */}
+      <section className={styles.topicSections} data-topic-sections>
+        <h2 className={styles.sectionTitle}>
+          {t('project.topicsHeading')}（{data.topics.length}）
+          <button type="button" className={styles.backButton} onClick={onCreateTopic} data-topic-create-topic>
+            {t('tree.addTopic')}
+          </button>
+        </h2>
+        {data.topics.length === 0 ? (
+          <p className={styles.empty}>暂无主题</p>
+        ) : (
+          <ul className={styles.topicSectionList}>
+            {data.topics.map((card) => (
+              <TopicSection
+                key={card.id}
+                card={card}
+                face={topicSections.get(card.id)}
+                open={openTopics.has(card.id)}
+                onToggle={() => toggleTopic(card.id)}
+                onRetry={() => onRetryTopic(card.id)}
+                onEdit={() => onEditTopic(card.id)}
+                onAddWorkstream={() => onAddWorkstream(card.id)}
+                onOpenTopic={() => onOpenTopic(card.id)}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
 
-      {/* §27.2 upcoming interactions/reporting — PHASE 5 placeholders
+      {/* UI-3 (B §7.2) — Project Attention: a visible placeholder (no
+          fabricated data — real project-level attention lands in UI-8). */}
+      <section className={styles.phase} data-project-attention>
+        <h3 className={styles.sectionTitle}>{t('project.attentionTitle')}</h3>
+        <p className={styles.phaseText}>{t('project.attentionPlaceholder')}</p>
+      </section>
+
+      {/* UI-3 (judgment #9) — Recent History: collapsed by default; the
+          first expand triggers the lazy per-WS window loads (plan §24 —
+          zero fetches on initial render). */}
+      <section className={styles.phase} data-recent-history>
+        <h3 className={styles.sectionTitle}>
+          <button
+            type="button"
+            className={styles.historyToggle}
+            aria-expanded={historyOpen}
+            onClick={toggleHistory}
+            data-history-toggle
+          >
+            <span aria-hidden="true">{historyOpen ? '▾' : '▸'}</span> {t('project.historyTitle')}
+          </button>
+        </h3>
+        {historyOpen &&
+          (recentHistory.loading || recentHistory.entries === null ? (
+            <p className={styles.phaseText} role="status">
+              加载中…
+            </p>
+          ) : recentHistory.entries.length === 0 ? (
+            <p className={styles.phaseText} data-history-empty>
+              {t('project.historyEmpty')}
+            </p>
+          ) : (
+            <>
+              <ul className={styles.historyList}>
+                {recentHistory.entries.map((entry, index) => (
+                  <li key={`${entry.event.eventId}-${index}`} className={styles.historyEntry} data-history-entry>
+                    <span className={styles.historyDate}>{formatEpochDate(entry.event.occurredAt)}</span>
+                    <span className={styles.historyWs}>
+                      {entry.workstreamTitle}（{entry.workstreamId}）
+                    </span>
+                    <span className={styles.historyType} data-history-event-type={entry.event.eventType}>
+                      {entry.event.eventType}
+                    </span>
+                    {entry.event.actor.label !== undefined && (
+                      <span className={styles.historyActor}>{entry.event.actor.label}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {recentHistory.truncated && (
+                <p className={styles.phaseText} data-history-note>
+                  {t('project.historyNoteFirst20')}
+                </p>
+              )}
+            </>
+          ))}
+      </section>
+
+      {/* §27.2 upcoming interactions / reporting — PHASE 5 placeholders
           (shown, never hidden — the frozen-null fields) */}
       <section className={styles.phase}>
         <h3 className={styles.sectionTitle}>即将到来的交互</h3>

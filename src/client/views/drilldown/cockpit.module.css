@@ -639,3 +639,264 @@
   color: var(--dsw-alias-label-caption);
   font-size: 12px;
 }
+
+/* -------------------------------------------------------------------- *
+ * UI-3 — the console layout: breadcrumb chrome + structure-tree left
+ * rail + page column (B §2.3 / §7.2 / §8).
+ * -------------------------------------------------------------------- */
+
+/* Breadcrumb (B §2.3 — the console chrome, two levels at project depth,
+ * four at workstream depth). */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.breadcrumbCrumb {
+  font: inherit;
+  color: var(--dsw-alias-label-primary);
+  background: none;
+  border: none;
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: default;
+}
+
+.breadcrumbCrumb:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.breadcrumbCrumb:disabled {
+  cursor: default;
+}
+
+.breadcrumbCurrent {
+  font-weight: 600;
+}
+
+.breadcrumbSep {
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Console layout: the structure-tree rail + the page column. */
+.consoleLayout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.consoleMain {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Structure tree — expanded form (B §8.1). */
+.tree {
+  flex: 0 0 220px;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 12px;
+}
+
+.treeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.treeTitle {
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.treeHeadActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.treeHeadButton {
+  font: inherit;
+  font-size: 11px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 3px;
+  padding: 0 5px;
+  cursor: pointer;
+}
+
+.treeHeadButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.treeList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.treeItem {
+  margin: 0;
+}
+
+.treeProject {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  font: inherit;
+  color: var(--dsw-alias-label-primary);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  padding: 2px 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.treeProject:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.treeProject[data-tree-current='true'],
+.treeTopic[data-tree-current='true'],
+.treeWs[data-tree-current='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-weight: 600;
+}
+
+.treeTopicRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.treeTopic {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  color: var(--dsw-alias-label-primary);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  padding: 2px 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.treeTopic:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.treeAddWs {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  background: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 3px;
+  padding: 0 5px;
+  cursor: pointer;
+}
+
+.treeAddWs:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.treeWsList {
+  margin: 0;
+  padding: 0 0 0 18px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.treeWs {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: var(--dsw-alias-label-primary);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  padding: 2px 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.treeWs:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.treeLoading,
+.treeError {
+  margin: 2px 4px;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+
+.treeError {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* Structure tree — collapsed form (B §8.2 minimal second form). */
+.treeCollapsed {
+  flex: 0 0 34px;
+  width: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 11px;
+}
+
+.treeProjectMarker {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  writing-mode: vertical-rl;
+  max-height: 120px;
+}
+
+.treeReopen {
+  font: inherit;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 3px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.treeReopen:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}

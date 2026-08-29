@@ -224,3 +224,200 @@
   margin: 4px 0;
   color: var(--dsw-alias-label-caption);
 }
+
+/* -------------------------------------------------------------------- *
+ * UI-3 — Topic sections (B §9.1) / WS cards / Recent History (B §7.2).
+ * -------------------------------------------------------------------- */
+
+.topicSections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topicSectionList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topicSection {
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  padding: 6px 10px;
+}
+
+.topicSectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topicSectionToggle {
+  font: inherit;
+  color: var(--dsw-alias-label-secondary);
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.topicSectionToggle:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.topicSectionHead .topicTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.topicSectionActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topicSectionBody {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topicObjList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.topicObjRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.topicObjRow .objStatement {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wsCardList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.wsCard {
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wsCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.wsSummary {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.wsMeta {
+  margin: 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.topicTopologyRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Recent History (judgment #9). */
+.historyToggle {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.historyToggle:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.historyList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.historyEntry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.historyEntry:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.historyDate {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-caption);
+}
+
+.historyWs {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+}
+
+.historyType {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyActor {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}

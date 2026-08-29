@@ -15,8 +15,11 @@
  * own session id; the host resolves cwd → role from the session registry.
  *
  * Five branches on `session.role` (design §5 标签页分流):
- *  - HUB          → 中枢控制台 frame: the 4 first-level entries 总览 /
- *                   重要事件 / 调查员 / 设置 (design §6 fixed naming) as a
+ *  - HUB          → 中枢控制台 frame: the 3 VISIBLE first-level entries
+ *                   (UI-3, D §9.1 frozen IA — Portfolio / Needs Attention /
+ *                   Settings; the V1 4th entry 调查员 is hidden from the
+ *                   nav, reachable only via the programmatic deep-link)
+ *                   as a
  *                   nav frame (V2-T5.1): 总览 = 聚合条 + 项目卡墙
  *                   (`getHubOverview`, design §7.1 — 需关注行 only when
  *                   attention is non-empty; empty hub → the 登记第一个
@@ -129,6 +132,7 @@ import { OnboardingCard } from './onboarding-card.js'
 import { ProjectConsole } from './project-console.js'
 import { SettingsPage } from './settings-page.js'
 import styles from './shell.module.css'
+import { t } from '../../i18n/copy.js'
 
 /**
  * Props of the registered 研究 tab body.
@@ -300,15 +304,34 @@ type PlanePhase = 'loading' | 'failed' | 'ready'
  * The 4 first-level entries of the 中枢控制台 (design §6 — 一级入口恒为 4
  * 个, 四种角色视图共用标签名). The naming is 定案-locked (§6: 总览（非
  * 「首页」）、重要事件、调查员、设置).
+ *
+ * UI-3 (plan D §9 / wireframe B §2.1 frozen IA): the LABELS converge to
+ * the frozen IA names via the t() copy table — 总览→Portfolio, 重要事件
+ * →Needs Attention, 设置→Settings — and the NAV renders only the 3
+ * VISIBLE entries (investigator is hidden from the first level, B §2.1,
+ * but stays in the union + the page switch: the one-click investigate
+ * wrapper below still jumps there programmatically — B §2.1 forbids a
+ * first-tier ENTRY, not the programmatic deep-link).
  */
 const HUB_ENTRIES = [
-  { id: 'overview', label: '总览' },
-  { id: 'attention', label: '重要事件' },
+  { id: 'overview', label: t('nav.portfolio') },
+  { id: 'attention', label: t('nav.needsAttention') },
   { id: 'investigator', label: '调查员' },
-  { id: 'settings', label: '设置' },
+  { id: 'settings', label: t('nav.settings') },
 ] as const
 
 type HubEntryId = (typeof HUB_ENTRIES)[number]['id']
+
+/**
+ * The entries the first-tier NAV renders (UI-3 D1: 4 → 3 visible). The
+ * `investigator` entry is deliberately excluded from this list but KEPT in
+ * `HUB_ENTRIES` (the type source) and in the ConsoleFrame page switch, so
+ * the programmatic deep-link (`setNavEntry('investigator')` after a
+ * successful 一键调查) keeps working.
+ */
+const VISIBLE_HUB_ENTRIES: readonly (typeof HUB_ENTRIES)[number][] = HUB_ENTRIES.filter(
+  entry => entry.id !== 'investigator'
+)
 
 export function ResearchShell(props: ResearchShellProps): ReactElement {
   const [phase, setPhase] = useState<PlanePhase>('loading')
@@ -528,6 +551,10 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
             setHub={props.setHub}
             bindProject={props.bindProject}
             onApplied={refresh}
+            createLocalResearchProject={props.createLocalResearchProject}
+            inspectProjectDirectory={props.inspectProjectDirectory}
+            loadPortfolioInterventions={() => props.loadPortfolioInterventions({})}
+            onOpenAttention={() => setNavEntry('attention')}
           />
         ) : (
           <ProjectConsole onBackToWall={() => setHubDrillProjectId(null)} />
@@ -762,7 +789,11 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
  * action (「去看工作流进展」) jumps the frame back to 总览, which the
  * frame can only do when the shell owns the state (V2-T5.3: a successful
  * 一键调查 jumps it to the 调查员 entry the same way). The frame, the nav,
- * and the 4 entries MUST render from this task on.
+ * and the first-level entries MUST render from this task on.
+ *
+ * UI-3 (D1): the NAV renders the 3 VISIBLE entries (Portfolio / Needs
+ * Attention / Settings — frozen IA names via t()); the 调查员 entry stays
+ * in the union + the page switch for the programmatic deep-link only.
  */
 interface ConsoleFrameProps {
   readonly role: 'HUB' | 'MANAGED' | 'STANDALONE'
@@ -790,9 +821,9 @@ function ConsoleFrame({ role, cwd, overview, attention, investigator, settings, 
   return (
     <div className={styles.shell} data-role={role} data-cwd={cwd}>
       <header className={styles.hubHeader}>
-        <h1 className={styles.hubTitle}>研究控制台</h1>
+        <h1 className={styles.hubTitle}>{t('app.title')}</h1>
         <nav className={styles.nav} aria-label="研究控制台一级入口">
-          {HUB_ENTRIES.map((entry) => (
+          {VISIBLE_HUB_ENTRIES.map((entry) => (
             <button
               key={entry.id}
               type="button"

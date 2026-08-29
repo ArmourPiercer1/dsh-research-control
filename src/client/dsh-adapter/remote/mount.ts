@@ -37,6 +37,10 @@ import type {
   BindProjectResult,
   CreateLocalResearchProjectArgs,
   CreateLocalResearchProjectResult,
+  CreateTopicArgs,
+  CreateTopicResult,
+  CreateWorkstreamArgs,
+  CreateWorkstreamResult,
   DashboardSnapshot,
   DismissPlanForkArgs,
   DismissPlanForkResult,
@@ -181,7 +185,12 @@ function requireNamespace(): TypertRemoteNamespaceMap['researchControl'] {
  * RPCs (design §12 rows 1-6/8/9 — the V2 tab shell drives row 1, the P5
  * pages the rest; same conventions, PLANE-LEVEL, not per-project).
  * UI-0.4: + the 2 GUI management RPCs (the current-focus pair, R-01 —
- * project-routed like the rest of the management face).
+ * project-routed like the rest of the management face). V2-UI-0.4 UI-2:
+ * + the 6 GUI management RPCs (4 hierarchy update/drop + 2 local-project;
+ * see the inline note below). V2-UI-0.4 UI-3: + the 2 hierarchy CREATE
+ * RPCs (createTopic/createWorkstream — the host faces pre-existed and
+ * the generated namespace map already exposes them; only this client
+ * facade wiring is new).
  */
 export const researchRpc = {
   async ping(): Promise<RemoteResult<PingResult>> {
@@ -305,5 +314,17 @@ export const researchRpc = {
     args: CreateLocalResearchProjectArgs,
   ): Promise<RemoteResult<CreateLocalResearchProjectResult>> {
     return requireNamespace().createLocalResearchProject(args)
+  },
+  // V2-UI-0.4 UI-3: the 2 hierarchy CREATE RPCs — the host faces
+  // pre-existed (the generated namespace map already carries them);
+  // this facade wiring is what the UI-3 store mutations use. Thin
+  // bodies: the gateway folds host faults into RemoteResult.error.
+  async createTopic(args: CreateTopicArgs): Promise<RemoteResult<CreateTopicResult>> {
+    return requireNamespace().createTopic(args)
+  },
+  async createWorkstream(
+    args: CreateWorkstreamArgs,
+  ): Promise<RemoteResult<CreateWorkstreamResult>> {
+    return requireNamespace().createWorkstream(args)
   },
 }

@@ -137,13 +137,18 @@ describe('ProjectPage container — fault faces', () => {
 })
 
 describe('ProjectPage container — navigation passthrough', () => {
-  it('topic card → onOpenTopic(topicId); 返回 → onBack', async () => {
+  it('topic section → Topology shortcut → onOpenTopic(topicId); 返回 → onBack', async () => {
     const onOpenTopic = vi.fn()
     const onBack = vi.fn()
     renderContainer({ onOpenTopic, onBack })
-    await screen.findByRole('button', { name: /高温超导/ })
+    await screen.findByRole('button', { name: /高温超导/ }, { timeout: 2000 })
 
+    // UI-3 IA: the toggle expands the section (the container lazily
+    // loads the topic slice — the stub answers TOPIC_FIXTURE), then the
+    // Topology shortcut is the drill into the topic page.
     fireEvent.click(screen.getByRole('button', { name: /高温超导/ }))
+    const viewTopology = await screen.findByRole('button', { name: 'View topology' }, { timeout: 2000 })
+    fireEvent.click(viewTopology)
     expect(onOpenTopic).toHaveBeenCalledTimes(1)
     expect(onOpenTopic).toHaveBeenCalledWith('TPC-1')
 

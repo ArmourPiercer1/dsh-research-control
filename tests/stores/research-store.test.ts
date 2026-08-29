@@ -1027,3 +1027,121 @@ describe('V2-UI-0.4 UI-2 — the six GUI management faces (success-invalidate / 
     expect(stub.countOf('getDashboard')).toBe(2)
   })
 })
+
+describe('V2-UI-0.4 UI-3 — the two hierarchy CREATE faces (createTopic / createWorkstream)', () => {
+  // The idiom under test (same as the UI-2 faces): `okValue(await
+  // rpc.X(args))` → INVALIDATE_REGISTRY.X(value, state) → refetchKeys →
+  // return value. Success: the NEW entity's slice is idle (never refetched);
+  // the affected caches (project + owning/cached topic slices) refetch
+  // exactly once. A business fault rejects (ResearchRpcError) BEFORE any
+  // invalidation — the stale slices stay READY and visible.
+
+  it('createTopic → resolves with the host result; refetches PROJECT + every CACHED topic slice', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1') // cached — must be refetched by the rule
+
+    const result = await store.createTopic({ title: 'New topic' })
+    expect(result).toEqual({
+      topicId: 'TPC-9',
+      title: 'Stub new topic',
+      path: '/workspace/stub/.research/topics/TPC-9',
+      createdAt: 1755000009000,
+    })
+    expect(stub.countOf('getProject')).toBe(2) // 1 load + 1 invalidation refetch
+    expect(stub.countOf('getTopic')).toBe(2) // 1 load + 1 refetch of the cached TPC-1
+    expect(stub.callsTo('createTopic')[0]?.args).toEqual({ title: 'New topic' })
+  })
+
+  it('createTopic with an IDLE topic cache → only PROJECT refetches (idle slices are skipped)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+
+    await store.createTopic({ title: 'New topic' })
+    expect(stub.countOf('getProject')).toBe(2)
+    expect(stub.countOf('getTopic')).toBe(0) // nothing cached → nothing to refetch
+  })
+
+  it('createTopic business fault → ResearchRpcError with a decodable carrier; NO invalidation', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    stub.set('createTopic', {
+      ok: false,
+      error: {
+        code: 'internal',
+        message: '[research-control] HIER_INPUT: createTopic: title must not be blank',
+        details: {},
+      },
+    })
+    let caught: unknown
+    try {
+      await store.createTopic({ title: '   ' })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(ResearchRpcError)
+    // NOTE-4: the carrier rides the MESSAGE (the gateway folds the code
+    // to 'internal'); the single client decode point reads it back.
+    expect(extractResearchErrorCarrier((caught as Error).message)).toEqual({
+      code: 'HIER_INPUT',
+      detail: 'createTopic: title must not be blank',
+    })
+    expect(stub.countOf('getProject')).toBe(1) // no invalidation on failure
+    expect(store.getState().project.status).toBe('ready')
+    expect(store.getState().project.data).toBe(PROJECT_FIXTURE)
+  })
+
+  it('createWorkstream → resolves with the host result; refetches the RESULT topic slice + PROJECT (key from the result, not the args)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1') // the result's topicId — cached
+    await store.loadTopic('TPC-2') // a DIFFERENT cached topic — must stay untouched
+
+    const result = await store.createWorkstream({ topicId: 'TPC-1', title: 'New ws' })
+    expect(result).toEqual({
+      workstreamId: 'WS-9',
+      topicId: 'TPC-1',
+      title: 'Stub new ws',
+      path: '/workspace/stub/.research/topics/TPC-1/WS-9',
+      createdAt: 1755000009000,
+    })
+    expect(stub.countOf('getProject')).toBe(2)
+    // TPC-1: load + refetch = 2; TPC-2: load only = 1; total 3.
+    expect(stub.countOf('getTopic')).toBe(3)
+    expect(stub.callsTo('createWorkstream')[0]?.args).toEqual({ topicId: 'TPC-1', title: 'New ws' })
+  })
+
+  it('createWorkstream business fault → rejects; the owning topic + project slices stay stale and READY', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+    stub.set('createWorkstream', {
+      ok: false,
+      error: {
+        code: 'internal',
+        message: '[research-control] HIER_INPUT: createWorkstream: summary exceeds the length limit',
+        details: {},
+      },
+    })
+    let caught: unknown
+    try {
+      await store.createWorkstream({ topicId: 'TPC-1', title: 'x' })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(ResearchRpcError)
+    expect(extractResearchErrorCarrier((caught as Error).message)).toEqual({
+      code: 'HIER_INPUT',
+      detail: 'createWorkstream: summary exceeds the length limit',
+    })
+    expect(stub.countOf('getProject')).toBe(1) // no invalidation on failure
+    expect(stub.countOf('getTopic')).toBe(1)
+    expect(store.getState().topics.get('TPC-1')?.status).toBe('ready')
+    expect(store.getState().topics.get('TPC-1')?.data).toBe(TOPIC_FIXTURE)
+  })
+})

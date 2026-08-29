@@ -13,4 +13,7 @@ export {
   ProjectPageView,
   type ProjectPageViewProps,
   type ProjectViewStatus,
+  type RecentHistoryEntry,
+  type RecentHistoryFace,
+  type TopicSectionFace,
 } from './ProjectPageView'

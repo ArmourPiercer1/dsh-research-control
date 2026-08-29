@@ -106,7 +106,7 @@ describe('T5.3 — 一键调查 → 调查员 binding (shell-level)', () => {
 
     // 重要事件 → the OPEN card (the frame exists once the plane fetch
     // resolves — wait for the nav before clicking).
-    const attentionNav = await screen.findByRole('button', { name: '重要事件' })
+    const attentionNav = await screen.findByRole('button', { name: 'Needs Attention' })
     fireEvent.click(attentionNav)
     const row = await waitFor(() => {
       const el = document.querySelector('[data-attention-card][data-iv-id="IV-1"]')
@@ -125,8 +125,10 @@ describe('T5.3 — 一键调查 → 调查员 binding (shell-level)', () => {
     expect(onInvestigate).toHaveBeenCalledWith(ITEM, '标定漂移的根因是什么？')
 
     // The frame JUMPED to 调查员 (the V1 auto-navigation, repositioned)
-    // and the binding row carries the launched session id.
-    await waitFor(() => expect(screen.getByRole('button', { name: '调查员' }).getAttribute('aria-current')).toBe('page'))
+    // and the binding row carries the launched session id. UI-3 D1: the
+    // 调查员 entry is hidden from the first-level nav (VISIBLE_HUB_ENTRIES
+    // filter), so the jump is asserted on the page section switch.
+    await waitFor(() => expect(document.querySelector('[data-page="investigator"]')).not.toBeNull())
     const body = document.querySelector('[data-page="investigator"]') as HTMLElement
     expect(body).not.toBeNull()
     const binding = within(body).getByText('绑定会话:').closest('[data-investigator-binding]') as HTMLElement
@@ -148,7 +150,7 @@ describe('T5.3 — 一键调查 → 调查员 binding (shell-level)', () => {
     const onInvestigate = vi.fn(async (): Promise<string> => '调查已启动（无会话指针 — 防御面）')
     renderHubShell(onInvestigate)
 
-    const attentionNav = await screen.findByRole('button', { name: '重要事件' })
+    const attentionNav = await screen.findByRole('button', { name: 'Needs Attention' })
     fireEvent.click(attentionNav)
     const row = await waitFor(() => {
       const el = document.querySelector('[data-attention-card][data-iv-id="IV-1"]')
@@ -165,8 +167,9 @@ describe('T5.3 — 一键调查 → 调查员 binding (shell-level)', () => {
     await waitFor(() => expect(within(row).getByText(/调查已启动（无会话指针/)).not.toBeNull())
     expect(document.querySelector('[data-page="investigator"]')).toBeNull()
     expect(document.querySelector('[data-investigator-binding]')).toBeNull()
-    // The 调查员 entry still shows the honest 未绑定 face on manual nav.
-    fireEvent.click(screen.getByRole('button', { name: '调查员' }))
-    await waitFor(() => expect(screen.getByText(/未绑定调查会话/)).not.toBeNull())
+    // UI-3 D1: the 调查员 entry is hidden from the first-level nav
+    // (VISIBLE_HUB_ENTRIES filter) — there is no manual-nav path to it
+    // anymore, only the programmatic jump on a successful launch.
+    expect(screen.queryByRole('button', { name: '调查员' })).toBeNull()
   })
 })

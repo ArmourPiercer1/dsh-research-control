@@ -10,9 +10,11 @@
  *  - the Home project card (the stretched hit button) opens the §27.2
  *    project page (the cockpit's page state flips to `project`);
  *  - the project page renders the §27.2 face from the `getProject` slice
- *    (brief + objective statements + the topic list);
- *  - the project page's topic card drills into the topic page, whose
- *    workstream card drills into the workstream page;
+ *    (brief + objective statements + the topic sections);
+ *  - the project page's topic section drills into the topic page
+ *    (UI-3 IA: the section is a disclosure — expand it, then the
+ *    Topology shortcut), whose workstream card drills into the
+ *    workstream page;
  *  - 返回 from the project page (and from the workstream page) returns
  *    home.
  *
@@ -135,8 +137,18 @@ describe('ResearchCockpit — Home → Project → Topic → Workstream (G4 S1 f
     })
     await screen.findByText('追踪关键方向进展并整理证据链', {}, { timeout: 2000 })
 
-    // (2) Project → Topic (the topic list card).
+    // (2) Project → Topic (UI-3 IA: the topic section is a disclosure —
+    // expand it, then the Topology shortcut drills to the topic page).
     fireEvent.click(screen.getByRole('button', { name: /高温超导/ }))
+    const viewTopology: Element = await waitFor(
+      () => {
+        const el = document.querySelector('[data-topic-topology]')
+        expect(el).toBeTruthy()
+        return el as Element
+      },
+      { timeout: 2000 },
+    )
+    fireEvent.click(viewTopology)
     await waitFor(() => {
       expect(document.querySelector('[data-cockpit-page="topic"]')).toBeTruthy()
     })

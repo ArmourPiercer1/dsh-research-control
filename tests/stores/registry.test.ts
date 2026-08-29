@@ -7,6 +7,8 @@
 import { describe, expect, it } from 'vitest'
 import type {
   CreateLocalResearchProjectResult,
+  CreateTopicResult,
+  CreateWorkstreamResult,
   DashboardSnapshot,
   DismissPlanForkResult,
   DropWorkstreamResult,
@@ -154,6 +156,21 @@ const INSPECT: InspectProjectDirectoryResult = {
   title: 'A project',
 }
 
+// V2-UI-0.4 UI-3: the 2 hierarchy CREATE result fixtures (local, wire-valid).
+const CREATE_TOPIC: CreateTopicResult = {
+  topicId: 'TPC-3',
+  title: 'Created topic',
+  path: '/tmp/ui3-ws/.research/topics/TPC-3',
+  createdAt: 1755000007000,
+}
+const CREATE_WS: CreateWorkstreamResult = {
+  workstreamId: 'WS-7',
+  topicId: 'TPC-1',
+  title: 'Created workstream',
+  path: '/tmp/ui3-ws/.research/topics/TPC-1/WS-7',
+  createdAt: 1755000007000,
+}
+
 describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
   it('reorderPlan → the workstream slice ONLY (plan order; history never — ledger, not events)', () => {
     const keys = INVALIDATE_REGISTRY.reorderPlan(REORDER, populatedState())
@@ -272,6 +289,23 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
     expect(INVALIDATE_REGISTRY.inspectProjectDirectory(INSPECT, populatedState())).toEqual([])
     expect(INVALIDATE_REGISTRY.inspectProjectDirectory(INSPECT, initialResearchStoreState())).toEqual([])
   })
+
+  it('createTopic → project + every CACHED topic slice (the new topic is idle — its first load fetches live data)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.createTopic(CREATE_TOPIC, populatedState()))).toEqual(
+      new Set(['project', 'topics:TPC-1']),
+    )
+    // Idle cache: only `project` — the topics family is listed but empty.
+    expect(INVALIDATE_REGISTRY.createTopic(CREATE_TOPIC, initialResearchStoreState())).toEqual(['project'])
+  })
+
+  it('createWorkstream → the RESULT topic slice + project (result carries the topicId — state-independent)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.createWorkstream(CREATE_WS, populatedState()))).toEqual(
+      new Set(['topics:TPC-1', 'project']),
+    )
+    expect(new Set(INVALIDATE_REGISTRY.createWorkstream(CREATE_WS, initialResearchStoreState()))).toEqual(
+      new Set(['topics:TPC-1', 'project']),
+    )
+  })
 })
 
 describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
@@ -322,8 +356,8 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     }
   })
 
-  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces)', () => {
+  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces)', () => {
     expect([...MUTATION_IDS].sort()).toEqual(Object.keys(INVALIDATE_REGISTRY).sort())
-    expect(MUTATION_IDS).toHaveLength(14)
+    expect(MUTATION_IDS).toHaveLength(16)
   })
 })

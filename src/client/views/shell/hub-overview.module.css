@@ -190,3 +190,183 @@
   font-size: var(--rc-font-xxs);
   color: var(--rc-label-secondary);
 }
+
+/* ── V2-UI-0.4 UI-3 (D2) — the B §4 Portfolio chrome ───────────────────── */
+
+/* B §4.2/§4.3 frozen header: title row + the right-aligned journey
+   actions (the journey buttons live on the alias-interactive band). */
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--rc-label-primary);
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+}
+
+.headerButton {
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-primary);
+  font-size: var(--rc-font-xxs);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.headerButton:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.subtitle {
+  margin: 0 0 12px;
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* B §4.4 — the Needs Attention summary (top-6 items + [View all]). */
+.attentionSection {
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 8px;
+  background: var(--rc-bg-layer-2);
+  padding: 10px 12px;
+  margin: 0 0 12px;
+}
+
+.attentionHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.attentionTitle {
+  margin: 0;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  color: var(--rc-label-primary);
+}
+
+.attentionViewAll {
+  border: none;
+  background: none;
+  color: var(--dsw-alias-state-warn-label, var(--rc-label-primary));
+  font-size: var(--rc-font-xxs);
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.attentionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attentionItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-1);
+  padding: 6px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-primary);
+}
+
+.attentionItem:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.attentionItemTitle {
+  font-weight: 600;
+}
+
+.attentionItemMeta {
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* B §4.6 — the VERBATIM empty state box (0 projects). */
+.emptyBox {
+  border: 1px dashed var(--rc-border-l2);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 0 0 16px;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0 0 6px;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  color: var(--rc-label-primary);
+}
+
+.emptyBody {
+  margin: 0 0 12px;
+  color: var(--rc-label-secondary);
+}
+
+.emptyActions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.emptyButton {
+  border: 1px solid var(--rc-border-l2);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-primary);
+  font-size: var(--rc-font-xxs);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.emptyButton:hover {
+  background: var(--rc-interactive-hover);
+}
+
+.emptyExplain {
+  margin: 0;
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+}
+
+/* B §4.2 — the card-wall heading. */
+.wallHeading {
+  margin: 0 0 8px;
+  font-size: var(--rc-font-xs);
+  font-weight: 600;
+  color: var(--rc-label-primary);
+}
+
+/* B §4.5 — the card description (有则显). */
+.cardDescription {
+  display: block;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}

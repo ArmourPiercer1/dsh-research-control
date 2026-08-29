@@ -310,11 +310,13 @@ describe('OnboardingCard — 设为中枢 flow (design §8)', () => {
     expect(faces.setHub).toHaveBeenCalledWith({ wsPath: UNREGISTERED_PATH })
     expect(faces.load).toHaveBeenCalledTimes(2) // initial + the post-mutation re-fetch
 
-    expect(await screen.findByRole('button', { name: '总览' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Portfolio' })).toBeTruthy()
     expect(document.querySelector('[data-role="HUB"]')).toBeTruthy()
-    for (const label of ['总览', '重要事件', '调查员', '设置']) {
+    for (const label of ['Portfolio', 'Needs Attention', 'Settings']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
+    // UI-3 D1: the investigator entry is hidden from the first-level nav.
+    expect(screen.queryByRole('button', { name: '调查员' })).toBeNull()
   })
 
   it('cancel on the confirm dialog: no RPC fired, no re-fetch, card stays unchanged', async () => {

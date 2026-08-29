@@ -61,6 +61,8 @@
 
 import type {
   CreateLocalResearchProjectResult,
+  CreateTopicResult,
+  CreateWorkstreamResult,
   DismissPlanForkResult,
   DropWorkstreamResult,
   InspectProjectDirectoryResult,
@@ -82,12 +84,15 @@ import {
 } from './model.js'
 
 /**
- * The fourteen client-side mutations: the eight of the frozen 13-RPC
+ * The sixteen client-side mutations: the eight of the frozen 13-RPC
  * list (the seven WP-4.1b mutations + `setCurrentFocus`, UI-0.4 R-01 —
  * `getCurrentFocus` is a query, not a mutation) plus the six V2-UI-0.4
  * UI-2 GUI management faces (the 4 hierarchy update/drop RPCs, UI-2A,
  * and the 2 local-project RPCs, UI-2B — `inspectProjectDirectory` is a
- * query surfaced for uniformity; its rule invalidates nothing).
+ * query surfaced for uniformity; its rule invalidates nothing) plus the
+ * two V2-UI-0.4 UI-3 hierarchy CREATE faces (`createTopic` /
+ * `createWorkstream` — the host RPCs pre-existed; the client facade +
+ * store wiring landed in this slice).
  */
 export type MutationId =
   | 'reorderPlan'
@@ -104,6 +109,8 @@ export type MutationId =
   | 'dropWorkstream'
   | 'createLocalResearchProject'
   | 'inspectProjectDirectory'
+  | 'createTopic'
+  | 'createWorkstream'
 
 export const MUTATION_IDS: readonly MutationId[] = [
   'reorderPlan',
@@ -120,6 +127,8 @@ export const MUTATION_IDS: readonly MutationId[] = [
   'dropWorkstream',
   'createLocalResearchProject',
   'inspectProjectDirectory',
+  'createTopic',
+  'createWorkstream',
 ]
 
 /** One registry rule: pure (result, state) -> affected global slice keys. */
@@ -147,6 +156,8 @@ export const INVALIDATE_REGISTRY: {
   readonly dropWorkstream: InvalidationRule<DropWorkstreamResult>
   readonly createLocalResearchProject: InvalidationRule<CreateLocalResearchProjectResult>
   readonly inspectProjectDirectory: InvalidationRule<InspectProjectDirectoryResult>
+  readonly createTopic: InvalidationRule<CreateTopicResult>
+  readonly createWorkstream: InvalidationRule<CreateWorkstreamResult>
 } = {
   reorderPlan: (result, _state) => [sliceKey('workstreams', result.workstreamId)],
 
@@ -223,6 +234,27 @@ export const INVALIDATE_REGISTRY: {
   // cache can be stale because of it. The rule exists so the store
   // face is uniform (every mutation id has a rule).
   inspectProjectDirectory: (_result, _state) => [],
+
+  // V2-UI-0.4 UI-3: the two hierarchy CREATE mutations (host RPCs
+  // pre-existed; client facade + store wiring is new this slice).
+  // createTopic: the project's topic-card list (and per-topic counts)
+  // changed, so `project` refetches; the CACHED topic slices are listed
+  // conservatively — a new topic does not rewrite existing topics, but
+  // the rule pattern mirrors restoreDeclarativeFile (list the family;
+  // the refetch pass skips idle slices, and the new topic's own slice
+  // is idle so its first load fetches live data anyway).
+  createTopic: (_result, state) => [
+    'project',
+    ...[...state.topics.keys()].map(key => sliceKey('topics', key)),
+  ],
+
+  // createWorkstream: the owning topic's workstream-card list (and its
+  // workstreamCount) changed, and the project's aggregate counts follow.
+  // The result carries the topicId (no cache lookup needed).
+  createWorkstream: (result, _state) => [
+    sliceKey('topics', result.topicId),
+    'project',
+  ],
 }
 
 /**

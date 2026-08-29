@@ -43,6 +43,10 @@ import { researchRpc } from '../dsh-adapter/remote/mount.js'
 import {
   type CreateLocalResearchProjectArgs,
   type CreateLocalResearchProjectResult,
+  type CreateTopicArgs,
+  type CreateTopicResult,
+  type CreateWorkstreamArgs,
+  type CreateWorkstreamResult,
   type DashboardSnapshot,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
@@ -225,6 +229,19 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
    *  ok:false three-stage failure arm — step failures do NOT reject);
    *  pre-check faults reject. On OK success: refetches `dashboard`. */
   createLocalResearchProject(args: CreateLocalResearchProjectArgs): Promise<CreateLocalResearchProjectResult>
+
+  /* -- V2-UI-0.4 UI-3: the two hierarchy CREATE mutations. The host
+         faces pre-existed (03e3f92); the client facade + store wiring
+         is new in this slice. Same idiom: okValue →
+         INVALIDATE_REGISTRY → refetchKeys. -- */
+
+  /** Create a topic under the project (projectId optional — the host
+   *  resolves the ambient project per the §12.1 routing rules). On OK:
+   *  refetches `project` + every cached topic slice. */
+  createTopic(args: CreateTopicArgs): Promise<CreateTopicResult>
+  /** Create a workstream under a topic. On OK: refetches the owning
+   *  topic slice + `project`. */
+  createWorkstream(args: CreateWorkstreamArgs): Promise<CreateWorkstreamResult>
 
   /* -- the refresh loop (ARCHITECTURE §8 items 3/4) -- */
 
@@ -562,6 +579,23 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     ): Promise<CreateLocalResearchProjectResult> {
       const value = okValue(await rpc.createLocalResearchProject(args))
       await refetchKeys(INVALIDATE_REGISTRY.createLocalResearchProject(value, base.getState()))
+      return value
+    },
+
+    /* V2-UI-0.4 UI-3 — the two hierarchy CREATE mutations: the same
+       okValue → INVALIDATE_REGISTRY → refetchKeys idiom. Both RESOLVE
+       the strict result on OK; a business fault rejects with
+       ResearchRpcError (okValue). */
+
+    async createTopic(args: CreateTopicArgs): Promise<CreateTopicResult> {
+      const value = okValue(await rpc.createTopic(args))
+      await refetchKeys(INVALIDATE_REGISTRY.createTopic(value, base.getState()))
+      return value
+    },
+
+    async createWorkstream(args: CreateWorkstreamArgs): Promise<CreateWorkstreamResult> {
+      const value = okValue(await rpc.createWorkstream(args))
+      await refetchKeys(INVALIDATE_REGISTRY.createWorkstream(value, base.getState()))
       return value
     },
 

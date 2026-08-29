@@ -71,6 +71,12 @@ import type {
   InspectProjectDirectoryResult,
   CreateLocalResearchProjectArgs,
   CreateLocalResearchProjectResult,
+  // V2-UI-0.4 UI-3: the 2 hierarchy CREATE faces (the host RPCs
+  // pre-existed; the facade wiring is new this slice).
+  CreateTopicArgs,
+  CreateTopicResult,
+  CreateWorkstreamArgs,
+  CreateWorkstreamResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -256,6 +262,17 @@ const DEFAULTS: Record<string, () => unknown> = {
     ok: true,
     value: { ok: true, projectId: 'PRJ-9', treePath: '/workspace/stub/.research', registryPath: null, dbMigrated: false },
   }),
+  // V2-UI-0.4 UI-3: wire-valid minimal defaults for the 2 hierarchy
+  // CREATE faces — LOCAL to this stub (same convention as the UI-2
+  // block); the store suite overrides per-test.
+  createTopic: () => ({
+    ok: true,
+    value: { topicId: 'TPC-9', title: 'Stub new topic', path: '/workspace/stub/.research/topics/TPC-9', createdAt: 1755000009000 },
+  }),
+  createWorkstream: () => ({
+    ok: true,
+    value: { workstreamId: 'WS-9', topicId: 'TPC-1', title: 'Stub new ws', path: '/workspace/stub/.research/topics/TPC-1/WS-9', createdAt: 1755000009000 },
+  }),
 }
 
 /**
@@ -351,6 +368,10 @@ export function makeStubRpc(): StubRpc {
       deliverArgs<RemoteResult<InspectProjectDirectoryResult>>('inspectProjectDirectory', args),
     createLocalResearchProject: async (args: CreateLocalResearchProjectArgs) =>
       deliverArgs<RemoteResult<CreateLocalResearchProjectResult>>('createLocalResearchProject', args),
+    createTopic: async (args: CreateTopicArgs) =>
+      deliverArgs<RemoteResult<CreateTopicResult>>('createTopic', args),
+    createWorkstream: async (args: CreateWorkstreamArgs) =>
+      deliverArgs<RemoteResult<CreateWorkstreamResult>>('createWorkstream', args),
   }
 
   return {

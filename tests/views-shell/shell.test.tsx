@@ -10,13 +10,15 @@
  *
  * Gate coverage (plan §P4 T4.1: 5 角色 × 加载中/失败重试; V2-T5.1 adds the
  * 总览 page assertions):
- *  - HUB           → 中枢控制台 frame: nav + the 4 first-level entries
- *                    总览/重要事件/调查员/设置 (design §6 fixed naming) +
+ *  - HUB           → 中枢控制台 frame: nav + the 3 VISIBLE first-level
+ *                    entries Portfolio/Needs Attention/Settings (UI-3 D1
+ *                    frozen IA — 调查员 hidden from the nav) +
  *                    总览 = 聚合条 + 项目卡墙 (the `loadHubOverview` stub
  *                    resolves the single-project wire fixture; the
  *                    whole-card click drills into the project view, back =
  *                    返回总览 to the wall);
- *  - MANAGED       → 同构收窄控制台: the SAME 4-entry frame, 总览 = the
+ *  - MANAGED       → 同构收窄控制台: the SAME 3-visible-entry frame,
+ *                    总览 = the
  *                    project console as ROOT (the real store over the stub
  *                    facade — the plugin's own mount seam, a plain fake
  *                    ctx, NOT cordis; no aggregate strip, no back);
@@ -215,23 +217,27 @@ describe('ResearchShell — 加载失败 / 重试', () => {
       resolveSecond(HUB_RESULT)
     })
     // The resolved HUB result renders the 中枢控制台 frame.
-    expect(screen.getByRole('button', { name: '总览' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Portfolio' })).toBeTruthy()
     expect(document.querySelector('[data-role="HUB"]')).toBeTruthy()
   })
 })
 
 describe('ResearchShell — 5 角色分支', () => {
-  it('HUB: renders the 中枢控制台 frame with the 4 first-level entries (design §6)', async () => {
+  it('HUB: renders the 中枢控制台 frame with the 3 visible first-level entries (UI-3 frozen IA)', async () => {
     const load = vi.fn().mockResolvedValue(HUB_RESULT)
     renderShell(load, 'sess-hub')
 
-    expect(await screen.findByRole('button', { name: '总览' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Portfolio' })).toBeTruthy()
     expect(document.querySelector('[data-role="HUB"]')).toBeTruthy()
     expect(document.querySelector('nav[aria-label="研究控制台一级入口"]')).toBeTruthy()
-    // The 4 first-level entries, fixed naming (总览 — NOT 「首页」).
-    for (const label of ['总览', '重要事件', '调查员', '设置']) {
+    // The 3 VISIBLE first-level entries (UI-3 D1, D §9.1 frozen IA —
+    // Portfolio / Needs Attention / Settings via t()). The V1 4th entry
+    // (调查员) is HIDDEN from the nav (B §2.1) — programmatic deep-link
+    // only.
+    for (const label of ['Portfolio', 'Needs Attention', 'Settings']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
+    expect(screen.queryByRole('button', { name: '调查员' })).toBeNull()
     expect(document.querySelector('[data-page="overview"]')).toBeTruthy()
     // V2-T5.1: the 总览 body is the 聚合条 + 项目卡墙 (the loadHubOverview
     // stub resolves the single-project wire fixture).
@@ -266,20 +272,20 @@ describe('ResearchShell — 5 角色分支', () => {
     expect(await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')).toBeTruthy()
   })
 
-  it('HUB: the nav switches the active entry — 重要事件 = the real stream, 设置 = 四段式管理面', async () => {
+  it('HUB: the nav switches the active entry — Needs Attention = the real stream, Settings = 四段式管理面', async () => {
     renderShell(vi.fn().mockResolvedValue(HUB_RESULT), 'sess-hub')
-    await screen.findByRole('button', { name: '总览' })
+    await screen.findByRole('button', { name: 'Portfolio' })
 
     // T5.2: 重要事件 is the live pure-intervention stream (the stub resolves
     // an EMPTY portfolio → the stream's empty-state face; the page's own
     // behavior is pinned in tests/views-intervention-stream/).
-    fireEvent.click(screen.getByRole('button', { name: '重要事件' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Needs Attention' }))
     expect(document.querySelector('[data-page="attention"]')).toBeTruthy()
     expect(await screen.findByText('当前没有需要处理的事件')).toBeTruthy()
 
     // T5.4: 设置 is the 四段式管理面 (design §7.4). The HUB role sees ALL
     // four sections (①②③④ — the 登记册 included).
-    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(document.querySelector('[data-page="settings"]')).toBeTruthy()
     expect(document.querySelector('[data-settings-page]')).toBeTruthy()
     // ① 当前状态: the HUB role label.
@@ -300,11 +306,12 @@ describe('ResearchShell — 5 角色分支', () => {
     await mountStub(makeStubRpc())
     renderShell(vi.fn().mockResolvedValue(MANAGED_RESULT), 'sess-managed')
 
-    // The 4-entry frame (design §6 — the SAME entries as the HUB).
-    expect(await screen.findByRole('button', { name: '总览' })).toBeTruthy()
-    for (const label of ['总览', '重要事件', '调查员', '设置']) {
+    // The 3-visible-entry frame (UI-3 D1 — the SAME entries as the HUB).
+    expect(await screen.findByRole('button', { name: 'Portfolio' })).toBeTruthy()
+    for (const label of ['Portfolio', 'Needs Attention', 'Settings']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy()
     }
+    expect(screen.queryByRole('button', { name: '调查员' })).toBeNull()
     expect(document.querySelector('[data-role="MANAGED"]')).toBeTruthy()
     // The 总览 body is the project page AS ROOT (the real store over the
     // stub facade — PRJ-1 = the stub's single project).
@@ -357,20 +364,20 @@ describe('ResearchShell — 5 角色分支', () => {
     expect((screen.getByRole('button', { name: SET_HUB_BUTTON }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('T5.4: UNREGISTERED / NO_CWD sessions never reach the console frame — the 设置 entry is absent (the 引导卡 is their face)', async () => {
+  it('T5.4: UNREGISTERED / NO_CWD sessions never reach the console frame — the Settings entry is absent (the 引导卡 is their face)', async () => {
     // design §5: the 引导卡 branches render NO ConsoleFrame at all — the
-    // 4-entry nav (incl. 设置) exists only for HUB / MANAGED / STANDALONE.
+    // 3-entry nav (incl. Settings) exists only for HUB / MANAGED / STANDALONE.
     renderShell(vi.fn().mockResolvedValue(UNREGISTERED_RESULT), 'sess-unregistered')
     expect(await screen.findByRole('region', { name: '研究管理系统引导' })).toBeTruthy()
     expect(document.querySelector('[data-role]')).toBeNull()
-    expect(screen.queryByRole('button', { name: '设置' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull()
     expect(document.querySelector('[data-settings-page]')).toBeNull()
     cleanup()
 
     renderShell(vi.fn().mockResolvedValue(NO_CWD_RESULT), 'sess-no-cwd')
     expect(await screen.findByRole('region', { name: '研究管理系统引导' })).toBeTruthy()
     expect(document.querySelector('[data-role]')).toBeNull()
-    expect(screen.queryByRole('button', { name: '设置' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull()
     expect(document.querySelector('[data-settings-page]')).toBeNull()
   })
 })

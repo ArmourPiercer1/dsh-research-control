@@ -25,15 +25,17 @@
  * a host-side session-open channel can be plugged in later without
  * touching the display layer.
  */
-import { useMemo, useSyncExternalStore, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useSyncExternalStore, useState, type ReactElement } from 'react'
 import { createResearchStore, type ResearchStore } from '../../stores/index.js'
 import type { UpdateProjectMetadataArgs } from '../../../shared/rpc-contracts.js'
+import { t } from '../../i18n/copy.js'
 import { extractResearchErrorCarrier } from '../../util/error-carrier.js'
 import { type DrilldownSelection } from '../drilldown/drilldown-view.js'
 import { WorkstreamPage } from '../drilldown/cockpit.js'
 import { TopicPage } from '../drilldown/topic-page.js'
 import { HistoryTimelineView } from '../history/HistoryTimelineView.js'
 import { ProjectPage } from '../project/ProjectPage.js'
+import { StructureTree } from './structure-tree.js'
 // The V1 cockpit's page chrome (banner / back button / page frame) is
 // reused verbatim — the console IS the same page set, minus the nav bar.
 import styles from '../drilldown/cockpit.module.css'
@@ -44,8 +46,11 @@ import dialogStyles from './shell.module.css'
  *
  *  topicId is carried on ws/history pages so the LINEAR back chain
  *  (history → ws → topic → project) can reconstruct each parent page
- *  without a separate history stack. */
-type ConsolePage =
+ *  without a separate history stack. Exported (UI-3): the structure tree
+ *  derives its current-item highlight from this stack top (judgment
+ *  #12 — the tree is a shortcut into the SAME page state, not a second
+ *  nav system). */
+export type ConsolePage =
   | { readonly kind: 'project' }
   | { readonly kind: 'topic'; readonly topicId: string }
   | { readonly kind: 'ws'; readonly workstreamId: string; readonly topicId: string }
@@ -251,6 +256,52 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
   const [metaOpen, setMetaOpen] = useState(false)
   const projectSlice = useSyncExternalStore(store.subscribe, () => store.getState().project)
 
+  /* -- UI-3 D7 — the breadcrumb (B §2.3). The console owns the page
+     stack, so the breadcrumb is the console's CHROME (rendered once
+     above the page set — it never enters the page components). Two
+     levels at project/topic depth (`Research Control / Project Name`);
+     at ws/history depth the topic + workstream levels are appended
+     (B §2.3: the Topic crumb may be context-only — it has no page of
+     its own here). The topic/workstream names come from the owning
+     topic's slice (one lazy loadTopic — the structure tree's
+     auto-expand shares the same deduped load). -- */
+  const crumbTopicId = page.kind === 'ws' || page.kind === 'history' ? page.topicId : null
+  const crumbWorkstreamId = page.kind === 'ws' || page.kind === 'history' ? page.workstreamId : null
+  const crumbTopicSlice = useSyncExternalStore(
+    store.subscribe,
+    () => (crumbTopicId !== null ? store.getState().topics.get(crumbTopicId) : undefined),
+  )
+  const swallowSliceRecordedFault = (_err: unknown): undefined => undefined
+  useEffect(() => {
+    if (crumbTopicId === null) return
+    const slice = store.getState().topics.get(crumbTopicId)
+    if (slice === undefined || slice.status === 'idle' || slice.status === 'error') {
+      void store.loadTopic(crumbTopicId).catch(swallowSliceRecordedFault)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, crumbTopicId])
+  const crumbTopicTitle = crumbTopicSlice?.data?.topic.title
+  const crumbWsTitle =
+    crumbWorkstreamId !== null
+      ? crumbTopicSlice?.data?.workstreams.find((ws) => ws.id === crumbWorkstreamId)?.title
+      : undefined
+
+  /* -- UI-3 D4 — the structure tree's navigation: the SAME setPage
+     functions the pages' own drill callbacks use (judgment #12 — one
+     nav system; the tree is a shortcut into it). -- */
+  function goToProject(): void {
+    setSelection(null)
+    setPage({ kind: 'project' })
+  }
+  function goToTopic(topicId: string): void {
+    setSelection(null)
+    setPage({ kind: 'topic', topicId })
+  }
+  function goToWorkstream(workstreamId: string, topicId: string): void {
+    setSelection(null)
+    setPage({ kind: 'ws', workstreamId, topicId })
+  }
+
   // The DSH session-open channel (placeholder semantics — see header):
   // the pointer is recorded visibly; a host channel can replace this
   // handler without touching the display layer.
@@ -258,8 +309,73 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
     setSessionPointer({ sessionId, runId })
   }
 
+  const projectTitle = projectSlice.data?.project.title
+
   return (
     <div className={styles.cockpit} data-project-console-page={page.kind}>
+      {/* UI-3 D7 — the breadcrumb (B §2.3, the console chrome). */}
+      <nav className={styles.breadcrumb} aria-label="breadcrumb" data-project-breadcrumb>
+        {onBackToWall !== undefined ? (
+          <button
+            type="button"
+            className={styles.breadcrumbCrumb}
+            onClick={onBackToWall}
+            data-breadcrumb-root
+          >
+            {t('app.title')}
+          </button>
+        ) : (
+          <span className={styles.breadcrumbCrumb} data-breadcrumb-root>
+            {t('app.title')}
+          </span>
+        )}
+        <span className={styles.breadcrumbSep} aria-hidden="true">
+          /
+        </span>
+        {projectTitle !== undefined ? (
+          page.kind === 'project' ? (
+            <span
+              className={`${styles.breadcrumbCrumb} ${styles.breadcrumbCurrent}`}
+              data-breadcrumb-project
+            >
+              {projectTitle}
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={styles.breadcrumbCrumb}
+              onClick={goToProject}
+              data-breadcrumb-project
+            >
+              {projectTitle}
+            </button>
+          )
+        ) : (
+          <span className={styles.breadcrumbCrumb} data-breadcrumb-project>
+            …
+          </span>
+        )}
+        {crumbTopicId !== null && (
+          <>
+            <span className={styles.breadcrumbSep} aria-hidden="true">
+              /
+            </span>
+            <span className={styles.breadcrumbCrumb} data-breadcrumb-topic>
+              {crumbTopicTitle ?? '…'}
+            </span>
+            <span className={styles.breadcrumbSep} aria-hidden="true">
+              /
+            </span>
+            <span
+              className={`${styles.breadcrumbCrumb} ${styles.breadcrumbCurrent}`}
+              data-breadcrumb-ws
+            >
+              {crumbWsTitle ?? '…'}
+            </span>
+          </>
+        )}
+      </nav>
+
       {sessionPointer !== null && (
         <div className={styles.sessionBanner} role="status" data-session-id={sessionPointer.sessionId}>
           <p>
@@ -272,14 +388,22 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
         </div>
       )}
 
+      {/* UI-3 D4 — the console layout: the structure-tree left rail
+          (B §7.2) + the page column. The tree reuses the console's own
+          navigation functions (one nav system — judgment #12). */}
+      <div className={styles.consoleLayout}>
+        <StructureTree
+          store={store}
+          page={page}
+          onOpenProject={goToProject}
+          onOpenWorkstream={goToWorkstream}
+        />
+        <div className={styles.consoleMain}>
       {page.kind === 'project' && (
         <>
           <ProjectPage
             store={store}
-            onOpenTopic={(topicId) => {
-              setSelection(null)
-              setPage({ kind: 'topic', topicId })
-            }}
+            onOpenTopic={goToTopic}
             onBack={onBackToWall}
           />
           {/* V2-UI-0.4 UI-2 — the 编辑项目元数据 affordance (visible only
@@ -316,11 +440,8 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
         <TopicPage
           store={store}
           topicId={page.topicId}
-          onOpenWorkstream={(workstreamId) => {
-            setSelection(null)
-            setPage({ kind: 'ws', workstreamId, topicId: page.topicId })
-          }}
-          onBack={() => setPage({ kind: 'project' })}
+          onOpenWorkstream={(workstreamId) => goToWorkstream(workstreamId, page.topicId)}
+          onBack={goToProject}
         />
       )}
 
@@ -332,7 +453,7 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
           onSelect={setSelection}
           onOpenSession={handleOpenSession}
           onOpenHistory={() => setPage({ kind: 'history', workstreamId: page.workstreamId, topicId: page.topicId })}
-          onBack={() => setPage({ kind: 'topic', topicId: page.topicId })}
+          onBack={() => goToTopic(page.topicId)}
         />
       )}
 
@@ -342,7 +463,7 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
             <button
               type="button"
               className={styles.backButton}
-              onClick={() => setPage({ kind: 'ws', workstreamId: page.workstreamId, topicId: page.topicId })}
+              onClick={() => goToWorkstream(page.workstreamId, page.topicId)}
             >
               ← 返回 {page.workstreamId}
             </button>{' '}
@@ -351,6 +472,8 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
           <HistoryTimelineView store={store} workstreamId={page.workstreamId} pageSize={200} initialOrder="semantic" />
         </section>
       )}
+        </div>
+      </div>
     </div>
   )
 }

@@ -230,6 +230,9 @@ export function makeHistoryFacade(log: readonly HistoryEventDto[]): HistoryFacad
       dropWorkstream: notUsed('dropWorkstream'),
       inspectProjectDirectory: notUsed('inspectProjectDirectory'),
       createLocalResearchProject: notUsed('createLocalResearchProject'),
+      // V2-UI-0.4 UI-3: the 2 hierarchy CREATE faces (same contract).
+      createTopic: notUsed('createTopic'),
+      createWorkstream: notUsed('createWorkstream'),
     } as ResearchRpcFacade,
     calls,
     nextControlled: () => {
@@ -290,6 +293,9 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     dropWorkstream: notUsed('dropWorkstream'),
     inspectProjectDirectory: notUsed('inspectProjectDirectory'),
     createLocalResearchProject: notUsed('createLocalResearchProject'),
+    // V2-UI-0.4 UI-3: the 2 hierarchy CREATE faces (same contract).
+    createTopic: notUsed('createTopic'),
+    createWorkstream: notUsed('createWorkstream'),
   } as ResearchRpcFacade
 }
 

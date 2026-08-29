@@ -117,12 +117,12 @@ function renderMissing(
   )
   const restoreProject = vi.fn(async () => ({ wsPath: MISSING_WS_PATH }))
   const ackMissingReminder = vi.fn(impls.ackImpl ?? (async () => ({ acknowledged: true })))
-  // T5.1: the shell requires the HUB 总览 fetch face (the modal rides a
+  // T5.1: the shell requires the HUB Portfolio fetch face (the modal rides a
   // HUB session, so the HUB branch renders the overview under the modal —
   // the inert resolver resolves the single-project wire fixture).
   const loadHubOverview = vi.fn(async (): Promise<HubOverviewResult> => HUB_OVERVIEW_RESULT)
   // T5.2: the shell requires the 重要事件 stream faces. The modal spec rides
-  // the 总览 entry (the stream is NOT mounted here), so inert EMPTY
+  // the Portfolio entry (the stream is NOT mounted here), so inert EMPTY
   // resolvers keep this file focused on the modal.
   const loadPortfolioInterventions = vi.fn(async (): Promise<GetPortfolioInterventionsResult> => ({ items: [] }))
   const updateInterventionState = vi.fn(async (): Promise<UpdateInterventionStateResult> => ({
@@ -203,7 +203,7 @@ describe('MissingModal — 弹窗出现（首次渲染，live MISSING 条目）'
     renderMissing([MISSING_ACKED_RESULT]) // missing: [PRJ-3 (deferred), PRJ-4 (deferred)]
 
     // The ready face renders (the hub console) — and NO modal.
-    expect(await screen.findByRole('button', { name: '总览' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Portfolio' })).toBeTruthy()
     expect(screen.queryByRole('dialog', { name: DIALOG_NAME })).toBeNull()
   })
 
@@ -336,7 +336,7 @@ describe('MissingModal — 运行时去重（推后 → 同运行期二次渲染
     // The underlying branch re-rendered (the hub console — the re-fetch's
     // ready face) and NO modal is present: the acked entry is filtered by
     // its `deferred: true` flag — no second pop in the same runtime.
-    expect(await screen.findByRole('button', { name: '总览' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Portfolio' })).toBeTruthy()
     expect(screen.queryByRole('dialog', { name: DIALOG_NAME })).toBeNull()
     expect(screen.queryByText(MISSING_ENTRY.displayName)).toBeNull()
   })

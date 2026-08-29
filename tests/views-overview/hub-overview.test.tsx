@@ -37,14 +37,21 @@ import {
 import type {
   BindProjectArgs,
   BindProjectResult,
+  CreateLocalResearchProjectArgs,
+  CreateLocalResearchProjectResult,
+  GetPortfolioInterventionsResult,
   HubOverviewResult,
+  InspectProjectDirectoryArgs,
+  InspectProjectDirectoryResult,
   SetHubArgs,
   SetHubResult,
 } from '../../src/shared/rpc-contracts.js'
 import {
   HUB_OVERVIEW_ATTENTION_RESULT,
+  HUB_OVERVIEW_CARD_MAPPING_RESULT,
   HUB_OVERVIEW_EMPTY_RESULT,
   HUB_OVERVIEW_RESULT,
+  PORTFOLIO_ATTENTION_RESULT,
 } from './fixtures.js'
 
 /** The non-fetch props (the 空中枢 onboarding-card faces — inert in
@@ -203,5 +210,185 @@ describe('formatters', () => {
 
   it('formatEpochDate: the YYYY-MM-DD shape (TZ-stable form)', () => {
     expect(formatEpochDate(1780000000000)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+})
+
+/* ───────────────────────────────────────────────────────────────────── *
+ * V2-UI-0.4 UI-3 — the Portfolio restructure (B §4.2-§4.6, D2) + the
+ * D8 view-coverage pass: the frozen header, the Needs Attention
+ * summary (cap 6, host order), the B §4.5 card field mapping (有则显),
+ * and the B §4.6 verbatim empty state (dual buttons → the shared
+ * journey dialogs).
+ * ───────────────────────────────────────────────────────────────────── */
+
+/** The wired D2 faces: the Create/Bind journeys + the attention
+ *  summary face + its navigation target (the 重要事件 stream jump). */
+function makeWiredFaces(attention: () => Promise<GetPortfolioInterventionsResult> =
+  () => Promise.resolve(PORTFOLIO_ATTENTION_RESULT)) {
+  const onOpenAttention = vi.fn()
+  const faces = {
+    createLocalResearchProject: async (_args: CreateLocalResearchProjectArgs): Promise<CreateLocalResearchProjectResult> => ({
+      ok: true,
+      projectId: 'PRJ-99',
+      treePath: '/workspace/new/.research',
+      registryPath: null,
+      dbMigrated: false,
+    }),
+    inspectProjectDirectory: async (_args: InspectProjectDirectoryArgs): Promise<InspectProjectDirectoryResult> => ({
+      wsPath: '/workspace/existing',
+      state: 'RC_PROJECT',
+      message: '研究项目',
+      detail: null,
+      hasGitRepo: true,
+      hasResearchTree: true,
+      treeValid: true,
+      alreadyManaged: false,
+    }),
+    loadPortfolioInterventions: attention,
+    onOpenAttention,
+  }
+  return { faces, onOpenAttention }
+}
+
+function renderWired(
+  loadHubOverview: () => Promise<HubOverviewResult>,
+  faces: ReturnType<typeof makeWiredFaces>['faces'],
+  onDrill: (projectId: string) => void = () => undefined,
+): void {
+  render(<HubOverviewPage {...CARD_PROPS} loadHubOverview={loadHubOverview} onDrill={onDrill} {...faces} />)
+}
+
+describe('Portfolio header (B §4.2/§4.3)', () => {
+  it('renders the frozen title + subtitle', async () => {
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), makeWiredFaces().faces)
+    // findByRole: the ready face lands one promise tick after mount
+    expect(await screen.findByRole('heading', { level: 2, name: 'Portfolio' })).toBeDefined()
+    expect(screen.getByText('Research projects overview')).toBeDefined()
+  })
+
+  it('the header buttons render ONLY when their faces are wired (nothing, no placeholders, otherwise)', async () => {
+    // unwired (the CARD_PROPS default): no buttons in the DOM at all
+    renderOverview(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT))
+    await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
+    expect(document.querySelector('[data-portfolio-create]')).toBeNull()
+    expect(document.querySelector('[data-portfolio-bind]')).toBeNull()
+
+    cleanup()
+    // wired: both buttons render with the B §4.3 MUST copy
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), makeWiredFaces().faces)
+    expect(await screen.findByRole('button', { name: 'Create Project' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Bind Existing Project' })).toBeDefined()
+  })
+
+  it('the header buttons open the shared journey dialogs', async () => {
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), makeWiredFaces().faces)
+    await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
+
+    // both dialogs are independent mounts — open the create journey…
+    fireEvent.click(screen.getByRole('button', { name: 'Create Project' }))
+    expect(document.querySelector('[data-onboarding-create]')).not.toBeNull()
+    // …and the bind journey (the create dialog stays mounted beside it)
+    fireEvent.click(screen.getByRole('button', { name: 'Bind Existing Project' }))
+    expect(document.querySelector('[data-onboarding-bind]')).not.toBeNull()
+  })
+})
+
+describe('Needs Attention summary (B §4.4)', () => {
+  it('renders the top-6 items in host order (item 7 is capped out) + [View all]', async () => {
+    const { faces, onOpenAttention } = makeWiredFaces()
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), faces)
+
+    expect(await screen.findByText('Needs Attention')).toBeDefined()
+    // the cap: 7 items in → exactly 6 rendered (same commit as the heading)
+    expect(document.querySelectorAll('[data-portfolio-attention-item]')).toHaveLength(6)
+    expect(document.querySelector('[data-attention-item-id="IV-1"]')).not.toBeNull()
+    expect(document.querySelector('[data-attention-item-id="IV-6"]')).not.toBeNull()
+    expect(document.querySelector('[data-attention-item-id="IV-7"]')).toBeNull()
+
+    // the item face: title + the meta line (displayName (projectId) · WS · origin · status)
+    // — the fixture items share one meta line, so it repeats exactly once per rendered item
+    expect(screen.getByText('干预事项 1')).toBeDefined()
+    expect(screen.getAllByText('机器人视觉定位 (PRJ-1) · WS-1 · USER · OPEN')).toHaveLength(6)
+
+    // item click + [View all] both jump to the 重要事件 stream page
+    fireEvent.click(document.querySelector('[data-attention-item-id="IV-1"]') as Element)
+    expect(onOpenAttention).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'View all' }))
+    expect(onOpenAttention).toHaveBeenCalledTimes(2)
+  })
+
+  it('renders NOTHING when the list is empty (无则不渲染，不占位)', async () => {
+    const { faces } = makeWiredFaces(() => Promise.resolve({ items: [] }))
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), faces)
+    await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
+    expect(document.querySelector('[data-portfolio-attention]')).toBeNull()
+    expect(document.querySelector('[data-portfolio-attention-error]')).toBeNull()
+  })
+
+  it('renders NOTHING when the face is unwired (no section, no placeholder)', async () => {
+    renderOverview(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT))
+    await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
+    expect(document.querySelector('[data-portfolio-attention]')).toBeNull()
+    expect(document.body.textContent).not.toContain('Needs Attention')
+  })
+
+  it('a failed summary fetch keeps the page + renders the carrier-decoded fault line', async () => {
+    const faulted = () =>
+      Promise.reject(new Error('[research-control] PLANE_DB_MISSING: hub db missing'))
+    const { faces } = makeWiredFaces(faulted)
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), faces)
+    await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(document.querySelector('[data-portfolio-attention-error]')?.textContent).toBe('hub db missing')
+    // the page itself is intact (the summary is a section, not the page)
+    expect(document.querySelector('[data-hub-overview][data-phase="ready"]')).toBeTruthy()
+    expect(document.querySelector('[data-portfolio-attention]')).toBeNull()
+  })
+})
+
+describe('Portfolio cards (B §4.5 field mapping, 有则显)', () => {
+  it('description + target date render ONLY when present; the counts row always renders', async () => {
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_CARD_MAPPING_RESULT), makeWiredFaces().faces)
+
+    const full = await screen.findByText('PRJ-1 Full card project')
+    const fullCard = full.closest('[data-project-card]') as Element
+    expect(fullCard.getAttribute('data-project-id')).toBe('PRJ-1')
+    // the FULL card: description + target line present
+    expect(fullCard.querySelector('[data-card-description]')?.textContent).toBe('多传感器融合定位')
+    expect(fullCard.querySelector('[data-card-target]')?.textContent).toMatch(/^目标 \d{4}-\d{2}-\d{2}$/)
+    expect(fullCard.querySelector('[data-card-counts]')?.textContent).toBe('干预2 主题3 收1')
+
+    const sparse = screen.getByText('PRJ-2 Sparse card project')
+    const sparseCard = sparse.closest('[data-project-card]') as Element
+    // the SPARSE card: neither line in the DOM (有则显)
+    expect(sparseCard.querySelector('[data-card-description]')).toBeNull()
+    expect(sparseCard.querySelector('[data-card-target]')).toBeNull()
+    expect(sparseCard.querySelector('[data-card-counts]')?.textContent).toBe('干预0 主题0 收0')
+  })
+})
+
+describe('Portfolio empty state (B §4.6 verbatim)', () => {
+  it('renders the verbatim empty box + the dual buttons opening the journey dialogs', async () => {
+    const { faces } = makeWiredFaces()
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_EMPTY_RESULT), faces)
+
+    expect(await screen.findByText('No research projects yet')).toBeDefined()
+    expect(screen.getByText('Start a new local research project or bind an existing project directory.')).toBeDefined()
+    // the 必须解释 line (Create/Bind semantics, verbatim, one line)
+    expect(
+      document.querySelector('[data-portfolio-empty-explain]')?.textContent,
+    ).toBe('Create = 创建新的本地 Project + Git + research structure。Bind = 接管已有目录 / Git repo')
+
+    // the Create button → the shared create dialog, the Bind button →
+    // the shared bind dialog (independent mounts — both may be open).
+    // Scoped locators: the header ALSO renders a 'Bind Existing Project'
+    // button (wired faces), so the role query would be ambiguous.
+    fireEvent.click(screen.getByRole('button', { name: 'Create Research Project' }))
+    expect(document.querySelector('[data-onboarding-create]')).not.toBeNull()
+    fireEvent.click(document.querySelector('[data-portfolio-empty-bind]') as Element)
+    expect(document.querySelector('[data-onboarding-bind]')).not.toBeNull()
+
+    // the T5.1 onboarding card coexists (the SAME T4.2 bind flow)
+    expect(document.body.textContent).toContain('登记第一个研究项目')
   })
 })

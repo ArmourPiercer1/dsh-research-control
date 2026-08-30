@@ -236,78 +236,95 @@ function StripRow({
   const execution: TaskExecution | undefined =
     item.kind === 'TASK' ? executionById.get(item.id) : undefined
   const removeLabel = t(REMOVE_STATE_KEY[classifyRemoveState(item, executionById)])
+  /**
+   * FR5 (F-8 fix): the clickable strip item is the identity row (div)
+   * only — its box contains spans, never buttons. The per-row action
+   * buttons live in a separate right-aligned sub-line inside the same
+   * visual row (the li wrapper). In the 254px future column (grid
+   * blowout, documented) the old flat-wrap layout let the action
+   * buttons flow under the row's geometric center, so a row-center
+   * click (B §17.4: strip item click ⇒ select) intermittently hit the
+   * move-right button instead. Structurally separating the boxes makes
+   * the selection contract hold at any row height / column width.
+   */
   return (
     <>
       <li
-        className={selected ? `${styles.planRow} ${styles.rowSelected}` : styles.planRow}
-        data-strip-item={item.id}
-        data-plan-focus={focused ? 'true' : undefined}
-        data-strip-selected={selected ? 'true' : undefined}
-        onClick={() => onSelectItem(item.id)}
+        className={selected ? `${styles.planItem} ${styles.rowSelected}` : styles.planItem}
       >
-        <span className={styles.planPosition}>{index + 1}</span>
-        <span className={styles.badge} data-kind={item.kind}>
-          {KIND_LABEL[item.kind]}
-        </span>
-        <span className={styles.taskTitle}>{item.title}</span>
-        <span className={styles.taskId}>{item.id}</span>
-        {execution !== undefined && (
-          <span className={styles.badge} data-strip-exec={execution} data-execution={execution}>
-            {execution}
+        <div
+          className={styles.planRow}
+          data-strip-item={item.id}
+          data-plan-focus={focused ? 'true' : undefined}
+          data-strip-selected={selected ? 'true' : undefined}
+          onClick={() => onSelectItem(item.id)}
+        >
+          <span className={styles.planPosition}>{index + 1}</span>
+          <span className={styles.badge} data-kind={item.kind}>
+            {KIND_LABEL[item.kind]}
           </span>
-        )}
-        {focused && <span className={styles.focusMarker}>{t('ws.current.focusMarker')}</span>}
-        <button
-          type="button"
-          className={styles.moveButton}
-          data-strip-move-left={item.id}
-          aria-label={`${t('ws.future.strip.moveLeft')}：${item.id}`}
-          disabled={index === 0}
-          onClick={e => {
-            e.stopPropagation()
-            onMoveItem(item.id, 'up')
-          }}
-        >
-          ←
-        </button>
-        <button
-          type="button"
-          className={styles.moveButton}
-          data-strip-move-right={item.id}
-          aria-label={`${t('ws.future.strip.moveRight')}：${item.id}`}
-          disabled={index === count - 1}
-          onClick={e => {
-            e.stopPropagation()
-            onMoveItem(item.id, 'down')
-          }}
-        >
-          →
-        </button>
-        <button
-          type="button"
-          className={styles.setFocusButton}
-          data-strip-set-focus={item.id}
-          aria-label={`Set as Current Focus: ${item.id}`}
-          onClick={e => {
-            e.stopPropagation()
-            onSetCurrentFocus(item.id)
-          }}
-        >
-          {t('ws.current.setFocus')}
-        </button>
-        <button
-          type="button"
-          className={styles.removeButton}
-          data-strip-remove={item.id}
-          aria-label={`${removeLabel}: ${item.id}`}
-          disabled={removePending}
-          onClick={e => {
-            e.stopPropagation()
-            onRemoveItem(item.id)
-          }}
-        >
-          {removeLabel}
-        </button>
+          <span className={styles.taskTitle}>{item.title}</span>
+          <span className={styles.taskId}>{item.id}</span>
+          {execution !== undefined && (
+            <span className={styles.badge} data-strip-exec={execution} data-execution={execution}>
+              {execution}
+            </span>
+          )}
+          {focused && <span className={styles.focusMarker}>{t('ws.current.focusMarker')}</span>}
+        </div>
+        <div className={styles.planRowActions}>
+          <button
+            type="button"
+            className={styles.moveButton}
+            data-strip-move-left={item.id}
+            aria-label={`${t('ws.future.strip.moveLeft')}：${item.id}`}
+            disabled={index === 0}
+            onClick={e => {
+              e.stopPropagation()
+              onMoveItem(item.id, 'up')
+            }}
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            className={styles.moveButton}
+            data-strip-move-right={item.id}
+            aria-label={`${t('ws.future.strip.moveRight')}：${item.id}`}
+            disabled={index === count - 1}
+            onClick={e => {
+              e.stopPropagation()
+              onMoveItem(item.id, 'down')
+            }}
+          >
+            →
+          </button>
+          <button
+            type="button"
+            className={styles.setFocusButton}
+            data-strip-set-focus={item.id}
+            aria-label={`Set as Current Focus: ${item.id}`}
+            onClick={e => {
+              e.stopPropagation()
+              onSetCurrentFocus(item.id)
+            }}
+          >
+            {t('ws.current.setFocus')}
+          </button>
+          <button
+            type="button"
+            className={styles.removeButton}
+            data-strip-remove={item.id}
+            aria-label={`${removeLabel}: ${item.id}`}
+            disabled={removePending}
+            onClick={e => {
+              e.stopPropagation()
+              onRemoveItem(item.id)
+            }}
+          >
+            {removeLabel}
+          </button>
+        </div>
       </li>
       <li className={styles.addSlot}>
         <button
@@ -393,6 +410,24 @@ export function FutureZone({
     selectedItem === null ? [] : dependencyEdges.filter(edge => edge.targetId === selectedItem.id)
   const titleOf = (id: string): string => planItems.find(item => item.id === id)?.title ?? ''
 
+  /**
+   * F-3 (t70 live window): kind-aware save gating. The frozen declarative
+   * schemas make the per-kind secondary field REQUIRED (task.schema.json:
+   * goal; gate.schema.json: criteria; milestone.schema.json: statement),
+   * and the plan-writer intentionally never fabricates one (the SCHEMA
+   * carrier surfaces the kernel's rejection). The form must not let the
+   * user submit a draft the domain is certain to reject (A §10.2 lists
+   * goal as a Task's primary information; B §19.1–§19.3 list the fields).
+   * The RMW edit form is unaffected: an existing definition already
+   * carries the field, so a blank edit value stays "omit".
+   */
+  const createSaveDisabled =
+    createPending ||
+    draft.title.trim().length === 0 ||
+    (draft.kind === 'TASK' && draft.goal.trim().length === 0) ||
+    (draft.kind === 'GATE' && draft.criteria.trim().length === 0) ||
+    (draft.kind === 'MILESTONE' && draft.statement.trim().length === 0)
+
   return (
     <section className={styles.zone} data-strip aria-label="未来计划">
       <h2 className={styles.zoneTitle}>未来计划</h2>
@@ -413,40 +448,44 @@ export function FutureZone({
       )}
 
       <h3 className={styles.sectionTitle}>{t('ws.future.strip.title')}</h3>
-      {planItems.length === 0 ? (
+      {/* F-10 (UI-5 fix round): the strip list always renders with the
+          head create slot — ADJ-3 approves createPlanItem on a
+          plan-less WS (D §11.9 gates "Add Task"), and without the
+          head `+` an empty plan was a UI dead end (t70 run 4, :877).
+          The empty note is the list's sibling, not its replacement. */}
+      {planItems.length === 0 && (
         <p className={styles.empty}>{t('ws.future.strip.empty')}</p>
-      ) : (
-        <ol className={styles.planList} data-strip-list>
-          <li className={styles.addSlot}>
-            <button
-              type="button"
-              className={styles.addButton}
-              data-strip-add-head
-              aria-label={t('ws.future.strip.addHead')}
-              onClick={() => onOpenCreate(0)}
-            >
-              +
-            </button>
-          </li>
-          {planItems.map((item, index) => (
-            <StripRow
-              key={item.id}
-              item={item}
-              index={index}
-              count={planItems.length}
-              onMoveItem={onMoveItem}
-              focused={item.id === focusedPlanItemId}
-              onSetCurrentFocus={onSetCurrentFocus}
-              selected={item.id === selectedItemId}
-              onSelectItem={onSelectItem}
-              executionById={executionById}
-              onOpenCreate={onOpenCreate}
-              onRemoveItem={onRemoveItem}
-              removePending={removePending}
-            />
-          ))}
-        </ol>
       )}
+      <ol className={styles.planList} data-strip-list>
+        <li className={styles.addSlot}>
+          <button
+            type="button"
+            className={styles.addButton}
+            data-strip-add-head
+            aria-label={t('ws.future.strip.addHead')}
+            onClick={() => onOpenCreate(0)}
+          >
+            +
+          </button>
+        </li>
+        {planItems.map((item, index) => (
+          <StripRow
+            key={item.id}
+            item={item}
+            index={index}
+            count={planItems.length}
+            onMoveItem={onMoveItem}
+            focused={item.id === focusedPlanItemId}
+            onSetCurrentFocus={onSetCurrentFocus}
+            selected={item.id === selectedItemId}
+            onSelectItem={onSelectItem}
+            executionById={executionById}
+            onOpenCreate={onOpenCreate}
+            onRemoveItem={onRemoveItem}
+            removePending={removePending}
+          />
+        ))}
+      </ol>
 
       {reorderPending && <p className={styles.reorderNote}>{t('ws.future.strip.reorderPending')}</p>}
       {reorderFault !== null && (
@@ -541,7 +580,7 @@ export function FutureZone({
               type="button"
               className={styles.formSave}
               data-strip-form-save
-              disabled={draft.title.trim().length === 0 || createPending}
+              disabled={createSaveDisabled}
               onClick={onCreateSubmit}
             >
               {t('dialog.save')}

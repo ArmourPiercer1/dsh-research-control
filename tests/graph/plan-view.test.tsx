@@ -9,10 +9,10 @@
  * correctness (positions, kinds, endpoints, styles, badges), not pixels.
  */
 
-import './xyflow-mock.js'
+import { XYFLOW_MOCK } from './xyflow-mock.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { PlanGraphView } from '../../src/client/graph/PlanGraphView.js'
+import { PlanGraphView, dependencyArcPath } from '../../src/client/graph/PlanGraphView.js'
 import { planToGraph } from '../../src/client/graph/plan-model.js'
 import { ConfirmDialog } from '../../src/client/graph/ConfirmDialog.js'
 import { CONFIRM_DIALOG_STYLES as dialogStyles, PLAN_GRAPH_STYLES as viewStyles } from '../../src/client/graph/graph-styles.js'
@@ -218,7 +218,147 @@ describe('React Flow config passthrough (the virtualization seam)', () => {
     const root = utils.container.querySelector('[data-mock-flow]') as HTMLElement
     expect(root.getAttribute('data-mock-only-render-visible')).toBe('true')
     expect(root.getAttribute('data-mock-nodes-draggable')).toBe('false')
-    expect(root.getAttribute('data-mock-fit-view')).toBe('true')
+    // FR4: the prop-based queued fit is RETIRED (its measured-size race
+    // froze the viewport — see the FR4 block in PlanGraphView). All
+    // fitting is the deterministic fitBounds machinery (below).
+    expect(root.getAttribute('data-mock-fit-view')).toBe('false')
+  })
+})
+
+describe('FR4 (UI-5 fix round): deterministic fitBounds viewport fitting', () => {
+  it('fits on init with the explicit layout bounds — no fitView, no prop fit', () => {
+    const { utils } = renderView()
+    const root = utils.container.querySelector('[data-mock-flow]') as HTMLElement
+    const inst = XYFLOW_MOCK.instanceOf(root)
+    expect(inst).not.toBeNull()
+    // 3 canonical (y=80) + 1 ghost (y=220): x 0…880, y 80…284.
+    expect(inst?.fitBounds).toHaveBeenCalledWith(
+      { x: 0, y: 80, width: 880, height: 204 },
+      { duration: 0 },
+    )
+    expect(inst?.fitView).not.toHaveBeenCalled()
+  })
+
+  it('refits with the NEW bounds when the content changes (t70 :553 regression)', () => {
+    const { utils, onSelectFork, onDismissFork } = renderView()
+    const root = utils.container.querySelector('[data-mock-flow]') as HTMLElement
+    const inst = XYFLOW_MOCK.instanceOf(root)
+    expect(inst).not.toBeNull()
+    // Mount fits the 3-canonical + 1-ghost layout.
+    expect(inst?.fitBounds).toHaveBeenLastCalledWith(
+      { x: 0, y: 80, width: 880, height: 204 },
+      { duration: 0 },
+    )
+    // A longer 5-item plan, no fork: x 0…4·320+240 = 1520, y 80…144.
+    const longer = planToGraph(
+      wsSnapshot(
+        [
+          item('G-1', 'GATE', 'Gate One'),
+          item('T-1', 'TASK', 'Task One'),
+          item('T-2', 'TASK', 'Task Two'),
+          item('T-3', 'TASK', 'Task Three'),
+          item('M-1', 'MILESTONE', 'Milestone One'),
+        ],
+        [],
+      ),
+    )
+    utils.rerender(
+      <PlanGraphView
+        graph={longer}
+        forks={[]}
+        unresolvedCount={0}
+        onSelectFork={onSelectFork}
+        onDismissFork={onDismissFork}
+      />,
+    )
+    // The content change re-fits the WIDER row (the broken fitView
+    // path no-oped here and froze the viewport — the t70 :553 bug).
+    expect(inst?.fitBounds).toHaveBeenLastCalledWith(
+      { x: 0, y: 80, width: 1520, height: 64 },
+      { duration: 0 },
+    )
+  })
+
+  it('FR4-fix: a PROGRAMMATIC onMoveStart (d3 sourceEvent=null) does NOT latch — content refits keep working', () => {
+    const { utils, onSelectFork, onDismissFork } = renderView()
+    const root = utils.container.querySelector('[data-mock-flow]') as HTMLElement
+    const inst = XYFLOW_MOCK.instanceOf(root)
+    expect(inst).not.toBeNull()
+    const callsAtMount = inst!.fitBounds.mock.calls.length
+    expect(callsAtMount, 'the mount fit must have run (init + content-key)').toBeGreaterThan(0)
+    // xyflow fires onMoveStart with the d3 sourceEvent for programmatic
+    // transforms too — NULL (the XYPanZoom start handler only filters
+    // `event.sourceEvent?.internal`). A guard that latched on null would
+    // self-trigger on the first (mount) fit and silently block every
+    // later content/resize refit (the t70 :553 LIVE freeze, proven by
+    // diag v5: zero refit calls across three creates).
+    expect(inst?.onMoveStart, 'the mock must expose the view onMoveStart').toBeTypeOf('function')
+    inst?.onMoveStart?.(null, { x: 0, y: 0, zoom: 1 })
+    const longer = planToGraph(
+      wsSnapshot(
+        [
+          item('G-1', 'GATE', 'Gate One'),
+          item('T-1', 'TASK', 'Task One'),
+          item('T-2', 'TASK', 'Task Two'),
+          item('T-3', 'TASK', 'Task Three'),
+          item('M-1', 'MILESTONE', 'Milestone One'),
+        ],
+        [],
+      ),
+    )
+    utils.rerender(
+      <PlanGraphView
+        graph={longer}
+        forks={[]}
+        unresolvedCount={0}
+        onSelectFork={onSelectFork}
+        onDismissFork={onDismissFork}
+      />,
+    )
+    expect(
+      inst?.fitBounds.mock.calls.length,
+      'the content refit must NOT be blocked by a null (programmatic) move-start',
+    ).toBeGreaterThan(callsAtMount)
+    expect(inst?.fitBounds).toHaveBeenLastCalledWith(
+      { x: 0, y: 80, width: 1520, height: 64 },
+      { duration: 0 },
+    )
+  })
+
+  it('FR4-fix: a genuine gesture onMoveStart (real DOM event) STILL latches — no further refits', () => {
+    const { utils, onSelectFork, onDismissFork } = renderView()
+    const root = utils.container.querySelector('[data-mock-flow]') as HTMLElement
+    const inst = XYFLOW_MOCK.instanceOf(root)
+    expect(inst).not.toBeNull()
+    const callsAtMount = inst!.fitBounds.mock.calls.length
+    // A real user gesture carries a DOM event — the guard latches and
+    // stops fighting the user's viewport (the FR2 contract).
+    inst?.onMoveStart?.(new MouseEvent('pointerdown'), { x: 0, y: 0, zoom: 1 })
+    const longer = planToGraph(
+      wsSnapshot(
+        [
+          item('G-1', 'GATE', 'Gate One'),
+          item('T-1', 'TASK', 'Task One'),
+          item('T-2', 'TASK', 'Task Two'),
+          item('T-3', 'TASK', 'Task Three'),
+          item('M-1', 'MILESTONE', 'Milestone One'),
+        ],
+        [],
+      ),
+    )
+    utils.rerender(
+      <PlanGraphView
+        graph={longer}
+        forks={[]}
+        unresolvedCount={0}
+        onSelectFork={onSelectFork}
+        onDismissFork={onDismissFork}
+      />,
+    )
+    expect(
+      inst?.fitBounds.mock.calls.length,
+      'no refit after the user moved the viewport',
+    ).toBe(callsAtMount)
   })
 })
 
@@ -361,5 +501,51 @@ describe('UI-5: the PF-downgrade switch (ADJ-9 — visual only, the branch stays
     expect(root.getAttribute('data-pf-downgraded')).toBeNull()
     const toolbar = utils.container.querySelector('[data-role="plan-fork-toolbar"]') as HTMLElement
     expect(toolbar.classList.contains(viewStyles.pfDowngraded)).toBe(false)
+  })
+})
+
+/* -------------------------------------------------------------------- *
+ * UI-5 fix round (t70 :663) — the dependency edge renders as an upward
+ * ARC, not a straight line: the straight line ran at y=112 exactly along
+ * the canonical progression (B §18.3 cue buried) and — being perfectly
+ * horizontal — has a zero-height bounding box that Playwright's
+ * toBeVisible can never report visible (the live t70 :663 failure).
+ * -------------------------------------------------------------------- */
+
+describe('UI-5 fix round: dependencyArcPath (the upward quadratic arc)', () => {
+  it('is a quadratic through the exact source/target points (t70 ⑥ span: 400px → bulge 88)', () => {
+    expect(dependencyArcPath(1200, 112, 1600, 112)).toBe('M 1200 112 Q 1400 24 1600 112')
+  })
+
+  it('clamps the bulge: adjacent items (80px) get the 32px floor, long spans the 96px ceiling', () => {
+    expect(dependencyArcPath(1200, 112, 1280, 112)).toBe('M 1200 112 Q 1240 80 1280 112')
+    expect(dependencyArcPath(0, 112, 3000, 112)).toBe('M 0 112 Q 1500 16 3000 112')
+  })
+
+  it('is direction-independent (a reorder can put the target LEFT of the source) and always bulges up', () => {
+    expect(dependencyArcPath(1600, 112, 1200, 112)).toBe('M 1600 112 Q 1400 24 1200 112')
+  })
+
+  it('its apex (quadratic t=0.5 = (sy + 2·cy + ty)/4) clears the node tops for the ⑥ span', () => {
+    const d = dependencyArcPath(1200, 112, 1600, 112)
+    const m = d.match(/^M (\d+) (\d+) Q (\d+) (\d+) (\d+) (\d+)$/)
+    expect(m).not.toBeNull()
+    const [, sx, sy, cx, cy, tx, ty] = m!.map(Number)
+    expect([sx, sy, tx, ty]).toEqual([1200, 112, 1600, 112])
+    const apexY = (sy + 2 * cy + ty) / 4
+    expect(apexY).toBe(68) // 112 − 88/2
+    expect(apexY).toBeLessThan(80) // above the node tops (row at y=80)
+  })
+})
+
+describe('UI-5 fix round: the dependency edge routes to the custom arc type', () => {
+  it('dep edges carry type=dependencyArc; canonical edges keep the built-in bezier (no type)', () => {
+    const { utils } = renderExtended({ dependencyEdges: [DEP_EDGE], pfDowngraded: true })
+    const dep = utils.container.querySelector('[data-mock-edge="dep:REL-1"]') as HTMLElement
+    expect(dep).not.toBeNull()
+    expect(dep.getAttribute('data-edge-type')).toBe('dependencyArc')
+    const canonical = utils.container.querySelector('[data-mock-edge^="e:"]') as HTMLElement
+    expect(canonical).not.toBeNull()
+    expect(canonical.getAttribute('data-edge-type')).toBe('')
   })
 })

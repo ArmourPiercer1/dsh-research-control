@@ -1302,9 +1302,10 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    * truth, the same rule the snapshot reads run): every workstream's
    * DEFINITION-file id sets (the loader's itemNodes superset of the plan
    * listing — an endpoint that left the plan still resolves its owner,
-   * so a stale edge removal stays possible). The composition is registry
-   * validation FIRST, then the semantics incremental fold (the D2
-   * `#composedValidate` — one `appendEvents` carries both checks).
+   * so a stale edge removal stays possible). The service's own hook is
+   * the registry validation; the semantics incremental fold rides on the
+   * RR-011(b) store seam (`wiring.store` — realize-store `validateHooks`)
+   * in the SAME transaction, exactly once, for every service.
    */
   #makeDependencyService(tree: ResearchTree): DependencyService {
     const workstreams: DependencyWorkstreamIndex[] = []
@@ -1322,7 +1323,6 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     return new DependencyService({
       store: this.#wiring.store,
       registry: this.#wiring.registry,
-      semanticValidateHook: this.#wiring.semantics.validateHook,
       allocator: this.#wiring.allocator,
       plans: { workstreams },
       projectId: this.#wiring.projectId,

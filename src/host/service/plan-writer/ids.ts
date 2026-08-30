@@ -5,10 +5,14 @@
  * plan items of that kind, +1) — not the §1.1 meta counter (the declarative
  * T/G/M ids are plan-local by construction, same as the PROMOTE path's
  * `nextTaskSequence`/`allocateTaskId` in service/actions). The scan then
- * SKIPS candidate ids that already have a definition file on disk: a failed
+ * SKIPS candidate ids that the caller's `definitionExists` predicate
+ * reports as having a definition file on disk: a failed
  * prior materialization can leave an unlisted (orphan) definition behind;
  * orphans stay on disk by INV-PLAN-9 (never deleted) and are never
  * overwritten (§1.1 规则 3) — so allocation takes the next free slot.
+ * The predicate's SCOPE is the caller's: service.ts wires a PROJECT-GLOBAL
+ * scan (R-05 Option A — §1.1 project-unique ids; a WS-scoped scan would
+ * allocate a colliding id on a cross-WS empty plan).
  *
  * ADJ-2: this helper is NEW (plan-writer module only); the PROMOTE chain's
  * exported `allocateTaskId`/`nextTaskSequence` are NOT modified. The Task

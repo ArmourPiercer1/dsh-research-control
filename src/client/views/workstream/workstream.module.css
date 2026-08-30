@@ -148,17 +148,30 @@
   counter-reset: plan-position;
 }
 
+/* FR5 (F-8 fix): the li is the visual row wrapper; the clickable strip
+   item is the inner identity row (.planRow, spans only) and the action
+   buttons sit in a right-aligned sub-line (.planRowActions) below it —
+   so a row-center click can never land on an action button. */
+.planItem {
+  border-bottom: 1px solid var(--rc-border);
+}
+
 .planRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--rc-border);
+  padding: 6px 0 2px;
+  cursor: pointer;
 }
 
-.planRow:last-child {
-  border-bottom: none;
+.planRowActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 2px 0 6px;
 }
 
 .planPosition {

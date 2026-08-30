@@ -85,9 +85,12 @@ interface Page {
  *  lazy hooks and the graph container's mount load fire in the same
  *  commit, so the store's in-flight dedupe keeps ONE fetch per slice,
  *  and the test settles until every slice is ready. */
-async function mountPage(current?: GetWorkstreamCurrentResult): Promise<Page> {
+async function mountPage(
+  current?: GetWorkstreamCurrentResult,
+  planItems: SnapshotOverrides['planItems'] = PLAN,
+): Promise<Page> {
   const stub = makeStubRpc()
-  const snap = makeSnapshot({ planItems: PLAN, currentTasks: TASKS })
+  const snap = makeSnapshot({ planItems, currentTasks: TASKS })
   stub.set('getWorkstream', { ok: true, value: snap })
   if (current !== undefined) {
     stub.set('getWorkstreamCurrent', { ok: true, value: current })
@@ -117,18 +120,51 @@ function query(page: Page, selector: string): HTMLElement {
 /* ================================================================== */
 
 describe('UI-5 plan editor — create (per-kind carriers)', () => {
-  it('TASK head +: the title-only carrier at index 0 (blank optionals OMITTED)', async () => {
+  it('TASK head +: the title+goal carrier at index 0 (blank optionals OMITTED)', async () => {
     const page = await mountPage()
     fireEvent.click(query(page, '[data-strip-add-head]'))
     const form = query(page, '[data-strip-form]')
+    // F-3: kind-aware gating — the frozen task.schema.json requires
+    // goal for TASK, so title alone keeps Save disabled.
     fireEvent.change(field(form, 'title'), { target: { value: '基线实验设计' } })
+    expect((query(page, '[data-strip-form-save]') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(field(form, 'goal'), { target: { value: '建立可复现的基线' } })
+    expect((query(page, '[data-strip-form-save]') as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(query(page, '[data-strip-form-save]'))
 
     await waitFor(() => expect(page.stub.countOf('createPlanItem')).toBe(1))
     expect(page.stub.callsTo('createPlanItem')[0].args).toEqual({
       workstreamId: 'WS-1',
       kind: 'TASK',
-      item: { task: { title: '基线实验设计' } },
+      item: { task: { title: '基线实验设计', goal: '建立可复现的基线' } },
+      index: 0,
+    })
+    // ADJ-8: the OK invalidation refetches both slices exactly once.
+    await waitFor(() => expect(page.stub.countOf('getWorkstream')).toBe(2))
+    expect(page.stub.countOf('getWorkstreamCurrent')).toBe(2)
+  })
+
+  it('F-10: the EMPTY plan offers the head + (ADJ-3 no-plan branch), creating at index 0', async () => {
+    const page = await mountPage(undefined, [])
+    // F-10: the empty note renders next to the offered head slot —
+    // pre-F-10 the empty state had NO create affordance (the ADJ-3
+    // dead end, t70 run 4 :877).
+    expect(page.container.textContent).toContain('No planned items')
+    expect(page.container.querySelector('[data-strip-item]')).toBeNull()
+    fireEvent.click(query(page, '[data-strip-add-head]'))
+    const form = query(page, '[data-strip-form]')
+    // F-3 gating applies on the no-plan branch too (goal REQUIRED).
+    fireEvent.change(field(form, 'title'), { target: { value: '无计划首项' } })
+    expect((query(page, '[data-strip-form-save]') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(field(form, 'goal'), { target: { value: '建立计划' } })
+    expect((query(page, '[data-strip-form-save]') as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(query(page, '[data-strip-form-save]'))
+
+    await waitFor(() => expect(page.stub.countOf('createPlanItem')).toBe(1))
+    expect(page.stub.callsTo('createPlanItem')[0].args).toEqual({
+      workstreamId: 'WS-1',
+      kind: 'TASK',
+      item: { task: { title: '无计划首项', goal: '建立计划' } },
       index: 0,
     })
     // ADJ-8: the OK invalidation refetches both slices exactly once.
@@ -186,32 +222,22 @@ describe('UI-5 plan editor — create (per-kind carriers)', () => {
     })
   })
 
-  it('MILESTONE: the statement is sent only when filled', async () => {
+  it('MILESTONE: the statement gates Save (frozen schema); the filled statement is sent', async () => {
     const page = await mountPage()
-    // Flow 1 — title only (blank statement OMITTED).
+    // F-3: the frozen milestone.schema.json makes `statement` REQUIRED,
+    // so a title-only MILESTONE keeps Save disabled.
     fireEvent.click(query(page, '[data-strip-add-head]'))
     let form = query(page, '[data-strip-form]')
     fireEvent.change(field(form, 'kind'), { target: { value: 'MILESTONE' } })
     fireEvent.change(field(form, 'title'), { target: { value: '中期里程碑' } })
-    fireEvent.click(query(page, '[data-strip-form-save]'))
-    await waitFor(() => expect(page.stub.countOf('createPlanItem')).toBe(1))
-    // Flow 2 — the statement filled (the host-confirmed T-9 is selected
-    // by flow 1, which closed the form; the head + reopens it).
-    fireEvent.click(query(page, '[data-strip-add-head]'))
-    form = query(page, '[data-strip-form]')
-    fireEvent.change(field(form, 'kind'), { target: { value: 'MILESTONE' } })
-    fireEvent.change(field(form, 'title'), { target: { value: '中期里程碑' } })
+    expect((query(page, '[data-strip-form-save]') as HTMLButtonElement).disabled).toBe(true)
+    // The statement unlocks Save and rides the carrier.
     fireEvent.change(field(form, 'statement'), { target: { value: '基线完成' } })
+    expect((query(page, '[data-strip-form-save]') as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(query(page, '[data-strip-form-save]'))
 
-    await waitFor(() => expect(page.stub.countOf('createPlanItem')).toBe(2))
+    await waitFor(() => expect(page.stub.countOf('createPlanItem')).toBe(1))
     expect(page.stub.callsTo('createPlanItem')[0].args).toEqual({
-      workstreamId: 'WS-1',
-      kind: 'MILESTONE',
-      item: { milestone: { title: '中期里程碑' } },
-      index: 0,
-    })
-    expect(page.stub.callsTo('createPlanItem')[1].args).toEqual({
       workstreamId: 'WS-1',
       kind: 'MILESTONE',
       item: { milestone: { title: '中期里程碑', statement: '基线完成' } },
@@ -243,6 +269,11 @@ describe('UI-5 plan editor — create (per-kind carriers)', () => {
       field(container.querySelector('[data-strip-form]')!, 'title'),
       { target: { value: '附录整理' } },
     )
+    // F-3: the frozen task.schema.json requires goal for TASK.
+    fireEvent.change(
+      field(container.querySelector('[data-strip-form]')!, 'goal'),
+      { target: { value: '附录与引用整理' } },
+    )
     fireEvent.click(container.querySelector('[data-strip-form-save]')!)
 
     // The refetched snapshot lands T-9, and the selection follows the
@@ -265,6 +296,11 @@ describe('UI-5 plan editor — create (per-kind carriers)', () => {
     fireEvent.click(query(page, '[data-strip-add-head]'))
     fireEvent.change(field(query(page, '[data-strip-form]'), 'title'), {
       target: { value: '基线实验设计' },
+    })
+    // F-3: goal is required for TASK — without it the Save button stays
+    // disabled and the fault path would never be reached.
+    fireEvent.change(field(query(page, '[data-strip-form]'), 'goal'), {
+      target: { value: '建立可复现的基线' },
     })
     fireEvent.click(query(page, '[data-strip-form-save]'))
 
@@ -491,5 +527,125 @@ describe('UI-5 plan editor — dependencies (B §17)', () => {
     })
     expect(page.stub.countOf('getWorkstream')).toBe(1)
     expect(page.stub.countOf('getWorkstreamCurrent')).toBe(1)
+  })
+})
+
+/* ================================================================== */
+
+describe('UI-5 plan editor — FR4b (fix round): the late-success clobber guard (F-5)', () => {
+  /** The stub createPlanItem result (a host-confirmed T-9 — the stub
+   *  does not persist it, so the ADJ-8 refetch returns the original
+   *  plan: the selection target is absent from the refetched data,
+   *  which keeps the assertions on the FORM state — the clobber face). */
+  const OK_CREATE = {
+    ok: true,
+    value: {
+      itemId: 'T-9',
+      workstreamId: 'WS-1',
+      kind: 'TASK',
+      planPath: 'workstreams/WS-1/plan.yaml',
+      newOrder: ['T-9'],
+      managementActionId: 'MA-1',
+    },
+  } as const
+
+  it('a create form opened while a submit is pending survives the late success', async () => {
+    const page = await mountPage()
+    // Resolver held in an array (not a `let … = null`): TS does not
+    // reset the outer-scope `null` narrowing for a closure assignment,
+    // which would make `resolveCreate?.()` a `never` call.
+    const resolvers: ((value: unknown) => void)[] = []
+    page.stub.set('createPlanItem', new Promise(resolve => { resolvers.push(resolve) }))
+
+    // ① Open the head create form, fill it, submit — PENDING (the
+    //    promise only resolves after the ADJ-8 refetches settle).
+    fireEvent.click(query(page, '[data-strip-add-head]'))
+    const form1 = query(page, '[data-strip-form]')
+    fireEvent.change(field(form1, 'title'), { target: { value: '第一次创建' } })
+    fireEvent.change(field(form1, 'goal'), { target: { value: '第一个目标' } })
+    fireEvent.click(query(page, '[data-strip-form-save]'))
+    expect(page.stub.countOf('createPlanItem')).toBe(1)
+    // Pending: the save button is gated (FR3) while the RPC is in flight.
+    expect((query(page, '[data-strip-form-save]') as HTMLButtonElement).disabled).toBe(true)
+
+    // ② The F-5 race window: a fast follow-up `+` BEFORE the promise
+    //    settles. The new form opens with a fresh draft.
+    fireEvent.click(query(page, '[data-strip-add-head]'))
+    const form2 = query(page, '[data-strip-form]')
+    fireEvent.change(field(form2, 'title'), { target: { value: '第二次创建（在途）' } })
+
+    // ③ The stale submit completes late (success).
+    resolvers[0]?.(OK_CREATE)
+
+    // The ADJ-8 invalidation refetch settles — the stale success
+    // callback must NOT clobber the newer form: no form close, no
+    // selection hijack, no in-flight input loss.
+    await waitFor(() => {
+      expect(page.stub.countOf('getWorkstream')).toBeGreaterThanOrEqual(2)
+      expect(page.stub.countOf('getWorkstreamCurrent')).toBeGreaterThanOrEqual(2)
+    })
+    await waitFor(() => {
+      const form = query(page, '[data-strip-form]')
+      expect((field(form, 'title') as HTMLInputElement).value).toBe('第二次创建（在途）')
+    })
+    expect(page.container.querySelectorAll('[data-strip-form]').length).toBe(1)
+    expect(page.container.querySelectorAll('[data-strip-edit]').length).toBe(0)
+  })
+
+  it('a stale FAULT does not stamp the newer form either', async () => {
+    const page = await mountPage()
+    // Resolver held in an array (not a `let … = null`): TS does not
+    // reset the outer-scope `null` narrowing for a closure assignment,
+    // which would make `resolveCreate?.()` a `never` call.
+    const resolvers: ((value: unknown) => void)[] = []
+    page.stub.set('createPlanItem', new Promise(resolve => { resolvers.push(resolve) }))
+
+    fireEvent.click(query(page, '[data-strip-add-head]'))
+    const form1 = query(page, '[data-strip-form]')
+    fireEvent.change(field(form1, 'title'), { target: { value: '第一次创建' } })
+    fireEvent.change(field(form1, 'goal'), { target: { value: '第一个目标' } })
+    fireEvent.click(query(page, '[data-strip-form-save]'))
+
+    fireEvent.click(query(page, '[data-strip-add-head]'))
+    const form2 = query(page, '[data-strip-form]')
+    fireEvent.change(field(form2, 'title'), { target: { value: '第二次创建（在途）' } })
+
+    resolvers[0]?.({
+      ok: false,
+      error: { code: 'DUPLICATE_KEY', message: '重复键' },
+    })
+
+    await waitFor(() => {
+      const form = query(page, '[data-strip-form]')
+      expect((field(form, 'title') as HTMLInputElement).value).toBe('第二次创建（在途）')
+    })
+    // The stale fault message must not surface on the newer form.
+    expect(form2.textContent).not.toContain('重复键')
+  })
+
+  it('the normal path is unchanged: an un-replaced success closes the form', async () => {
+    const page = await mountPage()
+    // Resolver held in an array (not a `let … = null`): TS does not
+    // reset the outer-scope `null` narrowing for a closure assignment,
+    // which would make `resolveCreate?.()` a `never` call.
+    const resolvers: ((value: unknown) => void)[] = []
+    page.stub.set('createPlanItem', new Promise(resolve => { resolvers.push(resolve) }))
+
+    fireEvent.click(query(page, '[data-strip-add-head]'))
+    const form = query(page, '[data-strip-form]')
+    fireEvent.change(field(form, 'title'), { target: { value: '基线实验' } })
+    fireEvent.change(field(form, 'goal'), { target: { value: '验证基线' } })
+    fireEvent.click(query(page, '[data-strip-form-save]'))
+    expect(page.stub.countOf('createPlanItem')).toBe(1)
+
+    resolvers[0]?.(OK_CREATE)
+
+    // No newer form lifecycle event → the success applies: the create
+    // form closes (the selection targets the host-confirmed id; the
+    // stub plan does not contain it, so no edit form renders).
+    await waitFor(() => {
+      expect(page.container.querySelectorAll('[data-strip-form]').length).toBe(0)
+    })
+    expect(page.stub.countOf('getWorkstream')).toBeGreaterThanOrEqual(2)
   })
 })

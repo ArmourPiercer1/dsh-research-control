@@ -6,11 +6,16 @@
  *   addDependency(workstreamId, source, target)
  *     1. reserve `RELATION` + `HISTORY_EVENT` ids (shared allocator);
  *     2. RELATION_ADDED event (owner = the workstreamId argument — the
- *        composed hook's REGISTRY half enforces `owner === source.ws ??
+ *        service's registry hook enforces `owner === source.ws ??
  *        target.ws`, endpoint existence, the §8 combination table and
- *        the fresh-id rule; its FOLD half enforces the §8 5-tuple
- *        uniqueness + reverse-duplicate rule and folds the row into the
- *        `semantics:<projectId>` derived state in the SAME transaction);
+ *        the fresh-id rule; the RR-011(b) store seam then applies the
+ *        semantic incremental fold — §8 5-tuple uniqueness + the
+ *        reverse-duplicate rule, folding the row into the
+ *        `semantics:<projectId>` derived state — in the SAME
+ *        transaction, AFTER the service's hook, exactly once; the
+ *        service MUST NOT compose the fold itself: a second fold would
+ *        re-apply the event onto the already-updated state and the
+ *        reducer would reject it OBJECT_ALREADY_EXISTS);
  *     3. ANY rejection rolls the whole append back (store contract) and
  *        the reservations are released (the id gap is legal — never
  *        reused); success commits both.
@@ -24,8 +29,9 @@
  *     2. RELATION_REMOVED event (registry: ACTIVE gate → WRONG_STATE,
  *        redundancy re-check; fold: same + the status transition).
  *
- * Error discipline (plan-writer carrier, service level): the composed
- * hook's structured rejections (RunBindingError RB_EVENT_REJECTED /
+ * Error discipline (plan-writer carrier, service level): the write
+ * path's structured rejections (the service's registry hook and the
+ * RR-011(b) fold seam — RunBindingError RB_EVENT_REJECTED /
  * SemanticDomainError) are mapped to `[research-control] <CODE>: <msg>`;
  * everything else propagates untouched. The event envelope's actor is
  * `{kind:'USER'}` (the UI-5 face is the user's management action — the
@@ -43,7 +49,6 @@ import type {
   DependencyStorePort,
   RemoveDependencyArgs,
   RemoveDependencyResult,
-  SemanticValidateHook,
 } from './types.js'
 import type {
   GateSnapshot,
@@ -86,7 +91,6 @@ interface StoredEdge {
 export class DependencyService {
   readonly #store: DependencyStorePort
   readonly #registry: HistoryEventRegistry
-  readonly #semanticValidateHook: SemanticValidateHook
   readonly #allocator: DependencyIdAllocator
   readonly #plans: DependencyPlanIndex
   readonly #projectId: string
@@ -99,9 +103,6 @@ export class DependencyService {
     if (options.registry === undefined || options.registry === null) {
       throw new TypeError('DependencyService: options.registry is required (the frozen event registry)')
     }
-    if (typeof options.semanticValidateHook !== 'function') {
-      throw new TypeError('DependencyService: options.semanticValidateHook is required (the RR-011(b) incremental fold hook)')
-    }
     if (options.allocator === undefined || options.allocator === null) {
       throw new TypeError('DependencyService: options.allocator is required (the shared IdAllocator face)')
     }
@@ -113,7 +114,6 @@ export class DependencyService {
     }
     this.#store = options.store
     this.#registry = options.registry
-    this.#semanticValidateHook = options.semanticValidateHook
     this.#allocator = options.allocator
     this.#plans = options.plans
     this.#projectId = options.projectId
@@ -247,17 +247,19 @@ export class DependencyService {
   }
 
   /* ---------------------------------------------------------------- *
-   * The composed validate hook (registry FIRST, fold second — both
-   * inside the store write transaction; either throw rolls the batch)
+   * The service's write-time validate hook — the REGISTRY half only.
+   * The semantic incremental fold is the RR-011(b) store seam's job:
+   * the production wiring (wiring/realize-store `validateHooks`)
+   * applies it AFTER this hook, in the same transaction, exactly once,
+   * for every service. (Composing the fold here as well applied it
+   * TWICE: the first application writes the derived row through the tx,
+   * the second re-folds the same event onto the already-updated state
+   * and the reducer rejects it OBJECT_ALREADY_EXISTS — the t70 live
+   * failure of addDependency/removeDependency.)
    * ---------------------------------------------------------------- */
 
   #composedValidate(ownerWs: string): NonNullable<Parameters<DependencyStorePort['appendEvents']>[1]>['validate'] {
-    const registryHook = makeValidateHook(this.#registry, () => this.#buildContext(ownerWs))
-    const foldHook = this.#semanticValidateHook
-    return (events, tx): void => {
-      registryHook(events, tx)
-      foldHook(events, tx)
-    }
+    return makeValidateHook(this.#registry, () => this.#buildContext(ownerWs))
   }
 
   /* ---------------------------------------------------------------- *

@@ -15,9 +15,14 @@
  * UPDATE WRITES NO LEDGER ROW (the frozen 15-kind enum has no update kind;
  * git history is the provenance backstop — UI-4 precedent 「枚举外不写账本」).
  *
- * Id allocation (ADJ-2): `allocatePlanItemId` (ids.ts) — plan-local
- * max-seq+1 per kind, skipping orphan definition files; the PROMOTE
- * chain's `allocateTaskId` is NOT modified.
+ * Id allocation (ADJ-2 + R-05 Option A): `allocatePlanItemId` (ids.ts) —
+ * plan-local max-seq+1 per kind, skipping orphan definition files. The
+ * orphan-skip predicate scans the PROJECT, not just the target WS: T/G/M
+ * ids are project-unique (DOMAIN_SCHEMA §1.1), so a WS-scoped scan would
+ * allocate a colliding id on a cross-WS empty plan (t70 run 5: WS-2 ⇒ T-1
+ * = WS-1's ⇒ DANGLING_REF, kernel refuses the tree). The PROMOTE chain's
+ * `allocateTaskId` is NOT modified (ADJ-2; its WS-scoped twin defect is
+ * carry C-11).
  *
  * Empty plans (ADJ-3): creating into a workstream WITHOUT plan.yaml is
  * legal — the kernel `addItem` semantics create the plan (tests/plan/
@@ -29,6 +34,7 @@
  */
 import { pjoin, type ActorRefDoc, type GateDoc, type MilestoneDoc, type TaskDoc } from '../../domain/loader/index.js'
 import {
+  KIND_TO_DIR,
   PlanStore,
   type PlanItemKind,
 } from '../../domain/plan/index.js'
@@ -150,13 +156,16 @@ export class PlanWriterService {
     const current = this.#requireLoad(store, 'createPlanItem')
     const index = args.index ?? current.items.length
 
-    const id = allocatePlanItemId(
-      kind,
-      current.items,
-      (candidate) =>
-        this.opts.reader.readFile(
-          pjoin(this.opts.researchRoot, store.itemPath(kind, candidate)),
-        ) !== null,
+    // R-05 (adjudicated Option A, 2026-08-30): the orphan-skip predicate
+    // must see the WHOLE PROJECT (DOMAIN_SCHEMA §1.1: T/G/M ids are
+    // project-unique), not just the target WS. The original ADJ-2 wiring
+    // (target-WS `store.itemPath` existence) could not see other WSes'
+    // definition files and allocated a colliding id on a cross-WS empty
+    // plan (t70 run 5: WS-2 ⇒ "T-1" = WS-1's ⇒ DANGLING_REF). One
+    // project-wide scan per create; the predicate becomes a set lookup.
+    const usedIds = this.#projectDefinitionIds(kind)
+    const id = allocatePlanItemId(kind, current.items, (candidate) =>
+      usedIds.has(candidate),
     )
     const doc = this.#buildDoc(kind, id, args.workstreamId, args.item, this.now())
     this.#addItem(store, kind, doc, index)
@@ -274,6 +283,40 @@ export class PlanWriterService {
       throw new Error(`${op}: the canonical plan failed to load: ${first.message}`)
     }
     return current
+  }
+
+  /**
+   * R-05 Option A: every definition id of `kind` on disk in the PROJECT —
+   * all topics × all workstreams × `items/<KIND_TO_DIR[kind]>/*.yaml`.
+   * One full scan per allocation (create only); the skip predicate is a
+   * set lookup. Absent dirs read as `null` and contribute nothing (reader
+   * contract, loader/types.ts). A well-formed tree holds each project-
+   * unique id in at most one WS (the loader enforces §1.1), so the set is
+   * the complete collision space.
+   */
+  #projectDefinitionIds(kind: PlanItemKind): Set<string> {
+    const used = new Set<string>()
+    const root = this.opts.researchRoot
+    const topics = this.opts.reader.readDir(pjoin(root, 'topics'))
+    if (topics === null) return used
+    for (const topic of topics) {
+      if (topic.kind !== 'directory') continue
+      const wsDir = pjoin(root, 'topics', topic.name, 'workstreams')
+      const workstreams = this.opts.reader.readDir(wsDir)
+      if (workstreams === null) continue
+      for (const ws of workstreams) {
+        if (ws.kind !== 'directory') continue
+        const itemsDir = this.opts.reader.readDir(
+          pjoin(wsDir, ws.name, 'items', KIND_TO_DIR[kind]),
+        )
+        if (itemsDir === null) continue
+        for (const file of itemsDir) {
+          if (file.kind !== 'file' || !file.name.endsWith('.yaml')) continue
+          used.add(file.name.slice(0, -'.yaml'.length))
+        }
+      }
+    }
+    return used
   }
 
   /**

@@ -14,9 +14,12 @@ import {
   ANCHOR_START,
   PLAN_BRANCH_OFFSET,
   PLAN_CANONICAL_Y,
+  PLAN_NODE_HEIGHT,
   PLAN_NODE_STRIDE,
+  PLAN_NODE_WIDTH,
   anchorIndex,
   classifyPlanForkChange,
+  planGraphBounds,
   planToGraph,
   type PlanGraphNode,
 } from '../../src/client/graph/plan-model.js'
@@ -362,6 +365,54 @@ describe('UI-5 extras: the PF-downgrade switch (ADJ-9)', () => {
     expect(down.branchCount).toBe(1)
     expect(down.branchForkIds).toEqual(['PF-1'])
     expect(down.nodes.filter(n => n.data.source === 'planFork')).toHaveLength(1)
+  })
+})
+
+describe('FR4 (UI-5 fix round): planGraphBounds — the deterministic fit bounds', () => {
+  it('is null for an empty graph (nothing to fit)', () => {
+    expect(planGraphBounds(planToGraph(wsSnapshot([], [])))).toBeNull()
+  })
+
+  it('spans the canonical row: item i at i·STRIDE, each NODE_WIDTH×NODE_HEIGHT', () => {
+    const bounds = planGraphBounds(planToGraph(wsSnapshot(PLAN, [])))
+    expect(bounds).toEqual({
+      x: 0,
+      y: PLAN_CANONICAL_Y,
+      width: (PLAN.length - 1) * PLAN_NODE_STRIDE + PLAN_NODE_WIDTH,
+      height: PLAN_NODE_HEIGHT,
+    })
+  })
+
+  it('grows with the plan (the t70 12-item shape: 11·320+240 wide)', () => {
+    const items = Array.from({ length: 12 }, (_, i) => item(`T-${i + 1}`, 'TASK', `Task ${i + 1}`))
+    const bounds = planGraphBounds(planToGraph(wsSnapshot(items, [])))
+    expect(bounds).toEqual({
+      x: 0,
+      y: PLAN_CANONICAL_Y,
+      width: 11 * PLAN_NODE_STRIDE + PLAN_NODE_WIDTH,
+      height: PLAN_NODE_HEIGHT,
+    })
+  })
+
+  it('extends for branch rows (below the canonical row, per-branch offset)', () => {
+    // One ghost after anchor T-1 (slot 2): same x-span as the 3-item
+    // row, one BRANCH_OFFSET taller.
+    const one = planGraphBounds(planToGraph(wsSnapshot(PLAN, [pf('PF-1', 'OPEN', 'T-1', 'M-1', 1)])))
+    expect(one).toEqual({
+      x: 0,
+      y: PLAN_CANONICAL_Y,
+      width: (PLAN.length - 1) * PLAN_NODE_STRIDE + PLAN_NODE_WIDTH,
+      height: PLAN_NODE_HEIGHT + PLAN_BRANCH_OFFSET,
+    })
+    // Two ghosts reach slot 3 (anchor T-1 = idx 1 → firstSlot 2, k 0..1)
+    // — WIDER than the canonical row (last ghost at 3·STRIDE).
+    const two = planGraphBounds(planToGraph(wsSnapshot(PLAN, [pf('PF-1', 'OPEN', 'T-1', 'M-1', 2)])))
+    expect(two).toEqual({
+      x: 0,
+      y: PLAN_CANONICAL_Y,
+      width: 3 * PLAN_NODE_STRIDE + PLAN_NODE_WIDTH,
+      height: PLAN_NODE_HEIGHT + PLAN_BRANCH_OFFSET,
+    })
   })
 })
 

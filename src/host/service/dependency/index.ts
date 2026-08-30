@@ -23,5 +23,4 @@ export {
   type DependencyWorkstreamIndex,
   type RemoveDependencyArgs,
   type RemoveDependencyResult,
-  type SemanticValidateHook,
 } from './types.js'

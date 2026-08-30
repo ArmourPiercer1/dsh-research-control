@@ -61,8 +61,14 @@ function paneState(): { width: number; height: number } {
 /**
  * The emulated pane, exposed for the perf tests. `reset()` restores the
  * default 1200×800 pane. (No render log — see the module doc.)
+ * `instanceOf(el)` returns the mock flow instance the mock passed to
+ * `props.onInit` for the root `el` (FR4 — the deterministic
+ * `fitBounds`/`fitView` calls are asserted against it).
  */
-export const XYFLOW_MOCK: { pane: { width: number; height: number } } & { reset: () => void } = {
+export const XYFLOW_MOCK: { pane: { width: number; height: number } } & {
+  reset: () => void
+  instanceOf: (el: Element | null | undefined) => MockFlowInstance | null
+} = {
   get pane(): { width: number; height: number } {
     return paneState()
   },
@@ -73,6 +79,10 @@ export const XYFLOW_MOCK: { pane: { width: number; height: number } } & { reset:
   reset(): void {
     paneState().width = 1200
     paneState().height = 800
+  },
+  instanceOf(el: Element | null | undefined): MockFlowInstance | null {
+    if (el === null || el === undefined) return null
+    return ((el as unknown as Record<string, unknown>).__mockFlowInstance as MockFlowInstance | undefined) ?? null
   },
 }
 
@@ -93,11 +103,33 @@ interface MockEdge {
   className?: string
   animated?: boolean
   markerEnd?: { type?: string }
+  /** t70 :663 fix round: the edge TYPE (custom edge routing — the mock
+   *  renders the generic path either way, it just carries the field). */
+  type?: string
+}
+
+/**
+ * The mock instance the mock `ReactFlow` passes to `props.onInit`
+ * (FR4): the view's deterministic fit calls land on these vi.fn
+ * mocks, which the tests assert on (bounds + `{ duration: 0 }`).
+ * Carried on the ROOT ELEMENT (`__mockFlowInstance`) — NOT module
+ * state (see the module doc on render-window corruption).
+ */
+export interface MockFlowInstance {
+  readonly fitView: ReturnType<typeof vi.fn>
+  readonly fitBounds: ReturnType<typeof vi.fn>
+  readonly getNodes: () => MockNode[]
+  /** FR4-fix: the view's `onMoveStart` prop. xyflow fires it with the
+   *  d3 sourceEvent — `null` for every PROGRAMMATIC transform (the
+   *  start handler only filters `.internal`) — so tests drive it with
+   *  null vs a real DOM event to exercise the user-gesture guard. */
+  readonly onMoveStart?: (event: unknown, viewport: unknown) => void
 }
 
 vi.mock('@xyflow/react', async () => {
   const React = await import('react')
   const h = React.createElement
+  const { useEffect, useRef } = React
 
   return {
     // The enum values @xyflow/system 0.0.80 actually exports.
@@ -105,6 +137,26 @@ vi.mock('@xyflow/react', async () => {
     Position: { Top: 'Top', Right: 'Right', Bottom: 'Bottom', Left: 'Left' },
     /** Handles are connection geometry — inert in the mock. */
     Handle: () => null,
+    /** t70 :663 fix round: BaseEdge is a VALUE import of the view (the
+     *  custom dependency-arc edge renders through it). The mock mirrors
+     *  the real BaseEdge's DOM contract: one <path> with d + the composed
+     *  class (`react-flow__edge-path` + the forwarded className) + the
+     *  marker/style attributes — so a test driving the custom edge
+     *  component directly can assert the same path-level facts the live
+     *  t70 run asserts. The generic mock ReactFlow does NOT invoke
+     *  edgeTypes (it renders its data-attr paths); this export exists so
+     *  the module import resolves and direct component tests work. */
+    BaseEdge: ({ path, className, style, markerEnd }: Record<string, unknown>) =>
+      h('path', {
+        d: path as string,
+        className: ['react-flow__edge-path', (className as string | undefined) ?? ''].filter(Boolean).join(' '),
+        'marker-end': (markerEnd as string | undefined) ?? '',
+        // camelCase (React renders it as the stroke-dasharray attribute;
+        // the dashed key would raise an invalid-DOM-property warning).
+        strokeDasharray: (style as Record<string, unknown> | undefined)?.strokeDasharray as
+          | string
+          | undefined,
+      }),
     ReactFlow: (props: Record<string, unknown>) => {
       const nodes = (props.nodes ?? []) as MockNode[]
       const edges = (props.edges ?? []) as MockEdge[]
@@ -116,6 +168,28 @@ vi.mock('@xyflow/react', async () => {
         | undefined
       const onlyRender = props.onlyRenderVisibleElements === true
       const { width, height } = paneState()
+      // FR4: the mock INSTANCE for `props.onInit` — created in the
+      // effect (child effects run before the view's own effects, so
+      // `onInit` lands before the view's init/content-key fits) and
+      // carried on the root element for the tests' `instanceOf` read.
+      const rootRef = useRef<HTMLElement | null>(null)
+      useEffect(() => {
+        const el = rootRef.current
+        if (el === null) return
+        const instance: MockFlowInstance = {
+          fitView: vi.fn().mockResolvedValue(true),
+          fitBounds: vi.fn().mockResolvedValue(true),
+          getNodes: () => nodes,
+          // FR4-fix: expose the view's onMoveStart so tests can drive the
+          // user-gesture guard (null = programmatic, DOM event = gesture).
+          onMoveStart: props.onMoveStart as
+            | ((event: unknown, viewport: unknown) => void)
+            | undefined,
+        }
+        ;(el as unknown as Record<string, unknown>).__mockFlowInstance = instance
+        const onInit = props.onInit as ((inst: MockFlowInstance) => void) | undefined
+        onInit?.(instance)
+      }, [])
       // Culling emulation: anchor point inside the pane.
       const visible = onlyRender
         ? nodes.filter(n => n.position.x >= 0 && n.position.x <= width && n.position.y >= 0 && n.position.y <= height)
@@ -124,6 +198,7 @@ vi.mock('@xyflow/react', async () => {
       return h(
         'div',
         {
+          ref: rootRef,
           'data-mock-flow': 'true',
           'data-mock-only-render-visible': onlyRender ? 'true' : 'false',
           'data-mock-node-count': String(nodes.length),
@@ -169,6 +244,7 @@ vi.mock('@xyflow/react', async () => {
                   'data-edge-source': e.source,
                   'data-edge-target': e.target,
                   'data-edge-class': e.className ?? '',
+                  'data-edge-type': e.type ?? '',
                   'data-edge-animated': e.animated ? 'true' : 'false',
                   'data-edge-marker-end': e.markerEnd?.type ?? '',
                   stroke: (e.style?.stroke as string | undefined) ?? '',

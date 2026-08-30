@@ -557,11 +557,12 @@ describe('INVALIDATE_REGISTRY — the six UI-4 workstream-management rules', () 
     ])
   })
 
-  it('removePlanItem → the RESULT workstreams:<ws> + current:<ws> (ADJ-8 unified; ADJ-14: the CF-cleared projection rides the current refetch)', () => {
+  it('removePlanItem → the RESULT workstreams:<ws> + currentFocus:<ws> (F-9) + current:<ws> (ADJ-8 unified; ADJ-14: the kernel revalidate clears the CF pointer when the removed item WAS the focus — the pointer slice must refetch, not keep the stale face; the derived projection rides the current refetch)', () => {
     const keys = INVALIDATE_REGISTRY.removePlanItem(REMOVE_PI, populatedState())
-    expect(keys).toEqual(['workstreams:WS-1', 'current:WS-1'])
+    expect(keys).toEqual(['workstreams:WS-1', 'currentFocus:WS-1', 'current:WS-1'])
     expect(INVALIDATE_REGISTRY.removePlanItem(REMOVE_PI, initialResearchStoreState())).toEqual([
       'workstreams:WS-1',
+      'currentFocus:WS-1',
       'current:WS-1',
     ])
   })

@@ -185,6 +185,16 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
   const [depAddFault, setDepAddFault] = useState<string | null>(null)
   const [depRemoveFault, setDepRemoveFault] = useState<string | null>(null)
 
+  /** FR4b (UI-5 fix round): the create-form LIFECYCLE GENERATION. Every
+   *  open/close/select/submit of the create form bumps it, so a LATE
+   *  `createPlanItem` success callback (the promise only resolves after
+   *  the ADJ-8 invalidation refetches settle — seconds, not ms) cannot
+   *  clobber a NEWER form state: without the guard it would run
+   *  `setCreateForm(null)` + `setSelectedItemId(<just-created>)`,
+   *  closing a freshly opened form and discarding its in-flight input
+   *  (the F-5 clobber race — reproduced by a fast follow-up `+` click). */
+  const createFormGenRef = useRef(0)
+
   const data = slice.data
   const current = currentSlice.data ?? EMPTY_CURRENT
   const focusPointer = focusSlice.data?.focus ?? null
@@ -323,6 +333,7 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
    *  same id onto its node). Selecting closes a create form — one
    *  form at a time. */
   function handleSelectItem(itemId: string): void {
+    createFormGenRef.current += 1
     setCreateForm(null)
     setCreateFace(MUTATION_IDLE)
     setSelectedItemId(itemId)
@@ -332,6 +343,7 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
   /** A `+` entry (B §11.4 create before/after): open the create form
    *  at the given index with a fresh TASK draft. */
   function handleOpenCreate(index: number): void {
+    createFormGenRef.current += 1
     setSelectedItemId(null)
     setEditFace(MUTATION_IDLE)
     setDraft(newPlanItemDraft('TASK'))
@@ -354,6 +366,7 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
   }
 
   function handleCloseCreate(): void {
+    createFormGenRef.current += 1
     setCreateForm(null)
     setCreateFace(MUTATION_IDLE)
   }
@@ -404,8 +417,14 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
               },
             }
     setCreateFace({ pending: true, fault: null })
+    // FR4b: capture this submit's generation — a newer form lifecycle
+    // event (open/close/select/another submit) before the promise
+    // settles invalidates BOTH callbacks below (late success would
+    // clobber the newer form; a late fault would stamp it).
+    const myGen = ++createFormGenRef.current
     void store.createPlanItem({ workstreamId, kind, item, index }).then(
       result => {
+        if (createFormGenRef.current !== myGen) return
         // The store invalidated + refetched (the ADJ-8 registry rule);
         // select the host-confirmed new item.
         setCreateForm(null)
@@ -413,8 +432,10 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
         setSelectedItemId(result.itemId)
         setDepTargetId('')
       },
-      (err: unknown) =>
-        setCreateFace({ pending: false, fault: err instanceof Error ? err.message : String(err) }),
+      (err: unknown) => {
+        if (createFormGenRef.current !== myGen) return
+        setCreateFace({ pending: false, fault: err instanceof Error ? err.message : String(err) })
+      },
     )
   }
 

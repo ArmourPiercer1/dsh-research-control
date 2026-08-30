@@ -5,6 +5,8 @@
  * Coverage per the brief §5 matrix (D1 rows):
  *   - create: per-kind (task/gate/milestone) + index (head/tail/middle) +
  *     ADJ-3 empty-plan (WS-2, no plan.yaml) + orphan id skipping (ADJ-2) +
+ *     R-05 Option A cross-WS skipping (§1.1 project-unique ids ⇒ the
+ *     allocation skips OTHER workstreams' definitions) +
  *     ledger PLAN_ITEM_ADDED row + ledger-failure compensation
  *     (release + fail-loud, mutation stands) + BOUNDARY index +
  *     inconsistent-plan gate + schema-required field rejection (SCHEMA
@@ -122,7 +124,7 @@ describe('createPlanItem — per-kind + index', () => {
 })
 
 describe('createPlanItem — ADJ-3 empty plan (WS-2 has no plan.yaml)', () => {
-  it('creates the plan on first item', () => {
+  it('creates the plan on first item (R-05 Option A: project-global skip ⇒ T-5, over WS-1 T-1..T-4)', () => {
     const h = makeService()
     const res = h.service.createPlanItem({
       workstreamId: 'WS-2',
@@ -130,11 +132,15 @@ describe('createPlanItem — ADJ-3 empty plan (WS-2 has no plan.yaml)', () => {
       kind: 'TASK',
       item: { task: { title: '首个任务', goal: '目标' } },
     })
-    expect(res.itemId).toBe('T-1')
-    expect(res.newOrder).toEqual(['T-1'])
+    // R-05 (Option A, adjudicated 2026-08-30): T/G/M ids are project-unique
+    // (DOMAIN_SCHEMA §1.1) — allocation skips WS-1's T-1..T-4 even though
+    // the target plan (WS-2) is empty. The previous pin (T-1) encoded the
+    // WS-scoped defect t70 run 5 exposed server-side as DANGLING_REF.
+    expect(res.itemId).toBe('T-5')
+    expect(res.newOrder).toEqual(['T-5'])
     expect(res.planPath).toBe(`topics/${TOPIC}/workstreams/WS-2/plan.yaml`)
-    expect(h.fs.readFile(`${MEM_RESEARCH_ROOT}/${res.planPath}`)).toContain('T-1')
-    expect(h.fs.readFile(`${MEM_RESEARCH_ROOT}/topics/${TOPIC}/workstreams/WS-2/items/tasks/T-1.yaml`)).toContain('首个任务')
+    expect(h.fs.readFile(`${MEM_RESEARCH_ROOT}/${res.planPath}`)).toContain('T-5')
+    expect(h.fs.readFile(`${MEM_RESEARCH_ROOT}/topics/${TOPIC}/workstreams/WS-2/items/tasks/T-5.yaml`)).toContain('首个任务')
   })
 
   it('index 0 is the only legal index on an empty plan', () => {
@@ -165,6 +171,21 @@ describe('createPlanItem — ADJ-2 orphan skipping', () => {
     expect(res.itemId).toBe('T-6')
     // The orphan stays untouched on disk (INV-PLAN-9).
     expect(h.fs.readFile(absItem('tasks', 'T-5'))).toBe(ORPHAN_T5_YAML)
+  })
+
+  it('skips definitions in OTHER workstreams (R-05: §1.1 project-unique ⇒ cross-WS scan)', () => {
+    // WS-3 is plan-less in the base tree; the GATE definitions G-1/G-2 live
+    // in WS-1's items dir. A WS-scoped scan (the pre-R-05 defect) would
+    // allocate G-1 here and collide with WS-1's definition (DANGLING_REF).
+    const h = makeService()
+    const res = h.service.createPlanItem({
+      workstreamId: 'WS-3',
+      topicId: TOPIC,
+      kind: 'GATE',
+      item: { gate: { title: '跨 WS 门禁', criteria: '标准' } },
+    })
+    expect(res.itemId).toBe('G-3')
+    expect(h.fs.readFile(`${MEM_RESEARCH_ROOT}/topics/${TOPIC}/workstreams/WS-3/items/gates/G-3.yaml`)).toContain('跨 WS 门禁')
   })
 })
 

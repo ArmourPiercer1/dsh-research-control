@@ -47,8 +47,8 @@
  * properties in the CSS module — keep the two in sync when retheming.
  */
 
-import { useCallback, useEffect, useMemo, type ReactElement } from 'react'
-import { Handle, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeTypes } from '@xyflow/react'
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type ReactElement } from 'react'
+import { BaseEdge, Handle, MarkerType, Position, ReactFlow, type Edge, type EdgeTypes, type Node, type NodeTypes, type ReactFlowInstance } from '@xyflow/react'
 import type { PlanForkDto } from '../../shared/rpc-contracts.js'
 import { t } from '../i18n/copy.js'
 import {
@@ -59,6 +59,7 @@ import {
   type PlanNodeData,
   type PlanGraphNode,
   classifyPlanForkChange,
+  planGraphBounds,
 } from './plan-model.js'
 import { PLAN_GRAPH_STYLES as styles, ensureGraphStyles } from './graph-styles.js'
 
@@ -192,6 +193,10 @@ function shapePlanEdge(edge: PlanGraphEdge): Edge<PlanEdgeData> {
     source: edge.source,
     target: edge.target,
     data: edge.data,
+    // t70 :663 (UI-5 fix round): the dependency edge renders through the
+    // custom arc component (`dependencyArcPath` below); canonical and fork
+    // edges keep the built-in bezier (untouched).
+    ...(dependency ? { type: 'dependencyArc' } : {}),
     className: dependency ? 'rc-edge-dependency' : fork ? 'rc-edge-planfork' : 'rc-edge-canonical',
     style: {
       stroke,
@@ -211,6 +216,106 @@ function shapePlanEdge(edge: PlanGraphEdge): Edge<PlanEdgeData> {
   // STALE branches stay quiet (their base closure is already invalid).
   if (fork && !stale) result.animated = true
   return result
+}
+
+/* -------------------------------------------------------------------- *
+ * UI-5 fix round (t70 :663) — the dependency edge geometry
+ * -------------------------------------------------------------------- *
+ * The dependency edge renders as a QUADRATIC ARC bulging above the
+ * canonical row, not as the built-in straight-line bezier:
+ *
+ *  1. In the single-row canonical layout (every item at y=80) a straight
+ *     dependency line runs at y=112 EXACTLY along the canonical
+ *     progression line between the same nodes — B §18.3 requires the
+ *     dependency to read as the weaker, DIFFERENT line type, and the
+ *     wireframe's own glyph (§18.2) draws it leaving the row. A line
+ *     buried on top of the solid edges (and cutting across the nodes in
+ *     between) fails that requirement.
+ *  2. A perfectly horizontal SVG line has a ZERO-HEIGHT bounding box,
+ *     and Playwright's toBeVisible (computeBox: `width > 0 && height >
+ *     0`) can never report it visible — the t70 acceptance assertion on
+ *     the dependency edge is unsatisfiable for a straight line. (The
+ *     live D5-E capture: d = "M1842,112 C1990,112 1129,112 1278,112",
+ *     pathBox height = 0, verdict hidden.)
+ *
+ * The bulge scales with the source→target span (clamped to 32…96 world
+ * px): adjacent items get a small hop, long spans a wide shallow arc.
+ * Direction-independent — a reordered plan can put the target left of
+ * the source, and the arc still bulges above the row.
+ *
+ * A CUSTOM edge component (not the built-in bezier) is also required by
+ * the t70 path-class assertion: the built-in BezierEdge drops the edge's
+ * className on the <g> wrapper ONLY (it does not forward it to BaseEdge),
+ * while the acceptance spec requires
+ * `path.react-flow__edge-path.rc-edge-dependency` — the class on the
+ * PATH. Forwarding to BaseEdge delivers exactly that, with the rest of
+ * the DOM contract identical to the built-in edge (wrapper classes,
+ * interaction path, arrow marker).
+ */
+
+/** Pure geometry: the quadratic-arc path of a dependency edge. */
+export function dependencyArcPath(
+  sourceX: number,
+  sourceY: number,
+  targetX: number,
+  targetY: number,
+): string {
+  const dist = Math.hypot(targetX - sourceX, targetY - sourceY)
+  const bulge = Math.min(96, Math.max(32, dist * 0.22))
+  const midX = (sourceX + targetX) / 2
+  const ctrlY = Math.min(sourceY, targetY) - bulge
+  return `M ${sourceX} ${sourceY} Q ${midX} ${ctrlY} ${targetX} ${targetY}`
+}
+
+/**
+ * The registered custom edge for dependency edges (see the block above).
+ * React Flow resolves the endpoint coordinates, the marker URL, the edge
+ * style (stroke / dash) and the edge className into these props.
+ */
+function DependencyArcEdge({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  style,
+  markerEnd,
+}: {
+  sourceX: number
+  sourceY: number
+  targetX: number
+  targetY: number
+  style?: CSSProperties
+  markerEnd?: string
+}): ReactElement {
+  // NOTE: the path class is hardcoded, not prop-forwarded: xyflow v12's
+  // EdgeWrapper puts the edge className on the <g> wrapper only and does
+  // NOT pass it into the edge component (verified against
+  // @xyflow/react 12.11.3) — but the t70 path-class assertion
+  // (`path.react-flow__edge-path.rc-edge-dependency`) requires it on the
+  // PATH. This component is registered under the dedicated `dependencyArc`
+  // type key and nothing else uses it, so the hardcoded class is exact.
+  //
+  // The dash pattern rides a PRESENTATION ATTRIBUTE (stroke-dasharray on
+  // the path), not the inline style: React renders `style.strokeDasharray`
+  // into the `style=""` attribute only, while the t70 assertion reads the
+  // `stroke-dasharray` ATTRIBUTE (B §18.3 不同线型 — readable/inspectable
+  // without CSSOM). Lifted out of the style here; the rest (stroke,
+  // stroke-width) stays in the inline style, visually identical.
+  const dash = style?.strokeDasharray
+  const restStyle = dash !== undefined ? { ...style, strokeDasharray: undefined } : style
+  return (
+    <BaseEdge
+      path={dependencyArcPath(sourceX, sourceY, targetX, targetY)}
+      className="rc-edge-dependency"
+      style={restStyle}
+      strokeDasharray={dash}
+      markerEnd={markerEnd}
+    />
+  )
+}
+
+const PLAN_EDGE_TYPES: EdgeTypes = {
+  dependencyArc: DependencyArcEdge as unknown as EdgeTypes[string],
 }
 
 /* -------------------------------------------------------------------- *
@@ -280,6 +385,105 @@ export function PlanGraphView({
   )
 
   const flowEdges: Edge<PlanEdgeData>[] = useMemo(() => graph.edges.map(shapePlanEdge), [graph])
+
+  /* -- FR4 (UI-5 fix round): deterministic viewport fitting --
+   *
+   * t70 FR2 introduced the re-fit machinery (init fit + content-change
+   * refit + pane-resize refit, latched off by the first user pan via
+   * onMoveStart) and FR2b lowered minZoom so the centered fit is not
+   * clamped. FR2's call path — `inst.fitView()` — is BROKEN for content
+   * changes: this module rebuilds every node object on every projection
+   * (fresh identity), xyflow's `adoptUserNodes` then discards the
+   * measured sizes of all nodes, and the queued fit resolves (one rAF
+   * later) against the measured-only filter of `getFitViewNodes` — an
+   * empty set. The fit no-ops and the viewport FREEZES at the previous
+   * layout; with TC-PERF-006 virtualization the cull then drops the
+   * items outside the stale fit (t70 :553: 10 of 12 rendered, both
+   * mounts, deterministic).
+   *
+   * FR4 fits with `fitBounds` instead: a pure function of the EXPLICIT
+   * layout bounds (planGraphBounds — the CSS-fixed node size at the
+   * projected positions) and the pane size in the store. No measured
+   * sizes, no rAF queue, no measurement race: the viewport is correct
+   * in the same commit the content changes, so the virtualized cull
+   * keeps every item inside the new fit. The `fitView` PROP is retired
+   * along with it (its store-init queued fit is the same broken path).
+   *
+   * FR4-fix (UI-5 fix round): the user-gesture latch must null-filter.
+   * d3-zoom's `zoom.transform` direct path emits a 'start' event with
+   * `sourceEvent = null`, and XYPanZoom's start handler only skips
+   * `event.sourceEvent?.internal` — so EVERY programmatic fit (the
+   * mount fit included) fires onMoveStart with null. Latching on null
+   * self-triggers: the first fit sets userMovedRef, and every later
+   * refit (content change, pane resize) bails inside fitNowRef — the
+   * viewport freezes at the first fit's bounds. handleMoveStart below
+   * therefore ignores null/undefined events and latches only on real
+   * DOM gesture events.
+   */
+  const flowRef = useRef<ReactFlowInstance<Node<PlanNodeData>, Edge<PlanEdgeData>> | null>(null)
+  const userMovedRef = useRef(false)
+  const canvasWrapRef = useRef<HTMLDivElement | null>(null)
+
+  /** The latest fit closure (render-assigned so the once-per-mount
+   *  `onInit` and the `[]`-deps ResizeObserver effect both see the
+   *  current `graph`). */
+  const fitNowRef = useRef<
+    ((inst: ReactFlowInstance<Node<PlanNodeData>, Edge<PlanEdgeData>>) => void) | null
+  >(null)
+  fitNowRef.current = (inst): void => {
+    if (userMovedRef.current) return
+    const bounds = planGraphBounds(graph)
+    if (bounds === null) return
+    void inst.fitBounds(bounds, { duration: 0 })
+  }
+
+  const handleInit = useCallback(
+    (inst: ReactFlowInstance<Node<PlanNodeData>, Edge<PlanEdgeData>>): void => {
+      flowRef.current = inst
+      // The pane may not be measured yet at onInit (fitBounds then
+      // no-ops against a missing panZoom) — the ResizeObserver's
+      // initial callback re-runs the fit once the pane size lands.
+      fitNowRef.current?.(inst)
+    },
+    [],
+  )
+
+  const contentKey = useMemo(
+    () => graph.nodes.map((n: PlanGraphNode) => n.id).join('\u0000') + '|' + graph.edges.length,
+    [graph],
+  )
+
+  useEffect(() => {
+    const inst = flowRef.current
+    if (inst === null) return
+    fitNowRef.current?.(inst)
+  }, [contentKey])
+
+  useEffect(() => {
+    const el = canvasWrapRef.current
+    if (el === null || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((): void => {
+      const inst = flowRef.current
+      if (inst === null) return
+      fitNowRef.current?.(inst)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const handleMoveStart = useCallback((event: MouseEvent | TouchEvent | WheelEvent | null): void => {
+    // xyflow fires onMoveStart with `null` (the d3 sourceEvent) for
+    // PROGRAMMATIC transforms too: d3-zoom emits 'start' on the
+    // `zoom.transform` direct path, and XYPanZoom's start handler only
+    // filters `event.sourceEvent?.internal` — null is not internal. A
+    // guard that latched on null would freeze the viewport at the FIRST
+    // (mount-time) fit and silently block every later content/resize
+    // refit. Genuine user gestures carry a real DOM event; only those
+    // latch the guard.
+    if (event !== null && event !== undefined) {
+      userMovedRef.current = true
+    }
+  }, [])
 
   // UI-5 (ADJ-1): node click = SELECT the canonical item (the container
   // syncs the strip two-way; the edit form opens from the strip face).
@@ -378,18 +582,36 @@ export function PlanGraphView({
         </ul>
       )}
 
-      <div className={styles.canvasWrap}>
+      <div className={styles.canvasWrap} ref={canvasWrapRef}>
+        {/* t70 FR2b (UI-5 fix round): the minZoom floor. The canonical row is
+            a HORIZONTAL sequence (node i at x=i·320, each 240px wide): a
+            9-item plan spans 0…2800px, the 106-item WS-4 stress plan spans
+            ~33840px. The WS third-column pane is only ~278px wide, so
+            fitView must reach zoom ≈0.10 (9 items) down to ≈0.0066 (106
+            items). A floor of 0.2 clamped the fit to the centered middle
+            band, and onlyRenderVisibleElements (TC-PERF-006) then culled the
+            head/tail nodes from the DOM (t70 saw 5-7 of 9 canonical nodes).
+            0.001 sits far below the ~0.0066 the 106-item plan needs (~6×
+            headroom) while never clamping any realistic plan; it only bounds
+            how far out the user may zoom — the fit, layout, and every
+            rendered face are unchanged. */}
         <ReactFlow
           nodes={flowNodes}
           edges={flowEdges}
           nodeTypes={PLAN_NODE_TYPES}
+          edgeTypes={PLAN_EDGE_TYPES}
           onlyRenderVisibleElements={virtualize}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={false}
           onNodeClick={handleNodeClick}
-          fitView
-          minZoom={0.2}
+          onInit={handleInit}
+          onMoveStart={handleMoveStart}
+          /* FR4: NO `fitView` prop — its store-init queued fit travels
+             the same measured-size path as `inst.fitView()` (the broken
+             one, see the FR4 block above). All viewport fitting is the
+             deterministic `fitBounds` machinery. */
+          minZoom={0.001}
           maxZoom={2}
           className={styles.canvas}
         />

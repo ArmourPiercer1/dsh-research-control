@@ -18,8 +18,9 @@
  *
  * Module placement: `src/host/service/dependency/` (BRIEF §4 D2 leaves the
  * placement to the implementer — a sibling host service, mirroring the
- * plan-writer layout; the semantics DOMAIN is untouched — the service
- * only COMPOSES its incremental validate hook, RR-011(b)).
+ * plan-writer layout; the semantics DOMAIN is untouched — the service's
+ * own hook carries only the registry validation; the incremental fold is
+ * the RR-011(b) store seam's job, applied once by the wiring).
  */
 
 import type {
@@ -27,7 +28,6 @@ import type {
   AppendResult,
   HistoryEventInput,
   HistoryEventRecord,
-  TxScope,
 } from '../../persistence/store/types.js'
 import type { HistoryEventRegistry } from '../../history/registry/types.js'
 import type { IdKind, Reservation } from '../../../shared/ids/index.js'
@@ -126,17 +126,16 @@ export interface DependencyIdAllocator {
   release(reservation: Reservation): void
 }
 
-/** The incremental semantic-fold hook (RR-011(b)) — in the production
- *  wiring this is `SemanticMaintainer.validateHook`; composed (registry
- *  hook FIRST, fold hook second) inside the store write transaction. */
-export type SemanticValidateHook = (events: readonly HistoryEventRecord[], tx: TxScope) => void
-
 export interface DependencyServiceOptions {
   readonly store: DependencyStorePort
-  /** The frozen event registry (WP-2.2) — the write-time validator. */
+  /** The frozen event registry (WP-2.2) — the write-time validator.
+   *  NOTE (RR-011(b)): the semantic incremental fold is NOT an option —
+   *  in the production wiring the store seam (wiring/realize-store
+   *  `validateHooks`) applies it after the service's registry hook, in
+   *  the same transaction, exactly once, for every service. The service
+   *  composing it as well would double-fold (second fold rejected
+   *  OBJECT_ALREADY_EXISTS). */
   readonly registry: HistoryEventRegistry
-  /** The semantics incremental fold (wired into `semantics:<projectId>`). */
-  readonly semanticValidateHook: SemanticValidateHook
   readonly allocator: DependencyIdAllocator
   readonly plans: DependencyPlanIndex
   /** The project the relation ids attribute to. */

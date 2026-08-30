@@ -1508,17 +1508,24 @@ describe('UI-5 — the five plan-editor mutations (brief §3; ADJ-8 unified inva
     expect(stub.countOf('getWorkstreamCurrent')).toBe(2)
   })
 
-  it('removePlanItem → the same ADJ-8 set; the currentFocusCleared flag (ADJ-14) rides the wire result untouched', async () => {
+  it('removePlanItem → the ADJ-8 set + currentFocus:<ws> (F-9); the currentFocusCleared flag (ADJ-14) rides the wire result untouched', async () => {
     const stub = makeStubRpc()
     const store = freshStore(stub)
     await store.loadWorkstream('WS-1')
     stub.set('getWorkstreamCurrent', okCurrent(CURRENT_EMPTY))
     await store.loadWorkstreamCurrent({ workstreamId: 'WS-1' })
+    // F-9: the CF pointer slice is loaded (the WS page rendered the
+    // focused item's header chip — the stub default points at T-1, the
+    // very item about to be removed: the Remove-clears-CF branch).
+    // The kernel revalidate clears the pointer server-side; the client
+    // must refetch the pointer slice, not keep the stale face.
+    await store.getCurrentFocus({ workstreamId: 'WS-1' })
 
     const result = await store.removePlanItem({ workstreamId: 'WS-1', itemId: 'T-1' })
     expect(result.currentFocusCleared).toBe(false) // the stub default
     expect(stub.countOf('getWorkstream')).toBe(2)
     expect(stub.countOf('getWorkstreamCurrent')).toBe(2)
+    expect(stub.countOf('getCurrentFocus')).toBe(2) // 1 load + 1 F-9 refetch
   })
 
   it('reorderPlan with a LOADED current slice → refetches it too (the ADJ-8 extension, non-idle arm)', async () => {

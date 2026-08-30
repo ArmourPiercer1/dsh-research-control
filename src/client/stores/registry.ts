@@ -83,10 +83,11 @@
  * |                        | result carries the workstreamId.                                    |
  * | updatePlanItem (UI-5)  | `workstreams:<ws>` + `current:<ws>` (ADJ-8) — an item's fields      |
  * |                        | change in place.                                                    |
- * | removePlanItem (UI-5)  | `workstreams:<ws>` + `current:<ws>` (ADJ-8) — the item leaves the   |
- * |                        | order; when it WAS the current focus the CF pointer is cleared      |
- * |                        | (ADJ-14) and the current slice refetch picks up the cleared         |
- * |                        | projection.                                                         |
+ * | removePlanItem (UI-5)  | `workstreams:<ws>` + `currentFocus:<ws>` + `current:<ws>` (ADJ-8
+ * |                        | + F-9) — the item leaves the order; when it WAS the current focus
+ * |                        | the CF pointer is cleared server-side (ADJ-14 revalidate) and the
+ * |                        | currentFocus slice refetch drops the stale pointer from every
+ * |                        | focus face NO-REFRESH.
  * | addDependency (UI-5)   | the result carries no workstreamId (relationId + echoed endpoints)  |
  * |                        | → conservative CACHED `workstreams:*` + `current:*` family listing  |
  * |                        | (refetch pass skips idle slices) — the ADJ-7 dependencyEdges        |
@@ -439,8 +440,16 @@ export const INVALIDATE_REGISTRY: {
     sliceKey('current', result.workstreamId),
   ],
 
+  // F-9 (UI-5 fix round): the kernel auto-clears the CF pointer when
+  // the removed item WAS the current focus (ADJ-14 revalidate,
+  // rpc-services.ts removePlanItem) — the `currentFocus:<ws>` slice
+  // must refetch too, or every focus face (header chip, current-zone
+  // group, strip/graph focus markers) keeps the removed item's stale
+  // pointer until a full reload (the NO-REFRESH drift D §10.8 forbids;
+  // the same invalidation base as the setCurrentFocus rule below).
   removePlanItem: (result, _state) => [
     sliceKey('workstreams', result.workstreamId),
+    sliceKey('currentFocus', result.workstreamId),
     sliceKey('current', result.workstreamId),
   ],
 

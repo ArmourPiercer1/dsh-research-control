@@ -563,11 +563,15 @@ describe('FutureZone（未来计划 — the UI-5 ordered strip）', () => {
     expect(none).not.toContain('未决 PlanFork')
   })
 
-  it('空态：计划为空 → No planned items；无 PF 徽章、无 strip 列表', () => {
+  it('空态：计划为空 → No planned items + 头部 `+` 仍提供（F-10）；无 PF 徽章', () => {
     const html = render(<FutureZone {...futureProps({ planItems: [] })} />)
     expect(html).toContain('No planned items')
+    // F-10: the head create slot is offered in the EMPTY state too —
+    // ADJ-3 approves createPlanItem on a plan-less WS (D §11.9 "Add
+    // Task"); the pre-F-10 pin (not.toContain 'Add at start') encoded
+    // the dead end.
+    expect(html).toContain('Add at start')
     expect(html).not.toContain('未决 PlanFork')
-    expect(html).not.toContain('Add at start')
     expect(html).not.toContain('排序保存中')
     expect(html).not.toContain('排序失败')
   })
@@ -699,7 +703,26 @@ describe('FutureZone（未来计划 — the UI-5 ordered strip）', () => {
     }
     // blank title → Save disabled
     expect(findHostElements(form, el => el.props['data-strip-form-save'] === true)[0]!.props.disabled).toBe(true)
-    // a non-blank title enables it; a GATE draft swaps the field set
+    // F-3: kind-aware gating — a TASK draft with a title ALONE stays
+    // disabled (the frozen task.schema.json requires goal); title+goal
+    // enables it.
+    const taskTitleOnlyTree = FutureZone(
+      futureProps({
+        createForm: { kind: 'TASK', index: 0 },
+        draft: { ...newPlanItemDraft('TASK'), title: '仅标题' },
+      }),
+    )
+    const taskTitleOnlyForm = findHostElements(taskTitleOnlyTree, el => el.props['data-strip-form'] === true)[0]!
+    expect(findHostElements(taskTitleOnlyForm, el => el.props['data-strip-form-save'] === true)[0]!.props.disabled).toBe(true)
+    const taskFullTree = FutureZone(
+      futureProps({
+        createForm: { kind: 'TASK', index: 0 },
+        draft: { ...newPlanItemDraft('TASK'), title: '标题', goal: '目标' },
+      }),
+    )
+    const taskFullForm = findHostElements(taskFullTree, el => el.props['data-strip-form'] === true)[0]!
+    expect(findHostElements(taskFullForm, el => el.props['data-strip-form-save'] === true)[0]!.props.disabled).toBe(false)
+    // a GATE draft with title+criteria enables it; the field set swaps
     const gateTree = FutureZone(
       futureProps({
         createForm: { kind: 'GATE', index: 1 },

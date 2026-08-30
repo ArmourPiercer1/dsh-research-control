@@ -398,4 +398,46 @@ export function planToGraph(snapshot: WorkstreamSnapshot, extras?: PlanGraphExtr
   }
 }
 
+/**
+ * FR4 (UI-5 fix round) — the DETERMINISTIC bounds of the projected
+ * layout: the union of every node's box at its projected position. The
+ * box is the CSS-fixed size of `.rc-pgv-node` (graph-styles.ts:
+ * `width: 240px; min-height: 64px; box-sizing: border-box`) — the width
+ * is exact; the height is the CSS minimum (a wrapped title only makes a
+ * node TALLER, which relaxes the height axis of the fit and never
+ * culls: the width axis dominates for any plan longer than ~2 items).
+ *
+ * WHY THIS EXISTS (the t70 :553 mechanism): this module rebuilds EVERY
+ * node object on every projection, so after a plan mutation every node
+ * has a fresh identity. xyflow's `adoptUserNodes` then discards the
+ * measured sizes of all of them, and the queued `fitView()` (which
+ * resolves one rAF later, against the measured-only filter of
+ * `getFitViewNodes`) sees an empty set and no-ops — the viewport
+ * freezes at the PREVIOUS layout and virtualization (TC-PERF-006)
+ * culls the items that fell outside the stale fit (10 of 12 rendered).
+ * Bounds computed here need no measured sizes at all, so the view fits
+ * with `fitBounds` — a pure function of explicit bounds + the pane
+ * size (synchronous, no rAF queue, no measurement race).
+ *
+ * @param graph - a `planToGraph` result.
+ * @returns the bounds rect in flow coordinates, or null for an empty
+ *  graph (nothing to fit).
+ */
+export function planGraphBounds(
+  graph: PlanGraphData,
+): { x: number; y: number; width: number; height: number } | null {
+  if (graph.nodes.length === 0) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const node of graph.nodes) {
+    minX = Math.min(minX, node.position.x)
+    minY = Math.min(minY, node.position.y)
+    maxX = Math.max(maxX, node.position.x + PLAN_NODE_WIDTH)
+    maxY = Math.max(maxY, node.position.y + PLAN_NODE_HEIGHT)
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
 export type { PlanForkDto, PlanItemDto }

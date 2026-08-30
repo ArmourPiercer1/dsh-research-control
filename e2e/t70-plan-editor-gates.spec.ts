@@ -71,9 +71,17 @@
  * DEVIATION NOTE (disclosed in the final report): the BRIEF names
  * "fixture WS-4" for the no-plan branch — that label is STALE from the
  * v2-t64-era RECON (Q8/R-03). In the v2-t69 tree that this BRIEF
- * mandates, WS-4 carries the 100-item stress plan while WS-2/WS-3 are
- * the plan-less workstreams. The ADJ-3 intent (one no-plan WS branch)
- * is executed on WS-2, the first plan-less WS.
+ * mandates, WS-4 carries the 106-item stress plan (100 tasks + 6
+ * gate/milestone items) while WS-2/WS-3 are the plan-less
+ * workstreams. The ADJ-3 intent (one no-plan WS branch) is executed
+ * on WS-2, the first plan-less WS.
+ *
+ * ADJ-6 NOTE (disclosed in the final report): the WS page carries
+ * TWO plan-graph instances in this slice — the extended Future Plan
+ * column graph (B §16 strip-top/graph-bottom) AND the legacy
+ * page-level cockpit graph mount that ADJ-6 retains untouched (UI-8
+ * domain). All graph-scoped assertions below target the extended
+ * face via `futureGraph()` (see the helper's doc).
  *
  * L-5 (OPS-LESSONS, 强制): t70 is the FIRST browser session of the
  * live window. The harness session registry hydrates ASYNCHRONOUSLY
@@ -127,12 +135,17 @@ const CF_ID = 'M-1'
 const CF_TITLE = '标定管线 v1 冻结'
 /** ①/②/③'s created titles (distinctive — the drift tail re-reads them). */
 const CREATE_TASK_TITLE = 't70 动作①：头部新任务'
+/** F-3 (t70 live window): the frozen task.schema.json makes `goal`
+ *  REQUIRED for TASK — the Add Task form's kind-aware save gating (and
+ *  the plan-writer's never-fabricate SCHEMA carrier) demand it. */
+const CREATE_TASK_GOAL = 't70 动作①目标：验证头部新建任务的完整载体链路'
 const CREATE_GATE_TITLE = 't70 动作②：新门'
 const CREATE_GATE_CRITERIA = 't70 门准则：重投影误差 <2px'
 const CREATE_MILESTONE_TITLE = 't70 动作③：新里程碑'
 const CREATE_MILESTONE_STATEMENT = 't70 里程碑：消融实验初稿冻结'
 /** The ADJ-3 branch's created item. */
 const WS2_TASK_TITLE = 't70 无 plan 分支：WS-2 首项'
+const WS2_TASK_GOAL = 't70 无 plan 分支目标：验证 plan 在 host 侧物化'
 /** The B §19.4 label a FRESH-DB row must carry (no execution history
  *  ⇒ IN_PLAN_FRESH — see the module header). */
 const REMOVE_LABEL_FRESH = 'Remove from Future Plan'
@@ -215,6 +228,31 @@ async function uiMutationValue(
   const result = body.result ?? {}
   expect(result.ok, `${what} client envelope not ok: ${JSON.stringify(result)}`).toBe(true)
   return result.value ?? {}
+}
+
+/**
+ * R-03 (adjudicated 2026-08-30): raw twin of `uiMutationValue` — the same
+ * live-client envelope read with NO ok assertion. Where the kernel
+ * refuses a mutation by contract (the one-shot-edge RELATION_DUPLICATE),
+ * the refusal envelope itself is the gate.
+ */
+async function uiMutationRaw(
+  page: Page,
+  urlFragment: string,
+  click: () => Promise<void>,
+): Promise<{ ok?: boolean; value?: Record<string, unknown>; error?: { code?: string; message?: string } }> {
+  const [res] = await Promise.all([
+    page.waitForResponse(r => r.url().includes(urlFragment), { timeout: 30_000 }),
+    click(),
+  ])
+  const body = (await res.json()) as {
+    result?: {
+      ok?: boolean
+      value?: Record<string, unknown>
+      error?: { code?: string; message?: string }
+    }
+  }
+  return body.result ?? {}
 }
 
 /**
@@ -306,15 +344,41 @@ async function stripOrder(scope: Locator): Promise<string[]> {
     .evaluateAll(rows => rows.map(row => row.getAttribute('data-strip-item') ?? ''))
 }
 
+/**
+ * FR3c (t70 live window): the NO-REFRESH contract is "the strip
+ * converges WITHOUT a page reload" — the ADJ-8 invalidation refetch
+ * lands one or two round-trips AFTER the mutation response, so a plain
+ * `expect(await stripOrder(...))` read right after uiMutationValue races
+ * it (observed: Expected [T-7, G-1, …] / Received [G-1, …]). Poll the
+ * DOM order until it converges; 15s is generous over localhost refetches.
+ */
+async function expectStripOrder(scope: Locator, expected: string[], message?: string): Promise<void> {
+  await expect.poll(
+    async () => await stripOrder(scope),
+    { timeout: 15_000, message },
+  ).toEqual(expected)
+}
+
+/** The Future Plan column's EXTENDED plan graph — the accepted B §16/
+ *  §18.3 face (legend, dependency edges, selection, focus marker).
+ *  ADJ-6 retains the legacy page-level cockpit graph mount in this
+ *  slice (UI-8 domain), so the page carries TWO plan-graph instances;
+ *  every graph-scoped assertion in this spec targets the extended one,
+ *  discriminated by `data-pf-downgraded="true"` (ADJ-9 downgrade
+ *  switch, set only in the extended container branch). */
+function futureGraph(wsScope: Locator): Locator {
+  return wsScope.locator('[data-role="plan-graph"][data-pf-downgraded="true"]')
+}
+
 /** The graph's canonical node count (shape divs — ghosts excluded by
  *  data-source; the fixture carries no forks). */
-function graphNodes(scope: Locator): Locator {
-  return scope.locator('[data-role="plan-graph"] [data-kind][data-source="canonical"]')
+function graphNodes(graph: Locator): Locator {
+  return graph.locator('[data-kind][data-source="canonical"]')
 }
 
 /** The graph's total edge count (every .react-flow__edge group). */
-function graphEdges(scope: Locator): Locator {
-  return scope.locator('[data-role="plan-graph"] .react-flow__edge')
+function graphEdges(graph: Locator): Locator {
+  return graph.locator('.react-flow__edge')
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -366,22 +430,23 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
   // disabled from the start.
   await expect(page1.locator('[data-strip-move-left="G-1"]')).toBeDisabled()
   await expect(page1.locator('[data-strip-move-right="T-6"]')).toBeDisabled()
-  // The B §18.3 legend — verbatim, always rendered.
-  await expect(page1.locator('[data-legend-canonical]')).toHaveText(LEGEND_CANONICAL)
-  await expect(page1.locator('[data-legend-dependency]')).toHaveText(LEGEND_DEPENDENCY)
+  // The B §18.3 legend — verbatim, always rendered on the extended
+  // graph face (the ADJ-6 legacy cockpit graph carries its own copy).
+  await expect(futureGraph(page1).locator('[data-legend-canonical]')).toHaveText(LEGEND_CANONICAL)
+  await expect(futureGraph(page1).locator('[data-legend-dependency]')).toHaveText(LEGEND_DEPENDENCY)
   // No focus face (fresh DB): header row, Current Focus group, strip
   // markers, graph markers.
   await expect(page1.locator('[data-header-focus]')).toHaveCount(0)
   await expect(page1.locator('[data-focus-id]')).toHaveCount(0)
   await expect(page1.getByText('No current focus')).toBeVisible()
   await expect(page1.locator('[data-strip-item][data-plan-focus]')).toHaveCount(0)
-  await expect(page1.locator('[data-role="plan-graph"] [data-plan-focus="true"]')).toHaveCount(0)
+  await expect(futureGraph(page1).locator('[data-plan-focus="true"]')).toHaveCount(0)
   // The graph: nine canonical nodes, eight canonical edges, ZERO
   // dependency edges, no PF overlay face (unresolvedPlanForkCount 0 ⇒
   // the badge is omitted).
-  await expect(graphNodes(page1)).toHaveCount(9)
-  await expect(graphEdges(page1)).toHaveCount(8)
-  await expect(page1.locator('[data-role="plan-graph"] .rc-edge-dependency')).toHaveCount(0)
+  await expect(graphNodes(futureGraph(page1))).toHaveCount(9)
+  await expect(graphEdges(futureGraph(page1))).toHaveCount(8)
+  await expect(futureGraph(page1).locator('.rc-edge-dependency')).toHaveCount(0)
   await expect(page1.locator('[data-pf-badge]')).toHaveCount(0)
 
   /* ----------------------------------------------------------------
@@ -391,9 +456,15 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
   await page1.locator('[data-strip-add-head]').click()
   const createForm = page1.locator('[data-strip-form]')
   await expect(createForm).toBeVisible()
-  // The save is disabled until the title is non-blank (B §19.1).
+  // F-3 (t70 live window): kind-aware save gating — the frozen
+  // task.schema.json makes `goal` REQUIRED for TASK (A §10.2 lists it
+  // as primary Task information; B §19.1 lists it as a Task field), and
+  // the plan-writer never fabricates one (SCHEMA carrier). Title alone
+  // keeps Save disabled; title + goal enables it.
   await expect(createForm.locator('[data-strip-form-save]')).toBeDisabled()
   await createForm.locator('[data-strip-field="title"]').fill(CREATE_TASK_TITLE)
+  await expect(createForm.locator('[data-strip-form-save]')).toBeDisabled()
+  await createForm.locator('[data-strip-field="goal"]').fill(CREATE_TASK_GOAL)
   await expect(createForm.locator('[data-strip-form-save]')).toBeEnabled()
 
   const taskValue = await uiMutationValue(
@@ -412,7 +483,7 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
 
   // NO-REFRESH: the row appears at index 0, selected (the page auto-
   // selects the created item), kind badge 任务, title set.
-  await expect(await stripOrder(page1)).toEqual([taskId, ...PLAN_INIT])
+  await expectStripOrder(page1, [taskId, ...PLAN_INIT])
   const taskRow = page1.locator(`[data-strip-item="${taskId}"]`)
   await expect(taskRow).toHaveAttribute('data-strip-selected', 'true')
   await expect(taskRow).toContainText('任务')
@@ -448,7 +519,7 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
   const gateRow = page1.locator(`[data-strip-item="${gateId}"]`)
   await expect(gateRow).toContainText('门')
   await expect(gateRow).toContainText(CREATE_GATE_TITLE)
-  await expect(await stripOrder(page1)).toEqual([
+  await expectStripOrder(page1, [
     taskId,
     'G-1',
     gateId,
@@ -489,7 +560,7 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
   const milestoneRow = page1.locator(`[data-strip-item="${milestoneId}"]`)
   await expect(milestoneRow).toContainText('里程碑')
   await expect(milestoneRow).toContainText(CREATE_MILESTONE_TITLE)
-  await expect(await stripOrder(page1)).toEqual([
+  await expectStripOrder(page1, [
     taskId,
     'G-1',
     gateId,
@@ -504,14 +575,16 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
     milestoneId,
   ])
   // The graph kept pace: twelve nodes, eleven canonical edges.
-  await expect(graphNodes(page1)).toHaveCount(12)
-  await expect(graphEdges(page1)).toHaveCount(11)
+  await expect(graphNodes(futureGraph(page1))).toHaveCount(12)
+  await expect(graphEdges(futureGraph(page1))).toHaveCount(11)
 
   /* ----------------------------------------------------------------
    * 5. ④ Edit — selection via a GRAPH node click (B §17.4
    *    graph→strip sync), the RMW prefill, the title change.
    * ---------------------------------------------------------------- */
-  await page1.locator(`.react-flow__node[data-id="${EDIT_ID}"]`).click()
+  // Selection via a node click on the EXTENDED graph (the ADJ-6 legacy
+  // cockpit graph renders the same node ids, so the click is scoped).
+  await futureGraph(page1).locator(`.react-flow__node[data-id="${EDIT_ID}"]`).click()
   // graph→strip: the strip row is selected (the two-way sync, ADJ-1).
   await expect(page1.locator(`[data-strip-item="${EDIT_ID}"]`)).toHaveAttribute(
     'data-strip-selected',
@@ -549,20 +622,24 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
    *    the canonical order changes, and only it).
    * ---------------------------------------------------------------- */
   await page1.locator('[data-strip-move-right="T-5"]').click()
-  await expect(await stripOrder(page1), 'T-5 swapped with its successor, T-2').toEqual([
-    taskId,
-    'G-1',
-    gateId,
-    'T-1',
-    'T-2',
-    'T-5',
-    'T-3',
-    'T-4',
-    'M-1',
-    'G-2',
-    'T-6',
-    milestoneId,
-  ])
+  await expectStripOrder(
+    page1,
+    [
+      taskId,
+      'G-1',
+      gateId,
+      'T-1',
+      'T-2',
+      'T-5',
+      'T-3',
+      'T-4',
+      'M-1',
+      'G-2',
+      'T-6',
+      milestoneId,
+    ],
+    'T-5 swapped with its successor, T-2',
+  )
   // Boundary pins after the swap: the first/last rows' outer buttons.
   await expect(page1.locator(`[data-strip-move-left="${taskId}"]`)).toBeDisabled()
   await expect(page1.locator(`[data-strip-move-right="${milestoneId}"]`)).toBeDisabled()
@@ -617,7 +694,7 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
     (await depEdge1.locator('path.react-flow__edge-path').first().getAttribute('stroke-dasharray')) ?? '',
     'the dependency edge is dashed (B §18.3 不同线型)',
   ).not.toHaveLength(0)
-  await expect(graphEdges(page1)).toHaveCount(12)
+  await expect(graphEdges(futureGraph(page1))).toHaveCount(12)
   // The wire projection agrees (ADJ-7: ACTIVE only, relationId-sorted).
   expect(await wireDepEdges(WS_ID)).toEqual([
     { relationId: rel1, sourceId: DEP_SOURCE, targetId: DEP_TARGET },
@@ -630,20 +707,24 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
    *    dependency 保持不变).
    * ---------------------------------------------------------------- */
   await page1.locator(`[data-strip-move-right="${DEP_SOURCE}"]`).click()
-  await expect(await stripOrder(page1), 'T-1 swapped with its successor, T-2').toEqual([
-    taskId,
-    'G-1',
-    gateId,
-    'T-2',
-    'T-1',
-    'T-5',
-    'T-3',
-    'T-4',
-    'M-1',
-    'G-2',
-    'T-6',
-    milestoneId,
-  ])
+  await expectStripOrder(
+    page1,
+    [
+      taskId,
+      'G-1',
+      gateId,
+      'T-2',
+      'T-1',
+      'T-5',
+      'T-3',
+      'T-4',
+      'M-1',
+      'G-2',
+      'T-6',
+      milestoneId,
+    ],
+    'T-1 swapped with its successor, T-2',
+  )
   // The edge survived on every face — same relationId, same endpoints.
   await expect(page1.locator(`[data-dep-edge="${rel1}"]`)).toBeVisible()
   await expect(page1.locator(`.react-flow__edge[data-id="dep:${rel1}"]`)).toBeVisible()
@@ -653,9 +734,16 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
   ).toEqual([{ relationId: rel1, sourceId: DEP_SOURCE, targetId: DEP_TARGET }])
 
   /* ----------------------------------------------------------------
-   * 9. ⑧ Remove dependency + re-add — the × on the depends-on row;
-   *    then the SAME pair again (a FRESH relation id — relation
-   *    identity is per-edge, not per-pair).
+   * 9. ⑧ Remove dependency — the × on the depends-on row; every face
+   *    clears NO-REFRESH. R-03 (adjudicated 2026-08-30, option A): the
+   *    kernel one-shot-edge contract (DOMAIN_SCHEMA §8 5-tuple
+   *    uniqueness with NO status qualifier; §15 DB UNIQUE; INV-HIST-7
+   *    no hard-delete — the removed row is tombstoned for life; ID
+   *    immutability) forbids re-adding the SAME pair, so the former
+   *    re-add/fresh-REL-N block asserted the opposite of the frozen
+   *    contract. The spec now pins the kernel truth: a re-add attempt
+   *    returns the RELATION_DUPLICATE refusal and leaves every face
+   *    unchanged.
    * ---------------------------------------------------------------- */
   const removeDepValue = await uiMutationValue(
     page,
@@ -666,21 +754,26 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
   expect(removeDepValue['relationId']).toBe(rel1)
   await expect(page1.locator(`[data-dep-edge="${rel1}"]`)).toHaveCount(0)
   await expect(page1.locator(`.react-flow__edge[data-id="dep:${rel1}"]`)).toHaveCount(0)
-  await expect(graphEdges(page1)).toHaveCount(11)
+  await expect(graphEdges(futureGraph(page1))).toHaveCount(11)
   expect(await wireDepEdges(WS_ID), 'the wire edge is gone').toEqual([])
 
+  // R-03 option A: the re-add attempt is refused by the one-shot
+  // contract — ok:false + RELATION_DUPLICATE, and the refusal is pure
+  // (no face, no wire mutation).
   await page1.locator('[data-dep-add-target]').selectOption(DEP_TARGET)
-  const depValue2 = await uiMutationValue(
+  const reAdd = await uiMutationRaw(
     page,
     '/api/researchControl/addDependency',
-    'addDependency (⑧ re-add)',
     () => page1.locator('[data-dep-add-button]').click(),
   )
-  const rel2 = String(depValue2['relationId'])
-  expect(rel2, 'the re-added edge mints a fresh relation id').toMatch(/^REL-[1-9][0-9]*$/)
-  expect(rel2, 'relation identity is per-edge — the re-add is a NEW relation').not.toBe(rel1)
-  await expect(page1.locator(`[data-dep-edge="${rel2}"]`)).toBeVisible()
-  await expect(page1.locator(`.react-flow__edge[data-id="dep:${rel2}"]`)).toBeVisible()
+  expect(reAdd.ok, 'the one-shot contract refuses the re-add').toBe(false)
+  expect(
+    String(reAdd.error?.message),
+    'the refusal names the kernel one-shot uniqueness rule',
+  ).toContain('RELATION_DUPLICATE')
+  await expect(page1.locator('[data-dep-edge]')).toHaveCount(0)
+  await expect(graphEdges(futureGraph(page1))).toHaveCount(11)
+  expect(await wireDepEdges(WS_ID), 'the wire stays empty after the refused re-add').toEqual([])
 
   /* ----------------------------------------------------------------
    * 10. ⑨ Set focus — the strip entry on M-1 (B §20): header row,
@@ -730,21 +823,24 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
     milestoneId,
   ])
 
-  // NO-REFRESH: the row is gone; every focus face is cleared; the
-  // untouched dependency edge (T-1 → T-5) survives.
+  // NO-REFRESH: the row is gone; every focus face is cleared. R-03
+  // (option A): the ⑧ one-shot remove left NO edge on any face, so the
+  // plan remove here changes nothing on the dependency side.
   await expect(page1.locator(`[data-strip-item="${CF_ID}"]`)).toHaveCount(0)
-  await expect(await stripOrder(page1)).not.toContain(CF_ID)
+  // FR3c: poll — the row disappears when the ADJ-8 refetch lands.
+  await expect.poll(async () => await stripOrder(page1), { timeout: 15_000 }).not.toContain(CF_ID)
   await expect(page1.locator('[data-header-focus]')).toHaveCount(0)
   await expect(page1.locator('[data-focus-id]')).toHaveCount(0)
   await expect(page1.getByText('No current focus')).toBeVisible()
   await expect(page1.locator('[data-strip-item][data-plan-focus]')).toHaveCount(0)
   await expect(
-    page1.locator('[data-role="plan-graph"] [data-plan-focus="true"]'),
+    futureGraph(page1).locator('[data-plan-focus="true"]'),
   ).toHaveCount(0)
-  await expect(page1.locator(`[data-dep-edge="${rel2}"]`)).toBeVisible()
-  expect(await wireDepEdges(WS_ID), 'the dep edge is untouched by the remove').toEqual([
-    { relationId: rel2, sourceId: DEP_SOURCE, targetId: DEP_TARGET },
-  ])
+  await expect(page1.locator('[data-dep-edge]')).toHaveCount(0)
+  expect(
+    await wireDepEdges(WS_ID),
+    'no dep edge survives the one-shot remove (R-03)',
+  ).toEqual([])
   expect(
     (
       expectWireOk(
@@ -760,18 +856,31 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
    *     label; WS-2 is the fixture's first plan-less WS): the empty
    *     strip, the head `+`, and the plan materializing on the host.
    * ---------------------------------------------------------------- */
+  // R-04 (adjudicated Option A, 2026-08-30): drillToWorkstream's
+  // documented precondition is "the first landing or a full reload" —
+  // the card wall renders only in the UNDRILLED console state, and
+  // nothing between ⑩ and here reloads or back-navigates. Return to
+  // the wall through the product's own back affordance (the breadcrumb
+  // root crumb, shell.tsx onBackToWall), then re-drill. The frozen
+  // helper call and every ADJ-3 assertion below are unchanged.
+  await page.locator('[data-project-breadcrumb] [data-breadcrumb-root]').click()
+  await expect(page.locator('[data-project-card][data-project-id="PRJ-1"]')).toBeVisible()
+
   await drillToWorkstream(page, WS_NOPLAN_ID)
   const page2 = wsPage(page)
   await expect(page2.getByText('No planned items')).toBeVisible()
   await expect(page2.locator('[data-strip-item]')).toHaveCount(0)
-  await expect(graphNodes(page2)).toHaveCount(0)
+  await expect(graphNodes(futureGraph(page2))).toHaveCount(0)
   // The legend is ALWAYS rendered (even on an empty graph).
-  await expect(page2.locator('[data-legend-canonical]')).toHaveText(LEGEND_CANONICAL)
+  await expect(futureGraph(page2).locator('[data-legend-canonical]')).toHaveText(LEGEND_CANONICAL)
 
   await page2.locator('[data-strip-add-head]').click()
   const ws2Form = page2.locator('[data-strip-form]')
   await expect(ws2Form).toBeVisible()
   await ws2Form.locator('[data-strip-field="title"]').fill(WS2_TASK_TITLE)
+  // F-3: same kind-aware gating — the frozen task.schema.json requires
+  // goal for TASK on the no-plan branch as well.
+  await ws2Form.locator('[data-strip-field="goal"]').fill(WS2_TASK_GOAL)
   const ws2Value = await uiMutationValue(
     page,
     '/api/researchControl/createPlanItem',
@@ -787,7 +896,7 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
   // NO-REFRESH: the row + the single graph node.
   const ws2Row = page2.locator(`[data-strip-item="${ws2TaskId}"]`)
   await expect(ws2Row).toContainText(WS2_TASK_TITLE)
-  await expect(graphNodes(page2)).toHaveCount(1)
+  await expect(graphNodes(futureGraph(page2))).toHaveCount(1)
   // The host materialized plan.yaml (the kernel addItem semantics —
   // the ADJ-3 裁决, tests/plan/plan-ops:313 钉).
   expect(await wirePlanOrder(WS_NOPLAN_ID)).toEqual([ws2TaskId])
@@ -820,21 +929,25 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
   expect(await wirePlanOrder(WS_ID), 'the wire order matches the post-mutation state').toEqual(
     finalOrder,
   )
-  await expect(await stripOrder(page3), 'the strip matches the wire order').toEqual(finalOrder)
+  await expectStripOrder(page3, finalOrder, 'the strip matches the wire order')
   // The ④ edit persisted.
   await expect(page3.locator(`[data-strip-item="${EDIT_ID}"]`)).toContainText(EDIT_TITLE_NEXT)
-  // The ⑧ re-added edge persisted on every face.
+  // R-03 option A: the one-shot remove persisted — the T-1 row is
+  // selectable again (FR5) and no dependency edge survives on any face.
   await page3.locator(`[data-strip-item="${DEP_SOURCE}"]`).click()
-  await expect(page3.locator(`[data-dep-edge="${rel2}"]`)).toBeVisible()
-  await expect(page3.locator(`.react-flow__edge[data-id="dep:${rel2}"]`)).toBeVisible()
-  expect(await wireDepEdges(WS_ID)).toEqual([
-    { relationId: rel2, sourceId: DEP_SOURCE, targetId: DEP_TARGET },
-  ])
+  await expect(page3.locator('[data-dep-edge]')).toHaveCount(0)
+  await expect(graphEdges(futureGraph(page3))).toHaveCount(10)
+  expect(await wireDepEdges(WS_ID), 'the one-shot remove persisted across reload (R-03)').toEqual([])
   // The ⑩ CF clear persisted.
   await expect(page3.locator('[data-header-focus]')).toHaveCount(0)
   await expect(page3.locator('[data-strip-item][data-plan-focus]')).toHaveCount(0)
 
-  // The ADJ-3 branch persisted too: re-drill WS-2.
+  // The ADJ-3 branch persisted too: re-drill WS-2. R-04 (same Option A
+  // delta): the reload-section re-navigation above left the console
+  // drilled into WS-1 — return to the wall first (the helper's
+  // precondition holds only in the undrilled state).
+  await page.locator('[data-project-breadcrumb] [data-breadcrumb-root]').click()
+  await expect(page.locator('[data-project-card][data-project-id="PRJ-1"]')).toBeVisible()
   await drillToWorkstream(page, WS_NOPLAN_ID)
   const page4 = wsPage(page)
   await expect(page4.locator(`[data-strip-item="${ws2TaskId}"]`)).toContainText(WS2_TASK_TITLE)

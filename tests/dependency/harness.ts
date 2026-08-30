@@ -7,9 +7,11 @@
  *      tests/wiring artifact discipline, same as property/helpers);
  *   2. REAL frozen event registry (`loadHistoryEventRegistry` against
  *      the actual `schema/history` dir — cached per module);
- *   3. REAL `SemanticMaintainer.validateHook` (RR-011(b) — the same
- *      hook the production wiring composes, driven through the store
- *      transaction);
+ *   3. REAL `SemanticMaintainer.validateHook` (RR-011(b)) applied
+ *      through a minimal mirror of the PRODUCTION store seam
+ *      (wiring/realize-store `validateHooks` — after the service's own
+ *      validate, in the same transaction, exactly once; the bare
+ *      `openDatabase` store carries no seam, so the harness supplies it);
  *   4. REAL `IdAllocator` on the store's OWN meta face (the wiring
  *      precedent create.ts:522 `new IdAllocator(rawStore.meta())`) —
  *      wrapped in a spy that records reserve/commit/release;
@@ -32,7 +34,7 @@ import type { HistoryEventRegistry } from '../../src/host/history/registry/types
 import { makeSemanticMaintainer, jsonToSemanticState, semanticStateKey } from '../../src/host/service/wiring/index.js'
 import { IdAllocator } from '../../src/shared/ids/index.js'
 import type { SemanticState } from '../../src/host/domain/semantics/index.js'
-import { DependencyService, type DependencyIdAllocator, type DependencyPlanIndex } from '../../src/host/service/dependency/index.js'
+import { DependencyService, type DependencyIdAllocator, type DependencyPlanIndex, type DependencyStorePort } from '../../src/host/service/dependency/index.js'
 
 /** WR root (tests/dependency → tests → plugin repo → WR). */
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -159,10 +161,29 @@ export function makeService(plans: DependencyPlanIndex = defaultPlans()): Harnes
   const allocator = new IdAllocator(store.meta())
   const spy = spyAllocator(allocator)
   const maintainer = makeSemanticMaintainer({ store, projectId: PROJECT })
+  // RR-011(b) seam mirror (wiring/realize-store `validateHooks`): the
+  // semantic incremental fold runs AFTER the service's own validate, in
+  // the same transaction — exactly once, for every service. The bare
+  // `openDatabase` store carries no seam, so the harness supplies it;
+  // otherwise the D2 fold rules (5-tuple uniqueness, reverse-duplicate)
+  // would go untested and the production double-fold regression (a
+  // service composing the same hook a second time → the second fold
+  // re-folds the event onto the already-updated state → the reducer
+  // rejects it OBJECT_ALREADY_EXISTS) could not surface in this suite.
+  const storeWithSeam: DependencyStorePort = {
+    listRange: (ownerWorkstreamId, fromSeq, toSeq) => store.listRange(ownerWorkstreamId, fromSeq, toSeq),
+    appendEvents: (events, options) =>
+      store.appendEvents(events, {
+        ...options,
+        validate: (finalized, tx): void => {
+          options?.validate?.(finalized, tx)
+          maintainer.validateHook(finalized, tx)
+        },
+      }),
+  }
   const service = new DependencyService({
-    store,
+    store: storeWithSeam,
     registry,
-    semanticValidateHook: maintainer.validateHook,
     allocator: spy.allocator,
     plans,
     projectId: PROJECT,

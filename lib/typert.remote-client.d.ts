@@ -1,4 +1,4 @@
-import { A as PingResult, B as RestoreDeclarativeFileArgs, C as GetResearchPlaneStateArgs, D as HubOverviewResult, E as GetWorkstreamArgs, F as RegisterInteractionResult, G as SaveResearchCheckpointResult, H as RestoreProjectArgs, I as ReorderPlanArgs, J as SetCurrentFocusArgs, K as SelectPlanForkArgs, L as ReorderPlanResult, M as QueryHistoryArgs, N as QueryHistoryResult, O as InspectProjectDirectoryArgs, P as RegisterInteractionArgs, Q as TopicSnapshot, R as RescanArgs, S as GetPortfolioInterventionsResult, T as GetTopicArgs, U as RestoreProjectResult, V as RestoreDeclarativeFileResult, W as SaveResearchCheckpointArgs, X as SetHubArgs, Y as SetCurrentFocusResult, Z as SetHubResult, _ as GetCurrentFocusResult, a as CreateLocalResearchProjectArgs, at as UpdateProjectMetadataResult, b as GetHubOverviewArgs, c as CreateTopicResult, ct as UpdateWorkstreamArgs, d as DashboardSnapshot, et as UnbindProjectArgs, f as DismissPlanForkArgs, g as GetCurrentFocusArgs, h as DropWorkstreamResult, i as BindProjectResult, it as UpdateProjectMetadataArgs, j as ProjectSnapshot, k as InspectProjectDirectoryResult, l as CreateWorkstreamArgs, lt as UpdateWorkstreamResult, m as DropWorkstreamArgs, n as AckMissingReminderResult, nt as UpdateInterventionStateArgs, o as CreateLocalResearchProjectResult, ot as UpdateTopicArgs, p as DismissPlanForkResult, q as SelectPlanForkResult, r as BindProjectArgs, rt as UpdateInterventionStateResult, s as CreateTopicArgs, st as UpdateTopicResult, t as AckMissingReminderArgs, tt as UnbindProjectResult, u as CreateWorkstreamResult, ut as WorkstreamSnapshot, v as GetGitHistoryArgs, w as GetResearchPlaneStateResult, x as GetPortfolioInterventionsArgs, y as GetGitHistoryResult, z as RescanResult } from "./rpc-contracts-CMwk1Fml.js";
+import { $ as RestoreDeclarativeFileResult, A as GetPortfolioInterventionsResult, B as PingResult, C as DropWorkstreamResult, Ct as UpdateWorkstreamResult, D as GetGitHistoryResult, E as GetGitHistoryArgs, F as GetWorkstreamCurrentArgs, G as QueryHistoryResult, H as PromoteNextActionArgs, I as GetWorkstreamCurrentResult, J as ReorderPlanArgs, K as RegisterInteractionArgs, L as HubOverviewResult, M as GetResearchPlaneStateResult, N as GetTopicArgs, O as GetHubOverviewArgs, P as GetWorkstreamArgs, Q as RestoreDeclarativeFileArgs, R as InspectProjectDirectoryArgs, S as DropWorkstreamArgs, St as UpdateWorkstreamArgs, T as GetCurrentFocusResult, U as PromoteNextActionResult, V as ProjectSnapshot, W as QueryHistoryArgs, X as RescanArgs, Y as ReorderPlanResult, Z as RescanResult, _ as DashboardSnapshot, _t as UpdateObjectiveResult, a as ClearBlockerArgs, at as SelectPlanForkResult, b as DismissPlanForkArgs, bt as UpdateTopicArgs, c as CreateBlockerResult, ct as SetHubArgs, d as CreateNextActionArgs, et as RestoreProjectArgs, f as CreateNextActionResult, ft as UnbindProjectArgs, g as CreateWorkstreamResult, gt as UpdateObjectiveArgs, h as CreateWorkstreamArgs, ht as UpdateInterventionStateResult, i as BindProjectResult, it as SelectPlanForkArgs, j as GetResearchPlaneStateArgs, k as GetPortfolioInterventionsArgs, l as CreateLocalResearchProjectArgs, lt as SetHubResult, m as CreateTopicResult, mt as UpdateInterventionStateArgs, n as AckMissingReminderResult, nt as SaveResearchCheckpointArgs, o as ClearBlockerResult, ot as SetCurrentFocusArgs, p as CreateTopicArgs, pt as UnbindProjectResult, q as RegisterInteractionResult, r as BindProjectArgs, rt as SaveResearchCheckpointResult, s as CreateBlockerArgs, st as SetCurrentFocusResult, t as AckMissingReminderArgs, tt as RestoreProjectResult, u as CreateLocalResearchProjectResult, ut as TopicSnapshot, v as DismissNextActionArgs, vt as UpdateProjectMetadataArgs, w as GetCurrentFocusArgs, wt as WorkstreamSnapshot, x as DismissPlanForkResult, xt as UpdateTopicResult, y as DismissNextActionResult, yt as UpdateProjectMetadataResult, z as InspectProjectDirectoryResult } from "./rpc-contracts-D_35PPbQ.js";
 import { RemoteResult, TypertRemoteContribution } from "@deepseek-ai/dsh-typert-protocol";
 //#region src/client/dsh-adapter/remote/contribution.d.ts
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -36,6 +36,13 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/dropWorkstream': (args: DropWorkstreamArgs) => Promise<RemoteResult<DropWorkstreamResult>>;
     'researchControl/inspectProjectDirectory': (args: InspectProjectDirectoryArgs) => Promise<RemoteResult<InspectProjectDirectoryResult>>;
     'researchControl/createLocalResearchProject': (args: CreateLocalResearchProjectArgs) => Promise<RemoteResult<CreateLocalResearchProjectResult>>;
+    'researchControl/getWorkstreamCurrent': (args: GetWorkstreamCurrentArgs) => Promise<RemoteResult<GetWorkstreamCurrentResult>>;
+    'researchControl/updateObjective': (args: UpdateObjectiveArgs) => Promise<RemoteResult<UpdateObjectiveResult>>;
+    'researchControl/createNextAction': (args: CreateNextActionArgs) => Promise<RemoteResult<CreateNextActionResult>>;
+    'researchControl/promoteNextAction': (args: PromoteNextActionArgs) => Promise<RemoteResult<PromoteNextActionResult>>;
+    'researchControl/dismissNextAction': (args: DismissNextActionArgs) => Promise<RemoteResult<DismissNextActionResult>>;
+    'researchControl/createBlocker': (args: CreateBlockerArgs) => Promise<RemoteResult<CreateBlockerResult>>;
+    'researchControl/clearBlocker': (args: ClearBlockerArgs) => Promise<RemoteResult<ClearBlockerResult>>;
   }
   interface TypertRemoteNamespaceMap {
     researchControl: TypertRemoteNamespace$726573656172636f6e74726f6c;
@@ -49,7 +56,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
    * and the hierarchy create pair, Task 3 — project-routed);
    * V2-UI-0.4 UI-2: + the 6 GUI management RPCs (the 4 hierarchy
    * update/drop RPCs, project-routed — UI-2A — and the 2 local-project
-   * RPCs, plane-level — UI-2B).
+   * RPCs, plane-level — UI-2B);
+   * V2-UI-0.4 UI-4 (D §10): + the 7 attention RPCs (the
+   * CurrentExecution projection read + the objective/next-action/blocker
+   * mutation faces).
    */
   interface TypertRemoteNamespace$726573656172636f6e74726f6c {
     ping: () => Promise<RemoteResult<PingResult>>;
@@ -85,6 +95,13 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     dropWorkstream: (args: DropWorkstreamArgs) => Promise<RemoteResult<DropWorkstreamResult>>;
     inspectProjectDirectory: (args: InspectProjectDirectoryArgs) => Promise<RemoteResult<InspectProjectDirectoryResult>>;
     createLocalResearchProject: (args: CreateLocalResearchProjectArgs) => Promise<RemoteResult<CreateLocalResearchProjectResult>>;
+    getWorkstreamCurrent: (args: GetWorkstreamCurrentArgs) => Promise<RemoteResult<GetWorkstreamCurrentResult>>;
+    updateObjective: (args: UpdateObjectiveArgs) => Promise<RemoteResult<UpdateObjectiveResult>>;
+    createNextAction: (args: CreateNextActionArgs) => Promise<RemoteResult<CreateNextActionResult>>;
+    promoteNextAction: (args: PromoteNextActionArgs) => Promise<RemoteResult<PromoteNextActionResult>>;
+    dismissNextAction: (args: DismissNextActionArgs) => Promise<RemoteResult<DismissNextActionResult>>;
+    createBlocker: (args: CreateBlockerArgs) => Promise<RemoteResult<CreateBlockerResult>>;
+    clearBlocker: (args: ClearBlockerArgs) => Promise<RemoteResult<ClearBlockerResult>>;
   }
 }
 /**
@@ -94,8 +111,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
  * 13 WP-4.1a descriptors + the 3 read-only plane descriptors, V2-T3.2a
  * + the 6 change-family plane descriptors, V2-T3.2b + the 4 GUI
  * management descriptors, UI-0.4: the current-focus pair (R-01) and the
- * hierarchy create pair (Task 3) — the hand-written map above mirrors
- * the SAME face by category), strict codecs included.
+ * hierarchy create pair (Task 3) + the 7 attention descriptors, UI-4 (D
+ * §10): the CurrentExecution projection read + the
+ * objective/next-action/blocker mutation faces — the hand-written map
+ * above mirrors the SAME face by category), strict codecs included.
  */
 declare const researchRemotes: TypertRemoteContribution;
 //#endregion

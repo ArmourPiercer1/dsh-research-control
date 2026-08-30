@@ -41,13 +41,21 @@
 
 import { researchRpc } from '../dsh-adapter/remote/mount.js'
 import {
+  type ClearBlockerArgs,
+  type ClearBlockerResult,
+  type CreateBlockerArgs,
+  type CreateBlockerResult,
   type CreateLocalResearchProjectArgs,
   type CreateLocalResearchProjectResult,
+  type CreateNextActionArgs,
+  type CreateNextActionResult,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
   type CreateWorkstreamResult,
   type DashboardSnapshot,
+  type DismissNextActionArgs,
+  type DismissNextActionResult,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
   type DropWorkstreamArgs,
@@ -56,9 +64,13 @@ import {
   type GetCurrentFocusResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
+  type GetWorkstreamCurrentArgs,
+  type GetWorkstreamCurrentResult,
   type InspectProjectDirectoryArgs,
   type InspectProjectDirectoryResult,
   type ProjectSnapshot,
+  type PromoteNextActionArgs,
+  type PromoteNextActionResult,
   type QueryHistoryArgs,
   type QueryHistoryResult,
   type ReorderPlanArgs,
@@ -76,6 +88,8 @@ import {
   type TopicSnapshot,
   type UpdateInterventionStateArgs,
   type UpdateInterventionStateResult,
+  type UpdateObjectiveArgs,
+  type UpdateObjectiveResult,
   type UpdateProjectMetadataArgs,
   type UpdateProjectMetadataResult,
   type UpdateTopicArgs,
@@ -176,6 +190,15 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
    * the value from `state.currentFocus.get(workstreamId)`.
    */
   getCurrentFocus(args: GetCurrentFocusArgs): Promise<void>
+  /**
+   * Fetch the Current Execution aggregate (UI-4, ADJ-8): objectives +
+   * explicit/derived blockers + next actions + interventions for one
+   * workstream; cached per `workstreamId` (the `current` slice family —
+   * load + cache + stale-while-revalidate like the other families). The
+   * frozen `WorkstreamSnapshot` cannot carry these faces, so this read
+   * owns its slice — a view selects from `state.current.get(workstreamId)`.
+   */
+  loadWorkstreamCurrent(args: GetWorkstreamCurrentArgs): Promise<void>
 
   /* -- the mutation actions: resolve with the host result; on OK,
           invalidate per the registry + refetch the affected slices; a
@@ -243,6 +266,32 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
    *  topic slice + `project`. */
   createWorkstream(args: CreateWorkstreamArgs): Promise<CreateWorkstreamResult>
 
+  /* -- V2-UI-4: the six workstream-management mutations. Same idiom:
+         okValue → INVALIDATE_REGISTRY → refetchKeys; a business fault
+         rejects with ResearchRpcError. -- */
+
+  /** Edit a goal (statement and/or status; at least one required). On
+   *  OK: refetches `project` + every cached `current` slice. */
+  updateObjective(args: UpdateObjectiveArgs): Promise<UpdateObjectiveResult>
+  /** Propose a next action (workstream optional — a workstream-less NA
+   *  is a project-level proposal). On OK: refetches the owning `current`
+   *  slice (or every cached `current` slice when the NA has no ws). */
+  createNextAction(args: CreateNextActionArgs): Promise<CreateNextActionResult>
+  /** Promote a next action to a plan task. On OK: refetches the
+   *  workstream's `current` + `workstreams` slices (plan.yaml gained the
+   *  new task). */
+  promoteNextAction(args: PromoteNextActionArgs): Promise<PromoteNextActionResult>
+  /** Dismiss a next action. On OK: refetches the owning `current` slice
+   *  (or every cached `current` slice when the NA has no ws). */
+  dismissNextAction(args: DismissNextActionArgs): Promise<DismissNextActionResult>
+  /** Record an explicit blocker on workstream/task/run refs. On OK:
+   *  refetches every cached `current` slice (the affected ws set is not
+   *  derivable from the result). */
+  createBlocker(args: CreateBlockerArgs): Promise<CreateBlockerResult>
+  /** Clear an explicit blocker (the row flips to CLEARED — it stays in
+   *  the ledger). On OK: refetches every cached `current` slice. */
+  clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult>
+
   /* -- the refresh loop (ARCHITECTURE §8 items 3/4) -- */
 
   /**
@@ -275,6 +324,7 @@ type SliceFamily =
   | 'history'
   | 'gitHistory'
   | 'currentFocus'
+  | 'current'
 
 interface FamilyData {
   dashboard: DashboardSnapshot
@@ -284,6 +334,7 @@ interface FamilyData {
   history: QueryHistoryResult
   gitHistory: GetGitHistoryResult
   currentFocus: GetCurrentFocusResult
+  current: GetWorkstreamCurrentResult
 }
 
 /** Unwrap an `RpcResult`: business fault → `ResearchRpcError`; OK → the value. */
@@ -431,6 +482,12 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
         return loadQuery('currentFocus', localKey, { workstreamId: localKey }, () =>
           rpc.getCurrentFocus({ workstreamId: localKey }),
         )
+      case 'current':
+        // The Current Execution aggregate (UI-4) — keyed by the bare
+        // workstreamId, same routing convention as the CF slice above.
+        return loadQuery('current', localKey, { workstreamId: localKey }, () =>
+          rpc.getWorkstreamCurrent({ workstreamId: localKey }),
+        )
     }
   }
 
@@ -454,7 +511,7 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     const keys: SliceKey[] = []
     if (state.dashboard.status !== 'idle') keys.push('dashboard')
     if (state.project.status !== 'idle') keys.push('project')
-    for (const family of ['topics', 'workstreams', 'history', 'gitHistory', 'currentFocus'] as const) {
+    for (const family of ['topics', 'workstreams', 'history', 'gitHistory', 'currentFocus', 'current'] as const) {
       for (const [localKey, slice] of state[family]) {
         if (slice.status !== 'idle') keys.push(sliceKey(family, localKey))
       }
@@ -482,6 +539,10 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     // same load + cache + stale-while-revalidate machinery as the rest.
     getCurrentFocus: (args: GetCurrentFocusArgs) =>
       loadQuery('currentFocus', args.workstreamId, args, () => rpc.getCurrentFocus(args)),
+    // UI-4 (ADJ-8): the Current Execution aggregate — its own slice
+    // family, the same machinery as the CF slice above.
+    loadWorkstreamCurrent: (args: GetWorkstreamCurrentArgs) =>
+      loadQuery('current', args.workstreamId, args, () => rpc.getWorkstreamCurrent(args)),
 
     /* the mutation actions */
 
@@ -596,6 +657,45 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     async createWorkstream(args: CreateWorkstreamArgs): Promise<CreateWorkstreamResult> {
       const value = okValue(await rpc.createWorkstream(args))
       await refetchKeys(INVALIDATE_REGISTRY.createWorkstream(value, base.getState()))
+      return value
+    },
+
+    /* V2-UI-4 — the six workstream-management mutations: the same
+       okValue → INVALIDATE_REGISTRY → refetchKeys idiom (no optimistic
+       updates — the slice moves only on the refetch's good read). */
+    async updateObjective(args: UpdateObjectiveArgs): Promise<UpdateObjectiveResult> {
+      const value = okValue(await rpc.updateObjective(args))
+      await refetchKeys(INVALIDATE_REGISTRY.updateObjective(value, base.getState()))
+      return value
+    },
+
+    async createNextAction(args: CreateNextActionArgs): Promise<CreateNextActionResult> {
+      const value = okValue(await rpc.createNextAction(args))
+      await refetchKeys(INVALIDATE_REGISTRY.createNextAction(value, base.getState()))
+      return value
+    },
+
+    async promoteNextAction(args: PromoteNextActionArgs): Promise<PromoteNextActionResult> {
+      const value = okValue(await rpc.promoteNextAction(args))
+      await refetchKeys(INVALIDATE_REGISTRY.promoteNextAction(value, base.getState()))
+      return value
+    },
+
+    async dismissNextAction(args: DismissNextActionArgs): Promise<DismissNextActionResult> {
+      const value = okValue(await rpc.dismissNextAction(args))
+      await refetchKeys(INVALIDATE_REGISTRY.dismissNextAction(value, base.getState()))
+      return value
+    },
+
+    async createBlocker(args: CreateBlockerArgs): Promise<CreateBlockerResult> {
+      const value = okValue(await rpc.createBlocker(args))
+      await refetchKeys(INVALIDATE_REGISTRY.createBlocker(value, base.getState()))
+      return value
+    },
+
+    async clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult> {
+      const value = okValue(await rpc.clearBlocker(args))
+      await refetchKeys(INVALIDATE_REGISTRY.clearBlocker(value, base.getState()))
       return value
     },
 

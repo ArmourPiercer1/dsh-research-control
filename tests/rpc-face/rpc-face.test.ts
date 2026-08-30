@@ -111,6 +111,101 @@ function makeStub(): { stub: ResearchRpcServices; calls: Map<string, unknown[]> 
       record('dismissPlanFork')(a)
       return DISMISS_FIXTURE
     },
+    // UI-4 (D §10): the 7 attention-face port methods. This frozen-13
+    // suite never invokes them (they are not in `cases`); the entries
+    // exist so the stub satisfies the extended `ResearchRpcServices`
+    // port exactly (the type-level no-drift rule). Parameters/results
+    // resolve contextually from the port (the mid-literal position
+    // keeps the pre-existing TS2740 preview's head/tail members stable).
+    async getWorkstreamCurrent(a) {
+      record('getWorkstreamCurrent')(a)
+      return {
+        workstreamId: a.workstreamId,
+        objectives: [],
+        explicitBlockers: [],
+        derivedBlockers: [],
+        nextActions: [],
+        interventions: [],
+      }
+    },
+    async updateObjective(a) {
+      record('updateObjective')(a)
+      return {
+        objectiveId: a.objectiveId,
+        status: a.status ?? 'ACTIVE',
+        managementActionId: 'MA-1',
+        updatedAt: 1,
+      }
+    },
+    async createNextAction(a) {
+      record('createNextAction')(a)
+      return {
+        nextAction: {
+          id: 'NA-1',
+          workstreamId: a.workstreamId ?? null,
+          statement: a.statement,
+          rationale: a.rationale ?? null,
+          status: 'PROPOSED',
+          promotedToTaskId: null,
+          createdAt: 1,
+        },
+      }
+    },
+    async promoteNextAction(a) {
+      record('promoteNextAction')(a)
+      return {
+        nextActionId: a.nextActionId,
+        taskId: 'T-1',
+        workstreamId: a.workstreamId ?? 'WS-1',
+        planPath: 'workstreams/WS-1/plan.yaml',
+        newOrder: ['T-1'],
+        managementActionId: 'MA-1',
+      }
+    },
+    async dismissNextAction(a) {
+      record('dismissNextAction')(a)
+      return {
+        nextAction: {
+          id: a.nextActionId,
+          workstreamId: null,
+          statement: 's',
+          rationale: null,
+          status: 'DISMISSED',
+          promotedToTaskId: null,
+          createdAt: 1,
+        },
+      }
+    },
+    async createBlocker(a) {
+      record('createBlocker')(a)
+      return {
+        blocker: {
+          id: 'BLK-1',
+          statement: a.statement,
+          affects: a.affects,
+          status: 'ACTIVE',
+          source: a.source,
+          references: a.references ?? null,
+          createdAt: 1,
+          clearedAt: null,
+        },
+      }
+    },
+    async clearBlocker(a) {
+      record('clearBlocker')(a)
+      return {
+        blocker: {
+          id: a.blockerId,
+          statement: 's',
+          affects: [{ kind: 'WORKSTREAM', id: 'WS-1' }],
+          status: 'CLEARED',
+          source: 's',
+          references: null,
+          createdAt: 1,
+          clearedAt: 1,
+        },
+      }
+    },
     updateInterventionState(a) {
       record('updateInterventionState')(a)
       return UPDATE_INTERVENTION_FIXTURE

@@ -492,6 +492,18 @@ export class InterventionService {
     return this.#lifecycle.listInterventions({ status: 'CLOSED' })
   }
 
+  /**
+   * UI-4 (ADJ-7): the WS-local list — the `workstream_ids` contains
+   * semantics live in the lifecycle store's filter; this method is a
+   * store passthrough (INV-ATTN-1 无隐藏过滤器 — the ONLY filter is the
+   * WS membership itself; the stable created_at ASC / id ASC order is
+   * kept, so the client renders the full WS intervention set incl.
+   * CLOSED for the 「已关闭」 group, B §15.7).
+   */
+  listForWorkstream(workstreamId: string): readonly InterventionRecord[] {
+    return this.#lifecycle.listInterventions({ workstreamId })
+  }
+
   /* ---------------------------------------------------------------- */
 
   #wrapCause(cause: unknown, code: 'IV_EVENT' | 'IV_STORE'): InterventionError {

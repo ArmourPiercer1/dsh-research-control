@@ -1011,5 +1011,175 @@ interface CreateLocalResearchProjectFailureResult {
   readonly detail: string;
 }
 type CreateLocalResearchProjectResult = CreateLocalResearchProjectSuccessResult | CreateLocalResearchProjectFailureResult;
+/** One `affects` target (DOMAIN_SCHEMA §9.4 TypedRef; kind WS/T/R). */
+interface AffectsRefDto {
+  readonly kind: 'WORKSTREAM' | 'TASK' | 'RUN';
+  readonly id: string;
+}
+/** One Objective linked-ref (DOMAIN_SCHEMA §9.1; objectives.schema.json
+ *  limits the kind to GATE/MILESTONE/WORKSTREAM — the id is a bare
+ *  member id, membership validated service-side like CF). */
+interface LinkedRefDto {
+  readonly kind: 'GATE' | 'MILESTONE' | 'WORKSTREAM';
+  readonly id: string;
+}
+/** One full Objective (the frozen {@link ObjectiveDto} fields + the §9.1
+ *  success-criteria / linked-refs read face; ADJ-6 current-objective
+ *  carrier). */
+interface ObjectiveFullDto {
+  readonly id: string;
+  readonly scope: 'PROJECT' | 'TOPIC';
+  readonly statement: string;
+  readonly status: 'ACTIVE' | 'ACHIEVED' | 'DROPPED';
+  readonly priority: 'P0' | 'P1' | 'P2' | 'P3';
+  readonly targetDate: number | null;
+  readonly successCriteria: readonly string[];
+  readonly linkedRefs: readonly LinkedRefDto[];
+}
+/** One NextAction (DOMAIN_SCHEMA §9.3; absent optionals → null on the
+ *  wire; `promotedToTaskId` only when status = PROMOTED). */
+interface NextActionDto {
+  readonly id: string;
+  readonly workstreamId: string | null;
+  readonly statement: string;
+  readonly rationale: string | null;
+  readonly status: 'PROPOSED' | 'PROMOTED' | 'DISMISSED';
+  readonly promotedToTaskId: string | null;
+  readonly createdAt: number;
+}
+/** One Explicit Blocker (DOMAIN_SCHEMA §9.4). */
+interface BlockerDto {
+  readonly id: string;
+  readonly statement: string;
+  readonly affects: readonly AffectsRefDto[];
+  readonly status: 'ACTIVE' | 'CLEARED';
+  /** The source note (§9.4 required free text). */
+  readonly source: string;
+  readonly references: readonly string[] | null;
+  readonly createdAt: number;
+  readonly clearedAt: number | null;
+}
+/** One DERIVED blocker (ADJ-4: a read-only projection — the synthetic
+ *  id `DERIVED-<source>-<refId>` is never allocated, never persisted;
+ *  there is NO clear RPC for this face). */
+interface DerivedBlockerDto {
+  readonly id: string;
+  readonly source: 'DEPENDENCY' | 'GATE' | 'RULE';
+  readonly statement: string;
+  readonly reasonRefs: readonly string[];
+  /** The true-cause link (the zone renders the label verbatim). */
+  readonly primaryAction: {
+    readonly label: string;
+    readonly targetKind: 'TASK' | 'GATE' | 'MILESTONE' | 'WORKSTREAM' | 'RUN';
+    readonly targetId: string;
+  };
+}
+/** One full Intervention (the frozen {@link InterventionDto} fields +
+ *  the §9.2 detail / closure read face). */
+interface InterventionFullDto {
+  readonly id: string;
+  readonly title: string;
+  readonly origin: 'USER' | 'AGENT_REPORT' | 'AUTO_FLOODING' | 'AUTO_AUDIT';
+  readonly status: 'OPEN' | 'PENDING' | 'CLOSED';
+  readonly workstreamIds: readonly string[];
+  readonly createdAt: number;
+  readonly detail: string | null;
+  readonly closedAt: number | null;
+  readonly resolutionNote: string | null;
+}
+interface GetWorkstreamCurrentArgs {
+  readonly workstreamId: string;
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string;
+}
+interface GetWorkstreamCurrentResult {
+  readonly workstreamId: string;
+  /** ACTIVE objectives whose linked_refs contain this WORKSTREAM,
+   *  priority-sorted (the header row shows the first; ADJ-6). */
+  readonly objectives: readonly ObjectiveFullDto[];
+  /** Explicit blockers affecting the WS itself or a member Task/Run
+   *  (ADJ-5). */
+  readonly explicitBlockers: readonly BlockerDto[];
+  /** The ADJ-3 mechanical derived projection (DEPENDENCY/GATE; RULE =
+   *  the empty set in v1). */
+  readonly derivedBlockers: readonly DerivedBlockerDto[];
+  /** The PROPOSED next actions naming this WS (the actionable set). */
+  readonly nextActions: readonly NextActionDto[];
+  /** The interventions naming this WS (all states — the zone renders
+   *  the closure state). */
+  readonly interventions: readonly InterventionFullDto[];
+}
+interface UpdateObjectiveArgs {
+  readonly objectiveId: string;
+  readonly statement?: string;
+  /** A status transition (the frozen §13 machine is checked). */
+  readonly status?: 'ACTIVE' | 'ACHIEVED' | 'DROPPED';
+  readonly projectId?: string;
+}
+interface UpdateObjectiveResult {
+  readonly objectiveId: string;
+  /** The effective status after the update. */
+  readonly status: 'ACTIVE' | 'ACHIEVED' | 'DROPPED';
+  readonly managementActionId: string;
+  /** Write stamp (epoch ms) — the client invalidation version. */
+  readonly updatedAt: number;
+}
+interface CreateNextActionArgs {
+  /** The WS the NA names (absent → the NA is unscoped). */
+  readonly workstreamId?: string;
+  readonly statement: string;
+  readonly rationale?: string;
+  readonly projectId?: string;
+}
+interface CreateNextActionResult {
+  readonly nextAction: NextActionDto;
+}
+interface PromoteNextActionArgs {
+  readonly nextActionId: string;
+  /** Required when the NA carries no workstream_id; must match when it
+   *  does (service-checked). */
+  readonly workstreamId?: string;
+  /** 0-based insert position in the canonical plan (default: tail). */
+  readonly index?: number;
+  readonly projectId?: string;
+}
+/** The materialization receipt (the host ActionsService
+ *  `PromoteNextActionResult` mapped verbatim). */
+interface PromoteNextActionResult {
+  readonly nextActionId: string;
+  /** The materialized Task id (§9.3 promoted_to_task_id). */
+  readonly taskId: string;
+  readonly workstreamId: string;
+  /** The plan.yaml path relative to `.research/`. */
+  readonly planPath: string;
+  /** The canonical plan order after materialization. */
+  readonly newOrder: readonly string[];
+  readonly managementActionId: string;
+}
+interface DismissNextActionArgs {
+  readonly nextActionId: string;
+  readonly projectId?: string;
+}
+interface DismissNextActionResult {
+  readonly nextAction: NextActionDto;
+}
+interface CreateBlockerArgs {
+  readonly statement: string;
+  readonly affects: readonly AffectsRefDto[];
+  /** The source note (DOMAIN_SCHEMA §9.4 required). */
+  readonly source: string;
+  readonly references?: readonly string[];
+  readonly projectId?: string;
+}
+interface CreateBlockerResult {
+  readonly blocker: BlockerDto;
+}
+interface ClearBlockerArgs {
+  readonly blockerId: string;
+  readonly projectId?: string;
+}
+interface ClearBlockerResult {
+  readonly blocker: BlockerDto;
+}
 //#endregion
-export { TypertContributionMirror as $, PingResult as A, RestoreDeclarativeFileArgs as B, GetResearchPlaneStateArgs as C, HubOverviewResult as D, GetWorkstreamArgs as E, RegisterInteractionResult as F, SaveResearchCheckpointResult as G, RestoreProjectArgs as H, ReorderPlanArgs as I, SetCurrentFocusArgs as J, SelectPlanForkArgs as K, ReorderPlanResult as L, QueryHistoryArgs as M, QueryHistoryResult as N, InspectProjectDirectoryArgs as O, RegisterInteractionArgs as P, TopicSnapshot as Q, RescanArgs as R, GetPortfolioInterventionsResult as S, GetTopicArgs as T, RestoreProjectResult as U, RestoreDeclarativeFileResult as V, SaveResearchCheckpointArgs as W, SetHubArgs as X, SetCurrentFocusResult as Y, SetHubResult as Z, GetCurrentFocusResult as _, CreateLocalResearchProjectArgs as a, UpdateProjectMetadataResult as at, GetHubOverviewArgs as b, CreateTopicResult as c, UpdateWorkstreamArgs as ct, DashboardSnapshot as d, UnbindProjectArgs as et, DismissPlanForkArgs as f, GetCurrentFocusArgs as g, DropWorkstreamResult as h, BindProjectResult as i, UpdateProjectMetadataArgs as it, ProjectSnapshot as j, InspectProjectDirectoryResult as k, CreateWorkstreamArgs as l, UpdateWorkstreamResult as lt, DropWorkstreamArgs as m, AckMissingReminderResult as n, UpdateInterventionStateArgs as nt, CreateLocalResearchProjectResult as o, UpdateTopicArgs as ot, DismissPlanForkResult as p, SelectPlanForkResult as q, BindProjectArgs as r, UpdateInterventionStateResult as rt, CreateTopicArgs as s, UpdateTopicResult as st, AckMissingReminderArgs as t, UnbindProjectResult as tt, CreateWorkstreamResult as u, WorkstreamSnapshot as ut, GetGitHistoryArgs as v, GetResearchPlaneStateResult as w, GetPortfolioInterventionsArgs as x, GetGitHistoryResult as y, RescanResult as z };
+export { RestoreDeclarativeFileResult as $, GetPortfolioInterventionsResult as A, PingResult as B, DropWorkstreamResult as C, UpdateWorkstreamResult as Ct, GetGitHistoryResult as D, GetGitHistoryArgs as E, GetWorkstreamCurrentArgs as F, QueryHistoryResult as G, PromoteNextActionArgs as H, GetWorkstreamCurrentResult as I, ReorderPlanArgs as J, RegisterInteractionArgs as K, HubOverviewResult as L, GetResearchPlaneStateResult as M, GetTopicArgs as N, GetHubOverviewArgs as O, GetWorkstreamArgs as P, RestoreDeclarativeFileArgs as Q, InspectProjectDirectoryArgs as R, DropWorkstreamArgs as S, UpdateWorkstreamArgs as St, GetCurrentFocusResult as T, PromoteNextActionResult as U, ProjectSnapshot as V, QueryHistoryArgs as W, RescanArgs as X, ReorderPlanResult as Y, RescanResult as Z, DashboardSnapshot as _, UpdateObjectiveResult as _t, ClearBlockerArgs as a, SelectPlanForkResult as at, DismissPlanForkArgs as b, UpdateTopicArgs as bt, CreateBlockerResult as c, SetHubArgs as ct, CreateNextActionArgs as d, TypertContributionMirror as dt, RestoreProjectArgs as et, CreateNextActionResult as f, UnbindProjectArgs as ft, CreateWorkstreamResult as g, UpdateObjectiveArgs as gt, CreateWorkstreamArgs as h, UpdateInterventionStateResult as ht, BindProjectResult as i, SelectPlanForkArgs as it, GetResearchPlaneStateArgs as j, GetPortfolioInterventionsArgs as k, CreateLocalResearchProjectArgs as l, SetHubResult as lt, CreateTopicResult as m, UpdateInterventionStateArgs as mt, AckMissingReminderResult as n, SaveResearchCheckpointArgs as nt, ClearBlockerResult as o, SetCurrentFocusArgs as ot, CreateTopicArgs as p, UnbindProjectResult as pt, RegisterInteractionResult as q, BindProjectArgs as r, SaveResearchCheckpointResult as rt, CreateBlockerArgs as s, SetCurrentFocusResult as st, AckMissingReminderArgs as t, RestoreProjectResult as tt, CreateLocalResearchProjectResult as u, TopicSnapshot as ut, DismissNextActionArgs as v, UpdateProjectMetadataArgs as vt, GetCurrentFocusArgs as w, WorkstreamSnapshot as wt, DismissPlanForkResult as x, UpdateTopicResult as xt, DismissNextActionResult as y, UpdateProjectMetadataResult as yt, InspectProjectDirectoryResult as z };

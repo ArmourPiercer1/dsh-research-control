@@ -397,6 +397,22 @@ export class ActionsService {
     return this.store.listBlockers(filter)
   }
 
+  /**
+   * UI-4 (ADJ-5): the WS-local Blocker view — a MECHANICAL projection
+   * over `affects` (the frozen row has no workstream column — the link
+   * IS the affects ref set): a blocker is local to `workstreamId` when
+   * any affects ref hits the WS itself or one of the given member ids
+   * (the WS's tasks + runs; the caller assembles the set from its tree
+   * + run-table faces — the service's `runExists` face cannot enumerate).
+   * Pure over the store's full `listBlockers` read (no filter push-down —
+   * the `affects` match is the projection; the set is small by §9.4).
+   */
+  listBlockersForWorkstream(workstreamId: string, memberIds: ReadonlySet<string>): BlockerRecord[] {
+    return this.store
+      .listBlockers()
+      .filter((blocker) => blocker.affects.some((ref) => ref.id === workstreamId || memberIds.has(ref.id)))
+  }
+
   listObjectives(): ObjectiveDoc[] {
     return this.objectives.loadObjectives().objectives
   }

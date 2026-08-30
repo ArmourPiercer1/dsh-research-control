@@ -62,6 +62,44 @@ describe('i18n copy (UI-3 D6)', () => {
       'tree.collapse',
       'tree.rail',
       'tree.reopen',
+      'ws.current.actionFault',
+      'ws.current.activeTasks',
+      'ws.current.blockerDerived',
+      'ws.current.blockerExplicit',
+      'ws.current.blockerSource',
+      'ws.current.blockers',
+      'ws.current.clearBlocker',
+      'ws.current.dismiss',
+      'ws.current.emptyActiveTasks',
+      'ws.current.emptyBlockers',
+      'ws.current.emptyFocus',
+      'ws.current.emptyInterventions',
+      'ws.current.emptyNextActions',
+      'ws.current.emptyObjectives',
+      'ws.current.emptyPendingValidation',
+      'ws.current.emptyRuns',
+      'ws.current.focus',
+      'ws.current.focusMarker',
+      'ws.current.intent',
+      'ws.current.interventions',
+      'ws.current.ivSource',
+      'ws.current.ivWorkstreams',
+      'ws.current.lastCheckpoint',
+      'ws.current.liveRuns',
+      'ws.current.nextActions',
+      'ws.current.noCheckpoint',
+      'ws.current.objectives',
+      'ws.current.pendingValidation',
+      'ws.current.promoteToTask',
+      'ws.current.promotedReceipt',
+      'ws.current.rationale',
+      'ws.current.runs',
+      'ws.current.setFocus',
+      'ws.current.task',
+      'ws.current.title',
+      'ws.current.validation',
+      'ws.header.focus',
+      'ws.header.objective',
       'ws.metaOpenForks',
       'ws.metaPlanItems',
       'ws.metaRunning',
@@ -89,6 +127,11 @@ describe('i18n copy (UI-3 D6)', () => {
     expect(t('project.topicEdit')).toBe('Edit')
     expect(t('project.topicAddWorkstream')).toBe('+ Workstream')
     expect(t('project.historyNoteFirst20')).toBe('showing first 20 workstreams')
+    // UI-4 (B §20): the Set-as-CF button text is verbatim-frozen
+    expect(t('ws.current.setFocus')).toBe('Set as Current Focus')
+    // UI-4 (B §15.5): the blocker source tags are verbatim-frozen
+    expect(t('ws.current.blockerExplicit')).toBe('[Explicit]')
+    expect(t('ws.current.blockerDerived')).toBe('[Derived]')
   })
 
   it('investigator has no nav label (hidden from first level, B §2.1)', () => {

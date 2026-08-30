@@ -306,6 +306,10 @@ const idPlanFork = z.string().regex(/^PF-[1-9][0-9]*$/)
 const idIntervention = z.string().regex(/^IV-[1-9][0-9]*$/)
 const idInteraction = z.string().regex(/^INT-[1-9][0-9]*$/)
 const idManagementAction = z.string().regex(/^MA-[1-9][0-9]*$/)
+/** UI-4 (D §10): the attention-object id families (§1.1 L33/L35/L36). */
+const idObjective = z.string().regex(/^OBJ-[1-9][0-9]*$/)
+const idNextAction = z.string().regex(/^NA-[1-9][0-9]*$/)
+const idBlocker = z.string().regex(/^BLK-[1-9][0-9]*$/)
 const fullOid = z.string().regex(/^[0-9a-f]{40}$/)
 
 /**
@@ -334,6 +338,13 @@ const interventionOrigin = z.enum(['USER', 'AGENT_REPORT', 'AUTO_FLOODING', 'AUT
 const ivStatus = z.enum(['OPEN', 'PENDING', 'CLOSED'])
 const pfStatus = z.enum(['OPEN', 'STALE', 'SELECTED', 'DISMISSED'])
 const planItemKind = z.enum(['TASK', 'GATE', 'MILESTONE'])
+/** UI-4 (D §10): the attention-object status vocabularies. */
+const naStatus = z.enum(['PROPOSED', 'PROMOTED', 'DISMISSED'])
+const blkStatus = z.enum(['ACTIVE', 'CLEARED'])
+const affectsRefKind = z.enum(['WORKSTREAM', 'TASK', 'RUN'])
+const linkedRefKind = z.enum(['GATE', 'MILESTONE', 'WORKSTREAM'])
+const derivedBlockerSource = z.enum(['DEPENDENCY', 'GATE', 'RULE'])
+const derivedBlockerTargetKind = z.enum(['TASK', 'GATE', 'MILESTONE', 'WORKSTREAM', 'RUN'])
 const replayOrder = z.enum(['semantic', 'audit'])
 const interactionKind = z.enum([
   'MEETING',
@@ -2236,7 +2247,8 @@ export const ackMissingReminderInvocation: InvocationDescriptorMirror = descript
 /** The GUI management RPC method names (order preserved; purely
  *  additive — the frozen 13 / frozen 14 / plane 9 lists stay
  *  byte-identical). UI-2A: + the update-and-drop set (D §8.2);
- *  UI-2B: + the local-project pair (D §8.7 Create/Bind). */
+ *  UI-2B: + the local-project pair (D §8.7 Create/Bind);
+ *  UI-4: + the attention set (D §10). */
 export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'setCurrentFocus',
   'getCurrentFocus',
@@ -2248,6 +2260,13 @@ export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'dropWorkstream',
   'inspectProjectDirectory',
   'createLocalResearchProject',
+  'getWorkstreamCurrent',
+  'updateObjective',
+  'createNextAction',
+  'promoteNextAction',
+  'dismissNextAction',
+  'createBlocker',
+  'clearBlocker',
 ] as const
 
 export type ResearchManagementRpcMethod = (typeof RESEARCH_MANAGEMENT_RPC_METHODS)[number]
@@ -2845,6 +2864,486 @@ export const createLocalResearchProjectInvocation: InvocationDescriptorMirror = 
   CreateLocalResearchProjectResultSchema,
 )
 
+/* -------------------------------------------------------------------- *
+ * UI-4 (D §10) — the Workstream Current-Execution completion: the human-
+ * attention item DTOs shared by the getWorkstreamCurrent read face and
+ * the five attention mutation faces below. All NEW — the frozen
+ * ObjectiveDto / InterventionDto bytes stay untouched (the *Full*
+ * carriers add the read fields alongside them).
+ * -------------------------------------------------------------------- */
+
+/** One `affects` target (DOMAIN_SCHEMA §9.4 TypedRef; kind WS/T/R). */
+export interface AffectsRefDto {
+  readonly kind: 'WORKSTREAM' | 'TASK' | 'RUN'
+  readonly id: string
+}
+
+export const AffectsRefDtoSchema = z
+  .object({
+    kind: affectsRefKind,
+    id: z.string().min(1),
+  })
+  .strict()
+
+/** One Objective linked-ref (DOMAIN_SCHEMA §9.1; objectives.schema.json
+ *  limits the kind to GATE/MILESTONE/WORKSTREAM — the id is a bare
+ *  member id, membership validated service-side like CF). */
+export interface LinkedRefDto {
+  readonly kind: 'GATE' | 'MILESTONE' | 'WORKSTREAM'
+  readonly id: string
+}
+
+export const LinkedRefDtoSchema = z
+  .object({
+    kind: linkedRefKind,
+    id: z.string().min(1),
+  })
+  .strict()
+
+/** One full Objective (the frozen {@link ObjectiveDto} fields + the §9.1
+ *  success-criteria / linked-refs read face; ADJ-6 current-objective
+ *  carrier). */
+export interface ObjectiveFullDto {
+  readonly id: string
+  readonly scope: 'PROJECT' | 'TOPIC'
+  readonly statement: string
+  readonly status: 'ACTIVE' | 'ACHIEVED' | 'DROPPED'
+  readonly priority: 'P0' | 'P1' | 'P2' | 'P3'
+  readonly targetDate: number | null
+  readonly successCriteria: readonly string[]
+  readonly linkedRefs: readonly LinkedRefDto[]
+}
+
+export const ObjectiveFullDtoSchema = z
+  .object({
+    id: idObjective,
+    scope: z.enum(['PROJECT', 'TOPIC']),
+    statement: z.string().min(1),
+    status: objStatus,
+    priority: objPriority,
+    targetDate: epochMs.nullable(),
+    successCriteria: z.array(z.string().min(1)),
+    linkedRefs: z.array(LinkedRefDtoSchema),
+  })
+  .strict()
+
+/** One NextAction (DOMAIN_SCHEMA §9.3; absent optionals → null on the
+ *  wire; `promotedToTaskId` only when status = PROMOTED). */
+export interface NextActionDto {
+  readonly id: string
+  readonly workstreamId: string | null
+  readonly statement: string
+  readonly rationale: string | null
+  readonly status: 'PROPOSED' | 'PROMOTED' | 'DISMISSED'
+  readonly promotedToTaskId: string | null
+  readonly createdAt: number
+}
+
+export const NextActionDtoSchema = z
+  .object({
+    id: idNextAction,
+    workstreamId: idWorkstream.nullable(),
+    statement: z.string().min(1),
+    rationale: z.string().min(1).nullable(),
+    status: naStatus,
+    promotedToTaskId: idTask.nullable(),
+    createdAt: epochMs,
+  })
+  .strict()
+
+/** One Explicit Blocker (DOMAIN_SCHEMA §9.4). */
+export interface BlockerDto {
+  readonly id: string
+  readonly statement: string
+  readonly affects: readonly AffectsRefDto[]
+  readonly status: 'ACTIVE' | 'CLEARED'
+  /** The source note (§9.4 required free text). */
+  readonly source: string
+  readonly references: readonly string[] | null
+  readonly createdAt: number
+  readonly clearedAt: number | null
+}
+
+export const BlockerDtoSchema = z
+  .object({
+    id: idBlocker,
+    statement: z.string().min(1),
+    affects: z.array(AffectsRefDtoSchema).min(1),
+    status: blkStatus,
+    source: z.string().min(1),
+    references: z.array(z.string().min(1)).nullable(),
+    createdAt: epochMs,
+    clearedAt: epochMs.nullable(),
+  })
+  .strict()
+
+/** One DERIVED blocker (ADJ-4: a read-only projection — the synthetic
+ *  id `DERIVED-<source>-<refId>` is never allocated, never persisted;
+ *  there is NO clear RPC for this face). */
+export interface DerivedBlockerDto {
+  readonly id: string
+  readonly source: 'DEPENDENCY' | 'GATE' | 'RULE'
+  readonly statement: string
+  readonly reasonRefs: readonly string[]
+  /** The true-cause link (the zone renders the label verbatim). */
+  readonly primaryAction: {
+    readonly label: string
+    readonly targetKind: 'TASK' | 'GATE' | 'MILESTONE' | 'WORKSTREAM' | 'RUN'
+    readonly targetId: string
+  }
+}
+
+export const DerivedBlockerDtoSchema = z
+  .object({
+    id: z.string().min(1),
+    source: derivedBlockerSource,
+    statement: z.string().min(1),
+    reasonRefs: z.array(z.string().min(1)),
+    primaryAction: z
+      .object({
+        label: z.string().min(1),
+        targetKind: derivedBlockerTargetKind,
+        targetId: z.string().min(1),
+      })
+      .strict(),
+  })
+  .strict()
+
+/** One full Intervention (the frozen {@link InterventionDto} fields +
+ *  the §9.2 detail / closure read face). */
+export interface InterventionFullDto {
+  readonly id: string
+  readonly title: string
+  readonly origin: 'USER' | 'AGENT_REPORT' | 'AUTO_FLOODING' | 'AUTO_AUDIT'
+  readonly status: 'OPEN' | 'PENDING' | 'CLOSED'
+  readonly workstreamIds: readonly string[]
+  readonly createdAt: number
+  readonly detail: string | null
+  readonly closedAt: number | null
+  readonly resolutionNote: string | null
+}
+
+export const InterventionFullDtoSchema = z
+  .object({
+    id: idIntervention,
+    title: z.string().min(1),
+    origin: interventionOrigin,
+    status: ivStatus,
+    workstreamIds: z.array(idWorkstream),
+    createdAt: epochMs,
+    detail: z.string().min(1).nullable(),
+    closedAt: epochMs.nullable(),
+    resolutionNote: z.string().min(1).nullable(),
+  })
+  .strict()
+
+/* -------------------------------------------------------------------- *
+ * getWorkstreamCurrent — the Current-zone read face (D §10; ADJ-5/6/7/8:
+ *  the derived projection + the explicit/intervention thin passes). The
+ *  current-focus pointer is NOT in this result — it stays on the main-
+ *  store `currentFocus` slice (the D §10.11 CF linkage reads it from
+ *  there, keeping the frozen getWorkstream projection untouched).
+ * -------------------------------------------------------------------- */
+
+export interface GetWorkstreamCurrentArgs {
+  readonly workstreamId: string
+  /** V2 §12.1: optional multi-project routing target. */
+  readonly projectId?: string
+}
+
+export const GetWorkstreamCurrentArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface GetWorkstreamCurrentResult {
+  readonly workstreamId: string
+  /** ACTIVE objectives whose linked_refs contain this WORKSTREAM,
+   *  priority-sorted (the header row shows the first; ADJ-6). */
+  readonly objectives: readonly ObjectiveFullDto[]
+  /** Explicit blockers affecting the WS itself or a member Task/Run
+   *  (ADJ-5). */
+  readonly explicitBlockers: readonly BlockerDto[]
+  /** The ADJ-3 mechanical derived projection (DEPENDENCY/GATE; RULE =
+   *  the empty set in v1). */
+  readonly derivedBlockers: readonly DerivedBlockerDto[]
+  /** The PROPOSED next actions naming this WS (the actionable set). */
+  readonly nextActions: readonly NextActionDto[]
+  /** The interventions naming this WS (all states — the zone renders
+   *  the closure state). */
+  readonly interventions: readonly InterventionFullDto[]
+}
+
+export const GetWorkstreamCurrentResultSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    objectives: z.array(ObjectiveFullDtoSchema),
+    explicitBlockers: z.array(BlockerDtoSchema),
+    derivedBlockers: z.array(DerivedBlockerDtoSchema),
+    nextActions: z.array(NextActionDtoSchema),
+    interventions: z.array(InterventionFullDtoSchema),
+  })
+  .strict()
+
+export const getWorkstreamCurrentInvocation: InvocationDescriptorMirror = descriptor(
+  'getWorkstreamCurrent',
+  [argsParameter('GetWorkstreamCurrentArgs', GetWorkstreamCurrentArgsSchema)],
+  'GetWorkstreamCurrentResult',
+  GetWorkstreamCurrentResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * updateObjective — the basic objective edit (ADJ-6: ≥1 field, enforced
+ *  service-side — the RMW save + the transition-checked status path)
+ * -------------------------------------------------------------------- */
+
+export interface UpdateObjectiveArgs {
+  readonly objectiveId: string
+  readonly statement?: string
+  /** A status transition (the frozen §13 machine is checked). */
+  readonly status?: 'ACTIVE' | 'ACHIEVED' | 'DROPPED'
+  readonly projectId?: string
+}
+
+export const UpdateObjectiveArgsSchema = z
+  .object({
+    objectiveId: idObjective,
+    statement: z.string().min(1).optional(),
+    status: objStatus.optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface UpdateObjectiveResult {
+  readonly objectiveId: string
+  /** The effective status after the update. */
+  readonly status: 'ACTIVE' | 'ACHIEVED' | 'DROPPED'
+  readonly managementActionId: string
+  /** Write stamp (epoch ms) — the client invalidation version. */
+  readonly updatedAt: number
+}
+
+export const UpdateObjectiveResultSchema = z
+  .object({
+    objectiveId: idObjective,
+    status: objStatus,
+    managementActionId: idManagementAction,
+    updatedAt: epochMs,
+  })
+  .strict()
+
+export const updateObjectiveInvocation: InvocationDescriptorMirror = descriptor(
+  'updateObjective',
+  [argsParameter('UpdateObjectiveArgs', UpdateObjectiveArgsSchema)],
+  'UpdateObjectiveResult',
+  UpdateObjectiveResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * createNextAction — propose a NextAction (D §10.5; USER/AGENT matrix
+ *  row, the USER GUI face)
+ * -------------------------------------------------------------------- */
+
+export interface CreateNextActionArgs {
+  /** The WS the NA names (absent → the NA is unscoped). */
+  readonly workstreamId?: string
+  readonly statement: string
+  readonly rationale?: string
+  readonly projectId?: string
+}
+
+export const CreateNextActionArgsSchema = z
+  .object({
+    workstreamId: idWorkstream.optional(),
+    statement: z.string().min(1),
+    rationale: z.string().min(1).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface CreateNextActionResult {
+  readonly nextAction: NextActionDto
+}
+
+export const CreateNextActionResultSchema = z
+  .object({
+    nextAction: NextActionDtoSchema,
+  })
+  .strict()
+
+export const createNextActionInvocation: InvocationDescriptorMirror = descriptor(
+  'createNextAction',
+  [argsParameter('CreateNextActionArgs', CreateNextActionArgsSchema)],
+  'CreateNextActionResult',
+  CreateNextActionResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * promoteNextAction — materialize the PROPOSED NA as a canonical plan
+ *  Task (D §10.6; USER-only — the matrix row「PROMOTE 仅用户」)
+ * -------------------------------------------------------------------- */
+
+export interface PromoteNextActionArgs {
+  readonly nextActionId: string
+  /** Required when the NA carries no workstream_id; must match when it
+   *  does (service-checked). */
+  readonly workstreamId?: string
+  /** 0-based insert position in the canonical plan (default: tail). */
+  readonly index?: number
+  readonly projectId?: string
+}
+
+export const PromoteNextActionArgsSchema = z
+  .object({
+    nextActionId: idNextAction,
+    workstreamId: idWorkstream.optional(),
+    index: z.number().int().nonnegative().optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+/** The materialization receipt (the host ActionsService
+ *  `PromoteNextActionResult` mapped verbatim). */
+export interface PromoteNextActionResult {
+  readonly nextActionId: string
+  /** The materialized Task id (§9.3 promoted_to_task_id). */
+  readonly taskId: string
+  readonly workstreamId: string
+  /** The plan.yaml path relative to `.research/`. */
+  readonly planPath: string
+  /** The canonical plan order after materialization. */
+  readonly newOrder: readonly string[]
+  readonly managementActionId: string
+}
+
+export const PromoteNextActionResultSchema = z
+  .object({
+    nextActionId: idNextAction,
+    taskId: idTask,
+    workstreamId: idWorkstream,
+    planPath: z.string().min(1),
+    newOrder: z.array(z.string().min(1)),
+    managementActionId: idManagementAction,
+  })
+  .strict()
+
+export const promoteNextActionInvocation: InvocationDescriptorMirror = descriptor(
+  'promoteNextAction',
+  [argsParameter('PromoteNextActionArgs', PromoteNextActionArgsSchema)],
+  'PromoteNextActionResult',
+  PromoteNextActionResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * dismissNextAction — terminal-dismiss a PROPOSED NA (D §10.5)
+ * -------------------------------------------------------------------- */
+
+export interface DismissNextActionArgs {
+  readonly nextActionId: string
+  readonly projectId?: string
+}
+
+export const DismissNextActionArgsSchema = z
+  .object({
+    nextActionId: idNextAction,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface DismissNextActionResult {
+  readonly nextAction: NextActionDto
+}
+
+export const DismissNextActionResultSchema = z
+  .object({
+    nextAction: NextActionDtoSchema,
+  })
+  .strict()
+
+export const dismissNextActionInvocation: InvocationDescriptorMirror = descriptor(
+  'dismissNextAction',
+  [argsParameter('DismissNextActionArgs', DismissNextActionArgsSchema)],
+  'DismissNextActionResult',
+  DismissNextActionResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * createBlocker — raise an Explicit Blocker (D §10.7; USER-only — the
+ *  Agent-writable closed set excludes Blockers)
+ * -------------------------------------------------------------------- */
+
+export interface CreateBlockerArgs {
+  readonly statement: string
+  readonly affects: readonly AffectsRefDto[]
+  /** The source note (DOMAIN_SCHEMA §9.4 required). */
+  readonly source: string
+  readonly references?: readonly string[]
+  readonly projectId?: string
+}
+
+export const CreateBlockerArgsSchema = z
+  .object({
+    statement: z.string().min(1),
+    affects: z.array(AffectsRefDtoSchema).min(1),
+    source: z.string().min(1),
+    references: z.array(z.string().min(1)).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface CreateBlockerResult {
+  readonly blocker: BlockerDto
+}
+
+export const CreateBlockerResultSchema = z
+  .object({
+    blocker: BlockerDtoSchema,
+  })
+  .strict()
+
+export const createBlockerInvocation: InvocationDescriptorMirror = descriptor(
+  'createBlocker',
+  [argsParameter('CreateBlockerArgs', CreateBlockerArgsSchema)],
+  'CreateBlockerResult',
+  CreateBlockerResultSchema,
+)
+
+/* -------------------------------------------------------------------- *
+ * clearBlocker — clear an ACTIVE Explicit Blocker (D §10.7; the DERIVED
+ *  face has no clear — ADJ-4)
+ * -------------------------------------------------------------------- */
+
+export interface ClearBlockerArgs {
+  readonly blockerId: string
+  readonly projectId?: string
+}
+
+export const ClearBlockerArgsSchema = z
+  .object({
+    blockerId: idBlocker,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface ClearBlockerResult {
+  readonly blocker: BlockerDto
+}
+
+export const ClearBlockerResultSchema = z
+  .object({
+    blocker: BlockerDtoSchema,
+  })
+  .strict()
+
+export const clearBlockerInvocation: InvocationDescriptorMirror = descriptor(
+  'clearBlocker',
+  [argsParameter('ClearBlockerArgs', ClearBlockerArgsSchema)],
+  'ClearBlockerResult',
+  ClearBlockerResultSchema,
+)
+
 /** The GUI management invocation descriptors (appended to the registered
  *  face at the end — the frozen 14 + plane 9 entries stay untouched). */
 export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
@@ -2858,6 +3357,13 @@ export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirro
   dropWorkstreamInvocation,
   inspectProjectDirectoryInvocation,
   createLocalResearchProjectInvocation,
+  getWorkstreamCurrentInvocation,
+  updateObjectiveInvocation,
+  createNextActionInvocation,
+  promoteNextActionInvocation,
+  dismissNextActionInvocation,
+  createBlockerInvocation,
+  clearBlockerInvocation,
 ]
 
 /**
@@ -2903,9 +3409,12 @@ export const RESEARCH_PLANE_INVOCATIONS: readonly InvocationDescriptorMirror[] =
  * create pair); UI-2A appends the update-and-drop set (D §8.2:
  * updateProjectMetadata / updateTopic / updateWorkstream /
  * dropWorkstream); UI-2B appends the local-project pair (D §8.7
- * Create/Bind: inspectProjectDirectory / createLocalResearchProject) —
- * the incremental management face grows by slice (D §6.5); the
- * registered face is now 32 business RPCs (33 with ping).
+ * Create/Bind: inspectProjectDirectory / createLocalResearchProject);
+ * UI-4 appends the 7 attention RPCs (D §10: getWorkstreamCurrent /
+ * updateObjective / createNextAction / promoteNextAction /
+ * dismissNextAction / createBlocker / clearBlocker) — the
+ * incremental management face grows by slice (D §6.5); the
+ * registered face is now 39 business RPCs (40 with ping).
  */
 export const REGISTERED_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
   ...ALL_RESEARCH_INVOCATIONS,

@@ -14,8 +14,12 @@
  */
 
 export { WorkstreamView, type WorkstreamViewProps } from './WorkstreamView.js'
-export { CurrentZone, type CurrentZoneProps } from './CurrentZone.js'
+export { CurrentZone, type CurrentFocusView, type CurrentZoneProps } from './CurrentZone.js'
 export { FutureZone, type FutureZoneProps } from './FutureZone.js'
 export { HistoryZone, type HistoryZoneProps } from './HistoryZone.js'
 export { buildReorderArgs, movePlanItemIds, type MoveDirection } from './reorder.js'
-export { useWorkstreamSlice } from './useWorkstreamSlice.js'
+export {
+  useCurrentFocusSlice,
+  useWorkstreamCurrentSlice,
+  useWorkstreamSlice,
+} from './useWorkstreamSlice.js'

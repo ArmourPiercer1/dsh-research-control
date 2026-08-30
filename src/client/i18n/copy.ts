@@ -82,6 +82,59 @@ const COPY = {
   'dialog.fieldSummary': 'Summary',
   'dialog.fieldImportance': 'Importance',
   'dialog.fieldAttention': 'Attention',
+
+  // --- Workstream Current Execution zone (UI-4 D4, B §15 / ADJ-10) -------
+  // The eight groups in ADJ-10 order (Runs LAST). Domain enum VALUES
+  // (execution/validation/run status, blocker/NA/intervention status,
+  // origin, scope, priority) render their canonical English form directly
+  // (D §25) and have no keys here.
+  'ws.current.title': 'Current Execution', // zone title (B §27.4)
+  'ws.current.objectives': 'Current Objective', // ADJ-10 group 1
+  'ws.current.focus': 'Current Focus', // ADJ-10 group 2
+  'ws.current.activeTasks': 'Active Tasks', // ADJ-10 group 3
+  'ws.current.pendingValidation': 'Pending Validation', // ADJ-10 group 4
+  'ws.current.blockers': 'Blockers', // ADJ-10 group 5
+  'ws.current.nextActions': 'Next Actions', // ADJ-10 group 6
+  'ws.current.interventions': 'Interventions', // ADJ-10 group 7
+  'ws.current.runs': 'Runs', // ADJ-10 group 8 (LAST)
+  // low-noise empty states (one quiet line per empty group):
+  'ws.current.emptyObjectives': 'No active objectives',
+  'ws.current.emptyFocus': 'No current focus',
+  'ws.current.emptyActiveTasks': 'No active tasks',
+  'ws.current.emptyPendingValidation': 'No pending validations',
+  'ws.current.emptyBlockers': 'No blockers',
+  'ws.current.emptyNextActions': 'No proposed next actions',
+  'ws.current.emptyInterventions': 'No interventions',
+  'ws.current.emptyRuns': 'No runs',
+  // row facet labels:
+  'ws.current.validation': 'Validation',
+  'ws.current.liveRuns': 'Live runs',
+  'ws.current.task': 'Task',
+  'ws.current.intent': 'Intent',
+  'ws.current.lastCheckpoint': 'Last checkpoint',
+  'ws.current.noCheckpoint': 'none',
+  // blockers (B §15.5 source tags — verbatim):
+  'ws.current.blockerExplicit': '[Explicit]',
+  'ws.current.blockerDerived': '[Derived]',
+  'ws.current.blockerSource': 'Source',
+  'ws.current.clearBlocker': 'Clear',
+  // next actions (B §15.6):
+  'ws.current.promoteToTask': 'Promote to Task', // B §15.6
+  'ws.current.dismiss': 'Dismiss', // B §15.6
+  'ws.current.rationale': 'Rationale',
+  'ws.current.promotedReceipt': 'Promoted to task', // receipt: + the new Task id
+  // interventions (B §15.7):
+  'ws.current.ivSource': 'Source',
+  'ws.current.ivWorkstreams': 'Workstreams',
+  // current-focus linkage (B §20):
+  'ws.current.focusMarker': 'Focus',
+  'ws.current.setFocus': 'Set as Current Focus', // B §20 verbatim button
+  // container mutation-fault note:
+  'ws.current.actionFault': 'Action failed',
+
+  // --- Workstream header rows (UI-4 D4, B §12) ---------------------------
+  'ws.header.objective': 'Current objective',
+  'ws.header.focus': 'Current focus',
 } as const
 
 /** Compile-time key set — a misspelled key is a tsc error. */

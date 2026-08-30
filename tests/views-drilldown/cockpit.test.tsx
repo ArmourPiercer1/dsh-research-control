@@ -102,6 +102,18 @@ function clickCounter(): { readonly n: number; click: (el: Element) => void } {
   }
 }
 
+/**
+ * A linked-Run row SCOPED to the drill-down panel (UI-4 maintenance):
+ * the Current Execution zone's Runs group now renders `data-run-id`
+ * rows for the workstream snapshot's runs too, so a document-level
+ * `[data-run-id=…]` query is no longer unique.
+ */
+function drilldownRunRow(runId: string): Element | null {
+  return document.querySelector(
+    `section[aria-label="Claim/Artifact drill-down"] [data-run-id="${runId}"]`,
+  )
+}
+
 describe('ResearchCockpit — home page', () => {
   it('renders the dashboard + intervention queue on mount (one lazy fetch each)', async () => {
     const stub = makeStub()
@@ -171,10 +183,10 @@ describe('ResearchCockpit — Gate P4 chain (TC-E2E-013)', () => {
     await screen.findByText('铁基超导的机制以电子关联主导')
     clicks.click(document.querySelector('[data-claim-id="C-1"]')!)
     await waitFor(() => {
-      expect(document.querySelector('[data-run-id="R-1"]')).toBeTruthy()
+      expect(drilldownRunRow('R-1')).toBeTruthy()
     })
     // The pointer kind is user-visible (the data path, §26).
-    expect(document.querySelector('[data-run-id="R-1"]')?.textContent).toContain('created_by_run 事件指针')
+    expect(drilldownRunRow('R-1')?.textContent).toContain('created_by_run 事件指针')
 
     // 3) the session link → the placeholder channel records the pointer.
     const sessionLink = document.querySelector('button[data-session-id="session-e2e-sess-1"]')
@@ -204,13 +216,13 @@ describe('ResearchCockpit — Gate P4 chain (TC-E2E-013)', () => {
     fireEvent.click(document.querySelector('[data-artifact-id="A-1"]')!)
 
     const runRow = await waitFor(() => {
-      const el = document.querySelector('[data-run-id="R-1"]')
+      const el = drilldownRunRow('R-1')
       expect(el).toBeTruthy()
       return el
     })
     expect(runRow).toBeTruthy()
-    expect(document.querySelector('[data-run-id="R-1"]')?.textContent).toContain('PRODUCED_BY 关系')
-    expect(document.querySelector('[data-run-id="R-1"]')?.textContent).toContain('created_by_run 事件指针')
+    expect(drilldownRunRow('R-1')?.textContent).toContain('PRODUCED_BY 关系')
+    expect(drilldownRunRow('R-1')?.textContent).toContain('created_by_run 事件指针')
     // The session link exists on the same row (no extra navigation).
     expect(document.querySelector('button[data-session-id="session-e2e-sess-1"]')).toBeTruthy()
   })
@@ -225,10 +237,10 @@ describe('ResearchCockpit — Gate P4 chain (TC-E2E-013)', () => {
 
     const card = document.querySelector('[data-claim-id="C-1"]')!
     fireEvent.click(card)
-    expect(await waitFor(() => document.querySelector('[data-run-id="R-1"]'))).toBeTruthy()
+    expect(await waitFor(() => drilldownRunRow('R-1'))).toBeTruthy()
     fireEvent.click(card)
     await waitFor(() => {
-      expect(document.querySelector('[data-run-id="R-1"]')).toBeNull()
+      expect(drilldownRunRow('R-1')).toBeNull()
     })
   })
 })
@@ -287,7 +299,8 @@ describe('ResearchCockpit — workstream page composition', () => {
     await gotoWs(stub)
 
     await waitFor(() => {
-      expect(document.querySelector('[aria-label="当前执行"]')).toBeTruthy()
+      // UI-4 ADJ-9: the zone title migrated 当前执行 → Current Execution.
+      expect(document.querySelector('[aria-label="Current Execution"]')).toBeTruthy()
     })
     expect(document.querySelector('[aria-label="未来计划"]')).toBeTruthy()
     expect(document.querySelector('[aria-label="历史"]')).toBeTruthy()

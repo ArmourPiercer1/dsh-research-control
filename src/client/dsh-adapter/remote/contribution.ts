@@ -24,7 +24,10 @@
  * json parameter, `RemoteResult<T>`; `getHubOverview`'s request is the
  * EMPTY strict object). V2-T3.2b: the map gains the 6 change-family
  * plane endpoints (design §12 rows 4-6/8/9 — same conventions: PLANE-
- * LEVEL, not project-routed, callable on the empty plane). `descriptors`
+ * LEVEL, not project-routed, callable on the empty plane). UI-4 (D §10):
+ * the map gains the 7 attention endpoints (the CurrentExecution
+ * projection read + the objective/next-action/blocker mutation faces —
+ * same conventions). `descriptors`
  * is the SAME object set as `TYPERT.invocations` on the host face (the
  * shared `REGISTERED_RESEARCH_INVOCATIONS` — no drift by construction).
  *
@@ -41,13 +44,21 @@ import {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  ClearBlockerArgs,
+  ClearBlockerResult,
+  CreateBlockerArgs,
+  CreateBlockerResult,
   CreateLocalResearchProjectArgs,
   CreateLocalResearchProjectResult,
+  CreateNextActionArgs,
+  CreateNextActionResult,
   CreateTopicArgs,
   CreateTopicResult,
   CreateWorkstreamArgs,
   CreateWorkstreamResult,
   DashboardSnapshot,
+  DismissNextActionArgs,
+  DismissNextActionResult,
   DismissPlanForkArgs,
   DismissPlanForkResult,
   DropWorkstreamArgs,
@@ -63,11 +74,15 @@ import {
   GetResearchPlaneStateResult,
   GetTopicArgs,
   GetWorkstreamArgs,
+  GetWorkstreamCurrentArgs,
+  GetWorkstreamCurrentResult,
   HubOverviewResult,
   InspectProjectDirectoryArgs,
   InspectProjectDirectoryResult,
   PingResult,
   ProjectSnapshot,
+  PromoteNextActionArgs,
+  PromoteNextActionResult,
   QueryHistoryArgs,
   QueryHistoryResult,
   RESEARCH_CONTROL_PACKAGE,
@@ -95,6 +110,8 @@ import {
   UnbindProjectResult,
   UpdateInterventionStateArgs,
   UpdateInterventionStateResult,
+  UpdateObjectiveArgs,
+  UpdateObjectiveResult,
   UpdateProjectMetadataArgs,
   UpdateProjectMetadataResult,
   UpdateTopicArgs,
@@ -190,6 +207,29 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/createLocalResearchProject': (
       args: CreateLocalResearchProjectArgs,
     ) => Promise<RemoteResult<CreateLocalResearchProjectResult>>
+    // V2-UI-0.4 UI-4 (D §10): the 7 attention RPCs — the CurrentExecution
+    // projection read + the objective/next-action/blocker mutation faces.
+    'researchControl/getWorkstreamCurrent': (
+      args: GetWorkstreamCurrentArgs,
+    ) => Promise<RemoteResult<GetWorkstreamCurrentResult>>
+    'researchControl/updateObjective': (
+      args: UpdateObjectiveArgs,
+    ) => Promise<RemoteResult<UpdateObjectiveResult>>
+    'researchControl/createNextAction': (
+      args: CreateNextActionArgs,
+    ) => Promise<RemoteResult<CreateNextActionResult>>
+    'researchControl/promoteNextAction': (
+      args: PromoteNextActionArgs,
+    ) => Promise<RemoteResult<PromoteNextActionResult>>
+    'researchControl/dismissNextAction': (
+      args: DismissNextActionArgs,
+    ) => Promise<RemoteResult<DismissNextActionResult>>
+    'researchControl/createBlocker': (
+      args: CreateBlockerArgs,
+    ) => Promise<RemoteResult<CreateBlockerResult>>
+    'researchControl/clearBlocker': (
+      args: ClearBlockerArgs,
+    ) => Promise<RemoteResult<ClearBlockerResult>>
   }
 
   interface TypertRemoteNamespaceMap {
@@ -205,7 +245,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
    * and the hierarchy create pair, Task 3 — project-routed);
    * V2-UI-0.4 UI-2: + the 6 GUI management RPCs (the 4 hierarchy
    * update/drop RPCs, project-routed — UI-2A — and the 2 local-project
-   * RPCs, plane-level — UI-2B).
+   * RPCs, plane-level — UI-2B);
+   * V2-UI-0.4 UI-4 (D §10): + the 7 attention RPCs (the
+   * CurrentExecution projection read + the objective/next-action/blocker
+   * mutation faces).
    */
   interface TypertRemoteNamespace$726573656172636f6e74726f6c {
     ping: () => Promise<RemoteResult<PingResult>>
@@ -272,6 +315,29 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     createLocalResearchProject: (
       args: CreateLocalResearchProjectArgs,
     ) => Promise<RemoteResult<CreateLocalResearchProjectResult>>
+    // V2-UI-0.4 UI-4 (D §10): the 7 attention RPCs — the CurrentExecution
+    // projection read + the objective/next-action/blocker mutation faces.
+    getWorkstreamCurrent: (
+      args: GetWorkstreamCurrentArgs,
+    ) => Promise<RemoteResult<GetWorkstreamCurrentResult>>
+    updateObjective: (
+      args: UpdateObjectiveArgs,
+    ) => Promise<RemoteResult<UpdateObjectiveResult>>
+    createNextAction: (
+      args: CreateNextActionArgs,
+    ) => Promise<RemoteResult<CreateNextActionResult>>
+    promoteNextAction: (
+      args: PromoteNextActionArgs,
+    ) => Promise<RemoteResult<PromoteNextActionResult>>
+    dismissNextAction: (
+      args: DismissNextActionArgs,
+    ) => Promise<RemoteResult<DismissNextActionResult>>
+    createBlocker: (
+      args: CreateBlockerArgs,
+    ) => Promise<RemoteResult<CreateBlockerResult>>
+    clearBlocker: (
+      args: ClearBlockerArgs,
+    ) => Promise<RemoteResult<ClearBlockerResult>>
   }
 }
 
@@ -282,8 +348,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
  * 13 WP-4.1a descriptors + the 3 read-only plane descriptors, V2-T3.2a
  * + the 6 change-family plane descriptors, V2-T3.2b + the 4 GUI
  * management descriptors, UI-0.4: the current-focus pair (R-01) and the
- * hierarchy create pair (Task 3) — the hand-written map above mirrors
- * the SAME face by category), strict codecs included.
+ * hierarchy create pair (Task 3) + the 7 attention descriptors, UI-4 (D
+ * §10): the CurrentExecution projection read + the
+ * objective/next-action/blocker mutation faces — the hand-written map
+ * above mirrors the SAME face by category), strict codecs included.
  */
 export const researchRemotes: TypertRemoteContribution = {
   package: RESEARCH_CONTROL_PACKAGE,

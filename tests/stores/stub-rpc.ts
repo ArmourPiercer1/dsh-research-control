@@ -77,6 +77,21 @@ import type {
   CreateTopicResult,
   CreateWorkstreamArgs,
   CreateWorkstreamResult,
+  // V2-UI-0.4 UI-4 (D §10): the 7 attention faces.
+  GetWorkstreamCurrentArgs,
+  GetWorkstreamCurrentResult,
+  UpdateObjectiveArgs,
+  UpdateObjectiveResult,
+  CreateNextActionArgs,
+  CreateNextActionResult,
+  PromoteNextActionArgs,
+  PromoteNextActionResult,
+  DismissNextActionArgs,
+  DismissNextActionResult,
+  CreateBlockerArgs,
+  CreateBlockerResult,
+  ClearBlockerArgs,
+  ClearBlockerResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -273,6 +288,93 @@ const DEFAULTS: Record<string, () => unknown> = {
     ok: true,
     value: { workstreamId: 'WS-9', topicId: 'TPC-1', title: 'Stub new ws', path: '/workspace/stub/.research/topics/TPC-1/WS-9', createdAt: 1755000009000 },
   }),
+  // V2-UI-0.4 UI-4 (D §10): wire-valid minimal defaults for the 7
+  // attention faces — LOCAL to this stub (same convention as the UI-3
+  // block); the store suite overrides per-test.
+  getWorkstreamCurrent: () => ({
+    ok: true,
+    value: {
+      workstreamId: 'WS-1',
+      objectives: [],
+      explicitBlockers: [],
+      derivedBlockers: [],
+      nextActions: [],
+      interventions: [],
+    },
+  }),
+  updateObjective: () => ({
+    ok: true,
+    value: { objectiveId: 'OBJ-1', status: 'ACTIVE', managementActionId: 'MA-1', updatedAt: 1755000010000 },
+  }),
+  createNextAction: () => ({
+    ok: true,
+    value: {
+      nextAction: {
+        id: 'NA-1',
+        workstreamId: 'WS-1',
+        statement: 'Stub next action',
+        rationale: null,
+        status: 'PROPOSED',
+        promotedToTaskId: null,
+        createdAt: 1755000011000,
+      },
+    },
+  }),
+  promoteNextAction: () => ({
+    ok: true,
+    value: {
+      nextActionId: 'NA-1',
+      taskId: 'T-9',
+      workstreamId: 'WS-1',
+      planPath: '/workspace/stub/.research/topics/TPC-1/WS-1/plan.yaml',
+      newOrder: ['G-1', 'T-9', 'M-1'],
+      managementActionId: 'MA-2',
+    },
+  }),
+  dismissNextAction: () => ({
+    ok: true,
+    value: {
+      nextAction: {
+        id: 'NA-1',
+        workstreamId: 'WS-1',
+        statement: 'Stub next action',
+        rationale: null,
+        status: 'DISMISSED',
+        promotedToTaskId: null,
+        createdAt: 1755000011000,
+      },
+    },
+  }),
+  createBlocker: () => ({
+    ok: true,
+    value: {
+      blocker: {
+        id: 'BLK-1',
+        statement: 'Stub blocker',
+        affects: [{ kind: 'WORKSTREAM', id: 'WS-1' }],
+        status: 'ACTIVE',
+        source: 'UI',
+        references: null,
+        createdAt: 1755000012000,
+        clearedAt: null,
+      },
+    },
+  }),
+  clearBlocker: () => ({
+    ok: true,
+    value: {
+      blocker: {
+        id: 'BLK-1',
+        statement: 'Stub blocker',
+        affects: [{ kind: 'WORKSTREAM', id: 'WS-1' }],
+        status: 'CLEARED',
+        source: 'UI',
+        references: null,
+        createdAt: 1755000012000,
+        clearedAt: 1755000013000,
+      },
+    },
+  }),
 }
 
 /**
@@ -372,6 +474,22 @@ export function makeStubRpc(): StubRpc {
       deliverArgs<RemoteResult<CreateTopicResult>>('createTopic', args),
     createWorkstream: async (args: CreateWorkstreamArgs) =>
       deliverArgs<RemoteResult<CreateWorkstreamResult>>('createWorkstream', args),
+    // V2-UI-0.4 UI-4 (D §10): the 7 attention faces (same record/override
+    // contract — the store suite drives them per-test).
+    getWorkstreamCurrent: async (args: GetWorkstreamCurrentArgs) =>
+      deliverArgs<RemoteResult<GetWorkstreamCurrentResult>>('getWorkstreamCurrent', args),
+    updateObjective: async (args: UpdateObjectiveArgs) =>
+      deliverArgs<RemoteResult<UpdateObjectiveResult>>('updateObjective', args),
+    createNextAction: async (args: CreateNextActionArgs) =>
+      deliverArgs<RemoteResult<CreateNextActionResult>>('createNextAction', args),
+    promoteNextAction: async (args: PromoteNextActionArgs) =>
+      deliverArgs<RemoteResult<PromoteNextActionResult>>('promoteNextAction', args),
+    dismissNextAction: async (args: DismissNextActionArgs) =>
+      deliverArgs<RemoteResult<DismissNextActionResult>>('dismissNextAction', args),
+    createBlocker: async (args: CreateBlockerArgs) =>
+      deliverArgs<RemoteResult<CreateBlockerResult>>('createBlocker', args),
+    clearBlocker: async (args: ClearBlockerArgs) =>
+      deliverArgs<RemoteResult<ClearBlockerResult>>('clearBlocker', args),
   }
 
   return {

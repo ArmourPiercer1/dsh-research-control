@@ -157,9 +157,13 @@ import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   AckMissingReminderArgsSchema,
   BindProjectArgsSchema,
+  ClearBlockerArgsSchema,
+  CreateBlockerArgsSchema,
   CreateLocalResearchProjectArgsSchema,
+  CreateNextActionArgsSchema,
   CreateTopicArgsSchema,
   CreateWorkstreamArgsSchema,
+  DismissNextActionArgsSchema,
   DismissPlanForkArgsSchema,
   DropWorkstreamArgsSchema,
   GetGitHistoryArgsSchema,
@@ -169,7 +173,9 @@ import {
   GetResearchPlaneStateArgsSchema,
   GetTopicArgsSchema,
   GetWorkstreamArgsSchema,
+  GetWorkstreamCurrentArgsSchema,
   InspectProjectDirectoryArgsSchema,
+  PromoteNextActionArgsSchema,
   QueryHistoryArgsSchema,
   ReorderPlanArgsSchema,
   RescanArgsSchema,
@@ -181,6 +187,7 @@ import {
   SetHubArgsSchema,
   UnbindProjectArgsSchema,
   UpdateInterventionStateArgsSchema,
+  UpdateObjectiveArgsSchema,
   UpdateProjectMetadataArgsSchema,
   UpdateTopicArgsSchema,
   UpdateWorkstreamArgsSchema,
@@ -189,13 +196,21 @@ import {
   type AckMissingReminderResult,
   type BindProjectArgs,
   type BindProjectResult,
+  type ClearBlockerArgs,
+  type ClearBlockerResult,
+  type CreateBlockerArgs,
+  type CreateBlockerResult,
   type CreateLocalResearchProjectArgs,
   type CreateLocalResearchProjectResult,
+  type CreateNextActionArgs,
+  type CreateNextActionResult,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
   type CreateWorkstreamResult,
   type DashboardSnapshot,
+  type DismissNextActionArgs,
+  type DismissNextActionResult,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
   type DropWorkstreamArgs,
@@ -211,11 +226,15 @@ import {
   type GetResearchPlaneStateResult,
   type GetTopicArgs,
   type GetWorkstreamArgs,
+  type GetWorkstreamCurrentArgs,
+  type GetWorkstreamCurrentResult,
   type HubOverviewResult,
   type InspectProjectDirectoryArgs,
   type InspectProjectDirectoryResult,
   type PingResult,
   type ProjectSnapshot,
+  type PromoteNextActionArgs,
+  type PromoteNextActionResult,
   type QueryHistoryArgs,
   type QueryHistoryResult,
   type ReorderPlanArgs,
@@ -241,6 +260,8 @@ import {
   type UnbindProjectResult,
   type UpdateInterventionStateArgs,
   type UpdateInterventionStateResult,
+  type UpdateObjectiveArgs,
+  type UpdateObjectiveResult,
   type UpdateProjectMetadataArgs,
   type UpdateProjectMetadataResult,
   type UpdateTopicArgs,
@@ -1163,6 +1184,55 @@ export class ResearchControlService extends TypertRemoteService {
   async dropWorkstream(args: unknown): Promise<DropWorkstreamResult> {
     const decoded = DropWorkstreamArgsSchema.parse(args) satisfies DropWorkstreamArgs
     return this.requireRpc(decoded.projectId).dropWorkstream(decoded)
+  }
+
+  /* ------------------------------------------------------------------ *
+   * UI-4 (D §10) — the Workstream Current Execution attention set:
+   * decode first → the project-routed port (the attention services are
+   * self-constructed INSIDE the per-project ProductionResearchRpcServices —
+   * ADJ-1/ADJ-2; the method bodies stay the thin decode+forward).
+   * ------------------------------------------------------------------ */
+
+  @Remote('getWorkstreamCurrent')
+  async getWorkstreamCurrent(args: unknown): Promise<GetWorkstreamCurrentResult> {
+    const decoded = GetWorkstreamCurrentArgsSchema.parse(args) satisfies GetWorkstreamCurrentArgs
+    return this.requireRpc(decoded.projectId).getWorkstreamCurrent(decoded)
+  }
+
+  @Remote('updateObjective')
+  async updateObjective(args: unknown): Promise<UpdateObjectiveResult> {
+    const decoded = UpdateObjectiveArgsSchema.parse(args) satisfies UpdateObjectiveArgs
+    return this.requireRpc(decoded.projectId).updateObjective(decoded)
+  }
+
+  @Remote('createNextAction')
+  async createNextAction(args: unknown): Promise<CreateNextActionResult> {
+    const decoded = CreateNextActionArgsSchema.parse(args) satisfies CreateNextActionArgs
+    return this.requireRpc(decoded.projectId).createNextAction(decoded)
+  }
+
+  @Remote('promoteNextAction')
+  async promoteNextAction(args: unknown): Promise<PromoteNextActionResult> {
+    const decoded = PromoteNextActionArgsSchema.parse(args) satisfies PromoteNextActionArgs
+    return this.requireRpc(decoded.projectId).promoteNextAction(decoded)
+  }
+
+  @Remote('dismissNextAction')
+  async dismissNextAction(args: unknown): Promise<DismissNextActionResult> {
+    const decoded = DismissNextActionArgsSchema.parse(args) satisfies DismissNextActionArgs
+    return this.requireRpc(decoded.projectId).dismissNextAction(decoded)
+  }
+
+  @Remote('createBlocker')
+  async createBlocker(args: unknown): Promise<CreateBlockerResult> {
+    const decoded = CreateBlockerArgsSchema.parse(args) satisfies CreateBlockerArgs
+    return this.requireRpc(decoded.projectId).createBlocker(decoded)
+  }
+
+  @Remote('clearBlocker')
+  async clearBlocker(args: unknown): Promise<ClearBlockerResult> {
+    const decoded = ClearBlockerArgsSchema.parse(args) satisfies ClearBlockerArgs
+    return this.requireRpc(decoded.projectId).clearBlocker(decoded)
   }
 
   /* ------------------------------------------------------------------ *

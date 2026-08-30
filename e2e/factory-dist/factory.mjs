@@ -10150,6 +10150,19 @@ var ActionsService = class {
 	listBlockers(filter = {}) {
 		return this.store.listBlockers(filter);
 	}
+	/**
+	* UI-4 (ADJ-5): the WS-local Blocker view — a MECHANICAL projection
+	* over `affects` (the frozen row has no workstream column — the link
+	* IS the affects ref set): a blocker is local to `workstreamId` when
+	* any affects ref hits the WS itself or one of the given member ids
+	* (the WS's tasks + runs; the caller assembles the set from its tree
+	* + run-table faces — the service's `runExists` face cannot enumerate).
+	* Pure over the store's full `listBlockers` read (no filter push-down —
+	* the `affects` match is the projection; the set is small by §9.4).
+	*/
+	listBlockersForWorkstream(workstreamId, memberIds) {
+		return this.store.listBlockers().filter((blocker) => blocker.affects.some((ref) => ref.id === workstreamId || memberIds.has(ref.id)));
+	}
 	listObjectives() {
 		return this.objectives.loadObjectives().objectives;
 	}
@@ -12867,6 +12880,17 @@ var InterventionService = class {
 	/** CLOSED 全量（§9.2「CLOSED 折叠」组 — 折叠是展示面, 数据仍完整）。 */
 	listClosed() {
 		return this.#lifecycle.listInterventions({ status: "CLOSED" });
+	}
+	/**
+	* UI-4 (ADJ-7): the WS-local list — the `workstream_ids` contains
+	* semantics live in the lifecycle store's filter; this method is a
+	* store passthrough (INV-ATTN-1 无隐藏过滤器 — the ONLY filter is the
+	* WS membership itself; the stable created_at ASC / id ASC order is
+	* kept, so the client renders the full WS intervention set incl.
+	* CLOSED for the 「已关闭」 group, B §15.7).
+	*/
+	listForWorkstream(workstreamId) {
+		return this.#lifecycle.listInterventions({ workstreamId });
 	}
 	#wrapCause(cause, code) {
 		if (isInterventionError(cause)) return cause;

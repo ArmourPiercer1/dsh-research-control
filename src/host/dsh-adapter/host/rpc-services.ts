@@ -63,12 +63,23 @@ import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 
 import {
+  type AffectsRefDto,
+  type BlockerDto,
+  type ClearBlockerArgs,
+  type ClearBlockerResult,
+  type CreateBlockerArgs,
+  type CreateBlockerResult,
+  type CreateNextActionArgs,
+  type CreateNextActionResult,
   type CurrentTaskDto,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
   type CreateWorkstreamResult,
   type DashboardSnapshot,
+  type DerivedBlockerDto,
+  type DismissNextActionArgs,
+  type DismissNextActionResult,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
   type DropWorkstreamArgs,
@@ -79,12 +90,20 @@ import {
   type GetGitHistoryResult,
   type GetTopicArgs,
   type GetWorkstreamArgs,
+  type GetWorkstreamCurrentArgs,
+  type GetWorkstreamCurrentResult,
   type InterventionDto,
+  type InterventionFullDto,
+  type LinkedRefDto,
   type MergeContractRefDto,
+  type NextActionDto,
   type ObjectiveDto,
+  type ObjectiveFullDto,
   type PlanForkDto,
   type PlanItemDto,
   type ProjectSnapshot,
+  type PromoteNextActionArgs,
+  type PromoteNextActionResult,
   type HistoryEventDto,
   type QueryHistoryArgs,
   type QueryHistoryResult,
@@ -105,6 +124,8 @@ import {
   type TopicSnapshot,
   type UpdateInterventionStateArgs,
   type UpdateInterventionStateResult,
+  type UpdateObjectiveArgs,
+  type UpdateObjectiveResult,
   type UpdateProjectMetadataArgs,
   type UpdateProjectMetadataResult,
   type UpdateTopicArgs,
@@ -114,6 +135,16 @@ import {
   type WorkstreamCardDto,
   type WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
+import {
+  ActionsError,
+  ActionsService,
+  ActionsStore,
+  ObjectiveFileService,
+  deriveWorkstreamBlockers,
+  type BlockerRecord,
+  type DerivedBlocker,
+  type NextActionRecord,
+} from '../../service/actions/index.js'
 import { isCurrentFocusError } from '../../service/current-focus/index.js'
 import { isHierarchyError } from '../../service/hierarchy/index.js'
 import {
@@ -256,6 +287,39 @@ export interface ResearchRpcServices {
    */
   dropWorkstream(args: DropWorkstreamArgs): DropWorkstreamResult
   /**
+   * UI-4 (D §10): the workstream Current-Execution read face — the
+   * ACTIVE linked objectives, the explicit blockers (WS ∪ member
+   * Task/Run scope), the ADJ-3 mechanical derived projection (the
+   * canonical focus Task's dependency edges + the before-focus FAILED
+   * gates folded from the WS's OWN event log), the PROPOSED next
+   * actions and the WS's interventions. The current-focus pointer is
+   * NOT here — it stays on the `currentFocus` slice (ADJ-11).
+   */
+  getWorkstreamCurrent(args: GetWorkstreamCurrentArgs): Promise<GetWorkstreamCurrentResult>
+  /**
+   * UI-4 (D §10, ADJ-6): the basic objective edit — the statement RMW
+   * (objectives.yaml atomic save) and/or the transition-checked status
+   * change (≥1 field, service-enforced).
+   */
+  updateObjective(args: UpdateObjectiveArgs): Promise<UpdateObjectiveResult>
+  /** UI-4 (D §10.5): propose a NextAction (optionally WS-scoped). */
+  createNextAction(args: CreateNextActionArgs): Promise<CreateNextActionResult>
+  /**
+   * UI-4 (D §10.6): promote the PROPOSED NA to a canonical plan Task
+   * (USER-only; plan.yaml materialization + the management-action
+   * ledger row — the materialization receipt is returned verbatim).
+   */
+  promoteNextAction(args: PromoteNextActionArgs): Promise<PromoteNextActionResult>
+  /** UI-4 (D §10.5): terminal-dismiss a PROPOSED NA. */
+  dismissNextAction(args: DismissNextActionArgs): Promise<DismissNextActionResult>
+  /** UI-4 (D §10.7): raise an Explicit Blocker (USER-only). */
+  createBlocker(args: CreateBlockerArgs): Promise<CreateBlockerResult>
+  /**
+   * UI-4 (D §10.7): clear an ACTIVE Explicit Blocker. The DERIVED
+   * face has no clear (ADJ-4) — clearing the cause removes it.
+   */
+  clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult>
+  /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
    * `ctx.effect`). Stub implementations may omit it.
@@ -300,6 +364,77 @@ export function loadResearchTreeOrThrow(researchRoot: string, declarativeDir: st
     )
   }
   return load.tree
+}
+
+/* -------------------------------------------------------------------- *
+ * UI-4 (D §10) — the attention record → wire DTO mappers (PURE; the
+ * absent-optional → null normalization lives here, once).
+ * -------------------------------------------------------------------- */
+
+function toObjectiveFullDto(o: ObjectiveDoc): ObjectiveFullDto {
+  return {
+    id: o.id,
+    scope: o.scope,
+    statement: o.statement,
+    status: o.status,
+    priority: o.priority,
+    targetDate: o.target_date ?? null,
+    successCriteria: [...o.success_criteria],
+    linkedRefs: o.linked_refs.map((ref) => ({ kind: ref.kind, id: ref.id })),
+  }
+}
+
+function toNextActionDto(na: NextActionRecord): NextActionDto {
+  return {
+    id: na.id,
+    workstreamId: na.workstream_id ?? null,
+    statement: na.statement,
+    rationale: na.rationale ?? null,
+    status: na.status,
+    promotedToTaskId: na.promoted_to_task_id ?? null,
+    createdAt: na.created_at,
+  }
+}
+
+function toBlockerDto(b: BlockerRecord): BlockerDto {
+  return {
+    id: b.id,
+    statement: b.statement,
+    affects: b.affects.map((ref) => ({ kind: ref.kind, id: ref.id })),
+    status: b.status,
+    source: b.source,
+    references: b.references === undefined ? null : [...b.references],
+    createdAt: b.created_at,
+    clearedAt: b.cleared_at ?? null,
+  }
+}
+
+function toDerivedBlockerDto(d: DerivedBlocker): DerivedBlockerDto {
+  return {
+    id: d.id,
+    source: d.source,
+    statement: d.statement,
+    reasonRefs: [...d.reasonRefs],
+    primaryAction: {
+      label: d.primaryAction.label,
+      targetKind: d.primaryAction.targetKind,
+      targetId: d.primaryAction.targetId,
+    },
+  }
+}
+
+function toInterventionFullDto(iv: InterventionRecord): InterventionFullDto {
+  return {
+    id: iv.id,
+    title: iv.title,
+    origin: iv.origin,
+    status: iv.status,
+    workstreamIds: [...iv.workstream_ids],
+    createdAt: iv.created_at,
+    detail: iv.detail ?? null,
+    closedAt: iv.closed_at ?? null,
+    resolutionNote: iv.resolution_note ?? null,
+  }
 }
 
 /**
@@ -373,6 +508,19 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    *  the lifecycle row, same 1:1 result shape; existing tests +
    *  TC-E2E-011 prove the re-route). */
   readonly #intervention: InterventionService
+  /** UI-4 (ADJ-1): the NextAction/Blocker operational store — the
+   *  user-surface production writer face on the same second
+   *  connection (the idempotent DDL ran in the constructor). The
+   *  wiring-internal store stays on its read-only REJECTING_WRITER;
+   *  HostWiring is NOT extended (ADJ-2). */
+  readonly #actionsStore: ActionsStore
+  /** UI-4 (ADJ-1): the attention service face (the PROMOTE
+   *  materialization writes plan.yaml through its OWN FsPlanFileWriter). */
+  readonly #actions: ActionsService
+  /** UI-4 (ADJ-2): the objectives.yaml declarative writer face
+   *  (self-constructed — the same landing spot, the same second
+   *  connection). */
+  readonly #objectives: ObjectiveFileService
   #closed = false
 
   constructor(options: ProductionResearchRpcServicesOptions) {
@@ -440,6 +588,47 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       externalState: () => ({ workstreams: options.wiring.externalState().workstreams }),
       now: this.#now,
     })
+
+    // UI-4 (D §10, ADJ-1/ADJ-2): the human-attention layer (Objective /
+    // NextAction / Explicit Blocker) — SELF-CONSTRUCTED here as the
+    // user-surface production writer face. The wiring-internal store
+    // stays on its read-only REJECTING_WRITER (the read-only invariant
+    // is untouched) and HostWiring is NOT extended (ADJ-2). The
+    // ActionsStore constructor runs the idempotent DDL (safe on this
+    // second connection — the planfork/flooding dual-connection
+    // 先例); `runExists` mirrors the wiring precedent (the tables
+    // getRun face, the §16.3 第 3 条 RUN write-time check).
+    const attentionReader = new FsResearchReader(options.wiring.researchRoot)
+    this.#actionsStore = new ActionsStore({
+      db: this.#db,
+      allocator: options.wiring.allocator,
+      projectId: options.wiring.projectId,
+      now: this.#now,
+    })
+    this.#actions = new ActionsService({
+      store: this.#actionsStore,
+      reader: attentionReader,
+      writer: new FsPlanFileWriter(),
+      researchRoot: options.wiring.researchRoot,
+      schemaDir: this.#declarativeDir,
+      allocator: options.wiring.allocator,
+      projectId: options.wiring.projectId,
+      db: this.#db,
+      runExists: {
+        exists: (runId) => options.wiring.tables.getRun(runId) !== null,
+      },
+      now: this.#now,
+    })
+    this.#objectives = new ObjectiveFileService({
+      reader: attentionReader,
+      writer: new FsPlanFileWriter(),
+      researchRoot: options.wiring.researchRoot,
+      schemaDir: this.#declarativeDir,
+      allocator: options.wiring.allocator,
+      projectId: options.wiring.projectId,
+      db: this.#db,
+      now: this.#now,
+    })
   }
 
   /**
@@ -466,6 +655,22 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    */
   #mapHierarchyError(e: unknown): unknown {
     if (isHierarchyError(e)) {
+      return new Error(`[research-control] ${e.code}: ${e.message}`, { cause: e })
+    }
+    return e
+  }
+
+  /**
+   * UI-4 (D §10): map the attention layer's ActionsError family onto the
+   * wire error carrier (the same `[research-control] <CODE>: <message>`
+   * shape as the CF_/HIER_ mappers). ONE mapper covers BOTH attention
+   * faces — the objectives service and the actions service throw the
+   * SAME `ActionsError` carrier class (RECON §2.1/§2.2 are one code
+   * family; the consolidated naming is a design ruling, not a split).
+   * Non-attention errors propagate untouched (the kernel's own messages).
+   */
+  #mapActionsError(e: unknown): unknown {
+    if (e instanceof ActionsError) {
       return new Error(`[research-control] ${e.code}: ${e.message}`, { cause: e })
     }
     return e
@@ -660,6 +865,222 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       }
     } catch (e) {
       throw this.#mapHierarchyError(e)
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * UI-4 (D §10) — Workstream Current Execution completion: the
+   * attention read face + the five user mutations (ADJ-1..ADJ-8).
+   * ------------------------------------------------------------------ */
+
+  async getWorkstreamCurrent(args: GetWorkstreamCurrentArgs): Promise<GetWorkstreamCurrentResult> {
+    await this.#stalePrecheck(args.workstreamId)
+    const tree = this.#loadTree('getWorkstreamCurrent')
+    const wsNode = this.#findWorkstreamNode(tree, args.workstreamId, 'getWorkstreamCurrent')
+    // The owner-scoped event log (the same read getWorkstream uses —
+    // `store.listRange(ws, 1)`, audit order): it carries every
+    // TASK_EXECUTION_CHANGED of the WS tasks, every outgoing
+    // RELATION_ADDED/REMOVED and every GATE_EVALUATED (HISTORY_EVENT_
+    // CATALOG §4 owner-scope fact — the derived projection's input).
+    const events = this.#wiring.store.listRange(wsNode.id, 1)
+    // The execution facet fold (the minimal inline duplicate of
+    // getWorkstream's Current-zone fold — the derived projection only
+    // needs the execution facet, so validation is left out).
+    const taskExecution = new Map<string, string>()
+    for (const t of wsNode.tasks) taskExecution.set(t.id, 'PLANNED')
+    foldEvents(
+      events,
+      (state: Map<string, string>, ev) => {
+        if (ev.eventType === 'TASK_EXECUTION_CHANGED') {
+          const p = ev.payload as { task_id?: unknown; to?: unknown }
+          if (
+            typeof p.task_id === 'string' &&
+            typeof p.to === 'string' &&
+            TASK_EXECUTIONS.has(p.to) &&
+            state.has(p.task_id)
+          ) {
+            state.set(p.task_id, p.to)
+          }
+        }
+        return state
+      },
+      taskExecution,
+    )
+    // The canonical focus Task (ADJ-3): the CF pointer WHEN it names a
+    // canonical Task member of this WS (robust to eviction timing — a
+    // pointer naming a dropped / foreign / non-Task item yields no
+    // focus Task, and BOTH derived rules produce nothing).
+    const cf = this.#wiring.currentFocus.get(wsNode.id)
+    const taskIds = new Set(wsNode.tasks.map((t) => t.id))
+    const focusTaskId =
+      cf !== undefined && taskIds.has(cf.planItemId) ? cf.planItemId : null
+    // The canonical plan order (the declarative single source — the
+    // same face getWorkstream's future zone reads; no plan ⇒ the GATE
+    // rule produces nothing).
+    const canonicalOrder = wsNode.plan?.ordered_items ?? []
+    // The DERIVED projection (ADJ-3/ADJ-4 — pure + deterministic; the
+    // wire DTO is mapped verbatim).
+    const derived = deriveWorkstreamBlockers({
+      workstreamId: wsNode.id,
+      focusTaskId,
+      canonicalOrder,
+      taskExecution: Object.fromEntries(taskExecution),
+      events: events.map((ev) => ({
+        eventSeq: ev.eventSeq,
+        eventType: ev.eventType,
+        payload: ev.payload,
+      })),
+    })
+    // The EXPLICIT blocker scope (ADJ-5): the WS itself ∪ its member
+    // Tasks ∪ its Runs.
+    const runs = this.#wiring.tables.listRuns({ workstreamId: wsNode.id })
+    const memberIds = new Set<string>([...taskIds, ...runs.map((r) => r.id)])
+    const explicit = this.#actions.listBlockersForWorkstream(wsNode.id, memberIds)
+    // The ACTIVE linked objectives (ADJ-6): every ACTIVE objective whose
+    // linked_refs names this WORKSTREAM — priority-then-id order (the
+    // header row shows the first).
+    const objectives = this.#objectives
+      .loadObjectives()
+      .objectives.filter(
+        (o) =>
+          o.status === 'ACTIVE' &&
+          o.linked_refs.some((ref) => ref.kind === 'WORKSTREAM' && ref.id === wsNode.id),
+      )
+    objectives.sort((a, b) =>
+      a.priority === b.priority ? a.id.localeCompare(b.id, undefined, { numeric: true }) : a.priority < b.priority ? -1 : 1,
+    )
+    // The PROPOSED NAs (the actionable set — terminal NAs are noise in
+    // the Current zone).
+    const nextActions = this.#actions.listNextActions({ workstreamId: wsNode.id, status: 'PROPOSED' })
+    // The interventions naming the WS (ALL states — the zone renders
+    // the closure state; ADJ-7 thin passthrough, stable order).
+    const interventions = this.#intervention.listForWorkstream(wsNode.id)
+    return {
+      workstreamId: wsNode.id,
+      objectives: objectives.map(toObjectiveFullDto),
+      explicitBlockers: explicit.map(toBlockerDto),
+      derivedBlockers: derived.map(toDerivedBlockerDto),
+      nextActions: nextActions.map(toNextActionDto),
+      interventions: interventions.map(toInterventionFullDto),
+    }
+  }
+
+  async updateObjective(args: UpdateObjectiveArgs): Promise<UpdateObjectiveResult> {
+    try {
+      const hasStatement = args.statement !== undefined
+      const hasStatus = args.status !== undefined
+      if (!hasStatement && !hasStatus) {
+        throw new ActionsError('ACT_INPUT', 'updateObjective: at least one of statement/status is required')
+      }
+      // Both may be set: the statement RMW (the whole-file atomic save —
+      // ADJ-6) runs FIRST, then the status change rides
+      // setObjectiveStatus (the transition-checked face — ADJ-6; the
+      // two OBJECTIVE_EDITED ledger rows for a combined edit are the
+      // accepted consequence of the locked ruling). The nullable
+      // accumulators + the final guard are the TS control-flow
+      // equivalent of the guard above (at least one branch WILL run).
+      let managementActionId: string | undefined
+      let status: UpdateObjectiveResult['status'] | undefined
+      if (hasStatement) {
+        const { objectives } = this.#objectives.loadObjectives()
+        if (!objectives.some((o) => o.id === args.objectiveId)) {
+          throw new ActionsError('OBJ_NOT_FOUND', `updateObjective: objective ${args.objectiveId} does not exist`)
+        }
+        const next = objectives.map((o) => (o.id === args.objectiveId ? { ...o, statement: args.statement! } : o))
+        const saved = this.#objectives.saveObjectives(next, USER_ACTOR)
+        managementActionId = saved.managementActionId
+        status = saved.objectives.find((o) => o.id === args.objectiveId)!.status
+      }
+      if (hasStatus) {
+        const saved = this.#objectives.setObjectiveStatus(args.objectiveId, args.status!, USER_ACTOR)
+        managementActionId = saved.managementActionId
+        status = saved.objectives.find((o) => o.id === args.objectiveId)!.status
+      }
+      if (managementActionId === undefined || status === undefined) {
+        // Unreachable: the guard above ensures at least one branch ran.
+        throw new ActionsError('ACT_INPUT', 'updateObjective: no field applied (unreachable)')
+      }
+      return {
+        objectiveId: args.objectiveId,
+        status,
+        managementActionId,
+        updatedAt: this.#now(),
+      }
+    } catch (e) {
+      throw this.#mapActionsError(e)
+    }
+  }
+
+  async createNextAction(args: CreateNextActionArgs): Promise<CreateNextActionResult> {
+    try {
+      const na = this.#actions.createNextAction(
+        {
+          workstreamId: args.workstreamId,
+          statement: args.statement,
+          rationale: args.rationale,
+        },
+        USER_ACTOR,
+      )
+      return { nextAction: toNextActionDto(na) }
+    } catch (e) {
+      throw this.#mapActionsError(e)
+    }
+  }
+
+  async promoteNextAction(args: PromoteNextActionArgs): Promise<PromoteNextActionResult> {
+    try {
+      const out = this.#actions.promoteNextAction(
+        args.nextActionId,
+        { workstreamId: args.workstreamId, index: args.index },
+        USER_ACTOR,
+      )
+      // The materialization receipt — the host ActionsService result
+      // mapped verbatim (the D §10.6 wire face).
+      return {
+        nextActionId: out.nextActionId,
+        taskId: out.taskId,
+        workstreamId: out.workstreamId,
+        planPath: out.planPath,
+        newOrder: [...out.newOrder],
+        managementActionId: out.managementActionId,
+      }
+    } catch (e) {
+      throw this.#mapActionsError(e)
+    }
+  }
+
+  async dismissNextAction(args: DismissNextActionArgs): Promise<DismissNextActionResult> {
+    try {
+      const na = this.#actions.dismissNextAction(args.nextActionId, USER_ACTOR)
+      return { nextAction: toNextActionDto(na) }
+    } catch (e) {
+      throw this.#mapActionsError(e)
+    }
+  }
+
+  async createBlocker(args: CreateBlockerArgs): Promise<CreateBlockerResult> {
+    try {
+      const b = this.#actions.createBlocker(
+        {
+          statement: args.statement,
+          affects: args.affects.map((ref) => ({ kind: ref.kind, id: ref.id })),
+          source: args.source,
+          references: args.references === undefined ? undefined : [...args.references],
+        },
+        USER_ACTOR,
+      )
+      return { blocker: toBlockerDto(b) }
+    } catch (e) {
+      throw this.#mapActionsError(e)
+    }
+  }
+
+  async clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult> {
+    try {
+      const b = this.#actions.clearBlocker(args.blockerId, USER_ACTOR)
+      return { blocker: toBlockerDto(b) }
+    } catch (e) {
+      throw this.#mapActionsError(e)
     }
   }
 

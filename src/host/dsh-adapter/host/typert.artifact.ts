@@ -42,13 +42,21 @@ import {
   AckMissingReminderResultSchema,
   BindProjectArgsSchema,
   BindProjectResultSchema,
+  ClearBlockerArgsSchema,
+  ClearBlockerResultSchema,
+  CreateBlockerArgsSchema,
+  CreateBlockerResultSchema,
   CreateLocalResearchProjectArgsSchema,
   CreateLocalResearchProjectResultSchema,
+  CreateNextActionArgsSchema,
+  CreateNextActionResultSchema,
   CreateTopicArgsSchema,
   CreateTopicResultSchema,
   CreateWorkstreamArgsSchema,
   CreateWorkstreamResultSchema,
   DashboardSnapshotSchema,
+  DismissNextActionArgsSchema,
+  DismissNextActionResultSchema,
   DismissPlanForkArgsSchema,
   DismissPlanForkResultSchema,
   DropWorkstreamArgsSchema,
@@ -64,11 +72,15 @@ import {
   GetResearchPlaneStateResultSchema,
   GetTopicArgsSchema,
   GetWorkstreamArgsSchema,
+  GetWorkstreamCurrentArgsSchema,
+  GetWorkstreamCurrentResultSchema,
   HubOverviewResultSchema,
   InspectProjectDirectoryArgsSchema,
   InspectProjectDirectoryResultSchema,
   PingResultSchema,
   ProjectSnapshotSchema,
+  PromoteNextActionArgsSchema,
+  PromoteNextActionResultSchema,
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
   RESEARCH_CONTROL_PACKAGE,
@@ -96,6 +108,8 @@ import {
   UnbindProjectResultSchema,
   UpdateInterventionStateArgsSchema,
   UpdateInterventionStateResultSchema,
+  UpdateObjectiveArgsSchema,
+  UpdateObjectiveResultSchema,
   UpdateProjectMetadataArgsSchema,
   UpdateProjectMetadataResultSchema,
   UpdateTopicArgsSchema,
@@ -119,7 +133,7 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
 
 /**
  * Every wire schema the face uses, as a live zod v4 instance (the loader
- * requires the `_zod` brand on each `TYPERT.schemas` entry). 63 entries:
+ * requires the `_zod` brand on each `TYPERT.schemas` entry). 77 entries:
  * ping's result + the 13 RPCs' args/results (the two zero-arg queries
  * carry no args schema) + the 3 read-only plane RPCs' args/results
  * (V2-T3.2a) + the 6 change-family plane RPCs' args/results (V2-T3.2b —
@@ -128,7 +142,8 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
  * current-focus management RPCs' args/results (V2-UI-0.4 slice 1) + the
  * 2 hierarchy-create management RPCs' args/results (V2-UI-0.4 Task 3) +
  * the 6 GUI management RPCs' args/results (V2-UI-0.4 UI-2: the
- * 4 hierarchy update/drop RPCs + the 2 local-project RPCs).
+ * 4 hierarchy update/drop RPCs + the 2 local-project RPCs) + the 7
+ * attention RPCs' args/results (V2-UI-0.4 UI-4, D §10).
  */
 const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'PingResult', schema: PingResultSchema },
@@ -200,6 +215,22 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'InspectProjectDirectoryResult', schema: InspectProjectDirectoryResultSchema },
   { name: 'CreateLocalResearchProjectArgs', schema: CreateLocalResearchProjectArgsSchema },
   { name: 'CreateLocalResearchProjectResult', schema: CreateLocalResearchProjectResultSchema },
+  // V2-UI-0.4 UI-4 (D §10): the 7 attention RPCs — the CurrentExecution
+  // projection read + the objective/next-action/blocker mutation faces.
+  { name: 'GetWorkstreamCurrentArgs', schema: GetWorkstreamCurrentArgsSchema },
+  { name: 'GetWorkstreamCurrentResult', schema: GetWorkstreamCurrentResultSchema },
+  { name: 'UpdateObjectiveArgs', schema: UpdateObjectiveArgsSchema },
+  { name: 'UpdateObjectiveResult', schema: UpdateObjectiveResultSchema },
+  { name: 'CreateNextActionArgs', schema: CreateNextActionArgsSchema },
+  { name: 'CreateNextActionResult', schema: CreateNextActionResultSchema },
+  { name: 'PromoteNextActionArgs', schema: PromoteNextActionArgsSchema },
+  { name: 'PromoteNextActionResult', schema: PromoteNextActionResultSchema },
+  { name: 'DismissNextActionArgs', schema: DismissNextActionArgsSchema },
+  { name: 'DismissNextActionResult', schema: DismissNextActionResultSchema },
+  { name: 'CreateBlockerArgs', schema: CreateBlockerArgsSchema },
+  { name: 'CreateBlockerResult', schema: CreateBlockerResultSchema },
+  { name: 'ClearBlockerArgs', schema: ClearBlockerArgsSchema },
+  { name: 'ClearBlockerResult', schema: ClearBlockerResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -430,6 +461,51 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'GUI management (V2-UI-0.4 UI-2B, plane-level): create a fresh local research project end-to-end (mkdir → git init → tree scaffold → metadata → registry commit; the registry commit is LAST — a step failure returns a three-stage failure DTO, no rollback).',
           },
+          // V2-UI-0.4 UI-4 (D §10): the 7 attention RPCs — the
+          // CurrentExecution projection read + the objective/next-action/
+          // blocker mutation faces.
+          {
+            name: 'getWorkstreamCurrent',
+            signature: 'getWorkstreamCurrent(args: GetWorkstreamCurrentArgs): Promise<GetWorkstreamCurrentResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-4, D §10): read the workstream CurrentExecution attention projection — the ACTIVE objectives linked to this workstream (priority-sorted), the explicit blockers affecting it or a member Task/Run, the derived (mechanical) blockers, the PROPOSED next actions, and the interventions naming it (all states).',
+          },
+          {
+            name: 'updateObjective',
+            signature: 'updateObjective(args: UpdateObjectiveArgs): Promise<UpdateObjectiveResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-4, D §10): edit an objective statement (read-modify-write) and/or transition its status (transition-checked); at least one field is required.',
+          },
+          {
+            name: 'createNextAction',
+            signature: 'createNextAction(args: CreateNextActionArgs): Promise<CreateNextActionResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-4, D §10): create a PROPOSED next action (optionally bound to a workstream).',
+          },
+          {
+            name: 'promoteNextAction',
+            signature: 'promoteNextAction(args: PromoteNextActionArgs): Promise<PromoteNextActionResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-4, D §10): promote a PROPOSED next action into a plan Task (materializes the plan file + ledger; returns the materialization receipt).',
+          },
+          {
+            name: 'dismissNextAction',
+            signature: 'dismissNextAction(args: DismissNextActionArgs): Promise<DismissNextActionResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-4, D §10): dismiss a PROPOSED next action.',
+          },
+          {
+            name: 'createBlocker',
+            signature: 'createBlocker(args: CreateBlockerArgs): Promise<CreateBlockerResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-4, D §10): create an explicit ACTIVE blocker with its affects set (workstream / task / run references).',
+          },
+          {
+            name: 'clearBlocker',
+            signature: 'clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult>',
+            kind: 'method',
+            summary: 'GUI management (V2-UI-0.4 UI-4, D §10): clear an explicit ACTIVE blocker (the derived projection has no clear face — its blocker is the cause itself).',
+          },
         ],
         types: [
           {
@@ -596,6 +672,42 @@ export const TYPERT: TypertHostManifest = {
             name: 'CreateLocalResearchProjectResult',
             declaration:
               'type CreateLocalResearchProjectResult = { ok: true; readonly projectId: string; readonly treePath: string; readonly registryPath: string | null; readonly dbMigrated: boolean } | { ok: false; readonly code: "LP_MKDIR" | "LP_GIT_INIT" | "LP_SCAFFOLD" | "LP_METADATA" | "LP_REGISTER"; readonly failedStep: "mkdir" | "gitInit" | "scaffold" | "metadata" | "register"; readonly completedSteps: ("mkdir" | "gitInit" | "scaffold" | "metadata" | "register")[]; readonly partialChangeNote: string; readonly detail: string }',
+          },
+          // V2-UI-0.4 UI-4 (D §10): the 7 attention RPCs' result types.
+          {
+            name: 'GetWorkstreamCurrentResult',
+            declaration:
+              'interface GetWorkstreamCurrentResult { readonly workstreamId: string; readonly objectives: ObjectiveFullDto[]; readonly explicitBlockers: BlockerDto[]; readonly derivedBlockers: DerivedBlockerDto[]; readonly nextActions: NextActionDto[]; readonly interventions: InterventionFullDto[] }',
+          },
+          {
+            name: 'UpdateObjectiveResult',
+            declaration:
+              'interface UpdateObjectiveResult { readonly objectiveId: string; readonly status: "ACTIVE" | "ACHIEVED" | "DROPPED"; readonly managementActionId: string; readonly updatedAt: number }',
+          },
+          {
+            name: 'CreateNextActionResult',
+            declaration:
+              'interface CreateNextActionResult { readonly nextAction: NextActionDto }',
+          },
+          {
+            name: 'PromoteNextActionResult',
+            declaration:
+              'interface PromoteNextActionResult { readonly nextActionId: string; readonly taskId: string; readonly workstreamId: string; readonly planPath: string; readonly newOrder: string[]; readonly managementActionId: string }',
+          },
+          {
+            name: 'DismissNextActionResult',
+            declaration:
+              'interface DismissNextActionResult { readonly nextAction: NextActionDto }',
+          },
+          {
+            name: 'CreateBlockerResult',
+            declaration:
+              'interface CreateBlockerResult { readonly blocker: BlockerDto }',
+          },
+          {
+            name: 'ClearBlockerResult',
+            declaration:
+              'interface ClearBlockerResult { readonly blocker: BlockerDto }',
           },
         ],
       },

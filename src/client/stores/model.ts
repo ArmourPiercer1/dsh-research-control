@@ -22,7 +22,10 @@
  *  - `gitHistory:<canonicalQuery>` — the `getGitHistory` window;
  *  - `currentFocus:<workstreamId>` — the R-01 current-focus pointer
  *    (UI-0.4; the frozen WorkstreamSnapshot cannot carry it, see the
- *    state field below).
+ *    state field below);
+ *  - `current:<workstreamId>` — the UI-4 Current Execution aggregate
+ *    (ADJ-8: the new slice family for `getWorkstreamCurrent`; the frozen
+ *    WorkstreamSnapshot keeps only the legacy tasks/runs/plan faces).
  *
  * The GLOBAL slice key (used by the invalidate registry) is
  * `<slice>:<local key>`; `parseSliceKey` is its exact inverse.
@@ -37,6 +40,8 @@ import type {
   GetGitHistoryResult,
   GetTopicArgs,
   GetWorkstreamArgs,
+  GetWorkstreamCurrentArgs,
+  GetWorkstreamCurrentResult,
   ProjectSnapshot,
   QueryHistoryArgs,
   QueryHistoryResult,
@@ -67,6 +72,8 @@ export type {
   GetGitHistoryResult,
   GetTopicArgs,
   GetWorkstreamArgs,
+  GetWorkstreamCurrentArgs,
+  GetWorkstreamCurrentResult,
   ProjectSnapshot,
   QueryHistoryArgs,
   QueryHistoryResult,
@@ -154,6 +161,13 @@ export interface ResearchStoreState {
    * instead of riding the workstream slice.
    */
   readonly currentFocus: ReadonlyMap<string, SliceState<GetCurrentFocusResult>>
+  /**
+   * Keyed by `workstreamId` (UI-4, ADJ-8). The Current Execution aggregate
+   * (`getWorkstreamCurrent`): objectives, explicit + derived blockers, next
+   * actions, interventions. The frozen `WorkstreamSnapshot` cannot carry
+   * these faces, so they live in their own slice family.
+   */
+  readonly current: ReadonlyMap<string, SliceState<GetWorkstreamCurrentResult>>
 }
 
 /** The initial store snapshot: all slices idle, all maps empty. */
@@ -166,6 +180,7 @@ export function initialResearchStoreState(): ResearchStoreState {
     history: new Map(),
     gitHistory: new Map(),
     currentFocus: new Map(),
+    current: new Map(),
   }
 }
 
@@ -207,6 +222,7 @@ export type SliceName =
   | 'history'
   | 'gitHistory'
   | 'currentFocus'
+  | 'current'
 
 export const SLICE_NAMES: readonly SliceName[] = [
   'dashboard',
@@ -216,6 +232,7 @@ export const SLICE_NAMES: readonly SliceName[] = [
   'history',
   'gitHistory',
   'currentFocus',
+  'current',
 ]
 
 /**
@@ -231,6 +248,7 @@ export type SliceKey =
   | `history:${string}`
   | `gitHistory:${string}`
   | `currentFocus:${string}`
+  | `current:${string}`
 
 /** Compose a global slice key. */
 export function sliceKey(slice: SliceName, localKey: string): SliceKey {

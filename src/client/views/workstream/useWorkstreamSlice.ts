@@ -14,13 +14,23 @@
  * subscription is created (DSH_ADAPTER §11 — the Phase 4 slot wiring can
  * bind the same store face directly).
  *
- * The hook also drives the LAZY first load (ARCHITECTURE §8: the
+ * The hooks also drive the LAZY first load (ARCHITECTURE §8: the
  * workstream page loads on first view): an idle slice is fetched once on
  * mount; the store dedupes in-flight fetches, so re-runs of the effect
  * (any snapshot commit) are no-ops once the slice left `idle`.
+ *
+ * UI-4 adds the two aggregate faces the Current Execution zone needs
+ * (ADJ-8/11): `useWorkstreamCurrentSlice` binds the `current:<ws>`
+ * family (the `getWorkstreamCurrent` aggregate read) and
+ * `useCurrentFocusSlice` binds the `currentFocus:<ws>` family (UI-0.4) —
+ * both lazy-load on mount with the same idle-guard discipline.
  */
 
 import { useEffect, useSyncExternalStore } from 'react'
+import type {
+  GetWorkstreamCurrentResult,
+  GetCurrentFocusResult,
+} from '../../../shared/rpc-contracts.js'
 import {
   idleSlice,
   type ResearchStore,
@@ -30,6 +40,10 @@ import {
 
 /** Shared idle-slice constant returned while the entry is absent. */
 const EMPTY_SLICE = idleSlice<WorkstreamSnapshot>()
+/** Shared idle-slice constant for the `current:<ws>` family (UI-4). */
+const EMPTY_CURRENT_SLICE = idleSlice<GetWorkstreamCurrentResult>()
+/** Shared idle-slice constant for the `currentFocus:<ws>` family. */
+const EMPTY_FOCUS_SLICE = idleSlice<GetCurrentFocusResult>()
 
 /**
  * Bind one workstream slice of the research store for a view.
@@ -54,4 +68,54 @@ export function useWorkstreamSlice(store: ResearchStore, workstreamId: string): 
   }, [store, workstreamId, slice])
 
   return slice ?? EMPTY_SLICE
+}
+
+/**
+ * Bind the `current:<workstreamId>` slice (the UI-4 aggregate read,
+ * ADJ-8: the Current Execution zone's objectives / blockers / next
+ * actions / interventions faces). Lazy first load on mount, same
+ * idle-guard as `useWorkstreamSlice`.
+ * @param store - the `createResearchStore()` instance.
+ * @param workstreamId - the page's workstream (the slice local key).
+ * @returns the slice state machine for this workstream's current face.
+ */
+export function useWorkstreamCurrentSlice(
+  store: ResearchStore,
+  workstreamId: string,
+): SliceState<GetWorkstreamCurrentResult> {
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  const slice = state.current.get(workstreamId)
+
+  useEffect(() => {
+    if (slice === undefined || slice.status === 'idle') {
+      void store.loadWorkstreamCurrent({ workstreamId })
+    }
+  }, [store, workstreamId, slice])
+
+  return slice ?? EMPTY_CURRENT_SLICE
+}
+
+/**
+ * Bind the `currentFocus:<workstreamId>` slice (UI-0.4) — the
+ * current-focus pointer the header row and the Future-zone marker read
+ * (ADJ-11: the pointer stays on its own slice; the frozen
+ * `WorkstreamSnapshot` carries no focus face).
+ * @param store - the `createResearchStore()` instance.
+ * @param workstreamId - the page's workstream (the slice local key).
+ * @returns the slice state machine for this workstream's focus pointer.
+ */
+export function useCurrentFocusSlice(
+  store: ResearchStore,
+  workstreamId: string,
+): SliceState<GetCurrentFocusResult> {
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  const slice = state.currentFocus.get(workstreamId)
+
+  useEffect(() => {
+    if (slice === undefined || slice.status === 'idle') {
+      void store.getCurrentFocus({ workstreamId })
+    }
+  }, [store, workstreamId, slice])
+
+  return slice ?? EMPTY_FOCUS_SLICE
 }

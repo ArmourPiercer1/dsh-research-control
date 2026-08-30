@@ -1,4 +1,4 @@
-import { A as PingResult, B as RestoreDeclarativeFileArgs, C as GetResearchPlaneStateArgs, D as HubOverviewResult, E as GetWorkstreamArgs, F as RegisterInteractionResult, G as SaveResearchCheckpointResult, H as RestoreProjectArgs, I as ReorderPlanArgs, J as SetCurrentFocusArgs, K as SelectPlanForkArgs, L as ReorderPlanResult, M as QueryHistoryArgs, N as QueryHistoryResult, P as RegisterInteractionArgs, Q as TopicSnapshot, R as RescanArgs, S as GetPortfolioInterventionsResult, T as GetTopicArgs, U as RestoreProjectResult, V as RestoreDeclarativeFileResult, W as SaveResearchCheckpointArgs, X as SetHubArgs, Y as SetCurrentFocusResult, Z as SetHubResult, _ as GetCurrentFocusResult, at as UpdateProjectMetadataResult, b as GetHubOverviewArgs, c as CreateTopicResult, ct as UpdateWorkstreamArgs, d as DashboardSnapshot, et as UnbindProjectArgs, f as DismissPlanForkArgs, g as GetCurrentFocusArgs, h as DropWorkstreamResult, i as BindProjectResult, it as UpdateProjectMetadataArgs, j as ProjectSnapshot, k as InspectProjectDirectoryResult, l as CreateWorkstreamArgs, lt as UpdateWorkstreamResult, m as DropWorkstreamArgs, n as AckMissingReminderResult, nt as UpdateInterventionStateArgs, o as CreateLocalResearchProjectResult, ot as UpdateTopicArgs, p as DismissPlanForkResult, q as SelectPlanForkResult, r as BindProjectArgs, rt as UpdateInterventionStateResult, s as CreateTopicArgs, st as UpdateTopicResult, t as AckMissingReminderArgs, tt as UnbindProjectResult, u as CreateWorkstreamResult, ut as WorkstreamSnapshot, v as GetGitHistoryArgs, w as GetResearchPlaneStateResult, x as GetPortfolioInterventionsArgs, y as GetGitHistoryResult, z as RescanResult } from "./rpc-contracts-CMwk1Fml.js";
+import { $ as RestoreDeclarativeFileResult, A as GetPortfolioInterventionsResult, B as PingResult, C as DropWorkstreamResult, Ct as UpdateWorkstreamResult, D as GetGitHistoryResult, E as GetGitHistoryArgs, F as GetWorkstreamCurrentArgs, G as QueryHistoryResult, H as PromoteNextActionArgs, I as GetWorkstreamCurrentResult, J as ReorderPlanArgs, K as RegisterInteractionArgs, L as HubOverviewResult, M as GetResearchPlaneStateResult, N as GetTopicArgs, O as GetHubOverviewArgs, P as GetWorkstreamArgs, Q as RestoreDeclarativeFileArgs, S as DropWorkstreamArgs, St as UpdateWorkstreamArgs, T as GetCurrentFocusResult, U as PromoteNextActionResult, V as ProjectSnapshot, W as QueryHistoryArgs, X as RescanArgs, Y as ReorderPlanResult, Z as RescanResult, _ as DashboardSnapshot, _t as UpdateObjectiveResult, a as ClearBlockerArgs, at as SelectPlanForkResult, b as DismissPlanForkArgs, bt as UpdateTopicArgs, c as CreateBlockerResult, ct as SetHubArgs, d as CreateNextActionArgs, et as RestoreProjectArgs, f as CreateNextActionResult, ft as UnbindProjectArgs, g as CreateWorkstreamResult, gt as UpdateObjectiveArgs, h as CreateWorkstreamArgs, ht as UpdateInterventionStateResult, i as BindProjectResult, it as SelectPlanForkArgs, j as GetResearchPlaneStateArgs, k as GetPortfolioInterventionsArgs, lt as SetHubResult, m as CreateTopicResult, mt as UpdateInterventionStateArgs, n as AckMissingReminderResult, nt as SaveResearchCheckpointArgs, o as ClearBlockerResult, ot as SetCurrentFocusArgs, p as CreateTopicArgs, pt as UnbindProjectResult, q as RegisterInteractionResult, r as BindProjectArgs, rt as SaveResearchCheckpointResult, s as CreateBlockerArgs, st as SetCurrentFocusResult, t as AckMissingReminderArgs, tt as RestoreProjectResult, u as CreateLocalResearchProjectResult, ut as TopicSnapshot, v as DismissNextActionArgs, vt as UpdateProjectMetadataArgs, w as GetCurrentFocusArgs, wt as WorkstreamSnapshot, x as DismissPlanForkResult, xt as UpdateTopicResult, y as DismissNextActionResult, yt as UpdateProjectMetadataResult, z as InspectProjectDirectoryResult } from "./rpc-contracts-D_35PPbQ.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import s from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
@@ -101,6 +101,39 @@ interface ResearchRpcServices {
    * `currentFocusCleared` result flag, never as a failure).
    */
   dropWorkstream(args: DropWorkstreamArgs): DropWorkstreamResult;
+  /**
+   * UI-4 (D §10): the workstream Current-Execution read face — the
+   * ACTIVE linked objectives, the explicit blockers (WS ∪ member
+   * Task/Run scope), the ADJ-3 mechanical derived projection (the
+   * canonical focus Task's dependency edges + the before-focus FAILED
+   * gates folded from the WS's OWN event log), the PROPOSED next
+   * actions and the WS's interventions. The current-focus pointer is
+   * NOT here — it stays on the `currentFocus` slice (ADJ-11).
+   */
+  getWorkstreamCurrent(args: GetWorkstreamCurrentArgs): Promise<GetWorkstreamCurrentResult>;
+  /**
+   * UI-4 (D §10, ADJ-6): the basic objective edit — the statement RMW
+   * (objectives.yaml atomic save) and/or the transition-checked status
+   * change (≥1 field, service-enforced).
+   */
+  updateObjective(args: UpdateObjectiveArgs): Promise<UpdateObjectiveResult>;
+  /** UI-4 (D §10.5): propose a NextAction (optionally WS-scoped). */
+  createNextAction(args: CreateNextActionArgs): Promise<CreateNextActionResult>;
+  /**
+   * UI-4 (D §10.6): promote the PROPOSED NA to a canonical plan Task
+   * (USER-only; plan.yaml materialization + the management-action
+   * ledger row — the materialization receipt is returned verbatim).
+   */
+  promoteNextAction(args: PromoteNextActionArgs): Promise<PromoteNextActionResult>;
+  /** UI-4 (D §10.5): terminal-dismiss a PROPOSED NA. */
+  dismissNextAction(args: DismissNextActionArgs): Promise<DismissNextActionResult>;
+  /** UI-4 (D §10.7): raise an Explicit Blocker (USER-only). */
+  createBlocker(args: CreateBlockerArgs): Promise<CreateBlockerResult>;
+  /**
+   * UI-4 (D §10.7): clear an ACTIVE Explicit Blocker. The DERIVED
+   * face has no clear (ADJ-4) — clearing the cause removes it.
+   */
+  clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult>;
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -438,6 +471,13 @@ declare class ResearchControlService extends TypertRemoteService {
   updateTopic(args: unknown): Promise<UpdateTopicResult>;
   updateWorkstream(args: unknown): Promise<UpdateWorkstreamResult>;
   dropWorkstream(args: unknown): Promise<DropWorkstreamResult>;
+  getWorkstreamCurrent(args: unknown): Promise<GetWorkstreamCurrentResult>;
+  updateObjective(args: unknown): Promise<UpdateObjectiveResult>;
+  createNextAction(args: unknown): Promise<CreateNextActionResult>;
+  promoteNextAction(args: unknown): Promise<PromoteNextActionResult>;
+  dismissNextAction(args: unknown): Promise<DismissNextActionResult>;
+  createBlocker(args: unknown): Promise<CreateBlockerResult>;
+  clearBlocker(args: unknown): Promise<ClearBlockerResult>;
   inspectProjectDirectory(args: unknown): Promise<InspectProjectDirectoryResult>;
   createLocalResearchProject(args: unknown): Promise<CreateLocalResearchProjectResult>;
   /**

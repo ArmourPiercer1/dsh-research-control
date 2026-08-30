@@ -32,7 +32,10 @@
  * |                        | has no topicId; the topic card's `openPlanForkCount` moved).        |
  * | dismissPlanFork        | same set as select — the PF leaves the unresolved overlay (count).  |
  * | updateInterventionState| `dashboard` — openInterventions/pendingInterventions (INV-ATTN-1    |
- * |                        | complete lists); ProjectSnapshot has no intervention face.          |
+ * |                        | complete lists); ProjectSnapshot has no intervention face. PLUS      |
+ * |                        | every CACHED `current:<ws>` (UI-4: the current-zone intervention    |
+ * |                        | group renders from the getWorkstreamCurrent face, and the result    |
+ * |                        | carries no workstreamIds — conservative family listing).            |
  * | registerInteraction    | `project` — §27.2 Project page「upcoming interactions/reporting」  |
  * |                        | (placeholder-null in V1; the interaction is PROJECT-scoped, the     |
  * |                        | dashboard renders no interaction list).                             |
@@ -45,12 +48,32 @@
  * |                        | `.research/**` file, so every declarative-tree projection may change |
  * |                        | (dashboard/project topic cards read the tree too: title +            |
  * |                        | workstreamCount) and the git log/diff face of that path moves.       |
- * | setCurrentFocus (UI-0.4)| `currentFocus:<ws>` ONLY — the pointer is an operational row and NO  |
- * | (R-01)                  | existing slice's DTO carries focus data (the frozen                  |
- * |                        | WorkstreamSnapshot cannot gain the field — rpc-contracts             |
- * |                        | §getCurrentFocus note), so the CF slice is the whole store-level     |
- * |                        | invalidation today; the focus surfaces (header / future strip /      |
- * |                        | graph) are UI-4 work selecting from the `currentFocus` slice.        |
+ * | setCurrentFocus (UI-0.4)| `currentFocus:<ws>` — the pointer is an operational row; PLUS the     |
+ * | (R-01) + UI-4 (ADJ-14)  | CACHED `current:<ws>` of that workstream (the aggregate derives its   |
+ * |                         | blocker projection FROM the pointer — ADJ-3 — so the WS page would    |
+ * |                         | otherwise keep the stale projection until a full reload; the §10.8    |
+ * |                         | no-refresh drift is covered by the post-mutation registry refetch     |
+ * |                         | (idle current cache → the CF key alone, as before).                   |
+ * | updateObjective (UI-4) | `project` — the frozen ProjectSnapshot.objectives face changed;     |
+ * |                        | PLUS every CACHED `current:<ws>` — the objective set renders in the |
+ * |                        | current zone from the getWorkstreamCurrent face, and the result    |
+ * |                        | carries no workstreamId (the ws filter is linked_refs, not in the   |
+ * |                        | result) — conservative family listing.                              |
+ * | createNextAction (UI-4)| `current:<ws>` — the new PROPOSED NA renders in exactly that slice  |
+ * |                        | (host filter `workstreamId: <ws>`). A workstream-less NA renders    |
+ * |                        | nowhere → defensive cached-`current:*` listing (createTopic         |
+ * |                        | precedent: list the family; the refetch pass skips idle slices).   |
+ * | promoteNextAction(UI-4)| `current:<ws>` — the NA leaves the PROPOSED set; PLUS               |
+ * |                        | `workstreams:<ws>` — plan.yaml gains the new task (future zone plan |
+ * |                        | + task list). The result carries the workstreamId.                  |
+ * | dismissNextAction(UI-4)| `current:<ws>` — the NA leaves the PROPOSED set; workstream-less NA |
+ * |                        | → defensive cached-`current:*` listing (createNextAction shape).    |
+ * | createBlocker (UI-4)   | every CACHED `current:<ws>` — an ACTIVE blocker renders in the      |
+ * |                        | current zone of every ws it AFFECTS (ws ref, or the owner of a      |
+ * |                        | task/run ref — not derivable from the result); the workstreams      |
+ * |                        | slice has no blocker face (frozen WorkstreamSnapshot).              |
+ * | clearBlocker (UI-4)    | same set as createBlocker — the blocker row flips to CLEARED in     |
+ * |                        | every affected current zone.                                        |
  *
  * History slices (`history:*`) are intentionally NEVER invalidated by a
  * client mutation: the WS event log is append-only and none of the 13
@@ -60,12 +83,17 @@
  */
 
 import type {
+  ClearBlockerResult,
+  CreateBlockerResult,
   CreateLocalResearchProjectResult,
+  CreateNextActionResult,
   CreateTopicResult,
   CreateWorkstreamResult,
+  DismissNextActionResult,
   DismissPlanForkResult,
   DropWorkstreamResult,
   InspectProjectDirectoryResult,
+  PromoteNextActionResult,
   RegisterInteractionResult,
   ReorderPlanResult,
   RestoreDeclarativeFileResult,
@@ -73,6 +101,7 @@ import type {
   SetCurrentFocusResult,
   SelectPlanForkResult,
   UpdateInterventionStateResult,
+  UpdateObjectiveResult,
   UpdateProjectMetadataResult,
   UpdateTopicResult,
   UpdateWorkstreamResult,
@@ -84,7 +113,7 @@ import {
 } from './model.js'
 
 /**
- * The sixteen client-side mutations: the eight of the frozen 13-RPC
+ * The twenty-two client-side mutations: the eight of the frozen 13-RPC
  * list (the seven WP-4.1b mutations + `setCurrentFocus`, UI-0.4 R-01 —
  * `getCurrentFocus` is a query, not a mutation) plus the six V2-UI-0.4
  * UI-2 GUI management faces (the 4 hierarchy update/drop RPCs, UI-2A,
@@ -92,7 +121,11 @@ import {
  * query surfaced for uniformity; its rule invalidates nothing) plus the
  * two V2-UI-0.4 UI-3 hierarchy CREATE faces (`createTopic` /
  * `createWorkstream` — the host RPCs pre-existed; the client facade +
- * store wiring landed in this slice).
+ * store wiring landed in this slice) plus the six V2-UI-4
+ * workstream-management faces (`updateObjective` / `createNextAction` /
+ * `promoteNextAction` / `dismissNextAction` / `createBlocker` /
+ * `clearBlocker` — the host RPCs landed with the UI-4 host write-face;
+ * the client store wiring lands in this slice).
  */
 export type MutationId =
   | 'reorderPlan'
@@ -111,6 +144,12 @@ export type MutationId =
   | 'inspectProjectDirectory'
   | 'createTopic'
   | 'createWorkstream'
+  | 'updateObjective'
+  | 'createNextAction'
+  | 'promoteNextAction'
+  | 'dismissNextAction'
+  | 'createBlocker'
+  | 'clearBlocker'
 
 export const MUTATION_IDS: readonly MutationId[] = [
   'reorderPlan',
@@ -129,6 +168,12 @@ export const MUTATION_IDS: readonly MutationId[] = [
   'inspectProjectDirectory',
   'createTopic',
   'createWorkstream',
+  'updateObjective',
+  'createNextAction',
+  'promoteNextAction',
+  'dismissNextAction',
+  'createBlocker',
+  'clearBlocker',
 ]
 
 /** One registry rule: pure (result, state) -> affected global slice keys. */
@@ -158,6 +203,12 @@ export const INVALIDATE_REGISTRY: {
   readonly inspectProjectDirectory: InvalidationRule<InspectProjectDirectoryResult>
   readonly createTopic: InvalidationRule<CreateTopicResult>
   readonly createWorkstream: InvalidationRule<CreateWorkstreamResult>
+  readonly updateObjective: InvalidationRule<UpdateObjectiveResult>
+  readonly createNextAction: InvalidationRule<CreateNextActionResult>
+  readonly promoteNextAction: InvalidationRule<PromoteNextActionResult>
+  readonly dismissNextAction: InvalidationRule<DismissNextActionResult>
+  readonly createBlocker: InvalidationRule<CreateBlockerResult>
+  readonly clearBlocker: InvalidationRule<ClearBlockerResult>
 } = {
   reorderPlan: (result, _state) => [sliceKey('workstreams', result.workstreamId)],
 
@@ -175,7 +226,14 @@ export const INVALIDATE_REGISTRY: {
     return keys
   },
 
-  updateInterventionState: (_result, _state) => ['dashboard'],
+  // UI-4 (ADJ-13): the frozen rule is EXTENDED — the current-zone
+  // intervention group renders from the getWorkstreamCurrent face, and
+  // the result carries no workstreamIds, so every CACHED `current:<ws>`
+  // refetches (the refetch pass skips idle slices).
+  updateInterventionState: (_result, state) => [
+    'dashboard',
+    ...cachedCurrentKeys(state),
+  ],
 
   registerInteraction: (_result, _state) => ['project'],
 
@@ -190,13 +248,22 @@ export const INVALIDATE_REGISTRY: {
     ...[...state.gitHistory.keys()].map(key => sliceKey('gitHistory', key)),
   ],
 
-  // UI-0.4 (R-01): the focus pointer is an operational row. No other slice's
-  // DTO carries focus data (the frozen WorkstreamSnapshot cannot gain the
-  // field), so the `currentFocus:<ws>` slice is the WHOLE store-level
-  // invalidation today. The rule is state-independent (like
-  // updateInterventionState / registerInteraction): it refetches exactly the
-  // caller's CF slice, which the store skips when it is still idle.
-  setCurrentFocus: (result, _state) => [sliceKey('currentFocus', result.workstreamId)],
+  // UI-0.4 (R-01) + UI-4 (ADJ-14): the focus pointer is an operational
+  // row. No other slice's DTO carries focus data (the frozen
+  // WorkstreamSnapshot cannot gain the field), so the `currentFocus:<ws>`
+  // slice is the base invalidation. UI-4 ADDS the CACHED `current:<ws>`
+  // (only when that workstream's aggregate slice is loaded): the
+  // getWorkstreamCurrent face computes its DERIVED blocker projection
+  // from this very pointer (ADJ-3), so without the refetch the WS page's
+  // Blockers group would keep the stale projection until a full reload —
+  // the refresh-drift the §10.8 gate forbids (ADJ-14: no-refresh drift =
+  // the post-mutation registry refetch).
+  setCurrentFocus: (result, state) => [
+    sliceKey('currentFocus', result.workstreamId),
+    ...(state.current.has(result.workstreamId)
+      ? [sliceKey('current', result.workstreamId)]
+      : []),
+  ],
 
   // V2-UI-0.4 UI-2 (UI-2A): the four hierarchy update/drop mutations.
   // updateProjectMetadata: the RMW merge rewrote project.yaml — the
@@ -255,6 +322,54 @@ export const INVALIDATE_REGISTRY: {
     sliceKey('topics', result.topicId),
     'project',
   ],
+
+  // V2-UI-4: the six workstream-management faces.
+  // updateObjective: the objective set renders from BOTH the `project`
+  // slice (the frozen ProjectSnapshot.objectives face) and the
+  // `current:<ws>` slices (ObjectiveFullDto face); the result carries no
+  // workstreamId (the ws filter is linked_refs — not in the result), so
+  // the cached current family is listed conservatively.
+  updateObjective: (_result, state) => [
+    'project',
+    ...cachedCurrentKeys(state),
+  ],
+
+  // createNextAction: a PROPOSED NA renders in exactly the current:<ws>
+  // slice of its workstream (host filter `workstreamId: <ws>`). A
+  // workstream-less NA renders nowhere → defensive cached-`current:*`
+  // listing (createTopic precedent: list the family; the refetch pass
+  // skips idle slices).
+  createNextAction: (result, state) =>
+    result.nextAction.workstreamId === null
+      ? cachedCurrentKeys(state)
+      : [sliceKey('current', result.nextAction.workstreamId)],
+
+  // promoteNextAction: the NA leaves the PROPOSED set (current:<ws>) and
+  // plan.yaml gains the new task (workstreams:<ws> future zone + task
+  // list). The result carries the workstreamId (non-null — an NA only
+  // promotes into a workstream plan).
+  promoteNextAction: (result, _state) => [
+    sliceKey('current', result.workstreamId),
+    sliceKey('workstreams', result.workstreamId),
+  ],
+
+  // dismissNextAction: the NA leaves the PROPOSED set — same shape as
+  // createNextAction (workstreamId from the echoed NA DTO).
+  dismissNextAction: (result, state) =>
+    result.nextAction.workstreamId === null
+      ? cachedCurrentKeys(state)
+      : [sliceKey('current', result.nextAction.workstreamId)],
+
+  // createBlocker: an ACTIVE blocker renders in the current:<ws> slice of
+  // every ws it AFFECTS (ws ref, or the owner of a task/run ref — not
+  // derivable from the result), so the cached current family is listed
+  // conservatively. The workstreams slice has no blocker face (the frozen
+  // WorkstreamSnapshot).
+  createBlocker: (_result, state) => cachedCurrentKeys(state),
+
+  // clearBlocker: same set as createBlocker — the blocker row flips to
+  // CLEARED in every affected current zone.
+  clearBlocker: (_result, state) => cachedCurrentKeys(state),
 }
 
 /**
@@ -266,4 +381,16 @@ export const INVALIDATE_REGISTRY: {
 function cachedTopicId(state: ResearchStoreState, workstreamId: string): string | null {
   const data = state.workstreams.get(workstreamId)?.data
   return data === null || data === undefined ? null : data.workstream.topicId
+}
+
+/**
+ * The global keys of every CACHED `current:*` slice. The state map is the
+ * ONLY source: the UI-4 mutation results (updateObjective / createBlocker
+ * / clearBlocker / the extended updateInterventionState) carry no
+ * workstreamIds (see the rule rationales above), so the affected
+ * `current:<ws>` slices are resolvable only as a conservative family
+ * listing. The refetch pass skips idle slices.
+ */
+function cachedCurrentKeys(state: ResearchStoreState): SliceKey[] {
+  return [...state.current.keys()].map(key => sliceKey('current', key))
 }

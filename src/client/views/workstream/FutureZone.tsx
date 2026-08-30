@@ -18,11 +18,18 @@
  *  - the minimal REORDER GUI entry (this WP's mutation-face hook): one
  *    up / one down button per row calling `onMoveItem(itemId, direction)`
  *    — the container resolves that callback into the frozen `reorderPlan`
- *    mutation (adjacent swap; `buildReorderArgs` keeps it a permutation).
+ *    mutation (adjacent swap; `buildReorderArgs` keeps it a permutation);
+ *  - UI-4 (ADJ-11 / B §20): the CURRENT-FOCUS entry — the focused plan
+ *    row carries a `Focus` marker (`data-plan-focus`) and EVERY row
+ *    carries the verbatim `Set as Current Focus` button; the container
+ *    resolves the callback into the frozen `setCurrentFocus` mutation
+ *    (the marker + the Current-zone focus row re-render from the
+ *    refetched `currentFocus` slice).
  */
 
 import type { ReactElement } from 'react'
 import type { PlanForkDto, PlanItemDto } from '../../../shared/rpc-contracts.js'
+import { t } from '../../i18n/copy.js'
 import type { MoveDirection } from './reorder.js'
 import styles from './workstream.module.css'
 
@@ -46,6 +53,13 @@ export interface FutureZoneProps {
   readonly reorderPending: boolean
   /** Last reorder failure message (business fault text from the store). */
   readonly reorderFault: string | null
+  /** The current-focus pointer's plan item id (B §20: the focused row
+   *  carries the `Focus` marker); null = no pointer. */
+  readonly focusedPlanItemId: string | null
+  /** Set-as-CF entry callback (B §20 verbatim button; container-wired
+   *  to `store.setCurrentFocus`). The zone only reports the user
+   *  intent: which plan item. */
+  readonly onSetCurrentFocus: (planItemId: string) => void
 }
 
 /** 产品文案（中文）— canonical plan item kinds. */
@@ -62,26 +76,37 @@ const PF_STATUS_LABEL: Record<PlanForkDto['status'], string> = {
   STALE: '已陈旧',
 }
 
-/** One canonical plan row with its reorder entry buttons. */
+/** One canonical plan row with its reorder entry buttons + the
+ *  current-focus entry (B §20: marker on the focused row, verbatim
+ *  `Set as Current Focus` button on every row). */
 function PlanRow({
   item,
   index,
   count,
   onMoveItem,
+  focused,
+  onSetCurrentFocus,
 }: {
   item: PlanItemDto
   index: number
   count: number
   onMoveItem: FutureZoneProps['onMoveItem']
+  focused: boolean
+  onSetCurrentFocus: FutureZoneProps['onSetCurrentFocus']
 }): ReactElement {
   return (
-    <li className={styles.planRow}>
+    <li
+      className={styles.planRow}
+      data-plan-item={item.id}
+      data-plan-focus={focused ? 'true' : undefined}
+    >
       <span className={styles.planPosition}>{index + 1}</span>
       <span className={styles.badge} data-kind={item.kind}>
         {KIND_LABEL[item.kind]}
       </span>
       <span className={styles.taskTitle}>{item.title}</span>
       <span className={styles.taskId}>{item.id}</span>
+      {focused && <span className={styles.focusMarker}>{t('ws.current.focusMarker')}</span>}
       <button
         type="button"
         className={styles.moveButton}
@@ -99,6 +124,14 @@ function PlanRow({
         onClick={() => onMoveItem(item.id, 'down')}
       >
         ↓
+      </button>
+      <button
+        type="button"
+        className={styles.setFocusButton}
+        aria-label={`Set as Current Focus: ${item.id}`}
+        onClick={() => onSetCurrentFocus(item.id)}
+      >
+        {t('ws.current.setFocus')}
       </button>
     </li>
   )
@@ -122,7 +155,8 @@ function PlanForkRow({ planFork }: { planFork: PlanForkDto }): ReactElement {
 
 /**
  * Render the Future Plan zone.
- * @param props - zone data + reorder callback (see `FutureZoneProps`).
+ * @param props - zone data + reorder callback + the current-focus
+ *  entry (see `FutureZoneProps`).
  * @returns the zone panel element.
  */
 export function FutureZone({
@@ -132,6 +166,8 @@ export function FutureZone({
   onMoveItem,
   reorderPending,
   reorderFault,
+  focusedPlanItemId,
+  onSetCurrentFocus,
 }: FutureZoneProps): ReactElement {
   return (
     <section className={styles.zone} aria-label="未来计划">
@@ -149,6 +185,8 @@ export function FutureZone({
               index={index}
               count={planItems.length}
               onMoveItem={onMoveItem}
+              focused={item.id === focusedPlanItemId}
+              onSetCurrentFocus={onSetCurrentFocus}
             />
           ))}
         </ol>

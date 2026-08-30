@@ -35,13 +35,21 @@ import type {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  ClearBlockerArgs,
+  ClearBlockerResult,
+  CreateBlockerArgs,
+  CreateBlockerResult,
   CreateLocalResearchProjectArgs,
   CreateLocalResearchProjectResult,
+  CreateNextActionArgs,
+  CreateNextActionResult,
   CreateTopicArgs,
   CreateTopicResult,
   CreateWorkstreamArgs,
   CreateWorkstreamResult,
   DashboardSnapshot,
+  DismissNextActionArgs,
+  DismissNextActionResult,
   DismissPlanForkArgs,
   DismissPlanForkResult,
   DropWorkstreamArgs,
@@ -57,11 +65,15 @@ import type {
   GetResearchPlaneStateResult,
   GetTopicArgs,
   GetWorkstreamArgs,
+  GetWorkstreamCurrentArgs,
+  GetWorkstreamCurrentResult,
   HubOverviewResult,
   InspectProjectDirectoryArgs,
   InspectProjectDirectoryResult,
   PingResult,
   ProjectSnapshot,
+  PromoteNextActionArgs,
+  PromoteNextActionResult,
   QueryHistoryArgs,
   QueryHistoryResult,
   ReorderPlanArgs,
@@ -87,6 +99,8 @@ import type {
   UnbindProjectResult,
   UpdateInterventionStateArgs,
   UpdateInterventionStateResult,
+  UpdateObjectiveArgs,
+  UpdateObjectiveResult,
   UpdateProjectMetadataArgs,
   UpdateProjectMetadataResult,
   UpdateTopicArgs,
@@ -326,5 +340,43 @@ export const researchRpc = {
     args: CreateWorkstreamArgs,
   ): Promise<RemoteResult<CreateWorkstreamResult>> {
     return requireNamespace().createWorkstream(args)
+  },
+  // V2-UI-0.4 UI-4 (D §10): the 7 attention RPCs — the CurrentExecution
+  // projection read + the objective/next-action/blocker mutation faces.
+  // Thin bodies: the gateway folds host faults into RemoteResult.error.
+  async getWorkstreamCurrent(
+    args: GetWorkstreamCurrentArgs,
+  ): Promise<RemoteResult<GetWorkstreamCurrentResult>> {
+    return requireNamespace().getWorkstreamCurrent(args)
+  },
+  async updateObjective(
+    args: UpdateObjectiveArgs,
+  ): Promise<RemoteResult<UpdateObjectiveResult>> {
+    return requireNamespace().updateObjective(args)
+  },
+  async createNextAction(
+    args: CreateNextActionArgs,
+  ): Promise<RemoteResult<CreateNextActionResult>> {
+    return requireNamespace().createNextAction(args)
+  },
+  async promoteNextAction(
+    args: PromoteNextActionArgs,
+  ): Promise<RemoteResult<PromoteNextActionResult>> {
+    return requireNamespace().promoteNextAction(args)
+  },
+  async dismissNextAction(
+    args: DismissNextActionArgs,
+  ): Promise<RemoteResult<DismissNextActionResult>> {
+    return requireNamespace().dismissNextAction(args)
+  },
+  async createBlocker(
+    args: CreateBlockerArgs,
+  ): Promise<RemoteResult<CreateBlockerResult>> {
+    return requireNamespace().createBlocker(args)
+  },
+  async clearBlocker(
+    args: ClearBlockerArgs,
+  ): Promise<RemoteResult<ClearBlockerResult>> {
+    return requireNamespace().clearBlocker(args)
   },
 }

@@ -82,3 +82,11 @@ export {
   type PromoteNextActionResult,
   type RunExistence,
 } from './service.js'
+export {
+  deriveWorkstreamBlockers,
+  type DerivedBlocker,
+  type DerivedBlockerEvent,
+  type DerivedBlockersInput,
+  type DerivedBlockerSource,
+  type DerivedBlockerTargetKind,
+} from './derived-blockers.js'

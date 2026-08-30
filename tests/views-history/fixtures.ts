@@ -233,6 +233,14 @@ export function makeHistoryFacade(log: readonly HistoryEventDto[]): HistoryFacad
       // V2-UI-0.4 UI-3: the 2 hierarchy CREATE faces (same contract).
       createTopic: notUsed('createTopic'),
       createWorkstream: notUsed('createWorkstream'),
+      // V2-UI-0.4 UI-4 (D §10): the 7 attention faces (same contract).
+      getWorkstreamCurrent: notUsed('getWorkstreamCurrent'),
+      updateObjective: notUsed('updateObjective'),
+      createNextAction: notUsed('createNextAction'),
+      promoteNextAction: notUsed('promoteNextAction'),
+      dismissNextAction: notUsed('dismissNextAction'),
+      createBlocker: notUsed('createBlocker'),
+      clearBlocker: notUsed('clearBlocker'),
     } as ResearchRpcFacade,
     calls,
     nextControlled: () => {
@@ -296,6 +304,14 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     // V2-UI-0.4 UI-3: the 2 hierarchy CREATE faces (same contract).
     createTopic: notUsed('createTopic'),
     createWorkstream: notUsed('createWorkstream'),
+    // V2-UI-0.4 UI-4 (D §10): the 7 attention faces (same contract).
+    getWorkstreamCurrent: notUsed('getWorkstreamCurrent'),
+    updateObjective: notUsed('updateObjective'),
+    createNextAction: notUsed('createNextAction'),
+    promoteNextAction: notUsed('promoteNextAction'),
+    dismissNextAction: notUsed('dismissNextAction'),
+    createBlocker: notUsed('createBlocker'),
+    clearBlocker: notUsed('clearBlocker'),
   } as ResearchRpcFacade
 }
 

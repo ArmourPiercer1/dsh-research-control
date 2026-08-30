@@ -365,3 +365,68 @@
   font-size: 13px;
   cursor: pointer;
 }
+
+/* -- UI-4 (D4): header rows + Current-zone eight-group faces + the
+   current-focus entry (B §20) ---------------------------------------- */
+
+.headerRow {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--rc-text);
+}
+
+.focusMarker {
+  padding: 0 6px;
+  border: 1px solid var(--rc-accent);
+  border-radius: 4px;
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-size: 12px;
+}
+
+.setFocusButton {
+  padding: 0 8px;
+  height: 22px;
+  border: 1px solid var(--rc-accent);
+  border-radius: 4px;
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.blockerSource,
+.naRationale,
+.ivMeta {
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+.derivedAction {
+  color: var(--rc-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ivDetail {
+  display: block;
+  margin-top: 2px;
+  color: var(--rc-text);
+  font-size: 13px;
+}
+
+.promoteReceipt {
+  margin: 4px 0 0;
+  color: var(--rc-accent);
+  font-size: 12px;
+}
+
+.actionFault {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--rc-danger);
+  border-radius: 6px;
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--rc-danger);
+  font-size: 13px;
+}

@@ -6,16 +6,22 @@
 
 import { describe, expect, it } from 'vitest'
 import type {
+  ClearBlockerResult,
+  CreateBlockerResult,
   CreateLocalResearchProjectResult,
+  CreateNextActionResult,
   CreateTopicResult,
   CreateWorkstreamResult,
   DashboardSnapshot,
+  DismissNextActionResult,
   DismissPlanForkResult,
   DropWorkstreamResult,
   GetCurrentFocusResult,
   GetGitHistoryResult,
+  GetWorkstreamCurrentResult,
   InspectProjectDirectoryResult,
   ProjectSnapshot,
+  PromoteNextActionResult,
   QueryHistoryResult,
   ReorderPlanResult,
   RegisterInteractionResult,
@@ -25,6 +31,7 @@ import type {
   SetCurrentFocusResult,
   TopicSnapshot,
   UpdateInterventionStateResult,
+  UpdateObjectiveResult,
   UpdateProjectMetadataResult,
   UpdateTopicResult,
   UpdateWorkstreamResult,
@@ -66,8 +73,9 @@ const ready = <T>(data: T): SliceState<T> => ({
 /**
  * A fully-populated state: every slice family holds ready entries
  * (dashboard, project, TPC-1, WS-1 [topicId TPC-1], one history window,
- * one gitHistory window, one current-focus pointer) — the maximal cache
- * the rules must address.
+ * one gitHistory window, one current-focus pointer, two current
+ * aggregates — WS-1 and WS-2) — the maximal cache the rules must
+ * address.
  */
 function populatedState(): ResearchStoreState {
   return {
@@ -88,6 +96,10 @@ function populatedState(): ResearchStoreState {
           focus: { planItemId: 'T-1', updatedAt: 1755000000000 },
         }),
       ],
+    ]),
+    current: new Map([
+      ['WS-1', ready<GetWorkstreamCurrentResult>(CURRENT_WS1)],
+      ['WS-2', ready<GetWorkstreamCurrentResult>(CURRENT_WS2)],
     ]),
   }
 }
@@ -171,6 +183,118 @@ const CREATE_WS: CreateWorkstreamResult = {
   createdAt: 1755000007000,
 }
 
+// V2-UI-4: the six workstream-management result fixtures (local — same
+// convention as the UI-2/UI-3 fixtures above; the values are wire-valid).
+const CURRENT_WS1: GetWorkstreamCurrentResult = {
+  workstreamId: 'WS-1',
+  objectives: [
+    {
+      id: 'OBJ-1',
+      scope: 'TOPIC',
+      statement: 'Ship the calibration prototype',
+      status: 'ACTIVE',
+      priority: 'P1',
+      targetDate: null,
+      successCriteria: ['Reprojection error < 2px'],
+      linkedRefs: [{ kind: 'WORKSTREAM', id: 'WS-1' }],
+    },
+  ],
+  explicitBlockers: [],
+  derivedBlockers: [],
+  nextActions: [],
+  interventions: [],
+}
+const CURRENT_WS2: GetWorkstreamCurrentResult = {
+  workstreamId: 'WS-2',
+  objectives: [],
+  explicitBlockers: [],
+  derivedBlockers: [],
+  nextActions: [],
+  interventions: [],
+}
+const UPDATE_OBJ: UpdateObjectiveResult = {
+  objectiveId: 'OBJ-1',
+  status: 'ACTIVE',
+  managementActionId: 'MA-42',
+  updatedAt: 1755000010000,
+}
+const CREATE_NA: CreateNextActionResult = {
+  nextAction: {
+    id: 'NA-1',
+    workstreamId: 'WS-1',
+    statement: 'Calibrate the lens array',
+    rationale: null,
+    status: 'PROPOSED',
+    promotedToTaskId: null,
+    createdAt: 1755000011000,
+  },
+}
+const CREATE_NA_WSLESS: CreateNextActionResult = {
+  nextAction: {
+    id: 'NA-2',
+    workstreamId: null,
+    statement: 'Scope the fallback sensor',
+    rationale: 'Awaiting the sensor decision',
+    status: 'PROPOSED',
+    promotedToTaskId: null,
+    createdAt: 1755000011000,
+  },
+}
+const PROMOTE_NA: PromoteNextActionResult = {
+  nextActionId: 'NA-1',
+  taskId: 'T-5',
+  workstreamId: 'WS-1',
+  planPath: 'topics/TPC-1/workstreams/WS-1/plan.yaml',
+  newOrder: ['G-1', 'T-5', 'T-1', 'T-2', 'T-3', 'M-1', 'T-4', 'G-2'],
+  managementActionId: 'MA-43',
+}
+const DISMISS_NA: DismissNextActionResult = {
+  nextAction: {
+    id: 'NA-1',
+    workstreamId: 'WS-1',
+    statement: 'Calibrate the lens array',
+    rationale: null,
+    status: 'DISMISSED',
+    promotedToTaskId: null,
+    createdAt: 1755000011000,
+  },
+}
+const DISMISS_NA_WSLESS: DismissNextActionResult = {
+  nextAction: {
+    id: 'NA-2',
+    workstreamId: null,
+    statement: 'Scope the fallback sensor',
+    rationale: 'Awaiting the sensor decision',
+    status: 'DISMISSED',
+    promotedToTaskId: null,
+    createdAt: 1755000011000,
+  },
+}
+const CREATE_BLK: CreateBlockerResult = {
+  blocker: {
+    id: 'BLK-1',
+    statement: 'Awaiting reviewer sign-off',
+    affects: [{ kind: 'WORKSTREAM', id: 'WS-1' }],
+    status: 'ACTIVE',
+    source: 'reviewer note',
+    references: null,
+    createdAt: 1755000012000,
+    clearedAt: null,
+  },
+}
+const CLEAR_BLK: ClearBlockerResult = {
+  blocker: {
+    id: 'BLK-1',
+    statement: 'Awaiting reviewer sign-off',
+    affects: [{ kind: 'WORKSTREAM', id: 'WS-1' }],
+    status: 'CLEARED',
+    source: 'reviewer note',
+    references: null,
+    createdAt: 1755000012000,
+    clearedAt: 1755000013000,
+  },
+}
+
 describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
   it('reorderPlan → the workstream slice ONLY (plan order; history never — ledger, not events)', () => {
     const keys = INVALIDATE_REGISTRY.reorderPlan(REORDER, populatedState())
@@ -204,9 +328,12 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
     expect(keys).toEqual(['workstreams:WS-1'])
   })
 
-  it('updateInterventionState → dashboard only (the INV-ATTN-1 intervention lists)', () => {
-    const keys = INVALIDATE_REGISTRY.updateInterventionState(UPDATE_IV, populatedState())
-    expect(keys).toEqual(['dashboard'])
+  it('updateInterventionState → dashboard + every CACHED current:<ws> (UI-4: the zone intervention group; result carries no workstreamIds)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.updateInterventionState(UPDATE_IV, populatedState()))).toEqual(
+      new Set(['dashboard', 'current:WS-1', 'current:WS-2']),
+    )
+    // Idle cache: only `dashboard` — the current family is listed but empty.
+    expect(INVALIDATE_REGISTRY.updateInterventionState(UPDATE_IV, initialResearchStoreState())).toEqual(['dashboard'])
   })
 
   it('registerInteraction → project only (§27.2 upcoming interactions face)', () => {
@@ -248,12 +375,12 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
     expect(new Set(keys)).toEqual(new Set(['dashboard', 'project']))
   })
 
-  it('setCurrentFocus → the RESULT workstream\'s currentFocus slice ONLY (UI-0.4, R-01)', () => {
+  it("setCurrentFocus → the RESULT workstream's CF slice + its CACHED current:<ws> (UI-0.4 R-01; UI-4 ADJ-14: the aggregate's derived projection derives FROM the pointer — exact, not a conservative listing)", () => {
     const keys = INVALIDATE_REGISTRY.setCurrentFocus(SET_FOCUS, populatedState())
-    expect(keys).toEqual(['currentFocus:WS-1'])
+    expect(keys).toEqual(['currentFocus:WS-1', 'current:WS-1'])
   })
 
-  it('setCurrentFocus is state-independent: idle CF cache yields the SAME key', () => {
+  it('setCurrentFocus with an idle current cache → the CF slice ONLY (state dependence is exact: only a CACHED current:<ws> is listed)', () => {
     const keys = INVALIDATE_REGISTRY.setCurrentFocus(SET_FOCUS, initialResearchStoreState())
     expect(keys).toEqual(['currentFocus:WS-1'])
   })
@@ -308,6 +435,70 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
   })
 })
 
+describe('INVALIDATE_REGISTRY — the six UI-4 workstream-management rules', () => {
+  it('updateObjective → project + every CACHED current:<ws> (the objective set renders in both; result carries no workstreamId)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.updateObjective(UPDATE_OBJ, populatedState()))).toEqual(
+      new Set(['project', 'current:WS-1', 'current:WS-2']),
+    )
+    // Idle cache: only `project` — the current family is listed but empty.
+    expect(INVALIDATE_REGISTRY.updateObjective(UPDATE_OBJ, initialResearchStoreState())).toEqual(['project'])
+  })
+
+  it('createNextAction (ws-scoped) → the owning current:<ws> slice ONLY', () => {
+    expect(INVALIDATE_REGISTRY.createNextAction(CREATE_NA, populatedState())).toEqual(['current:WS-1'])
+    // The rule is state-independent — the NA names its own ws.
+    expect(INVALIDATE_REGISTRY.createNextAction(CREATE_NA, initialResearchStoreState())).toEqual(['current:WS-1'])
+  })
+
+  it('createNextAction (workstream-less NA) → defensive every-CACHED current:<ws> (the NA renders nowhere)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.createNextAction(CREATE_NA_WSLESS, populatedState()))).toEqual(
+      new Set(['current:WS-1', 'current:WS-2']),
+    )
+    expect(INVALIDATE_REGISTRY.createNextAction(CREATE_NA_WSLESS, initialResearchStoreState())).toEqual([])
+  })
+
+  it('promoteNextAction → the RESULT current:<ws> + workstreams:<ws> (plan.yaml gained the new task)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.promoteNextAction(PROMOTE_NA, populatedState()))).toEqual(
+      new Set(['current:WS-1', 'workstreams:WS-1']),
+    )
+    expect(new Set(INVALIDATE_REGISTRY.promoteNextAction(PROMOTE_NA, initialResearchStoreState()))).toEqual(
+      new Set(['current:WS-1', 'workstreams:WS-1']),
+    )
+  })
+
+  it('dismissNextAction (ws-scoped) → the owning current:<ws> slice ONLY (echoed NA DTO carries the ws)', () => {
+    expect(INVALIDATE_REGISTRY.dismissNextAction(DISMISS_NA, populatedState())).toEqual(['current:WS-1'])
+  })
+
+  it('dismissNextAction (workstream-less NA) → defensive every-CACHED current:<ws>', () => {
+    expect(new Set(INVALIDATE_REGISTRY.dismissNextAction(DISMISS_NA_WSLESS, populatedState()))).toEqual(
+      new Set(['current:WS-1', 'current:WS-2']),
+    )
+    expect(INVALIDATE_REGISTRY.dismissNextAction(DISMISS_NA_WSLESS, initialResearchStoreState())).toEqual([])
+  })
+
+  it('createBlocker → every CACHED current:<ws> (the affected ws set is not derivable from the result)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.createBlocker(CREATE_BLK, populatedState()))).toEqual(
+      new Set(['current:WS-1', 'current:WS-2']),
+    )
+    expect(INVALIDATE_REGISTRY.createBlocker(CREATE_BLK, initialResearchStoreState())).toEqual([])
+  })
+
+  it('clearBlocker → same set as createBlocker (the row flips to CLEARED in every affected zone)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.clearBlocker(CLEAR_BLK, populatedState()))).toEqual(
+      new Set(['current:WS-1', 'current:WS-2']),
+    )
+    expect(INVALIDATE_REGISTRY.clearBlocker(CLEAR_BLK, initialResearchStoreState())).toEqual([])
+  })
+
+  it('createBlocker does NOT list the workstreams slices (the frozen WorkstreamSnapshot has no blocker face)', () => {
+    for (const key of INVALIDATE_REGISTRY.createBlocker(CREATE_BLK, populatedState())) {
+      expect(key.startsWith('workstreams:')).toBe(false)
+      expect(key === 'history:WS-1').toBe(false)
+    }
+  })
+})
+
 describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
   const ALL: Array<[MutationId, (state: ResearchStoreState) => readonly string[]]> = [
     ['reorderPlan', state => INVALIDATE_REGISTRY.reorderPlan(REORDER, state)],
@@ -325,6 +516,13 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     ['dropWorkstream', state => INVALIDATE_REGISTRY.dropWorkstream(DROP_WS, state)],
     ['createLocalResearchProject', state => INVALIDATE_REGISTRY.createLocalResearchProject(CREATE_OK, state)],
     ['inspectProjectDirectory', state => INVALIDATE_REGISTRY.inspectProjectDirectory(INSPECT, state)],
+    // V2-UI-4: the six workstream-management rules join the invariant sweep.
+    ['updateObjective', state => INVALIDATE_REGISTRY.updateObjective(UPDATE_OBJ, state)],
+    ['createNextAction', state => INVALIDATE_REGISTRY.createNextAction(CREATE_NA, state)],
+    ['promoteNextAction', state => INVALIDATE_REGISTRY.promoteNextAction(PROMOTE_NA, state)],
+    ['dismissNextAction', state => INVALIDATE_REGISTRY.dismissNextAction(DISMISS_NA, state)],
+    ['createBlocker', state => INVALIDATE_REGISTRY.createBlocker(CREATE_BLK, state)],
+    ['clearBlocker', state => INVALIDATE_REGISTRY.clearBlocker(CLEAR_BLK, state)],
   ]
 
   it('NO rule invalidates a history window (WS logs are append-only; none of the 13 RPCs appends)', () => {
@@ -350,14 +548,14 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
       for (const key of rule(state)) {
         const prefix = key.includes(':') ? key.slice(0, key.indexOf(':')) : key
         expect(
-          ['dashboard', 'project', 'topics', 'workstreams', 'history', 'gitHistory', 'currentFocus'],
+          ['dashboard', 'project', 'topics', 'workstreams', 'history', 'gitHistory', 'currentFocus', 'current'],
         ).toContain(prefix)
       }
     }
   })
 
-  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces)', () => {
+  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces + the 6 UI-4 workstream-management faces)', () => {
     expect([...MUTATION_IDS].sort()).toEqual(Object.keys(INVALIDATE_REGISTRY).sort())
-    expect(MUTATION_IDS).toHaveLength(16)
+    expect(MUTATION_IDS).toHaveLength(22)
   })
 })

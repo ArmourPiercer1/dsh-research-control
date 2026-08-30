@@ -80,16 +80,20 @@ export function findByHostText(root: ReactElement, text: string): AnyElement[] {
 }
 
 /**
- * Invoke a host element's `onClick` handler with no event (the zone
- * handlers take no event argument). Throws when the element carries no
- * handler — a click on a non-interactive element is a test bug.
+ * Invoke a host element's `onClick` handler with a STUB event carrying
+ * `stopPropagation` (the zone row buttons guard with `e.stopPropagation()`
+ * to keep their click from re-selecting the row; a DOM-free click has no
+ * real event, so the harness supplies the one method they call). Throws
+ * when the element carries no handler — a click on a non-interactive
+ * element is a test bug.
  */
 export function invokeClick(el: AnyElement): void {
   const onClick = el.props.onClick
   if (typeof onClick !== 'function') {
     throw new Error(`harness: element has no onClick handler: aria-label=${String(el.props['aria-label'] ?? '')}`)
   }
-  ;(onClick as () => void)()
+  const stubEvent = { stopPropagation: () => undefined }
+  ;(onClick as (event: { stopPropagation: () => void }) => void)(stubEvent)
 }
 
 /**

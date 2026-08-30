@@ -156,11 +156,13 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   AckMissingReminderArgsSchema,
+  AddDependencyArgsSchema,
   BindProjectArgsSchema,
   ClearBlockerArgsSchema,
   CreateBlockerArgsSchema,
   CreateLocalResearchProjectArgsSchema,
   CreateNextActionArgsSchema,
+  CreatePlanItemArgsSchema,
   CreateTopicArgsSchema,
   CreateWorkstreamArgsSchema,
   DismissNextActionArgsSchema,
@@ -188,12 +190,17 @@ import {
   UnbindProjectArgsSchema,
   UpdateInterventionStateArgsSchema,
   UpdateObjectiveArgsSchema,
+  UpdatePlanItemArgsSchema,
   UpdateProjectMetadataArgsSchema,
   UpdateTopicArgsSchema,
   UpdateWorkstreamArgsSchema,
+  RemoveDependencyArgsSchema,
+  RemovePlanItemArgsSchema,
   RegisterInteractionArgsSchema,
   type AckMissingReminderArgs,
   type AckMissingReminderResult,
+  type AddDependencyArgs,
+  type AddDependencyResult,
   type BindProjectArgs,
   type BindProjectResult,
   type ClearBlockerArgs,
@@ -204,6 +211,8 @@ import {
   type CreateLocalResearchProjectResult,
   type CreateNextActionArgs,
   type CreateNextActionResult,
+  type CreatePlanItemArgs,
+  type CreatePlanItemResult,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
@@ -237,6 +246,10 @@ import {
   type PromoteNextActionResult,
   type QueryHistoryArgs,
   type QueryHistoryResult,
+  type RemoveDependencyArgs,
+  type RemoveDependencyResult,
+  type RemovePlanItemArgs,
+  type RemovePlanItemResult,
   type ReorderPlanArgs,
   type ReorderPlanResult,
   type RegisterInteractionArgs,
@@ -262,6 +275,8 @@ import {
   type UpdateInterventionStateResult,
   type UpdateObjectiveArgs,
   type UpdateObjectiveResult,
+  type UpdatePlanItemArgs,
+  type UpdatePlanItemResult,
   type UpdateProjectMetadataArgs,
   type UpdateProjectMetadataResult,
   type UpdateTopicArgs,
@@ -1233,6 +1248,43 @@ export class ResearchControlService extends TypertRemoteService {
   async clearBlocker(args: unknown): Promise<ClearBlockerResult> {
     const decoded = ClearBlockerArgsSchema.parse(args) satisfies ClearBlockerArgs
     return this.requireRpc(decoded.projectId).clearBlocker(decoded)
+  }
+
+  /* ------------------------------------------------------------------ *
+   * V2-UI-0.4 UI-5 — the plan-editor + dependency face (brief §3): the
+   * same thin decode → requireRpc fail-loud pattern (ADJ-11④). The
+   * CF revalidate for removePlanItem lives in the rpc-services wrapper
+   * (ADJ-14), not here.
+   * ------------------------------------------------------------------ */
+
+  @Remote('createPlanItem')
+  async createPlanItem(args: unknown): Promise<CreatePlanItemResult> {
+    const decoded = CreatePlanItemArgsSchema.parse(args) satisfies CreatePlanItemArgs
+    return this.requireRpc(decoded.projectId).createPlanItem(decoded)
+  }
+
+  @Remote('updatePlanItem')
+  async updatePlanItem(args: unknown): Promise<UpdatePlanItemResult> {
+    const decoded = UpdatePlanItemArgsSchema.parse(args) satisfies UpdatePlanItemArgs
+    return this.requireRpc(decoded.projectId).updatePlanItem(decoded)
+  }
+
+  @Remote('removePlanItem')
+  async removePlanItem(args: unknown): Promise<RemovePlanItemResult> {
+    const decoded = RemovePlanItemArgsSchema.parse(args) satisfies RemovePlanItemArgs
+    return this.requireRpc(decoded.projectId).removePlanItem(decoded)
+  }
+
+  @Remote('addDependency')
+  async addDependency(args: unknown): Promise<AddDependencyResult> {
+    const decoded = AddDependencyArgsSchema.parse(args) satisfies AddDependencyArgs
+    return this.requireRpc(decoded.projectId).addDependency(decoded)
+  }
+
+  @Remote('removeDependency')
+  async removeDependency(args: unknown): Promise<RemoveDependencyResult> {
+    const decoded = RemoveDependencyArgsSchema.parse(args) satisfies RemoveDependencyArgs
+    return this.requireRpc(decoded.projectId).removeDependency(decoded)
   }
 
   /* ------------------------------------------------------------------ *

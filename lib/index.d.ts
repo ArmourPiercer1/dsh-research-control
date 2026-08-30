@@ -1,4 +1,4 @@
-import { $ as RestoreDeclarativeFileResult, A as GetPortfolioInterventionsResult, B as PingResult, C as DropWorkstreamResult, Ct as UpdateWorkstreamResult, D as GetGitHistoryResult, E as GetGitHistoryArgs, F as GetWorkstreamCurrentArgs, G as QueryHistoryResult, H as PromoteNextActionArgs, I as GetWorkstreamCurrentResult, J as ReorderPlanArgs, K as RegisterInteractionArgs, L as HubOverviewResult, M as GetResearchPlaneStateResult, N as GetTopicArgs, O as GetHubOverviewArgs, P as GetWorkstreamArgs, Q as RestoreDeclarativeFileArgs, S as DropWorkstreamArgs, St as UpdateWorkstreamArgs, T as GetCurrentFocusResult, U as PromoteNextActionResult, V as ProjectSnapshot, W as QueryHistoryArgs, X as RescanArgs, Y as ReorderPlanResult, Z as RescanResult, _ as DashboardSnapshot, _t as UpdateObjectiveResult, a as ClearBlockerArgs, at as SelectPlanForkResult, b as DismissPlanForkArgs, bt as UpdateTopicArgs, c as CreateBlockerResult, ct as SetHubArgs, d as CreateNextActionArgs, et as RestoreProjectArgs, f as CreateNextActionResult, ft as UnbindProjectArgs, g as CreateWorkstreamResult, gt as UpdateObjectiveArgs, h as CreateWorkstreamArgs, ht as UpdateInterventionStateResult, i as BindProjectResult, it as SelectPlanForkArgs, j as GetResearchPlaneStateArgs, k as GetPortfolioInterventionsArgs, lt as SetHubResult, m as CreateTopicResult, mt as UpdateInterventionStateArgs, n as AckMissingReminderResult, nt as SaveResearchCheckpointArgs, o as ClearBlockerResult, ot as SetCurrentFocusArgs, p as CreateTopicArgs, pt as UnbindProjectResult, q as RegisterInteractionResult, r as BindProjectArgs, rt as SaveResearchCheckpointResult, s as CreateBlockerArgs, st as SetCurrentFocusResult, t as AckMissingReminderArgs, tt as RestoreProjectResult, u as CreateLocalResearchProjectResult, ut as TopicSnapshot, v as DismissNextActionArgs, vt as UpdateProjectMetadataArgs, w as GetCurrentFocusArgs, wt as WorkstreamSnapshot, x as DismissPlanForkResult, xt as UpdateTopicResult, y as DismissNextActionResult, yt as UpdateProjectMetadataResult, z as InspectProjectDirectoryResult } from "./rpc-contracts-D_35PPbQ.js";
+import { $ as RemoveDependencyResult, A as GetGitHistoryArgs, At as UpdateTopicArgs, B as GetWorkstreamCurrentResult, C as DismissNextActionResult, Ct as UpdateInterventionStateResult, D as DropWorkstreamResult, Dt as UpdatePlanItemResult, E as DropWorkstreamArgs, Et as UpdatePlanItemArgs, F as GetResearchPlaneStateArgs, G as ProjectSnapshot, I as GetResearchPlaneStateResult, J as QueryHistoryArgs, K as PromoteNextActionArgs, L as GetTopicArgs, M as GetHubOverviewArgs, Mt as UpdateWorkstreamArgs, N as GetPortfolioInterventionsArgs, Nt as UpdateWorkstreamResult, O as GetCurrentFocusArgs, Ot as UpdateProjectMetadataArgs, P as GetPortfolioInterventionsResult, Pt as WorkstreamSnapshot, Q as RemoveDependencyArgs, R as GetWorkstreamArgs, S as DismissNextActionArgs, St as UpdateInterventionStateArgs, T as DismissPlanForkResult, Tt as UpdateObjectiveResult, U as InspectProjectDirectoryResult, V as HubOverviewResult, W as PingResult, X as RegisterInteractionArgs, Y as QueryHistoryResult, Z as RegisterInteractionResult, _ as CreateTopicArgs, _t as SetHubResult, a as BindProjectArgs, at as RescanResult, b as CreateWorkstreamResult, bt as UnbindProjectArgs, c as ClearBlockerResult, ct as RestoreProjectArgs, dt as SaveResearchCheckpointResult, et as RemovePlanItemArgs, f as CreateLocalResearchProjectResult, ft as SelectPlanForkArgs, g as CreatePlanItemResult, gt as SetHubArgs, h as CreatePlanItemArgs, ht as SetCurrentFocusResult, i as AddDependencyResult, it as RescanArgs, j as GetGitHistoryResult, jt as UpdateTopicResult, k as GetCurrentFocusResult, kt as UpdateProjectMetadataResult, l as CreateBlockerArgs, lt as RestoreProjectResult, m as CreateNextActionResult, mt as SetCurrentFocusArgs, n as AckMissingReminderResult, nt as ReorderPlanArgs, o as BindProjectResult, ot as RestoreDeclarativeFileArgs, p as CreateNextActionArgs, pt as SelectPlanForkResult, q as PromoteNextActionResult, r as AddDependencyArgs, rt as ReorderPlanResult, s as ClearBlockerArgs, st as RestoreDeclarativeFileResult, t as AckMissingReminderArgs, tt as RemovePlanItemResult, u as CreateBlockerResult, ut as SaveResearchCheckpointArgs, v as CreateTopicResult, vt as TopicSnapshot, w as DismissPlanForkArgs, wt as UpdateObjectiveArgs, x as DashboardSnapshot, xt as UnbindProjectResult, y as CreateWorkstreamArgs, z as GetWorkstreamCurrentArgs } from "./rpc-contracts-BMHneYjx.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import s from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
@@ -134,6 +134,37 @@ interface ResearchRpcServices {
    * face has no clear (ADJ-4) — clearing the cause removes it.
    */
   clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult>;
+  /**
+   * UI-5 (brief §3): create a Task/Gate/Milestone definition and list it
+   * into the canonical plan (server-allocated id, ADJ-2; empty plan
+   * allowed, ADJ-3; PLAN_ITEM_ADDED ledger row).
+   */
+  createPlanItem(args: CreatePlanItemArgs): Promise<CreatePlanItemResult>;
+  /**
+   * UI-5 (brief §3, ADJ-4): RMW one listed plan item (omit = unchanged;
+   * explicit null = clear the optional field). NO ledger row, NO
+   * managementActionId field on the result.
+   */
+  updatePlanItem(args: UpdatePlanItemArgs): Promise<UpdatePlanItemResult>;
+  /**
+   * UI-5 (brief §3, ADJ-14): detach one listed item from the canonical
+   * plan (the definition file stays on disk, INV-PLAN-9) + PLAN_ITEM_
+   * REMOVED ledger row. The wrapper revalidates the current-focus
+   * pointer and folds `currentFocusCleared` into the result.
+   */
+  removePlanItem(args: RemovePlanItemArgs): Promise<RemovePlanItemResult>;
+  /**
+   * UI-5 (brief §3, §30 red line): persist a DEPENDS_ON edge ONLY as a
+   * RELATION_ADDED history event in the owner workstream's log (no
+   * second storage).
+   */
+  addDependency(args: AddDependencyArgs): Promise<AddDependencyResult>;
+  /**
+   * UI-5 (brief §3): RELATION_REMOVED for an ACTIVE edge (the payload
+   * redundantly mirrors the stored 5-tuple recovered from the owner log
+   * fold).
+   */
+  removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult>;
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -478,6 +509,11 @@ declare class ResearchControlService extends TypertRemoteService {
   dismissNextAction(args: unknown): Promise<DismissNextActionResult>;
   createBlocker(args: unknown): Promise<CreateBlockerResult>;
   clearBlocker(args: unknown): Promise<ClearBlockerResult>;
+  createPlanItem(args: unknown): Promise<CreatePlanItemResult>;
+  updatePlanItem(args: unknown): Promise<UpdatePlanItemResult>;
+  removePlanItem(args: unknown): Promise<RemovePlanItemResult>;
+  addDependency(args: unknown): Promise<AddDependencyResult>;
+  removeDependency(args: unknown): Promise<RemoveDependencyResult>;
   inspectProjectDirectory(args: unknown): Promise<InspectProjectDirectoryResult>;
   createLocalResearchProject(args: unknown): Promise<CreateLocalResearchProjectResult>;
   /**

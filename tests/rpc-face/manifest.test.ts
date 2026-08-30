@@ -24,6 +24,8 @@ import { researchRemotes } from '../../src/client/dsh-adapter/remote/contributio
 import {
   AckMissingReminderArgsSchema,
   AckMissingReminderResultSchema,
+  AddDependencyArgsSchema,
+  AddDependencyResultSchema,
   BindProjectArgsSchema,
   BindProjectResultSchema,
   ClearBlockerArgsSchema,
@@ -34,6 +36,8 @@ import {
   CreateLocalResearchProjectResultSchema,
   CreateNextActionArgsSchema,
   CreateNextActionResultSchema,
+  CreatePlanItemArgsSchema,
+  CreatePlanItemResultSchema,
   CreateTopicArgsSchema,
   CreateTopicResultSchema,
   CreateWorkstreamArgsSchema,
@@ -67,6 +71,10 @@ import {
   PromoteNextActionResultSchema,
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
+  RemoveDependencyArgsSchema,
+  RemoveDependencyResultSchema,
+  RemovePlanItemArgsSchema,
+  RemovePlanItemResultSchema,
   RESEARCH_CONTROL_PACKAGE,
   RESEARCH_MANAGEMENT_INVOCATIONS,
   RESEARCH_RPC_INVOCATIONS,
@@ -97,6 +105,8 @@ import {
   UpdateInterventionStateResultSchema,
   UpdateObjectiveArgsSchema,
   UpdateObjectiveResultSchema,
+  UpdatePlanItemArgsSchema,
+  UpdatePlanItemResultSchema,
   UpdateProjectMetadataArgsSchema,
   UpdateProjectMetadataResultSchema,
   UpdateTopicArgsSchema,
@@ -185,6 +195,7 @@ const getWorkstreamCurrentFixture = {
   derivedBlockers: [],
   nextActions: [],
   interventions: [],
+  dependencyEdges: [],
 }
 const updateObjectiveFixture = {
   objectiveId: 'OBJ-1',
@@ -246,13 +257,36 @@ const clearBlockerFixture = {
     clearedAt: 1755000013000,
   },
 }
+const createPlanItemFixture = {
+  itemId: 'T-9',
+  workstreamId: 'WS-1',
+  kind: 'TASK',
+  planPath: 'workstreams/WS-1/plan.yaml',
+  newOrder: ['T-1', 'G-1', 'T-9', 'M-1'],
+  managementActionId: 'MA-1',
+}
+const updatePlanItemFixture = { itemId: 'T-1', workstreamId: 'WS-1', updatedAt: 1755000020000 }
+const removePlanItemFixture = {
+  workstreamId: 'WS-1',
+  planPath: 'workstreams/WS-1/plan.yaml',
+  newOrder: ['T-1', 'G-1', 'M-1'],
+  managementActionId: 'MA-2',
+  currentFocusCleared: false,
+}
+const addDependencyFixture = {
+  relationId: 'REL-1',
+  source: { kind: 'TASK', id: 'T-1' },
+  target: { kind: 'TASK', id: 'T-9' },
+}
+const removeDependencyFixture = { relationId: 'REL-1' }
 
-/** The 40 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
+/** The 45 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
  *  V2-T3.2b: the 6 change-family plane RPCs + UI-0.4: the 4 GUI
  *  management RPCs (the 2 current-focus + the 2 hierarchy-create) +
  *  V2-UI-0.4 UI-2: the 6 GUI management RPCs (the 4 hierarchy
  *  update/drop + the 2 local-project) + V2-UI-0.4 UI-4 (D §10): the 7
- *  attention RPCs,
+ *  attention RPCs + V2-UI-0.4 UI-5 (brief §3): the 5 plan-editor
+ *  RPCs,
  *  appended after the frozen 14), each with its
  *  wire-valid result fixture. */
 const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = [
@@ -296,11 +330,17 @@ const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = 
   { method: 'dismissNextAction', resultFixture: dismissNextActionFixture },
   { method: 'createBlocker', resultFixture: createBlockerFixture },
   { method: 'clearBlocker', resultFixture: clearBlockerFixture },
+  { method: 'createPlanItem', resultFixture: createPlanItemFixture },
+  { method: 'updatePlanItem', resultFixture: updatePlanItemFixture },
+  { method: 'removePlanItem', resultFixture: removePlanItemFixture },
+  { method: 'addDependency', resultFixture: addDependencyFixture },
+  { method: 'removeDependency', resultFixture: removeDependencyFixture },
 ]
 
-/** The args-schema identity table (37 parameterized RPCs: the frozen 11
+/** The args-schema identity table (42 parameterized RPCs: the frozen 11
  *  + the 9 plane RPCs + the 10 GUI management RPCs + the 7 attention
- *  RPCs — every one carries a strict args object). */
+ *  RPCs + the 5 plan-editor RPCs (V2-UI-0.4 UI-5) — every one carries a
+ *  strict args object). */
 const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getTopic: GetTopicArgsSchema,
   getWorkstream: GetWorkstreamArgsSchema,
@@ -339,6 +379,11 @@ const argsSchemaTable: Readonly<Record<string, unknown>> = {
   dismissNextAction: DismissNextActionArgsSchema,
   createBlocker: CreateBlockerArgsSchema,
   clearBlocker: ClearBlockerArgsSchema,
+  createPlanItem: CreatePlanItemArgsSchema,
+  updatePlanItem: UpdatePlanItemArgsSchema,
+  removePlanItem: RemovePlanItemArgsSchema,
+  addDependency: AddDependencyArgsSchema,
+  removeDependency: RemoveDependencyArgsSchema,
 }
 
 /** Narrow a descriptor codec to its strict arm. */
@@ -347,13 +392,13 @@ function strictCodec(codec: TypertCodec): Extract<TypertCodec, { mode: 'strict' 
   return codec
 }
 
-describe('WP-4.1a manifest — the full 40-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2 + UI-4)', () => {
+describe('WP-4.1a manifest — the full 45-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2 + UI-4 + V2-UI-0.4 UI-5)', () => {
   it('TYPERT passes the mirrored loader validation (validateTypertManifest semantics)', () => {
     expect(() => validateTypertManifest(RESEARCH_CONTROL_PACKAGE, TYPERT)).not.toThrow()
   })
 
-  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 10 GUI management RPCs + the 7 attention RPCs, in order', () => {
-    expect(TYPERT.invocations).toHaveLength(40)
+  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 10 GUI management RPCs + the 7 attention RPCs + the 5 plan-editor RPCs (V2-UI-0.4 UI-5), in order', () => {
+    expect(TYPERT.invocations).toHaveLength(45)
     expect(TYPERT.invocations.map((i) => i.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,
@@ -383,10 +428,15 @@ describe('WP-4.1a manifest — the full 40-endpoint registered face (V2-T3.2a + 
       'dismissNextAction',
       'createBlocker',
       'clearBlocker',
+      'createPlanItem',
+      'updatePlanItem',
+      'removePlanItem',
+      'addDependency',
+      'removeDependency',
     ])
     // The host manifest re-exports the SHARED descriptors (identity):
     // index 0 is the shared ping descriptor, indices 1..13 are the shared
-    // RESEARCH_RPC_INVOCATIONS in order, indices 23..39 are the shared
+    // RESEARCH_RPC_INVOCATIONS in order, indices 23..44 are the shared
     // RESEARCH_MANAGEMENT_INVOCATIONS in order.
     expect(TYPERT.invocations[0]).toBe(pingInvocation)
     expect(TYPERT.invocations[1]).toBe(RESEARCH_RPC_INVOCATIONS[0])
@@ -408,6 +458,11 @@ describe('WP-4.1a manifest — the full 40-endpoint registered face (V2-T3.2a + 
     expect(TYPERT.invocations[37]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[14])
     expect(TYPERT.invocations[38]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[15])
     expect(TYPERT.invocations[39]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[16])
+    expect(TYPERT.invocations[40]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[17])
+    expect(TYPERT.invocations[41]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[18])
+    expect(TYPERT.invocations[42]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[19])
+    expect(TYPERT.invocations[43]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[20])
+    expect(TYPERT.invocations[44]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[21])
   })
 
   it('every invocation carries the id grammar + direct receiver + strict codecs', () => {
@@ -480,6 +535,11 @@ describe('WP-4.1a manifest — the full 40-endpoint registered face (V2-T3.2a + 
       dismissNextAction: DismissNextActionResultSchema,
       createBlocker: CreateBlockerResultSchema,
       clearBlocker: ClearBlockerResultSchema,
+      createPlanItem: CreatePlanItemResultSchema,
+      updatePlanItem: UpdatePlanItemResultSchema,
+      removePlanItem: RemovePlanItemResultSchema,
+      addDependency: AddDependencyResultSchema,
+      removeDependency: RemoveDependencyResultSchema,
     }
     for (const { method, resultFixture } of endpointFixtures) {
       const invocation = (TYPERT.invocations as readonly InvocationDescriptorMirror[]).find(
@@ -498,10 +558,10 @@ describe('WP-4.1a manifest — the full 40-endpoint registered face (V2-T3.2a + 
     }
   })
 
-  it('TYPERT.schemas covers the full contract: ping + 37 args + 39 results, live zod instances, unique names', () => {
+  it('TYPERT.schemas covers the full contract: ping + 42 args + 44 results, live zod instances, unique names', () => {
     const names = TYPERT.schemas.map((s) => s.name)
-    expect(names).toHaveLength(77)
-    expect(new Set(names).size).toBe(77)
+    expect(names).toHaveLength(87)
+    expect(new Set(names).size).toBe(87)
     for (const s of TYPERT.schemas) {
       expect('_zod' in (s.schema as object), `${s.name} must be a live zod v4 instance`).toBe(true)
     }
@@ -538,12 +598,17 @@ describe('WP-4.1a manifest — the full 40-endpoint registered face (V2-T3.2a + 
       'DropWorkstreamArgs', 'DropWorkstreamResult',
       'InspectProjectDirectoryArgs', 'InspectProjectDirectoryResult',
       'CreateLocalResearchProjectArgs', 'CreateLocalResearchProjectResult',
+      'CreatePlanItemArgs', 'CreatePlanItemResult',
+      'UpdatePlanItemArgs', 'UpdatePlanItemResult',
+      'RemovePlanItemArgs', 'RemovePlanItemResult',
+      'AddDependencyArgs', 'AddDependencyResult',
+      'RemoveDependencyArgs', 'RemoveDependencyResult',
     ]) {
       expect(names, `missing schema entry ${expected}`).toContain(expected)
     }
   })
 
-  it('the model carries the full 40-member service face', () => {
+  it('the model carries the full 45-member service face', () => {
     const [service] = TYPERT.model.services
     expect(TYPERT.model.events).toEqual([])
     expect(TYPERT.model.objects).toEqual([])
@@ -578,6 +643,11 @@ describe('WP-4.1a manifest — the full 40-endpoint registered face (V2-T3.2a + 
       'dismissNextAction',
       'createBlocker',
       'clearBlocker',
+      'createPlanItem',
+      'updatePlanItem',
+      'removePlanItem',
+      'addDependency',
+      'removeDependency',
     ])
     for (const member of service.members) {
       expect(member.kind).toBe('method')
@@ -607,12 +677,17 @@ describe('WP-4.1a manifest — the full 40-endpoint registered face (V2-T3.2a + 
     expect(service.types.map((t) => t.name)).toContain('DismissNextActionResult')
     expect(service.types.map((t) => t.name)).toContain('CreateBlockerResult')
     expect(service.types.map((t) => t.name)).toContain('ClearBlockerResult')
+    expect(service.types.map((t) => t.name)).toContain('CreatePlanItemResult')
+    expect(service.types.map((t) => t.name)).toContain('UpdatePlanItemResult')
+    expect(service.types.map((t) => t.name)).toContain('RemovePlanItemResult')
+    expect(service.types.map((t) => t.name)).toContain('AddDependencyResult')
+    expect(service.types.map((t) => t.name)).toContain('RemoveDependencyResult')
   })
 
-  it('③ the client contribution exports the SAME 40 strict descriptor objects (no drift)', () => {
+  it('③ the client contribution exports the SAME 45 strict descriptor objects (no drift)', () => {
     expect(researchRemotes.package).toBe(RESEARCH_CONTROL_PACKAGE)
-    expect(researchRemotes.descriptors).toHaveLength(40)
-    for (let i = 0; i < 40; i += 1) {
+    expect(researchRemotes.descriptors).toHaveLength(45)
+    for (let i = 0; i < 45; i += 1) {
       expect(researchRemotes.descriptors[i], `descriptor ${i} identity`).toBe(TYPERT.invocations[i])
     }
     // And the first (ping) remains the WP-0.3 shared object.

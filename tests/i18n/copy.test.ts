@@ -98,6 +98,44 @@ describe('i18n copy (UI-3 D6)', () => {
       'ws.current.task',
       'ws.current.title',
       'ws.current.validation',
+      'ws.future.create.fault',
+      'ws.future.create.kind',
+      'ws.future.create.pending',
+      'ws.future.create.title',
+      'ws.future.dep.add',
+      'ws.future.dep.addTarget',
+      'ws.future.dep.dependedBy',
+      'ws.future.dep.dependsOn',
+      'ws.future.dep.empty',
+      'ws.future.dep.fault',
+      'ws.future.dep.remove',
+      'ws.future.dep.title',
+      'ws.future.edit.fault',
+      'ws.future.edit.fieldAcceptanceCriteria',
+      'ws.future.edit.fieldCriteria',
+      'ws.future.edit.fieldDeliverables',
+      'ws.future.edit.fieldGoal',
+      'ws.future.edit.fieldNote',
+      'ws.future.edit.fieldReferences',
+      'ws.future.edit.fieldStatement',
+      'ws.future.edit.pending',
+      'ws.future.edit.title',
+      'ws.future.graph.legendCanonical',
+      'ws.future.graph.legendDependency',
+      'ws.future.pfBadge',
+      'ws.future.remove.deleteUnused',
+      'ws.future.remove.drop',
+      'ws.future.remove.fault',
+      'ws.future.remove.fromPlan',
+      'ws.future.remove.pending',
+      'ws.future.strip.addHead',
+      'ws.future.strip.addRow',
+      'ws.future.strip.empty',
+      'ws.future.strip.moveLeft',
+      'ws.future.strip.moveRight',
+      'ws.future.strip.reorderFault',
+      'ws.future.strip.reorderPending',
+      'ws.future.strip.title',
       'ws.header.focus',
       'ws.header.objective',
       'ws.metaOpenForks',
@@ -132,6 +170,15 @@ describe('i18n copy (UI-3 D6)', () => {
     // UI-4 (B §15.5): the blocker source tags are verbatim-frozen
     expect(t('ws.current.blockerExplicit')).toBe('[Explicit]')
     expect(t('ws.current.blockerDerived')).toBe('[Derived]')
+    // UI-5 (B §18.3): the graph legend is verbatim-frozen (the 4× U+2500
+    // canonical rule + the 3× hyphen-space dependency dash).
+    expect(t('ws.future.graph.legendCanonical')).toBe('──── Canonical order')
+    expect(t('ws.future.graph.legendDependency')).toBe('- - - Dependency')
+    // UI-5 (B §19.4): the three-state Remove labels are verbatim-frozen
+    // (a unified "Delete" is forbidden).
+    expect(t('ws.future.remove.fromPlan')).toBe('Remove from Future Plan')
+    expect(t('ws.future.remove.drop')).toBe('Drop planned item')
+    expect(t('ws.future.remove.deleteUnused')).toBe('Delete unused item')
   })
 
   it('investigator has no nav label (hidden from first level, B §2.1)', () => {

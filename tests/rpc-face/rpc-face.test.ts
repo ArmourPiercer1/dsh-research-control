@@ -126,6 +126,7 @@ function makeStub(): { stub: ResearchRpcServices; calls: Map<string, unknown[]> 
         derivedBlockers: [],
         nextActions: [],
         interventions: [],
+        dependencyEdges: [],
       }
     },
     async updateObjective(a) {
@@ -205,6 +206,50 @@ function makeStub(): { stub: ResearchRpcServices; calls: Map<string, unknown[]> 
           clearedAt: 1,
         },
       }
+    },
+    // UI-5 (brief §3): the 5 plan-editor face port methods (the same
+    // type-level no-drift rule as the UI-4 entries — this frozen-13
+    // suite never invokes them).
+    async createPlanItem(a) {
+      record('createPlanItem')(a)
+      return {
+        itemId: 'T-9',
+        workstreamId: a.workstreamId,
+        kind: a.kind,
+        planPath: 'workstreams/WS-1/plan.yaml',
+        newOrder: ['T-9'],
+        managementActionId: 'MA-1',
+      }
+    },
+    async updatePlanItem(a) {
+      record('updatePlanItem')(a)
+      return {
+        itemId: a.itemId,
+        workstreamId: a.workstreamId,
+        updatedAt: 1,
+      }
+    },
+    async removePlanItem(a) {
+      record('removePlanItem')(a)
+      return {
+        workstreamId: a.workstreamId,
+        planPath: 'workstreams/WS-1/plan.yaml',
+        newOrder: [],
+        managementActionId: 'MA-1',
+        currentFocusCleared: false,
+      }
+    },
+    async addDependency(a) {
+      record('addDependency')(a)
+      return {
+        relationId: 'REL-1',
+        source: a.source,
+        target: a.target,
+      }
+    },
+    async removeDependency(a) {
+      record('removeDependency')(a)
+      return { relationId: a.relationId }
     },
     updateInterventionState(a) {
       record('updateInterventionState')(a)
@@ -416,6 +461,17 @@ describe('WP-4.1a host RPC face — zod negatives (bad params rejected at the bo
     { method: 'getGitHistory', bad: { maxCount: 0 }, named: /maxCount/ },
     { method: 'restoreDeclarativeFile', bad: { commitOid: 'xyz', path: '.research/project.yaml' }, named: /commitOid/ },
     { method: 'restoreDeclarativeFile', bad: { commitOid: 'a'.repeat(40) }, named: /path/ },
+    // V2-UI-0.4 UI-5 (brief §3): the 5 plan-editor faces reject bad wire
+    // args at the boundary (strict shapes + frozen id patterns).
+    { method: 'createPlanItem', bad: { workstreamId: 'WS-1', kind: 'TASK' }, named: /item/ },
+    { method: 'createPlanItem', bad: { workstreamId: 'WS-1', kind: 'STEP', item: { task: { title: 'x' } } }, named: /kind/ },
+    { method: 'createPlanItem', bad: { workstreamId: 'WS-1', kind: 'TASK', item: { task: { title: '' } } }, named: /title/ },
+    { method: 'createPlanItem', bad: { workstreamId: 'WS-1', kind: 'TASK', item: { task: { title: 'x', surprise: 1 } } }, named: /surprise/ },
+    { method: 'updatePlanItem', bad: { workstreamId: 'WS-1', itemId: 'T-1', changes: { surprise: 1 } }, named: /surprise/ },
+    { method: 'updatePlanItem', bad: { workstreamId: 'WS-1', itemId: 'T-1', changes: { goal: 3 } }, named: /goal/ },
+    { method: 'removePlanItem', bad: { workstreamId: 'WS-1', itemId: 'T-0' }, named: /T-/ },
+    { method: 'addDependency', bad: { workstreamId: 'WS-1', source: { kind: 'TASK', id: 'T-1' }, target: { kind: 'EPIC', id: 'T-2' } }, named: /kind/ },
+    { method: 'removeDependency', bad: { workstreamId: 'WS-1', relationId: 'REL-0' }, named: /REL/ },
   ]
 
   for (const n of negatives) {

@@ -17,18 +17,28 @@
  *    invalidate/refetch registry refreshes the slice — the overlay then
  *    re-derives from the fresh snapshot (no manual state sync).
  *
+ * The extended face (UI-5): with `extended` set (the workstream page
+ * mount), the container additionally subscribes the `current:<ws>` slice
+ * (dependencyEdges — ADJ-7) and the `currentFocus:<ws>` slice (the focus
+ * marker), lazy-loads both (deduped against the page's own loads), and
+ * renders the graph with the dependency edges + the focus marker + the
+ * PF downgrade (ADJ-1/9). The cockpit mount (no `extended`) keeps the
+ * exact WP-4.5 behavior: one slice, one fetch, no extras.
+ *
  * The presentation component (`PlanGraphView`) below stays pure props.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 import {
   idleSlice,
+  type GetCurrentFocusResult,
+  type GetWorkstreamCurrentResult,
   type ResearchStore,
   type ResearchStoreState,
   type SliceState,
   type WorkstreamSnapshot,
 } from '../stores/index.js'
-import { planToGraph } from './plan-model.js'
+import { planToGraph, type PlanGraphExtras } from './plan-model.js'
 import { PlanGraphView } from './PlanGraphView.js'
 import { ConfirmDialog } from './ConfirmDialog.js'
 import { useStoreSnapshotSelected } from './store-binding.js'
@@ -36,6 +46,9 @@ import { PLAN_GRAPH_STYLES as styles, ensureGraphStyles } from './graph-styles.j
 
 /** Reference-stable idle sentinel (a value — NOT a store handle). */
 const IDLE_WS = idleSlice<WorkstreamSnapshot>()
+/** UI-5 (ADJ-7/9): idle sentinels for the extended face's two extra slices. */
+const IDLE_CURRENT = idleSlice<GetWorkstreamCurrentResult>()
+const IDLE_FOCUS = idleSlice<GetCurrentFocusResult>()
 
 /** The pending user action (the confirmation dialog's payload). */
 interface PendingAction {
@@ -48,17 +61,67 @@ export interface PlanGraphContainerProps {
   readonly store: ResearchStore
   /** The workstream whose Future Plan zone is rendered. */
   readonly workstreamId: string
+  /**
+   * UI-5 (ADJ-6): the canonical plan item selected in the strip — the
+   * page owns the selection state (a view-state `useState`, never
+   * persisted) and the container stamps it onto the graph node. Only
+   * consumed when `extended` is set.
+   */
+  readonly selectedItemId?: string | null
+  /**
+   * UI-5 (ADJ-1): node-click → selection callback (canonical nodes only —
+   * ghosts/forks are not selectable). Only consumed when `extended` is
+   * set; absent = the WP-4.5 face (no node interaction).
+   */
+  readonly onNodeSelect?: (itemId: string) => void
+  /**
+   * UI-5 (ADJ-7/9): the extended face (the workstream page mount).
+   * Additionally subscribes the `current:<ws>` slice (dependencyEdges —
+   * ADJ-7) and the `currentFocus:<ws>` slice (the focus marker), lazy
+   * loads both, and renders the graph with the PlanFork zone visually
+   * downgraded (ADJ-9). Absent (the cockpit mount) = the exact WP-4.5
+   * behavior: one slice, one fetch, no extras.
+   */
+  readonly extended?: boolean
 }
 
 /**
  * Container: store slice → derived graph → PlanGraphView + the PF
  * confirmation dialogs.
  */
-export function PlanGraphContainer({ store, workstreamId }: PlanGraphContainerProps): ReactElement {
+export function PlanGraphContainer({
+  store,
+  workstreamId,
+  selectedItemId = null,
+  onNodeSelect,
+  extended = false,
+}: PlanGraphContainerProps): ReactElement {
   const slice: SliceState<WorkstreamSnapshot> = useStoreSnapshotSelected(
     store,
     useCallback(
       (state: ResearchStoreState) => state.workstreams.get(workstreamId) ?? IDLE_WS,
+      [workstreamId],
+    ),
+  )
+
+  // UI-5 (extended face): the dependency edges (ADJ-7) and the focus
+  // pointer (the CF marker) ride on their own slices. The subscriptions
+  // are always live (hook order is stable — a rule of React), but the
+  // lazy loads below only fire when `extended`: the cockpit mount stays
+  // one slice + one fetch, and the idle sentinels keep the two extra
+  // selectors reference-stable (no re-render cost where no data ever
+  // arrives).
+  const currentSlice: SliceState<GetWorkstreamCurrentResult> = useStoreSnapshotSelected(
+    store,
+    useCallback(
+      (state: ResearchStoreState) => state.current.get(workstreamId) ?? IDLE_CURRENT,
+      [workstreamId],
+    ),
+  )
+  const focusSlice: SliceState<GetCurrentFocusResult> = useStoreSnapshotSelected(
+    store,
+    useCallback(
+      (state: ResearchStoreState) => state.currentFocus.get(workstreamId) ?? IDLE_FOCUS,
       [workstreamId],
     ),
   )
@@ -73,11 +136,45 @@ export function PlanGraphContainer({ store, workstreamId }: PlanGraphContainerPr
     })
   }, [store, workstreamId])
 
+  // UI-5 (extended face): the two extra slices lazy-load alongside the
+  // workstream slice. The store dedupes in-flight fetches per slice key,
+  // so the page's own loads of the same keys never double-fetch.
+  useEffect(() => {
+    if (!extended) return
+    void store.loadWorkstreamCurrent({ workstreamId }).catch(() => {
+      // Faults surface in the page's Current zone; the graph simply has
+      // no dependency edges (the idle sentinel → the empty list).
+    })
+    void store.getCurrentFocus({ workstreamId }).catch(() => {
+      // Same: the focus marker stays unmarked on fault.
+    })
+  }, [store, workstreamId, extended])
+
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const graph = useMemo(() => (slice.data ? planToGraph(slice.data) : null), [slice.data])
+  // UI-5 (ADJ-1/7/9): the extended face feeds `planToGraph` its extras —
+  // the dependency edges (both endpoints must sit in the canonical plan,
+  // enforced inside planToGraph), the focus marker (clamped to a
+  // canonical id there), and the PF downgrade switch. Non-extended:
+  // `undefined` = the exact WP-4.5 projection.
+  const graphExtras: PlanGraphExtras | undefined = useMemo(
+    () =>
+      extended
+        ? {
+            dependencyEdges: currentSlice.data?.dependencyEdges ?? [],
+            focusedItemId: focusSlice.data?.focus?.planItemId ?? null,
+            pfDowngraded: true,
+          }
+        : undefined,
+    [extended, currentSlice.data, focusSlice.data],
+  )
+
+  const graph = useMemo(
+    () => (slice.data ? planToGraph(slice.data, graphExtras) : null),
+    [slice.data, graphExtras],
+  )
 
   const openSelect = useCallback((planForkId: string) => {
     setActionError(null)
@@ -134,6 +231,8 @@ export function PlanGraphContainer({ store, workstreamId }: PlanGraphContainerPr
           unresolvedCount={slice.data.future.unresolvedPlanForkCount}
           onSelectFork={openSelect}
           onDismissFork={openDismiss}
+          selectedItemId={extended ? selectedItemId : undefined}
+          onNodeSelect={extended ? onNodeSelect : undefined}
         />
       )}
 

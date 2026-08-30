@@ -37,7 +37,10 @@ import type { StoreSnapshotSource } from '../stores/engine.js'
 export function useStoreSnapshot<T>(source: StoreSnapshotSource<T>): T {
   const subscribe = useCallback((onChange: () => void) => source.subscribe(onChange), [source])
   const getSnapshot = useCallback(() => source.getSnapshot(), [source])
-  return useSyncExternalStore(subscribe, getSnapshot)
+  // the same snapshot serves the server pass (the store is a plain JS
+  // object — no client/server identity split; matches the WS-page
+  // binding, which SSRs the same way):
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
 /**
@@ -62,5 +65,7 @@ export function useStoreSnapshotSelected<T, S>(
     cache.current = { selected: next }
     return next
   }, [getSnapshot, selector])
-  return useSyncExternalStore(subscribe, getSelected)
+  // SSR: the selected projection of the (plain JS) snapshot is a valid
+  // server snapshot — the same reasoning as the bare hook above.
+  return useSyncExternalStore(subscribe, getSelected, getSelected)
 }

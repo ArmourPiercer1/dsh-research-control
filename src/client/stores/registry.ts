@@ -25,6 +25,9 @@
  * |                        | contract pins that ResearchHistory does not record plan management  |
  * |                        | ops (management_action ledger instead, rpc-contracts §6 note).      |
  * |                        | Topic cards carry `planItemCount` (item count — reorder-invariant). |
+ * |                        | UI-5 (ADJ-8) EXTENDED: PLUS `current:<ws>` — the unified            |
+ * |                        | plan-editor rule set (the current face's plan projection re-derives |
+ * |                        | after a reorder).                                                   |
  * | selectPlanFork         | `workstreams:<ws>` — SELECT materializes `newOrder`/`newItems`/     |
  * |                        | `removedIds` and chain-stales the other OPEN PFs of the ws          |
  * |                        | (`staleOthers`) → the ws `future` zone; PLUS `topics:<topic>` when  |
@@ -74,6 +77,22 @@
  * |                        | slice has no blocker face (frozen WorkstreamSnapshot).              |
  * | clearBlocker (UI-4)    | same set as createBlocker — the blocker row flips to CLEARED in     |
  * |                        | every affected current zone.                                        |
+ * | createPlanItem (UI-5)  | `workstreams:<ws>` + `current:<ws>` (ADJ-8 unified) — plan.yaml     |
+ * |                        | gains the item (future zone) and the current face's plan projection |
+ * |                        | re-derives (a new gate changes the derived-blocker inputs). The     |
+ * |                        | result carries the workstreamId.                                    |
+ * | updatePlanItem (UI-5)  | `workstreams:<ws>` + `current:<ws>` (ADJ-8) — an item's fields      |
+ * |                        | change in place.                                                    |
+ * | removePlanItem (UI-5)  | `workstreams:<ws>` + `current:<ws>` (ADJ-8) — the item leaves the   |
+ * |                        | order; when it WAS the current focus the CF pointer is cleared      |
+ * |                        | (ADJ-14) and the current slice refetch picks up the cleared         |
+ * |                        | projection.                                                         |
+ * | addDependency (UI-5)   | the result carries no workstreamId (relationId + echoed endpoints)  |
+ * |                        | → conservative CACHED `workstreams:*` + `current:*` family listing  |
+ * |                        | (refetch pass skips idle slices) — the ADJ-7 dependencyEdges        |
+ * |                        | projection lives in the owning ws's current face.                   |
+ * | removeDependency (UI-5)| same shape as addDependency — the edge leaves the ADJ-7             |
+ * |                        | dependencyEdges projection.                                         |
  *
  * History slices (`history:*`) are intentionally NEVER invalidated by a
  * client mutation: the WS event log is append-only and none of the 13
@@ -83,10 +102,12 @@
  */
 
 import type {
+  AddDependencyResult,
   ClearBlockerResult,
   CreateBlockerResult,
   CreateLocalResearchProjectResult,
   CreateNextActionResult,
+  CreatePlanItemResult,
   CreateTopicResult,
   CreateWorkstreamResult,
   DismissNextActionResult,
@@ -96,12 +117,15 @@ import type {
   PromoteNextActionResult,
   RegisterInteractionResult,
   ReorderPlanResult,
+  RemoveDependencyResult,
+  RemovePlanItemResult,
   RestoreDeclarativeFileResult,
   SaveResearchCheckpointResult,
   SetCurrentFocusResult,
   SelectPlanForkResult,
   UpdateInterventionStateResult,
   UpdateObjectiveResult,
+  UpdatePlanItemResult,
   UpdateProjectMetadataResult,
   UpdateTopicResult,
   UpdateWorkstreamResult,
@@ -113,7 +137,7 @@ import {
 } from './model.js'
 
 /**
- * The twenty-two client-side mutations: the eight of the frozen 13-RPC
+ * The twenty-seven client-side mutations: the eight of the frozen 13-RPC
  * list (the seven WP-4.1b mutations + `setCurrentFocus`, UI-0.4 R-01 —
  * `getCurrentFocus` is a query, not a mutation) plus the six V2-UI-0.4
  * UI-2 GUI management faces (the 4 hierarchy update/drop RPCs, UI-2A,
@@ -125,7 +149,11 @@ import {
  * workstream-management faces (`updateObjective` / `createNextAction` /
  * `promoteNextAction` / `dismissNextAction` / `createBlocker` /
  * `clearBlocker` — the host RPCs landed with the UI-4 host write-face;
- * the client store wiring lands in this slice).
+ * the client store wiring lands in this slice) plus the five V2-UI-0.4
+ * UI-5 plan-editor faces (`createPlanItem` / `updatePlanItem` /
+ * `removePlanItem` / `addDependency` / `removeDependency` — the host
+ * RPCs + client facade landed in this slice; `reorderPlan`'s rule is
+ * EXTENDED per ADJ-8 to the same unified set).
  */
 export type MutationId =
   | 'reorderPlan'
@@ -150,6 +178,11 @@ export type MutationId =
   | 'dismissNextAction'
   | 'createBlocker'
   | 'clearBlocker'
+  | 'createPlanItem'
+  | 'updatePlanItem'
+  | 'removePlanItem'
+  | 'addDependency'
+  | 'removeDependency'
 
 export const MUTATION_IDS: readonly MutationId[] = [
   'reorderPlan',
@@ -174,6 +207,11 @@ export const MUTATION_IDS: readonly MutationId[] = [
   'dismissNextAction',
   'createBlocker',
   'clearBlocker',
+  'createPlanItem',
+  'updatePlanItem',
+  'removePlanItem',
+  'addDependency',
+  'removeDependency',
 ]
 
 /** One registry rule: pure (result, state) -> affected global slice keys. */
@@ -209,8 +247,20 @@ export const INVALIDATE_REGISTRY: {
   readonly dismissNextAction: InvalidationRule<DismissNextActionResult>
   readonly createBlocker: InvalidationRule<CreateBlockerResult>
   readonly clearBlocker: InvalidationRule<ClearBlockerResult>
+  readonly createPlanItem: InvalidationRule<CreatePlanItemResult>
+  readonly updatePlanItem: InvalidationRule<UpdatePlanItemResult>
+  readonly removePlanItem: InvalidationRule<RemovePlanItemResult>
+  readonly addDependency: InvalidationRule<AddDependencyResult>
+  readonly removeDependency: InvalidationRule<RemoveDependencyResult>
 } = {
-  reorderPlan: (result, _state) => [sliceKey('workstreams', result.workstreamId)],
+  // UI-5 (ADJ-8): the frozen rule is EXTENDED — unified with the five
+  // plan-editor mutations below: `workstreams:<ws>` + `current:<ws>`.
+  // The `current` key is listed unconditionally (the promoteNextAction
+  // precedent); the refetch pass skips idle slices.
+  reorderPlan: (result, _state) => [
+    sliceKey('workstreams', result.workstreamId),
+    sliceKey('current', result.workstreamId),
+  ],
 
   selectPlanFork: (result, state) => {
     const keys: SliceKey[] = [sliceKey('workstreams', result.workstreamId)]
@@ -370,6 +420,39 @@ export const INVALIDATE_REGISTRY: {
   // clearBlocker: same set as createBlocker — the blocker row flips to
   // CLEARED in every affected current zone.
   clearBlocker: (_result, state) => cachedCurrentKeys(state),
+
+  // V2-UI-0.4 UI-5 (ADJ-8): the five plan-editor mutations — the unified
+  // `workstreams:<ws>` + `current:<ws>` set. plan.yaml (future zone) and
+  // the current face's plan projection (+ dependencyEdges, ADJ-7) both
+  // re-derive; a created gate changes the derived-blocker inputs and a
+  // remove may clear the CF pointer (ADJ-14). The three item rules read
+  // the workstreamId from the result (direct addressing); the two
+  // dependency rules cannot (relationId + echoed endpoints only) and list
+  // the cached family conservatively — the refetch pass skips idle slices.
+  createPlanItem: (result, _state) => [
+    sliceKey('workstreams', result.workstreamId),
+    sliceKey('current', result.workstreamId),
+  ],
+
+  updatePlanItem: (result, _state) => [
+    sliceKey('workstreams', result.workstreamId),
+    sliceKey('current', result.workstreamId),
+  ],
+
+  removePlanItem: (result, _state) => [
+    sliceKey('workstreams', result.workstreamId),
+    sliceKey('current', result.workstreamId),
+  ],
+
+  addDependency: (_result, state) => [
+    ...[...state.workstreams.keys()].map(key => sliceKey('workstreams', key)),
+    ...cachedCurrentKeys(state),
+  ],
+
+  removeDependency: (_result, state) => [
+    ...[...state.workstreams.keys()].map(key => sliceKey('workstreams', key)),
+    ...cachedCurrentKeys(state),
+  ],
 }
 
 /**

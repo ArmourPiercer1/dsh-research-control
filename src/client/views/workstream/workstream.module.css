@@ -430,3 +430,212 @@
   color: var(--rc-danger);
   font-size: 13px;
 }
+
+/* -- UI-5 (D4): the ordered strip (B §16: strip top + graph bottom) -- */
+
+/* The Future column wrapper: the strip zone on top, the plan graph
+   below (B §16). */
+.futureColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* The selected strip row (ADJ-6 view-state selection; the graph stamps
+   the same id onto its node). */
+.rowSelected {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+/* The per-slot create entry (`+` at the head / after a row — B §11.4). */
+.addSlot {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+.addButton {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px dashed var(--rc-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--rc-accent);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.addButton:hover {
+  border-color: var(--rc-accent);
+  background: var(--rc-accent-soft);
+}
+
+/* The three-state Remove button (B §19.4 — the label carries the state). */
+.removeButton {
+  padding: 2px 8px;
+  border: 1px solid var(--rc-danger);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--rc-danger);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.removeButton:hover:not(:disabled) {
+  background: var(--rc-surface-alt);
+}
+
+.removeButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The PF count badge (ADJ-9 — collapsed by default; the expanded body
+   is the read-only seam rows, the actionable face stays in the graph). */
+.pfDetails {
+  margin-bottom: 8px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface-alt);
+  padding: 4px 8px;
+}
+
+.pfSummary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rc-warn);
+}
+
+/* The create/edit form cards. */
+.formCard {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--rc-accent);
+  border-radius: 6px;
+  background: var(--rc-surface);
+}
+
+.formLabel {
+  display: block;
+  margin-top: 8px;
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+.formField {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 4px 6px;
+  border: 1px solid var(--rc-border);
+  border-radius: 4px;
+  background: var(--rc-surface);
+  color: var(--rc-text);
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.formActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.formSave,
+.formCancel {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.formSave {
+  border: 1px solid var(--rc-accent);
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+}
+
+.formSave:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.formCancel {
+  border: 1px solid var(--rc-border);
+  background: transparent;
+  color: var(--rc-text-muted);
+}
+
+/* The dependency face (B §17). */
+.depHeading {
+  margin: 10px 0 2px;
+  color: var(--rc-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.depList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.depRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--rc-border);
+}
+
+.depRow:last-child {
+  border-bottom: none;
+}
+
+.depButton {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--rc-danger);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--rc-danger);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.depAddRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.depAddRow .formField {
+  margin-top: 0;
+  flex: 1;
+}
+
+.depAddRow .formSave {
+  flex-shrink: 0;
+}
+
+/* The generic mutation-fault note (create/edit/dep — distinct from the
+   legacy reorderFault style above). */
+.faultNote {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--rc-danger);
+  border-radius: 6px;
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--rc-danger);
+  font-size: 12px;
+}

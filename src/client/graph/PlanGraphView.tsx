@@ -23,16 +23,34 @@
  *    + `data-pf`/`data-form` attributes, a change-form icon (+/−/⇄ =
  *    INSERT/MOVE/DELETE), and the `PF-<n> · R-<n>` source badge;
  *  - canonical edges: solid stroke; fork edges: dashed, animated for OPEN
- *    proposals, muted for STALE ones.
+ *    proposals, muted for STALE ones; UI-5 dependency edges: a THIRD,
+ *    distinct dot-dash ('2 4') + their own palette entry (B §18.3: the
+ *    line TYPE is the discriminator, color is secondary) + the legend
+ *    (the two B §18.3 verbatim lines — `ws.future.graph.legend*`).
+ *
+ * UI-5 (ADJ-1/ADJ-6/ADJ-9) faces (all OPTIONAL — the WP-4.5 cockpit
+ * mount passes none and keeps its exact face, save the legend):
+ *  - `selectedItemId` + `onNodeSelect`: canonical-node click = item
+ *    selection (two-way strip/graph sync, owned by the Workstream-page
+ *    container); ghosts are never selectable; the selection highlight is
+ *    `data-selected` + the `.rc-pgv-selected` class (xyflow's own
+ *    selection stays OFF — `elementsSelectable={false}` is unchanged);
+ *  - the CF marker: the focused canonical node renders a ★ glyph badge
+ *    (`data-plan-focus`, a symbol — no copy key needed);
+ *  - `graph.pfDowngraded` (ADJ-9): the PF toolbar renders muted
+ *    (`.rc-pgv-pfDowngraded`) and the root carries `data-pf-downgraded`
+ *    so the CSS weakens the ghost branch rows (they STAY — the branch
+ *    data is untouched).
  *
  * The edge stroke palette lives in JS constants (SVG marker colors cannot
  * use CSS vars reliably) and is mirrored by the `--rc-edge-*` custom
  * properties in the CSS module — keep the two in sync when retheming.
  */
 
-import { useEffect, useMemo, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, type ReactElement } from 'react'
 import { Handle, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeTypes } from '@xyflow/react'
 import type { PlanForkDto } from '../../shared/rpc-contracts.js'
+import { t } from '../i18n/copy.js'
 import {
   type PlanChangeForm,
   type PlanEdgeData,
@@ -51,6 +69,11 @@ import { PLAN_GRAPH_STYLES as styles, ensureGraphStyles } from './graph-styles.j
 const EDGE_CANONICAL = 'var(--dsw-alias-label-secondary)'
 const EDGE_FORK_OPEN = '#7c5cff'
 const EDGE_FORK_STALE = '#b3a8d9'
+/** UI-5 (B §18.3): the dependency edge color — a THIRD palette entry,
+ *  distinct from the canonical gray AND the fork purples. The line
+ *  TYPE (dash pattern) is the primary discriminator — color is
+ *  secondary and never the only cue. */
+const EDGE_DEPENDENCY = '#4a7fb5'
 
 /* -------------------------------------------------------------------- *
  * Node components (the G/T/M/ghost shapes)
@@ -90,10 +113,20 @@ interface PlanItemNodeProps {
   readonly data: PlanNodeData
 }
 
-/** One PlanGraph node: canonical G/T/M (solid) or a PF ghost (dashed). */
+/** One PlanGraph node: canonical G/T/M (solid) or a PF ghost (dashed).
+ *  UI-5 (ADJ-1): a canonical node can carry the selection highlight
+ *  (`data-selected`) and the Current-Focus marker (a glyph — a symbol,
+ *  like the change-form icons, so it needs no copy key). */
 function PlanItemNode({ data }: PlanItemNodeProps): ReactElement {
   const ghost = data.source === 'planFork'
-  const cls = [styles.node, ghost ? styles.ghost : styles.canonical, KIND_CLASS[data.kind]]
+  const selected = data.selected === true
+  const focused = data.focused === true
+  const cls = [
+    styles.node,
+    ghost ? styles.ghost : styles.canonical,
+    KIND_CLASS[data.kind],
+    selected ? styles.selected : null,
+  ]
     .filter(Boolean)
     .join(' ')
   return (
@@ -104,6 +137,8 @@ function PlanItemNode({ data }: PlanItemNodeProps): ReactElement {
       data-pf={ghost ? (data.planForkId as string) : undefined}
       data-form={ghost ? (data.changeForm as string) : undefined}
       data-stale={data.stale ? 'true' : undefined}
+      data-selected={selected ? 'true' : undefined}
+      data-plan-focus={focused ? 'true' : undefined}
     >
       <Handle type="target" position={Position.Left} />
       <div className={styles.nodeHead}>
@@ -113,6 +148,11 @@ function PlanItemNode({ data }: PlanItemNodeProps): ReactElement {
       <div className={styles.nodeTitle} title={data.title}>
         {data.title}
       </div>
+      {focused && (
+        <span className={styles.focusBadge} data-focus-marker aria-hidden="true">
+          ★
+        </span>
+      )}
       {ghost && (
         <div className={styles.footRow}>
           <span
@@ -137,23 +177,33 @@ function PlanItemNode({ data }: PlanItemNodeProps): ReactElement {
 const PLAN_NODE_TYPES: NodeTypes = { planItem: PlanItemNode as unknown as NodeTypes[string] }
 
 /* -------------------------------------------------------------------- *
- * Edge shaping (canonical solid vs fork dashed; markers by direction)
+ * Edge shaping (canonical solid / fork dashed / dependency dot-dashed;
+ * markers by direction)
  * -------------------------------------------------------------------- */
 
 function shapePlanEdge(edge: PlanGraphEdge): Edge<PlanEdgeData> {
-  const fork = edge.data.source === 'planFork'
+  const sourceKind = edge.data.source
+  const fork = sourceKind === 'planFork'
+  const dependency = sourceKind === 'dependency'
   const stale = edge.data.stale === true
-  const stroke = !fork ? EDGE_CANONICAL : (stale ? EDGE_FORK_STALE : EDGE_FORK_OPEN)
+  const stroke = dependency ? EDGE_DEPENDENCY : !fork ? EDGE_CANONICAL : (stale ? EDGE_FORK_STALE : EDGE_FORK_OPEN)
   const result: Edge<PlanEdgeData> = {
     id: edge.id,
     source: edge.source,
     target: edge.target,
     data: edge.data,
-    className: fork ? 'rc-edge-planfork' : 'rc-edge-canonical',
+    className: dependency ? 'rc-edge-dependency' : fork ? 'rc-edge-planfork' : 'rc-edge-canonical',
     style: {
       stroke,
-      strokeWidth: fork ? 1.5 : 1.5,
-      ...(fork ? { strokeDasharray: stale ? '4 6' : '6 4', opacity: stale ? 0.55 : 1 } : {}),
+      // UI-5 (B §18.3): the dependency line TYPE is a third, distinct
+      // dash pattern ('2 4' dot-dash) — the canonical edge stays SOLID,
+      // the fork dashes stay '6 4' / '4 6' (never retouched).
+      strokeWidth: dependency ? 1.25 : fork ? 1.5 : 1.5,
+      ...(fork
+        ? { strokeDasharray: stale ? '4 6' : '6 4', opacity: stale ? 0.55 : 1 }
+        : dependency
+          ? { strokeDasharray: '2 4' }
+          : {}),
     },
     markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
   }
@@ -180,6 +230,17 @@ export interface PlanGraphViewProps {
   readonly onDismissFork: (planForkId: string) => void
   /** React Flow viewport virtualization (TC-PERF-006). Default true. */
   readonly virtualize?: boolean
+  /**
+   * UI-5 (ADJ-1/ADJ-6): the selected canonical item id (the strip/graph
+   * two-way sync — the container's view state; null = nothing selected).
+   * Ghost (PF) nodes are never selectable: their edges/clicks no-op.
+   */
+  readonly selectedItemId?: string | null
+  /** UI-5 (ADJ-1): canonical-node click → item selection (the
+   *  container syncs the strip; the edit form opens from the strip
+   *  face — NO node-peripheral quick edit in v1). Absent = the
+   *  WP-4.5 non-interactive face (the cockpit mount). */
+  readonly onNodeSelect?: (itemId: string) => void
 }
 
 /**
@@ -194,6 +255,8 @@ export function PlanGraphView({
   onSelectFork,
   onDismissFork,
   virtualize = true,
+  selectedItemId = null,
+  onNodeSelect,
 }: PlanGraphViewProps): ReactElement {
   // The xyflow base stylesheet ships inside the single-file bundle (see
   // xyflow-base.ts); inject it once before the canvas mounts.
@@ -207,12 +270,28 @@ export function PlanGraphView({
         id: n.id,
         type: 'planItem',
         position: n.position,
-        data: n.data,
+        // UI-5: the selection highlight is stamped ONTO the node data
+        // (view state — ghosts are never selected).
+        data: n.data.source === 'canonical' && selectedItemId !== null && n.id === selectedItemId
+          ? { ...n.data, selected: true }
+          : n.data,
       })),
-    [graph],
+    [graph, selectedItemId],
   )
 
   const flowEdges: Edge<PlanEdgeData>[] = useMemo(() => graph.edges.map(shapePlanEdge), [graph])
+
+  // UI-5 (ADJ-1): node click = SELECT the canonical item (the container
+  // syncs the strip two-way; the edit form opens from the strip face).
+  // Ghost nodes are not selection targets (ADJ-9: PF stays a low-priority
+  // overlay — its entries are the toolbar's, not the nodes').
+  const handleNodeClick = useCallback(
+    (_event: unknown, node: Node<PlanNodeData>): void => {
+      if (node.data.source !== 'canonical' || onNodeSelect === undefined) return
+      onNodeSelect(node.id)
+    },
+    [onNodeSelect],
+  )
 
   // Toolbar rows in BRANCH row order (OPEN first, then STALE — the model's
   // order), joined with the DTO rows for status/reason metadata.
@@ -227,7 +306,11 @@ export function PlanGraphView({
   )
 
   return (
-    <div className={styles.root} data-role="plan-graph">
+    <div
+      className={styles.root}
+      data-role="plan-graph"
+      data-pf-downgraded={graph.pfDowngraded ? 'true' : undefined}
+    >
       <div className={styles.header}>
         <span className={styles.headerTitle}>未来计划</span>
         <span className={styles.headerMeta}>
@@ -235,8 +318,24 @@ export function PlanGraphView({
         </span>
       </div>
 
+      {/* UI-5 (B §18.3): the legend — MUST exist; the dependency cue is
+          a line TYPE, never color-only. The two lines are the B
+          verbatim strings (the `ws.future.graph.legend*` keys). */}
+      <div className={styles.legend} data-legend>
+        <span className={styles.legendRow} data-legend-canonical>
+          {t('ws.future.graph.legendCanonical')}
+        </span>
+        <span className={styles.legendRow} data-legend-dependency>
+          {t('ws.future.graph.legendDependency')}
+        </span>
+      </div>
+
       {orderedForks.length > 0 && (
-        <ul className={styles.toolbar} data-role="plan-fork-toolbar">
+        <ul
+          className={graph.pfDowngraded ? `${styles.toolbar} ${styles.pfDowngraded}` : styles.toolbar}
+          data-role="plan-fork-toolbar"
+          data-pf-downgraded={graph.pfDowngraded ? 'true' : undefined}
+        >
           {orderedForks.map(fork => {
             const stale = fork.status === 'STALE'
             const form = classifyPlanForkChange(
@@ -288,6 +387,7 @@ export function PlanGraphView({
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={false}
+          onNodeClick={handleNodeClick}
           fitView
           minZoom={0.2}
           maxZoom={2}

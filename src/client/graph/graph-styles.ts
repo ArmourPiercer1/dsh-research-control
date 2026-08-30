@@ -22,6 +22,7 @@ export const PLAN_GRAPH_STYLES: Record<string, string> = {
   canvasWrap: 'rc-pgv-canvasWrap',
   dismissBtn: 'rc-pgv-dismissBtn',
   errorBanner: 'rc-pgv-errorBanner',
+  focusBadge: 'rc-pgv-focusBadge',
   footRow: 'rc-pgv-footRow',
   formIcon: 'rc-pgv-formIcon',
   ghost: 'rc-pgv-ghost',
@@ -29,6 +30,8 @@ export const PLAN_GRAPH_STYLES: Record<string, string> = {
   headerMeta: 'rc-pgv-headerMeta',
   headerTitle: 'rc-pgv-headerTitle',
   kindTag: 'rc-pgv-kindTag',
+  legend: 'rc-pgv-legend',
+  legendRow: 'rc-pgv-legendRow',
   loading: 'rc-pgv-loading',
   node: 'rc-pgv-node',
   nodeGate: 'rc-pgv-nodeGate',
@@ -40,6 +43,7 @@ export const PLAN_GRAPH_STYLES: Record<string, string> = {
   nodeTitle: 'rc-pgv-nodeTitle',
   pfActions: 'rc-pgv-pfActions',
   pfBadge: 'rc-pgv-pfBadge',
+  pfDowngraded: 'rc-pgv-pfDowngraded',
   pfForm: 'rc-pgv-pfForm',
   pfId: 'rc-pgv-pfId',
   pfReason: 'rc-pgv-pfReason',
@@ -48,6 +52,7 @@ export const PLAN_GRAPH_STYLES: Record<string, string> = {
   pfStatus: 'rc-pgv-pfStatus',
   pfStatusStale: 'rc-pgv-pfStatusStale',
   root: 'rc-pgv-root',
+  selected: 'rc-pgv-selected',
   selectBtn: 'rc-pgv-selectBtn',
   toolbar: 'rc-pgv-toolbar',
   tsx: 'rc-pgv-tsx',
@@ -110,6 +115,8 @@ export const GRAPH_BASE_CSS: string = [
   --rc-edge-canonical: var(--dsw-alias-label-secondary);
   --rc-edge-fork-open: #7c5cff;
   --rc-edge-fork-stale: #b3a8d9;
+  /* UI-5 (B §18.3): the dependency edge (third line type — dot-dash) */
+  --rc-edge-dependency: #4a7fb5;
   `,
   `
   /* kind accents (canonical node borders) */
@@ -730,6 +737,66 @@ export const GRAPH_BASE_CSS: string = [
 .rc-cd-confirmBtnDanger {
   border-color: var(--rc-error-primary);
   background: var(--rc-error-primary);
+}
+  `,
+  `
+/* ================================================================ UI-5
+ * Canonical Ordered Strip + Plan Graph faces (brief §2 / B §16-19).
+ * -------------------------------------------------------------------- */
+
+/* The B §18.3 legend — two lines, the dependency cue is a LINE TYPE
+   (dot-dash), never color-only. The dashes are the literal B glyphs. */
+.rc-pgv-legend {
+  display: flex;
+  gap: 14px;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+  font-family: var(--rc-font-family);
+}
+  `,
+  `
+.rc-pgv-legendRow {
+  white-space: pre;
+}
+  `,
+  `
+/* Selection highlight (ADJ-6): a canonical node the strip/graph sync
+   selected — a strong outline ring, distinct from the CF ★ marker. */
+.rc-pgv-selected {
+  outline: 2px solid var(--rc-accent-primary);
+  outline-offset: 1px;
+}
+  `,
+  `
+/* The Current-Focus marker (ADJ-1): a ★ glyph on the focused canonical
+   node. A symbol (like the change-form icons) — no copy key. */
+.rc-pgv-focusBadge {
+  position: absolute;
+  top: -9px;
+  right: 8px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--rc-accent-primary);
+  text-shadow: 0 0 0 var(--rc-bg-layer-1);
+}
+  `,
+  `
+/* ADJ-9 PF visual downgrade (the extended face only): the toolbar is
+   muted and the ghost BRANCH ROWS are weakened (they stay — the branch
+   data is untouched; only their visual weight drops). */
+.rc-pgv-pfDowngraded {
+  opacity: 0.62;
+  font-size: calc(var(--rc-font-xxs) - 1px);
+}
+  `,
+  `
+.rc-pgv-root[data-pf-downgraded='true'] .rc-pgv-ghost {
+  opacity: 0.4;
+}
+  `,
+  `
+.rc-pgv-root[data-pf-downgraded='true'] .rc-pgv-ghost[data-stale='true'] {
+  opacity: 0.28;
 }
   `,
 ].join('\n')

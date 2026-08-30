@@ -250,4 +250,119 @@ describe('wire validity of the model inputs (drift guard)', () => {
   })
 })
 
+/* -------------------------------------------------------------------- *
+ * UI-5 (D4) — the planToGraph extras (dependency edges / the focus
+ * marker / the PF-downgrade switch)
+ * -------------------------------------------------------------------- */
+
+const DEP_EDGE = { relationId: 'REL-1', sourceId: 'T-1', targetId: 'G-1' }
+
+describe('UI-5 extras: absent = the exact WP-4.5 projection (the cockpit face)', () => {
+  it('no extras → zero dependency edges, no focus, no downgrade', () => {
+    const graph = planToGraph(wsSnapshot(PLAN, [pf('PF-1', 'OPEN', 'T-1', 'M-1', 1)]))
+    expect(graph.dependencyEdgeCount).toBe(0)
+    expect(graph.focusedItemId).toBeNull()
+    expect(graph.pfDowngraded).toBe(false)
+    expect(graph.edges.every(e => e.data.source !== 'dependency')).toBe(true)
+    expect(graph.nodes.every(n => n.data.focused !== true)).toBe(true)
+  })
+
+  it('an empty extras object behaves identically to none', () => {
+    const withEmpty = planToGraph(wsSnapshot(PLAN, []), {})
+    const withNone = planToGraph(wsSnapshot(PLAN, []))
+    expect(withEmpty).toEqual(withNone)
+  })
+})
+
+describe('UI-5 extras: the dependency projection (ADJ-7)', () => {
+  it('renders a dependency edge with its own line-type data + relation id, AFTER the canonical edges', () => {
+    const graph = planToGraph(wsSnapshot(PLAN, []), { dependencyEdges: [DEP_EDGE] })
+    expect(graph.dependencyEdgeCount).toBe(1)
+    // the canonical order edges keep their slot (plan order verbatim);
+    expect(graph.edges.slice(0, 2).map(e => e.id)).toEqual(['e:G-1->T-1', 'e:T-1->M-1'])
+    const dep = graph.edges.find(e => e.data.source === 'dependency')
+    expect(dep).toMatchObject({
+      id: 'dep:REL-1',
+      source: 'T-1',
+      target: 'G-1',
+      data: { source: 'dependency', relationId: 'REL-1' },
+    })
+    expect(graph.edges.indexOf(dep!)).toBeGreaterThanOrEqual(2)
+  })
+
+  it('drops an edge whose endpoint is NOT in the canonical plan (the both-endpoint rule)', () => {
+    const graph = planToGraph(wsSnapshot(PLAN, []), {
+      dependencyEdges: [
+        DEP_EDGE,
+        { relationId: 'REL-2', sourceId: 'T-1', targetId: 'T-9' },
+        { relationId: 'REL-3', sourceId: 'T-9', targetId: 'T-1' },
+      ],
+    })
+    expect(graph.dependencyEdgeCount).toBe(1)
+    expect(graph.edges.filter(e => e.data.source === 'dependency')).toHaveLength(1)
+  })
+
+  it('keeps canonical order and dependency strictly separate (the §11.9 invariant: a reordered plan keeps its dependency edges untouched)', () => {
+    const reversed = [PLAN[2]!, PLAN[1]!, PLAN[0]!]
+    const graph = planToGraph(wsSnapshot(reversed, []), { dependencyEdges: [DEP_EDGE] })
+    // the canonical edges follow the NEW order; the dep edge is the same.
+    expect(graph.edges.map(e => e.id)).toEqual(['e:M-1->T-1', 'e:T-1->G-1', 'dep:REL-1'])
+    const dep = graph.edges.find(e => e.data.source === 'dependency')
+    expect(dep).toMatchObject({ source: 'T-1', target: 'G-1' })
+  })
+
+  it('lands dependency edges BEFORE the fork branch edges (the fixed slot order)', () => {
+    const graph = planToGraph(wsSnapshot(PLAN, [pf('PF-1', 'OPEN', 'T-1', 'M-1', 1)]), {
+      dependencyEdges: [DEP_EDGE],
+    })
+    const depIdx = graph.edges.findIndex(e => e.data.source === 'dependency')
+    const forkIdx = graph.edges.findIndex(e => e.data.source === 'planFork')
+    expect(depIdx).toBeGreaterThan(-1)
+    expect(forkIdx).toBeGreaterThan(depIdx)
+  })
+})
+
+describe('UI-5 extras: the focus marker (ADJ-1; the pointer stays on its slice)', () => {
+  it('marks the ONE canonical node the pointer names (node data.focused)', () => {
+    const graph = planToGraph(wsSnapshot(PLAN, []), { focusedItemId: 'T-1' })
+    expect(graph.focusedItemId).toBe('T-1')
+    const focused = graph.nodes.filter(n => n.data.focused === true)
+    expect(focused).toHaveLength(1)
+    expect(focused[0]!.data.itemId).toBe('T-1')
+    expect(focused[0]!.data.source).toBe('canonical')
+  })
+
+  it('a pointer at an item NOT in the canonical plan marks nothing (the clamp)', () => {
+    const graph = planToGraph(wsSnapshot(PLAN, []), { focusedItemId: 'T-99' })
+    expect(graph.focusedItemId).toBeNull()
+    expect(graph.nodes.every(n => n.data.focused !== true)).toBe(true)
+  })
+
+  it('the focus flag never lands on a ghost node', () => {
+    const graph = planToGraph(wsSnapshot(PLAN, [pf('PF-1', 'OPEN', 'T-1', 'M-1', 1)]), {
+      focusedItemId: 'T-1',
+    })
+    for (const node of graph.nodes) {
+      if (node.data.source === 'planFork') expect(node.data.focused).not.toBe(true)
+    }
+    expect(graph.nodes.filter(n => n.data.focused === true)).toHaveLength(1)
+  })
+})
+
+describe('UI-5 extras: the PF-downgrade switch (ADJ-9)', () => {
+  it('is true only when the extras say so (never inferred from data)', () => {
+    expect(planToGraph(wsSnapshot(PLAN, []), { pfDowngraded: true }).pfDowngraded).toBe(true)
+    expect(planToGraph(wsSnapshot(PLAN, []), {}).pfDowngraded).toBe(false)
+  })
+
+  it('downgrade is visual only: the branch data stays rendered', () => {
+    const down = planToGraph(wsSnapshot(PLAN, [pf('PF-1', 'OPEN', 'T-1', 'M-1', 1)]), {
+      pfDowngraded: true,
+    })
+    expect(down.branchCount).toBe(1)
+    expect(down.branchForkIds).toEqual(['PF-1'])
+    expect(down.nodes.filter(n => n.data.source === 'planFork')).toHaveLength(1)
+  })
+})
+
 export type { PlanForkDto, PlanItemDto }

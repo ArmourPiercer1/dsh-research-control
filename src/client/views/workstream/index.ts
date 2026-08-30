@@ -19,6 +19,19 @@ export { FutureZone, type FutureZoneProps } from './FutureZone.js'
 export { HistoryZone, type HistoryZoneProps } from './HistoryZone.js'
 export { buildReorderArgs, movePlanItemIds, type MoveDirection } from './reorder.js'
 export {
+  EMPTY_PLAN_ITEM_DRAFT,
+  REMOVE_STATE_KEY,
+  classifyRemoveState,
+  hasExecutionHistory,
+  newPlanItemDraft,
+  planKindOfId,
+  splitLines,
+  type PlanItemDraft,
+  type PlanItemKind,
+  type RemoveState,
+  type TaskExecution,
+} from './plan-item-utils.js'
+export {
   useCurrentFocusSlice,
   useWorkstreamCurrentSlice,
   useWorkstreamSlice,

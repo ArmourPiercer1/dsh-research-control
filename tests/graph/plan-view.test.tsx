@@ -17,6 +17,8 @@ import { planToGraph } from '../../src/client/graph/plan-model.js'
 import { ConfirmDialog } from '../../src/client/graph/ConfirmDialog.js'
 import { CONFIRM_DIALOG_STYLES as dialogStyles, PLAN_GRAPH_STYLES as viewStyles } from '../../src/client/graph/graph-styles.js'
 import { item, pf, wsSnapshot } from './fixtures.js'
+import { COPY_TABLE } from '../../src/client/i18n/copy.js'
+import type { PlanGraphExtras } from '../../src/client/graph/plan-model.js'
 
 afterEach(cleanup)
 
@@ -217,5 +219,147 @@ describe('React Flow config passthrough (the virtualization seam)', () => {
     expect(root.getAttribute('data-mock-only-render-visible')).toBe('true')
     expect(root.getAttribute('data-mock-nodes-draggable')).toBe('false')
     expect(root.getAttribute('data-mock-fit-view')).toBe('true')
+  })
+})
+
+/* -------------------------------------------------------------------- *
+ * UI-5 (D4) — the extended face: the legend (B §18.3 verbatim), the
+ * dependency edge line-type, the selection stamp, the focus marker,
+ * the node-click → onNodeSelect seam, the PF-downgrade switch.
+ * -------------------------------------------------------------------- */
+
+const DEP_EDGE = { relationId: 'REL-1', sourceId: 'T-1', targetId: 'G-1' }
+
+function renderExtended(extras: PlanGraphExtras, overrides?: Partial<Parameters<typeof PlanGraphView>[0]>) {
+  const graph = planToGraph({ ...wsSnapshot(PLAN, []), future: FUTURE }, extras)
+  const onSelectFork = vi.fn()
+  const onDismissFork = vi.fn()
+  const onNodeSelect = vi.fn()
+  const utils = render(
+    <PlanGraphView
+      graph={graph}
+      forks={FUTURE.planForks}
+      unresolvedCount={FUTURE.unresolvedPlanForkCount}
+      onSelectFork={onSelectFork}
+      onDismissFork={onDismissFork}
+      onNodeSelect={onNodeSelect}
+      {...overrides}
+    />,
+  )
+  return { utils, onSelectFork, onDismissFork, onNodeSelect }
+}
+
+describe('UI-5: the legend (B §18.3 — it MUST exist; verbatim strings)', () => {
+  it('renders both legend lines with the EXACT frozen bytes (color is never the only cue)', () => {
+    renderView()
+    expect(document.querySelector('[data-legend]')).not.toBeNull()
+    // the two lines are the B verbatim strings — pinned here byte-for-byte:
+    expect(document.querySelector('[data-legend-canonical]')!.textContent).toBe('──── Canonical order')
+    expect(document.querySelector('[data-legend-dependency]')!.textContent).toBe('- - - Dependency')
+    // and they come from the frozen copy keys (the single source of truth):
+    expect(COPY_TABLE['ws.future.graph.legendCanonical']).toBe('──── Canonical order')
+    expect(COPY_TABLE['ws.future.graph.legendDependency']).toBe('- - - Dependency')
+  })
+
+  it('renders the legend even when the graph carries no dependency edges at all', () => {
+    renderView()
+    expect(document.querySelector('[data-legend]')).not.toBeNull()
+  })
+})
+
+describe('UI-5: the dependency edge is a THIRD line type (the dash pattern is the cue)', () => {
+  it('dep edges: the dot-dash pattern (2 4) + the distinct class; canonical stays SOLID; forks keep (6 4)', () => {
+    const { utils } = renderExtended({ dependencyEdges: [DEP_EDGE], pfDowngraded: true })
+    const dep = utils.container.querySelector('[data-mock-edge="dep:REL-1"]') as HTMLElement
+    expect(dep).not.toBeNull()
+    expect(dep.getAttribute('data-edge-class')).toBe('rc-edge-dependency')
+    expect(dep.getAttribute('stroke-dasharray')).toBe('2 4')
+    expect(dep.getAttribute('stroke')).toBe('#4a7fb5')
+    expect(dep.getAttribute('data-edge-animated')).toBe('false')
+    const canonical = utils.container.querySelector('[data-mock-edge="e:G-1->T-1"]') as HTMLElement
+    expect(canonical.getAttribute('stroke-dasharray')).toBe('')
+    const fork = utils.container.querySelector('[data-mock-edge="pf:PF-1:T-1->PF-1#1"]') as HTMLElement
+    expect(fork.getAttribute('stroke-dasharray')).toBe('6 4')
+    expect(fork.getAttribute('data-edge-animated')).toBe('true')
+  })
+})
+
+describe('UI-5: the selection stamp (ADJ-6 view state → the canonical node)', () => {
+  it('marks exactly the selected canonical node (data-selected + the class)', () => {
+    const { utils } = renderExtended({}, { selectedItemId: 'T-1' })
+    // the stamp lands on the node SHAPE (the inner div with data-kind):
+    const t1 = utils.container.querySelector('[data-mock-node="T-1"] [data-kind="TASK"]') as HTMLElement
+    const g1 = utils.container.querySelector('[data-mock-node="G-1"] [data-kind="GATE"]') as HTMLElement
+    expect(t1.getAttribute('data-selected')).toBe('true')
+    expect(t1.classList.contains(viewStyles.selected)).toBe(true)
+    expect(g1.getAttribute('data-selected')).toBeNull()
+    expect(g1.classList.contains(viewStyles.selected)).toBe(false)
+  })
+
+  it('no selection → nothing is stamped (the cockpit face is unchanged)', () => {
+    const { utils } = renderView()
+    expect(utils.container.querySelectorAll('[data-selected="true"]')).toHaveLength(0)
+  })
+})
+
+describe('UI-5: the focus marker (the Current-Focus pointer rides the node)', () => {
+  it('marks the focused canonical node with the glyph badge (data-plan-focus)', () => {
+    const { utils } = renderExtended({ focusedItemId: 'T-1' })
+    const t1 = utils.container.querySelector('[data-mock-node="T-1"] [data-kind="TASK"]') as HTMLElement
+    expect(t1.getAttribute('data-plan-focus')).toBe('true')
+    const badge = t1.querySelector('[data-focus-marker]')
+    expect(badge).not.toBeNull()
+    expect(badge!.textContent).toBe('★')
+    const others = [...utils.container.querySelectorAll('[data-plan-focus="true"]')]
+    expect(others).toHaveLength(1)
+  })
+
+  it('no focus in the extras → no marker anywhere', () => {
+    const { utils } = renderView()
+    expect(utils.container.querySelectorAll('[data-plan-focus="true"]')).toHaveLength(0)
+  })
+})
+
+describe('UI-5: node click → onNodeSelect (the strip↔graph sync seam, B §17.4)', () => {
+  it('clicking a canonical node calls onNodeSelect with its item id', () => {
+    const { utils, onNodeSelect } = renderExtended({})
+    fireEvent.click(utils.container.querySelector('[data-mock-node="T-1"]')!)
+    expect(onNodeSelect).toHaveBeenCalledTimes(1)
+    expect(onNodeSelect).toHaveBeenCalledWith('T-1')
+  })
+
+  it('clicking a ghost (planFork) node is a no-op — only canonical nodes are selectable', () => {
+    const { utils, onNodeSelect } = renderExtended({})
+    fireEvent.click(utils.container.querySelector('[data-mock-node="PF-1#1"]')!)
+    expect(onNodeSelect).not.toHaveBeenCalled()
+  })
+
+  it('without an onNodeSelect callback the nodes carry no click handler (the cockpit face)', () => {
+    const { utils } = renderExtended({}, { onNodeSelect: undefined })
+    const node = utils.container.querySelector('[data-mock-node="T-1"]') as HTMLElement
+    expect(node.getAttribute('data-mock-node')).toBe('T-1')
+    // the mock only wires onClick when the prop is present; the DOM still renders:
+    expect(node.querySelector('[data-kind]')).not.toBeNull()
+  })
+})
+
+describe('UI-5: the PF-downgrade switch (ADJ-9 — visual only, the branch stays)', () => {
+  it('the root and the PF toolbar carry the downgrade flag; the branch rows are KEPT', () => {
+    const { utils } = renderExtended({ pfDowngraded: true })
+    const root = utils.container.querySelector('[data-role="plan-graph"]') as HTMLElement
+    expect(root.getAttribute('data-pf-downgraded')).toBe('true')
+    const toolbar = utils.container.querySelector('[data-role="plan-fork-toolbar"]') as HTMLElement
+    expect(toolbar.getAttribute('data-pf-downgraded')).toBe('true')
+    expect(toolbar.classList.contains(viewStyles.pfDowngraded)).toBe(true)
+    // the branch data survives the downgrade:
+    expect(utils.container.querySelector('[data-mock-node="PF-1#1"] [data-source="planFork"]')).not.toBeNull()
+  })
+
+  it('no extras → no downgrade flag (the cockpit face is unchanged)', () => {
+    const { utils } = renderView()
+    const root = utils.container.querySelector('[data-role="plan-graph"]') as HTMLElement
+    expect(root.getAttribute('data-pf-downgraded')).toBeNull()
+    const toolbar = utils.container.querySelector('[data-role="plan-fork-toolbar"]') as HTMLElement
+    expect(toolbar.classList.contains(viewStyles.pfDowngraded)).toBe(false)
   })
 })

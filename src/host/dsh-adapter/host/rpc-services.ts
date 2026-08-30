@@ -63,6 +63,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 
 import {
+  type AddDependencyArgs,
+  type AddDependencyResult,
   type AffectsRefDto,
   type BlockerDto,
   type ClearBlockerArgs,
@@ -71,12 +73,15 @@ import {
   type CreateBlockerResult,
   type CreateNextActionArgs,
   type CreateNextActionResult,
+  type CreatePlanItemArgs,
+  type CreatePlanItemResult,
   type CurrentTaskDto,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
   type CreateWorkstreamResult,
   type DashboardSnapshot,
+  type DependencyEndpointRef,
   type DerivedBlockerDto,
   type DismissNextActionArgs,
   type DismissNextActionResult,
@@ -111,6 +116,10 @@ import {
   type ReorderPlanResult,
   type RegisterInteractionArgs,
   type RegisterInteractionResult,
+  type RemoveDependencyArgs,
+  type RemoveDependencyResult,
+  type RemovePlanItemArgs,
+  type RemovePlanItemResult,
   type RestoreDeclarativeFileArgs,
   type RestoreDeclarativeFileResult,
   type SaveResearchCheckpointArgs,
@@ -126,6 +135,8 @@ import {
   type UpdateInterventionStateResult,
   type UpdateObjectiveArgs,
   type UpdateObjectiveResult,
+  type UpdatePlanItemArgs,
+  type UpdatePlanItemResult,
   type UpdateProjectMetadataArgs,
   type UpdateProjectMetadataResult,
   type UpdateTopicArgs,
@@ -145,6 +156,13 @@ import {
   type DerivedBlocker,
   type NextActionRecord,
 } from '../../service/actions/index.js'
+import {
+  DependencyService,
+  mapDependencyError,
+  projectDependencyEdges,
+  type DependencyWorkstreamIndex,
+} from '../../service/dependency/index.js'
+import { PlanWriterService, mapPlanWriterError } from '../../service/plan-writer/index.js'
 import { isCurrentFocusError } from '../../service/current-focus/index.js'
 import { isHierarchyError } from '../../service/hierarchy/index.js'
 import {
@@ -319,6 +337,37 @@ export interface ResearchRpcServices {
    * face has no clear (ADJ-4) — clearing the cause removes it.
    */
   clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult>
+  /**
+   * UI-5 (brief §3): create a Task/Gate/Milestone definition and list it
+   * into the canonical plan (server-allocated id, ADJ-2; empty plan
+   * allowed, ADJ-3; PLAN_ITEM_ADDED ledger row).
+   */
+  createPlanItem(args: CreatePlanItemArgs): Promise<CreatePlanItemResult>
+  /**
+   * UI-5 (brief §3, ADJ-4): RMW one listed plan item (omit = unchanged;
+   * explicit null = clear the optional field). NO ledger row, NO
+   * managementActionId field on the result.
+   */
+  updatePlanItem(args: UpdatePlanItemArgs): Promise<UpdatePlanItemResult>
+  /**
+   * UI-5 (brief §3, ADJ-14): detach one listed item from the canonical
+   * plan (the definition file stays on disk, INV-PLAN-9) + PLAN_ITEM_
+   * REMOVED ledger row. The wrapper revalidates the current-focus
+   * pointer and folds `currentFocusCleared` into the result.
+   */
+  removePlanItem(args: RemovePlanItemArgs): Promise<RemovePlanItemResult>
+  /**
+   * UI-5 (brief §3, §30 red line): persist a DEPENDS_ON edge ONLY as a
+   * RELATION_ADDED history event in the owner workstream's log (no
+   * second storage).
+   */
+  addDependency(args: AddDependencyArgs): Promise<AddDependencyResult>
+  /**
+   * UI-5 (brief §3): RELATION_REMOVED for an ACTIVE edge (the payload
+   * redundantly mirrors the stored 5-tuple recovered from the owner log
+   * fold).
+   */
+  removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult>
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -521,6 +570,12 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    *  (self-constructed — the same landing spot, the same second
    *  connection). */
   readonly #objectives: ObjectiveFileService
+  /** UI-5 (D3): the plan-writer service (brief §3 — self-constructed,
+   *  the UI-4 ActionsService precedent: the wiring's read-only
+   *  REJECTING_WRITER stays untouched, HostWiring NOT extended). The
+   *  dependency service is constructed PER CALL (its plan index is a
+   *  fresh tree fold — never cached). */
+  readonly #planWriter: PlanWriterService
   #closed = false
 
   constructor(options: ProductionResearchRpcServicesOptions) {
@@ -629,6 +684,21 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       db: this.#db,
       now: this.#now,
     })
+
+    // UI-5 (D3, brief §3): the plan writer — SELF-CONSTRUCTED (the UI-4
+    // ActionsService precedent: the same fresh-PlanStore / FsPlanFileWriter
+    // spine, the same second connection for the MANAGEMENT_ACTION
+    // ledger rows; the wiring's read-only REJECTING_WRITER is untouched).
+    this.#planWriter = new PlanWriterService({
+      reader: attentionReader,
+      writer: new FsPlanFileWriter(),
+      researchRoot: options.wiring.researchRoot,
+      schemaDir: this.#declarativeDir,
+      allocator: options.wiring.allocator,
+      projectId: options.wiring.projectId,
+      db: this.#db,
+      now: this.#now,
+    })
   }
 
   /**
@@ -674,6 +744,26 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       return new Error(`[research-control] ${e.code}: ${e.message}`, { cause: e })
     }
     return e
+  }
+
+  /**
+   * UI-5 (D3): map the plan-writer service's error family onto the wire
+   * error carrier. The service ALREADY maps (the D1 `mapPlanWriterError`
+   * pass); this face-level pass is the idempotent double safety net the
+   * UI-4 face uses — an already-mapped carrier is not a `RunBindingError`
+   * and rides through untouched.
+   */
+  #mapPlanWriterError(e: unknown): unknown {
+    return mapPlanWriterError(e)
+  }
+
+  /**
+   * UI-5 (D3): map the dependency service's error family onto the wire
+   * error carrier (same idempotent double-safety-net shape as
+   * `#mapPlanWriterError`).
+   */
+  #mapDependencyError(e: unknown): unknown {
+    return mapDependencyError(e)
   }
 
   /**
@@ -962,6 +1052,12 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       derivedBlockers: derived.map(toDerivedBlockerDto),
       nextActions: nextActions.map(toNextActionDto),
       interventions: interventions.map(toInterventionFullDto),
+      // UI-5 (ADJ-7): the ACTIVE DEPENDS_ON edges of the canonical plan —
+      // zero new reads: folded from the SAME owner-scoped events the
+      // execution/derived folds above already loaded, against the
+      // canonical order already resolved (both endpoints must be in the
+      // plan; sorted by relation id).
+      dependencyEdges: projectDependencyEdges({ events, canonicalPlan: canonicalOrder }),
     }
   }
 
@@ -1082,6 +1178,156 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     } catch (e) {
       throw this.#mapActionsError(e)
     }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * UI-5 (D3, brief §3) — the Plan-Editor + Dependency face: the 5 new
+   * management RPCs (the face grows 40 → 45; no new read RPC). Each
+   * mutation resolves the workstream node (topicId for the kernel
+   * store; the WS existence gate), calls the self-constructed service,
+   * and folds the wire result. The `projectId` routing already selected
+   * this per-project wiring (requireRpc, §12.1).
+   * ------------------------------------------------------------------ */
+
+  async createPlanItem(args: CreatePlanItemArgs): Promise<CreatePlanItemResult> {
+    try {
+      const tree = this.#loadTree('createPlanItem')
+      const wsNode = this.#findWorkstreamNode(tree, args.workstreamId, 'createPlanItem')
+      const out = this.#planWriter.createPlanItem({
+        workstreamId: args.workstreamId,
+        topicId: wsNode.topicId,
+        kind: args.kind,
+        item: args.item,
+        index: args.index,
+      })
+      return {
+        itemId: out.itemId,
+        workstreamId: out.workstreamId,
+        kind: out.kind,
+        planPath: out.planPath,
+        newOrder: out.newOrder,
+        managementActionId: out.managementActionId,
+      }
+    } catch (e) {
+      throw this.#mapPlanWriterError(e)
+    }
+  }
+
+  async updatePlanItem(args: UpdatePlanItemArgs): Promise<UpdatePlanItemResult> {
+    try {
+      const tree = this.#loadTree('updatePlanItem')
+      const wsNode = this.#findWorkstreamNode(tree, args.workstreamId, 'updatePlanItem')
+      const out = this.#planWriter.updatePlanItem({
+        workstreamId: args.workstreamId,
+        topicId: wsNode.topicId,
+        itemId: args.itemId,
+        changes: args.changes,
+      })
+      return {
+        itemId: out.itemId,
+        workstreamId: out.workstreamId,
+        updatedAt: out.updatedAt,
+      }
+    } catch (e) {
+      throw this.#mapPlanWriterError(e)
+    }
+  }
+
+  async removePlanItem(args: RemovePlanItemArgs): Promise<RemovePlanItemResult> {
+    try {
+      // ADJ-14 (RPC layer): capture the CF pointer BEFORE the mutation.
+      // The service removes the item (the kernel rewrites plan.yaml +
+      // the ledger row); after success the best-effort revalidate
+      // auto-clears the pointer, and the cleared flag folds into the
+      // wire result from the pre-mutation pointer comparison.
+      const cfBefore = this.#wiring.currentFocus.get(args.workstreamId)
+      const tree = this.#loadTree('removePlanItem')
+      const wsNode = this.#findWorkstreamNode(tree, args.workstreamId, 'removePlanItem')
+      const out = this.#planWriter.removePlanItem({
+        workstreamId: args.workstreamId,
+        topicId: wsNode.topicId,
+        itemId: args.itemId,
+      })
+      this.#revalidateCurrentFocus(args.workstreamId)
+      return {
+        workstreamId: out.workstreamId,
+        planPath: out.planPath,
+        newOrder: out.newOrder,
+        managementActionId: out.managementActionId,
+        currentFocusCleared: cfBefore !== undefined && cfBefore.planItemId === args.itemId,
+      }
+    } catch (e) {
+      throw this.#mapPlanWriterError(e)
+    }
+  }
+
+  async addDependency(args: AddDependencyArgs): Promise<AddDependencyResult> {
+    try {
+      const tree = this.#loadTree('addDependency')
+      this.#findWorkstreamNode(tree, args.workstreamId, 'addDependency')
+      const service = this.#makeDependencyService(tree)
+      const out = service.addDependency({
+        workstreamId: args.workstreamId,
+        source: { kind: args.source.kind, id: args.source.id },
+        target: { kind: args.target.kind, id: args.target.id },
+      })
+      return {
+        relationId: out.relationId,
+        source: { kind: out.source.kind, id: out.source.id },
+        target: { kind: out.target.kind, id: out.target.id },
+      }
+    } catch (e) {
+      throw this.#mapDependencyError(e)
+    }
+  }
+
+  async removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult> {
+    try {
+      const tree = this.#loadTree('removeDependency')
+      this.#findWorkstreamNode(tree, args.workstreamId, 'removeDependency')
+      const service = this.#makeDependencyService(tree)
+      const out = service.removeDependency({
+        workstreamId: args.workstreamId,
+        relationId: args.relationId,
+      })
+      return { relationId: out.relationId }
+    } catch (e) {
+      throw this.#mapDependencyError(e)
+    }
+  }
+
+  /**
+   * UI-5 (D3): build the per-call dependency service. The plan index is
+   * a FRESH fold of the just-loaded tree (never cached — the file is the
+   * truth, the same rule the snapshot reads run): every workstream's
+   * DEFINITION-file id sets (the loader's itemNodes superset of the plan
+   * listing — an endpoint that left the plan still resolves its owner,
+   * so a stale edge removal stays possible). The composition is registry
+   * validation FIRST, then the semantics incremental fold (the D2
+   * `#composedValidate` — one `appendEvents` carries both checks).
+   */
+  #makeDependencyService(tree: ResearchTree): DependencyService {
+    const workstreams: DependencyWorkstreamIndex[] = []
+    for (const topic of tree.topics) {
+      for (const ws of topic.workstreams) {
+        workstreams.push({
+          id: ws.id,
+          topicId: ws.topicId,
+          taskIds: ws.tasks.map((n) => n.id),
+          gateIds: ws.gates.map((n) => n.id),
+          milestoneIds: ws.milestones.map((n) => n.id),
+        })
+      }
+    }
+    return new DependencyService({
+      store: this.#wiring.store,
+      registry: this.#wiring.registry,
+      semanticValidateHook: this.#wiring.semantics.validateHook,
+      allocator: this.#wiring.allocator,
+      plans: { workstreams },
+      projectId: this.#wiring.projectId,
+      now: this.#now,
+    })
   }
 
   /** Close the user-surface connection (idempotent; `ctx.effect`-owned). */

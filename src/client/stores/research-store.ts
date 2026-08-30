@@ -41,6 +41,8 @@
 
 import { researchRpc } from '../dsh-adapter/remote/mount.js'
 import {
+  type AddDependencyArgs,
+  type AddDependencyResult,
   type ClearBlockerArgs,
   type ClearBlockerResult,
   type CreateBlockerArgs,
@@ -49,6 +51,8 @@ import {
   type CreateLocalResearchProjectResult,
   type CreateNextActionArgs,
   type CreateNextActionResult,
+  type CreatePlanItemArgs,
+  type CreatePlanItemResult,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
@@ -75,6 +79,10 @@ import {
   type QueryHistoryResult,
   type ReorderPlanArgs,
   type ReorderPlanResult,
+  type RemoveDependencyArgs,
+  type RemoveDependencyResult,
+  type RemovePlanItemArgs,
+  type RemovePlanItemResult,
   type RegisterInteractionArgs,
   type RegisterInteractionResult,
   type RestoreDeclarativeFileArgs,
@@ -90,6 +98,8 @@ import {
   type UpdateInterventionStateResult,
   type UpdateObjectiveArgs,
   type UpdateObjectiveResult,
+  type UpdatePlanItemArgs,
+  type UpdatePlanItemResult,
   type UpdateProjectMetadataArgs,
   type UpdateProjectMetadataResult,
   type UpdateTopicArgs,
@@ -291,6 +301,38 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
   /** Clear an explicit blocker (the row flips to CLEARED — it stays in
    *  the ledger). On OK: refetches every cached `current` slice. */
   clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult>
+
+  /* -- V2-UI-0.4 UI-5 (brief §3): the five plan-editor mutations. Same
+         idiom: okValue → INVALIDATE_REGISTRY → refetchKeys. The
+         invalidation set is the ADJ-8 unified `workstreams:<ws>` +
+         `current:<ws>` (direct addressing for the three item faces; the
+         dependency faces carry no workstreamId → conservative cached
+         family listing). removePlanItem additionally clears the CF
+         pointer on the host side when the removed item was the focus
+         (ADJ-14 — the `current:<ws>` refetch picks up the cleared
+         projection). -- */
+
+  /** Create a plan item (TASK/GATE/MILESTONE) at `index` (0-based,
+   *  default tail). On OK: refetches `workstreams:<ws>` +
+   *  `current:<ws>`. */
+  createPlanItem(args: CreatePlanItemArgs): Promise<CreatePlanItemResult>
+  /** Update a plan item's fields (RMW: omitted = unchanged, explicit
+   *  null = clear). On OK: refetches `workstreams:<ws>` +
+   *  `current:<ws>`. */
+  updatePlanItem(args: UpdatePlanItemArgs): Promise<UpdatePlanItemResult>
+  /** Remove a plan item from the plan (its definition stays on disk).
+   *  On OK: refetches `workstreams:<ws>` + `current:<ws>` (the CF
+   *  pointer is cleared host-side when the item was the focus,
+   *  ADJ-14). */
+  removePlanItem(args: RemovePlanItemArgs): Promise<RemovePlanItemResult>
+  /** Record a DEPENDS_ON edge between two plan items. On OK: refetches
+   *  every cached `workstreams:*` + `current:*` slice (the result
+   *  carries no workstreamId). */
+  addDependency(args: AddDependencyArgs): Promise<AddDependencyResult>
+  /** Remove an ACTIVE DEPENDS_ON edge (its log row stays). On OK:
+   *  refetches every cached `workstreams:*` + `current:*` slice (the
+   *  result carries no workstreamId). */
+  removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult>
 
   /* -- the refresh loop (ARCHITECTURE §8 items 3/4) -- */
 
@@ -696,6 +738,39 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     async clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult> {
       const value = okValue(await rpc.clearBlocker(args))
       await refetchKeys(INVALIDATE_REGISTRY.clearBlocker(value, base.getState()))
+      return value
+    },
+
+    /* V2-UI-0.4 UI-5 (brief §3): the five plan-editor mutations — the
+       ADJ-8 unified invalidation set per the registry rules above. */
+
+    async createPlanItem(args: CreatePlanItemArgs): Promise<CreatePlanItemResult> {
+      const value = okValue(await rpc.createPlanItem(args))
+      await refetchKeys(INVALIDATE_REGISTRY.createPlanItem(value, base.getState()))
+      return value
+    },
+
+    async updatePlanItem(args: UpdatePlanItemArgs): Promise<UpdatePlanItemResult> {
+      const value = okValue(await rpc.updatePlanItem(args))
+      await refetchKeys(INVALIDATE_REGISTRY.updatePlanItem(value, base.getState()))
+      return value
+    },
+
+    async removePlanItem(args: RemovePlanItemArgs): Promise<RemovePlanItemResult> {
+      const value = okValue(await rpc.removePlanItem(args))
+      await refetchKeys(INVALIDATE_REGISTRY.removePlanItem(value, base.getState()))
+      return value
+    },
+
+    async addDependency(args: AddDependencyArgs): Promise<AddDependencyResult> {
+      const value = okValue(await rpc.addDependency(args))
+      await refetchKeys(INVALIDATE_REGISTRY.addDependency(value, base.getState()))
+      return value
+    },
+
+    async removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult> {
+      const value = okValue(await rpc.removeDependency(args))
+      await refetchKeys(INVALIDATE_REGISTRY.removeDependency(value, base.getState()))
       return value
     },
 

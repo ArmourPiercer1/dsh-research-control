@@ -28,9 +28,18 @@
  * §6/§10). The model encodes the split in `PlanNodeData.source` /
  * `stale`; the view layer renders it as solid opaque canonical nodes vs
  * dashed ghost nodes with a `data-source="planFork"` marker.
+ *
+ * UI-5 (ADJ-1, brief §2): the projection gains three OPTIONAL faces via
+ *  `PlanGraphExtras` — the dependency edges (ADJ-7: the ACTIVE
+ *  DEPENDS_ON projection from the `current:<ws>` slice; a THIRD edge
+ *  source, never conflated with canonical progression), the Current
+ *  Focus marker flag (the pointer itself stays on its slice — ADJ-11②),
+ *  and the PF-downgrade switch (ADJ-9: branch rows stay, visually
+ *  weakened; the view renders the muted PF face). No extras = the
+ *  exact WP-4.5 output (the cockpit mount is byte-identical in data).
  */
 
-import type { PlanForkDto, PlanItemDto, WorkstreamSnapshot } from '../../shared/rpc-contracts.js'
+import type { DependencyEdgeDto, PlanForkDto, PlanItemDto, WorkstreamSnapshot } from '../../shared/rpc-contracts.js'
 
 /* -------------------------------------------------------------------- *
  * Graph data face
@@ -80,6 +89,19 @@ export interface PlanNodeData extends Record<string, unknown> {
   /** The 1-based slot of the ghost inside its proposal (1..count). */
   readonly proposedIndex?: number
   readonly proposedTotal?: number
+  /**
+   * UI-5 (ADJ-1): the Current-Focus marker — true on the ONE canonical
+   * node the `currentFocus` pointer names (the pointer itself stays on
+   * its own slice — ADJ-11②; this is a projection, not a carrier).
+   */
+  readonly focused?: boolean
+  /**
+   * UI-5 (ADJ-6, view-layer only): the strip/graph selection highlight.
+   * The selection is pure view state (a container `useState`, never
+   * persisted, never on the wire); the container stamps it onto the
+   * canonical nodes' data at render time — ghosts are never selectable.
+   */
+  readonly selected?: boolean
 }
 
 /** One rendered node (id + position + payload). */
@@ -89,13 +111,21 @@ export interface PlanGraphNode {
   readonly data: PlanNodeData
 }
 
+/** Where an edge belongs. UI-5 (ADJ-1): `dependency` joins the two
+ *  WP-4.5 sources — a dependency edge is NEITHER canonical progression
+ *  NOR a fork branch (B §18.3: the two edge kinds render as distinct
+ *  line types; the model carries the split, the view renders it). */
+export type PlanEdgeSource = PlanNodeSource | 'dependency'
+
 /** The data payload of one PlanGraph edge. */
 export interface PlanEdgeData extends Record<string, unknown> {
-  readonly source: PlanNodeSource
+  readonly source: PlanEdgeSource
   /** Present for fork edges: the owning proposal id. */
   readonly planForkId?: string
   /** Fork edges of a STALE proposal (SELECT-gated off; dismiss only). */
   readonly stale?: boolean
+  /** Present for dependency edges: the semantic-relation id (REL-…). */
+  readonly relationId?: string
 }
 
 /** One rendered edge (endpoints resolved to node ids). */
@@ -166,6 +196,29 @@ export function classifyPlanForkChange(
  * The projection
  * -------------------------------------------------------------------- */
 
+/**
+ * UI-5 (ADJ-1/ADJ-7): the OPTIONAL extras to the projection. All fields
+ * are absent-by-default so the WP-4.5 call face (`planToGraph(snapshot)`,
+ * the cockpit mount) keeps its exact shape; the Workstream-page
+ * container passes the extras for the extended face (dependency edges
+ * from the `current:<ws>` slice, the CF pointer from the
+ * `currentFocus:<ws>` slice, and the ADJ-9 PF-downgrade switch).
+ */
+export interface PlanGraphExtras {
+  /**
+   * ADJ-7: the ACTIVE DEPENDS_ON projection (both endpoints in the
+   * canonical plan, relationId-sorted — the host projection already
+   * guarantees this; the model re-checks endpoints defensively so a
+   * stale slice can never point at a missing node).
+   */
+  readonly dependencyEdges?: readonly DependencyEdgeDto[]
+  /** The Current-Focus pointer's plan item id (null = no pointer). */
+  readonly focusedItemId?: string | null
+  /** ADJ-9: the PF overlay visual-downgrade switch (branch rows stay,
+   *  weakened; the view renders the toolbar muted). Default off. */
+  readonly pfDowngraded?: boolean
+}
+
 /** The output of {@link planToGraph}. */
 export interface PlanGraphData {
   readonly nodes: readonly PlanGraphNode[]
@@ -178,6 +231,12 @@ export interface PlanGraphData {
   readonly openBranchCount: number
   /** The proposal ids rendered as branches, in branch row order. */
   readonly branchForkIds: readonly string[]
+  /** UI-5: dependency edges rendered (⊆ the extras, endpoints-checked). */
+  readonly dependencyEdgeCount: number
+  /** UI-5: the focused canonical item id (null = no pointer / off-plan). */
+  readonly focusedItemId: string | null
+  /** UI-5: the ADJ-9 downgrade switch (view renders the muted PF face). */
+  readonly pfDowngraded: boolean
 }
 
 /**
@@ -193,10 +252,19 @@ export interface PlanGraphData {
  *    on the canonical row — §2.2).
  *
  * @param snapshot - a `WorkstreamSnapshot` (only `future` is consumed).
+ * @param extras - UI-5 optional extras (dependency edges, CF pointer,
+ *  PF-downgrade switch — see {@link PlanGraphExtras}); absent = the
+ *  exact WP-4.5 projection (the cockpit face).
  */
-export function planToGraph(snapshot: WorkstreamSnapshot): PlanGraphData {
+export function planToGraph(snapshot: WorkstreamSnapshot, extras?: PlanGraphExtras): PlanGraphData {
   const items = snapshot.future.plan.orderedItems
   const ids = items.map(item => item.id)
+  const idSet = new Set(ids)
+  /** UI-5: the CF pointer, clamped to the canonical plan (a pointer at
+   *  an item no longer in the plan marks nothing — the pointer's own
+   *  revalidation is the host's job, not the projection's). */
+  const rawFocus = extras?.focusedItemId ?? null
+  const focusedItemId = rawFocus !== null && idSet.has(rawFocus) ? rawFocus : null
 
   const nodes: PlanGraphNode[] = items.map((item, i) => ({
     id: item.id,
@@ -207,6 +275,8 @@ export function planToGraph(snapshot: WorkstreamSnapshot): PlanGraphData {
       label: item.id,
       title: item.title,
       source: 'canonical',
+      // UI-5 (ADJ-1): the CF marker flag (view renders the badge).
+      ...(focusedItemId !== null && item.id === focusedItemId ? { focused: true } : {}),
     },
   }))
 
@@ -217,6 +287,21 @@ export function planToGraph(snapshot: WorkstreamSnapshot): PlanGraphData {
       source: ids[i],
       target: ids[i + 1],
       data: { source: 'canonical' },
+    })
+  }
+
+  /* -- UI-5 (ADJ-7): dependency edges (distinct from canonical order —
+   * §11.9 invariant: canonical order != dependency, ALWAYS) -- */
+  const dependencyEdgeCount = (extras?.dependencyEdges ?? []).filter(
+    edge => idSet.has(edge.sourceId) && idSet.has(edge.targetId),
+  ).length
+  for (const edge of extras?.dependencyEdges ?? []) {
+    if (!idSet.has(edge.sourceId) || !idSet.has(edge.targetId)) continue
+    edges.push({
+      id: `dep:${edge.relationId}`,
+      source: edge.sourceId,
+      target: edge.targetId,
+      data: { source: 'dependency', relationId: edge.relationId },
     })
   }
 
@@ -307,6 +392,9 @@ export function planToGraph(snapshot: WorkstreamSnapshot): PlanGraphData {
     branchCount: branchForkIds.length,
     openBranchCount,
     branchForkIds,
+    dependencyEdgeCount,
+    focusedItemId,
+    pfDowngraded: extras?.pfDowngraded === true,
   }
 }
 

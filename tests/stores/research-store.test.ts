@@ -60,7 +60,7 @@ function freshStore(stub: StubRpc): ResearchStore {
 }
 
 describe('createResearchStore — factory & face', () => {
-  it('exports the full face (observable + 8 loads + 22 mutations + refresh loop)', () => {
+  it('exports the full face (observable + 8 loads + 27 mutations + refresh loop)', () => {
     const store = freshStore(makeStubRpc())
     for (const name of [
       'getSnapshot',
@@ -88,6 +88,11 @@ describe('createResearchStore — factory & face', () => {
       'dismissNextAction',
       'createBlocker',
       'clearBlocker',
+      'createPlanItem',
+      'updatePlanItem',
+      'removePlanItem',
+      'addDependency',
+      'removeDependency',
       'refresh',
       'onRefetch',
     ]) {
@@ -286,7 +291,7 @@ describe('snapshot reference stability (useSyncExternalStore discipline)', () =>
 })
 
 describe('mutations — resolve with the host result, then invalidate/refetch', () => {
-  it('reorderPlan → refetches the workstream slice ONLY', async () => {
+  it('reorderPlan → refetches the workstream slice (UI-5 ADJ-8: the current slice is listed too — idle here, so skipped)', async () => {
     const stub = makeStubRpc()
     const store = freshStore(stub)
     await store.loadDashboard()
@@ -296,6 +301,7 @@ describe('mutations — resolve with the host result, then invalidate/refetch', 
     const result = await store.reorderPlan({ workstreamId: 'WS-1', orderedItemIds: ['M-1', 'G-1', 'T-1'] })
     expect(result).toBe(REORDER_FIXTURE)
     expect(stub.countOf('getWorkstream')).toBe(2) // 1 load + 1 invalidation refetch
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(0) // ADJ-8: listed, but the slice is IDLE
     expect(stub.countOf('getDashboard')).toBe(1) // untouched
     expect(stub.countOf('getTopic')).toBe(1) // untouched
     expect(store.getState().workstreams.get('WS-1')?.data).toBe(WORKSTREAM_FIXTURE)
@@ -613,6 +619,7 @@ describe('current focus (UI-0.4, R-01) — the CF slice family + its mutation', 
       derivedBlockers: [],
       nextActions: [],
       interventions: [],
+      dependencyEdges: [],
     }
     stub.set('getWorkstreamCurrent', { ok: true, value: currentV1 })
     await store.getCurrentFocus({ workstreamId: 'WS-1' })
@@ -1202,6 +1209,7 @@ describe('UI-4 — the Current Execution slice + the six workstream-management m
     derivedBlockers: [],
     nextActions: [],
     interventions: [],
+    dependencyEdges: [],
   }
   const okCurrent = (value: GetWorkstreamCurrentResult): RemoteResult<GetWorkstreamCurrentResult> => ({
     ok: true,
@@ -1440,5 +1448,173 @@ describe('UI-4 — the Current Execution slice + the six workstream-management m
     await store.loadWorkstream('WS-1')
     await store.updateInterventionState({ interventionId: 'IV-1', status: 'CLOSED' })
     expect(stub.countOf('getWorkstream')).toBe(1)
+  })
+})
+
+describe('UI-5 — the five plan-editor mutations (brief §3; ADJ-8 unified invalidation)', () => {
+  // Local, wire-valid fixture (same convention as the UI-4 block above —
+  // `dependencyEdges` is REQUIRED on the face since UI-5 ADJ-7).
+  const CURRENT_EMPTY: GetWorkstreamCurrentResult = {
+    workstreamId: 'WS-1',
+    objectives: [],
+    explicitBlockers: [],
+    derivedBlockers: [],
+    nextActions: [],
+    interventions: [],
+    dependencyEdges: [],
+  }
+  const okCurrent = (value: GetWorkstreamCurrentResult): RemoteResult<GetWorkstreamCurrentResult> => ({
+    ok: true,
+    value,
+  })
+
+  it('createPlanItem → refetches workstreams:<ws> + current:<ws> (ADJ-8 unified; the stub default result rides by reference)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    stub.set('getWorkstreamCurrent', okCurrent(CURRENT_EMPTY))
+    await store.loadWorkstreamCurrent({ workstreamId: 'WS-1' })
+
+    const result = await store.createPlanItem({
+      workstreamId: 'WS-1',
+      kind: 'TASK',
+      item: { task: { title: 'Ship the calibration prototype' } },
+    })
+    expect(result.itemId).toBe('T-9') // the stub default
+    expect(result.managementActionId).toBe('MA-1')
+    expect(stub.countOf('getWorkstream')).toBe(2) // 1 load + 1 refetch
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(2) // 1 load + 1 refetch
+    expect(stub.callsTo('getWorkstreamCurrent').map(c => c.args)).toEqual([
+      { workstreamId: 'WS-1' },
+      { workstreamId: 'WS-1' },
+    ])
+  })
+
+  it('updatePlanItem → the same ADJ-8 set (fields change in place — no ledger row, no managementActionId)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    stub.set('getWorkstreamCurrent', okCurrent(CURRENT_EMPTY))
+    await store.loadWorkstreamCurrent({ workstreamId: 'WS-1' })
+
+    const result = await store.updatePlanItem({
+      workstreamId: 'WS-1',
+      itemId: 'T-1',
+      changes: { goal: 'Recalibrated reprojection target' },
+    })
+    expect(result.itemId).toBe('T-9') // the stub default
+    expect(result).not.toHaveProperty('managementActionId') // ADJ-4
+    expect(stub.countOf('getWorkstream')).toBe(2)
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(2)
+  })
+
+  it('removePlanItem → the same ADJ-8 set; the currentFocusCleared flag (ADJ-14) rides the wire result untouched', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    stub.set('getWorkstreamCurrent', okCurrent(CURRENT_EMPTY))
+    await store.loadWorkstreamCurrent({ workstreamId: 'WS-1' })
+
+    const result = await store.removePlanItem({ workstreamId: 'WS-1', itemId: 'T-1' })
+    expect(result.currentFocusCleared).toBe(false) // the stub default
+    expect(stub.countOf('getWorkstream')).toBe(2)
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(2)
+  })
+
+  it('reorderPlan with a LOADED current slice → refetches it too (the ADJ-8 extension, non-idle arm)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    stub.set('getWorkstreamCurrent', okCurrent(CURRENT_EMPTY))
+    await store.loadWorkstreamCurrent({ workstreamId: 'WS-1' })
+
+    await store.reorderPlan({ workstreamId: 'WS-1', orderedItemIds: ['M-1', 'G-1', 'T-1'] })
+    expect(stub.countOf('getWorkstream')).toBe(2)
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(2) // 1 load + 1 ADJ-8 refetch
+  })
+
+  it('addDependency → refetches every CACHED workstreams + current slice (the result carries no workstreamId — conservative family listing)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    stub.set('getWorkstreamCurrent', okCurrent(CURRENT_EMPTY))
+    await store.loadWorkstreamCurrent({ workstreamId: 'WS-1' })
+    await store.loadWorkstreamCurrent({ workstreamId: 'WS-2' })
+
+    const result = await store.addDependency({
+      workstreamId: 'WS-1',
+      source: { kind: 'TASK', id: 'T-1' },
+      target: { kind: 'TASK', id: 'T-9' },
+    })
+    expect(result.relationId).toBe('REL-1') // the stub default
+    expect(stub.countOf('getWorkstream')).toBe(2) // the one cached ws slice refetched
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(4) // both cached current slices refetched
+  })
+
+  it('removeDependency → same shape as addDependency (the edge leaves the ADJ-7 dependencyEdges projection)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    stub.set('getWorkstreamCurrent', okCurrent(CURRENT_EMPTY))
+    await store.loadWorkstreamCurrent({ workstreamId: 'WS-1' })
+    await store.loadWorkstreamCurrent({ workstreamId: 'WS-2' })
+
+    const result = await store.removeDependency({ workstreamId: 'WS-1', relationId: 'REL-1' })
+    expect(result.relationId).toBe('REL-1') // the stub default
+    expect(stub.countOf('getWorkstream')).toBe(2)
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(4)
+  })
+
+  it('createPlanItem with an IDLE workstream slice → nothing to refetch (the refetch pass skips idle slices)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.createPlanItem({
+      workstreamId: 'WS-9',
+      kind: 'GATE',
+      item: { gate: { title: 'Review gate' } },
+    })
+    expect(stub.countOf('getWorkstream')).toBe(0)
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(0)
+  })
+
+  it('business fault (ok:false): rejects with ResearchRpcError (code/message/details) and refetches NOTHING', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadWorkstream('WS-1')
+    stub.set('createPlanItem', {
+      ok: false,
+      error: { code: 'validation', message: 'title must not be empty', details: { field: 'title' } },
+    })
+    let caught: unknown
+    try {
+      await store.createPlanItem({
+        workstreamId: 'WS-1',
+        kind: 'TASK',
+        item: { task: { title: '' } },
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(ResearchRpcError)
+    expect((caught as ResearchRpcError).code).toBe('validation')
+    expect((caught as ResearchRpcError).message).toBe('title must not be empty')
+    expect((caught as ResearchRpcError).details).toEqual({ field: 'title' })
+    expect(stub.countOf('getWorkstream')).toBe(1) // no invalidation on failure
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(0)
+  })
+
+  it('transport fault: the mutation rejects with the ORIGINAL error (not ResearchRpcError)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    stub.set('removePlanItem', new Error('gateway down'))
+    let caught: unknown
+    try {
+      await store.removePlanItem({ workstreamId: 'WS-1', itemId: 'T-1' })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(Error)
+    expect(caught).not.toBeInstanceOf(ResearchRpcError)
+    expect((caught as Error).message).toBe('gateway down')
   })
 })

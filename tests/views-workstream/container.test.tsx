@@ -18,6 +18,10 @@
  * handling of an aggregate-slice business fault.
  */
 
+// UI-5: the page now mounts the PlanGraphContainer (React Flow) — the
+// canvas is mocked at the component layer BEFORE the module graph loads
+// it (the mock registers `@xyflow/react`; SSR-safe plain createElement).
+import '../graph/xyflow-mock.js'
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type {
@@ -147,6 +151,7 @@ const CURRENT_FIXTURE: GetWorkstreamCurrentResult = {
       resolutionNote: null,
     },
   ],
+  dependencyEdges: [],
 }
 
 function readyStore(snapshot: WorkstreamSnapshot): { store: ResearchStore; stub: StubRpc } {
@@ -205,9 +210,9 @@ describe('WorkstreamView 容器（三区同屏）', () => {
 
     // Future zone: canonical plan position-by-position (plan order, not id
     // order — 'T-1' is LAST in the plan and renders last). Scoped to the
-    // Future zone section: the T-1 title ALSO renders in the Current zone
-    // (active task) which precedes it on the page.
-    const future = html.slice(html.indexOf('计划序列（G/T/M 有序）'))
+    // strip (the UI-5 section title anchor): the T-1 title ALSO renders in
+    // the Current zone (active task) which precedes it on the page.
+    const future = html.slice(html.indexOf('Future Plan'))
     const titles = ['第七章：消融实验', '统计显著性门', '投稿里程碑', '第一章：相关工作']
     let last = -1
     for (const title of titles) {
@@ -293,8 +298,8 @@ describe('WorkstreamView 容器（三区同屏）', () => {
     expect(html).toContain('No active tasks')
     expect(html).toContain('No pending validations')
     expect(html).toContain('No runs')
-    expect(html).toContain('计划为空')
-    expect(html).toContain('暂无未决 PlanFork')
+    expect(html).toContain('No planned items')
+    expect(html).not.toContain('未决 PlanFork')
     expect(html).toContain('暂无历史事件')
   })
 
@@ -340,14 +345,17 @@ describe('WorkstreamView 容器（三区同屏）', () => {
     expect(html).toContain('Needed before the ablation runs')
     expect(html).toContain('Baseline results diverge')
 
-    // the Future zone: EXACTLY the focused row carries the marker, and
-    // every plan row offers the verbatim `Set as Current Focus` entry
-    expect(html.match(/data-plan-focus="true"/g)?.length ?? 0).toBe(1)
+    // the Future strip: EXACTLY the focused row carries the marker, and
+    // every plan row offers the verbatim `Set as Current Focus` entry;
+    // the extended graph repeats the marker on the SAME node (UI-5)
     const t7Row = html.slice(
-      html.indexOf('data-plan-item="T-7"'),
-      html.indexOf('data-plan-item="G-2"'),
+      html.indexOf('data-strip-item="T-7"'),
+      html.indexOf('data-strip-item="G-2"'),
     )
     expect(t7Row).toContain('data-plan-focus="true"')
+    expect(html.match(/data-plan-focus="true"/g)?.length ?? 0).toBe(2)
+    // the second marker sits on the graph node (the extended face):
+    expect(html.slice(html.indexOf('data-mock-node="T-7"'))).toContain('data-plan-focus="true"')
     for (const id of ['T-7', 'G-2', 'M-3', 'T-1']) {
       expect(html).toContain(`Set as Current Focus: ${id}`)
     }

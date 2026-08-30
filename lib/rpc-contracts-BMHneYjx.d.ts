@@ -1087,6 +1087,16 @@ interface InterventionFullDto {
   readonly closedAt: number | null;
   readonly resolutionNote: string | null;
 }
+/** UI-5 (ADJ-7): one ACTIVE DEPENDS_ON edge of the canonical plan —
+ *  both endpoints in the plan, sorted by relation id (the strip/graph
+ *  face; the WorkstreamSnapshot itself stays zero-touched). */
+interface DependencyEdgeDto {
+  readonly relationId: string;
+  /** The source plan-item id (T-…/G-…/M-…). */
+  readonly sourceId: string;
+  /** The target plan-item id (T-…/G-…/M-…). */
+  readonly targetId: string;
+}
 interface GetWorkstreamCurrentArgs {
   readonly workstreamId: string;
   /** V2 §12.1: optional multi-project routing target. */
@@ -1108,6 +1118,10 @@ interface GetWorkstreamCurrentResult {
   /** The interventions naming this WS (all states — the zone renders
    *  the closure state). */
   readonly interventions: readonly InterventionFullDto[];
+  /** UI-5 (ADJ-7): the ACTIVE DEPENDS_ON edges of the canonical plan
+   *  (both endpoints in the plan; sorted by relation id — zero new
+   *  reads: folded from the events the zone already loads). */
+  readonly dependencyEdges: readonly DependencyEdgeDto[];
 }
 interface UpdateObjectiveArgs {
   readonly objectiveId: string;
@@ -1181,5 +1195,130 @@ interface ClearBlockerArgs {
 interface ClearBlockerResult {
   readonly blocker: BlockerDto;
 }
+/** `createPlanItem` TASK payload (the actual declarative
+ *  `task.schema.json` fields: title/goal/acceptance_criteria/
+ *  deliverables/note). */
+interface CreatePlanItemTaskInput {
+  readonly title: string;
+  readonly goal?: string;
+  readonly acceptanceCriteria?: string[];
+  readonly deliverables?: string[];
+  readonly note?: string;
+}
+/** `createPlanItem` GATE payload (the actual declarative
+ *  `gate.schema.json` fields — the schema has NO note key). */
+interface CreatePlanItemGateInput {
+  readonly title: string;
+  readonly criteria?: string;
+  readonly references?: string[];
+}
+/** `createPlanItem` MILESTONE payload (the actual declarative
+ *  `milestone.schema.json` fields — the schema has NO note key). */
+interface CreatePlanItemMilestoneInput {
+  readonly title: string;
+  readonly statement?: string;
+}
+/** The wire `item` field — exactly one per-kind payload (the `kind`
+ *  arg must name the same kind; the server rejects a disagreeing pair). */
+type CreatePlanItemInput = {
+  readonly task: CreatePlanItemTaskInput;
+} | {
+  readonly gate: CreatePlanItemGateInput;
+} | {
+  readonly milestone: CreatePlanItemMilestoneInput;
+};
+interface CreatePlanItemArgs {
+  readonly workstreamId: string;
+  readonly kind: 'TASK' | 'GATE' | 'MILESTONE';
+  readonly item: CreatePlanItemInput;
+  /** 0-based insertion index into the canonical order (default = tail). */
+  readonly index?: number;
+  readonly projectId?: string;
+}
+interface CreatePlanItemResult {
+  readonly itemId: string;
+  readonly workstreamId: string;
+  readonly kind: 'TASK' | 'GATE' | 'MILESTONE';
+  /** The `.research/`-relative `plan.yaml` path. */
+  readonly planPath: string;
+  /** The canonical order AFTER the create (full id list). */
+  readonly newOrder: string[];
+  readonly managementActionId: string;
+}
+/** `updatePlanItem` changes — a per-kind OPTIONAL SUBSET (RMW: omit =
+ *  unchanged; explicit `null` = clear the named optional field). The
+ *  item kind is derived from the `itemId` prefix server-side; a field
+ *  that belongs to a different kind is rejected by the kernel's frozen
+ *  schema re-validation (fail-loud — the SCHEMA carrier rides the wire). */
+interface UpdatePlanItemChanges {
+  readonly title?: string;
+  readonly goal?: string | null;
+  readonly criteria?: string | null;
+  readonly statement?: string | null;
+  readonly acceptanceCriteria?: string[] | null;
+  readonly deliverables?: string[] | null;
+  readonly references?: string[] | null;
+  readonly note?: string | null;
+}
+interface UpdatePlanItemArgs {
+  readonly workstreamId: string;
+  readonly itemId: string;
+  readonly changes: UpdatePlanItemChanges;
+  readonly projectId?: string;
+}
+interface UpdatePlanItemResult {
+  readonly itemId: string;
+  readonly workstreamId: string;
+  /** The write stamp (epoch ms) — the client invalidation version.
+   *  ADJ-4: NO managementActionId field (update writes no ledger row —
+   *  the frozen 15-kind enum has no update kind; the field is absent,
+   *  not null). */
+  readonly updatedAt: number;
+}
+interface RemovePlanItemArgs {
+  readonly workstreamId: string;
+  readonly itemId: string;
+  readonly projectId?: string;
+}
+interface RemovePlanItemResult {
+  readonly workstreamId: string;
+  /** The `.research/`-relative `plan.yaml` path. */
+  readonly planPath: string;
+  /** The canonical order AFTER the remove (full id list). */
+  readonly newOrder: string[];
+  readonly managementActionId: string;
+  /** ADJ-14 (RPC layer): true when the removed item WAS the WS current
+   *  focus — the @Remote wrapper clears the stale pointer after the
+   *  service succeeds and folds this flag into the wire result. */
+  readonly currentFocusCleared: boolean;
+}
+/** A plan-item endpoint of a dependency edge (kind ∈ TASK/GATE/
+ *  MILESTONE; both endpoints must resolve inside the same workstream —
+ *  the `workstreamId` arg names that WS, validated server-side). */
+interface DependencyEndpointRef {
+  readonly kind: 'TASK' | 'GATE' | 'MILESTONE';
+  readonly id: string;
+}
+interface AddDependencyArgs {
+  readonly workstreamId: string;
+  readonly source: DependencyEndpointRef;
+  readonly target: DependencyEndpointRef;
+  readonly projectId?: string;
+}
+interface AddDependencyResult {
+  readonly relationId: string;
+  /** The echoed source endpoint. */
+  readonly source: DependencyEndpointRef;
+  /** The echoed target endpoint. */
+  readonly target: DependencyEndpointRef;
+}
+interface RemoveDependencyArgs {
+  readonly workstreamId: string;
+  readonly relationId: string;
+  readonly projectId?: string;
+}
+interface RemoveDependencyResult {
+  readonly relationId: string;
+}
 //#endregion
-export { RestoreDeclarativeFileResult as $, GetPortfolioInterventionsResult as A, PingResult as B, DropWorkstreamResult as C, UpdateWorkstreamResult as Ct, GetGitHistoryResult as D, GetGitHistoryArgs as E, GetWorkstreamCurrentArgs as F, QueryHistoryResult as G, PromoteNextActionArgs as H, GetWorkstreamCurrentResult as I, ReorderPlanArgs as J, RegisterInteractionArgs as K, HubOverviewResult as L, GetResearchPlaneStateResult as M, GetTopicArgs as N, GetHubOverviewArgs as O, GetWorkstreamArgs as P, RestoreDeclarativeFileArgs as Q, InspectProjectDirectoryArgs as R, DropWorkstreamArgs as S, UpdateWorkstreamArgs as St, GetCurrentFocusResult as T, PromoteNextActionResult as U, ProjectSnapshot as V, QueryHistoryArgs as W, RescanArgs as X, ReorderPlanResult as Y, RescanResult as Z, DashboardSnapshot as _, UpdateObjectiveResult as _t, ClearBlockerArgs as a, SelectPlanForkResult as at, DismissPlanForkArgs as b, UpdateTopicArgs as bt, CreateBlockerResult as c, SetHubArgs as ct, CreateNextActionArgs as d, TypertContributionMirror as dt, RestoreProjectArgs as et, CreateNextActionResult as f, UnbindProjectArgs as ft, CreateWorkstreamResult as g, UpdateObjectiveArgs as gt, CreateWorkstreamArgs as h, UpdateInterventionStateResult as ht, BindProjectResult as i, SelectPlanForkArgs as it, GetResearchPlaneStateArgs as j, GetPortfolioInterventionsArgs as k, CreateLocalResearchProjectArgs as l, SetHubResult as lt, CreateTopicResult as m, UpdateInterventionStateArgs as mt, AckMissingReminderResult as n, SaveResearchCheckpointArgs as nt, ClearBlockerResult as o, SetCurrentFocusArgs as ot, CreateTopicArgs as p, UnbindProjectResult as pt, RegisterInteractionResult as q, BindProjectArgs as r, SaveResearchCheckpointResult as rt, CreateBlockerArgs as s, SetCurrentFocusResult as st, AckMissingReminderArgs as t, RestoreProjectResult as tt, CreateLocalResearchProjectResult as u, TopicSnapshot as ut, DismissNextActionArgs as v, UpdateProjectMetadataArgs as vt, GetCurrentFocusArgs as w, WorkstreamSnapshot as wt, DismissPlanForkResult as x, UpdateTopicResult as xt, DismissNextActionResult as y, UpdateProjectMetadataResult as yt, InspectProjectDirectoryResult as z };
+export { RemoveDependencyResult as $, GetGitHistoryArgs as A, UpdateTopicArgs as At, GetWorkstreamCurrentResult as B, DismissNextActionResult as C, UpdateInterventionStateResult as Ct, DropWorkstreamResult as D, UpdatePlanItemResult as Dt, DropWorkstreamArgs as E, UpdatePlanItemArgs as Et, GetResearchPlaneStateArgs as F, ProjectSnapshot as G, InspectProjectDirectoryArgs as H, GetResearchPlaneStateResult as I, QueryHistoryArgs as J, PromoteNextActionArgs as K, GetTopicArgs as L, GetHubOverviewArgs as M, UpdateWorkstreamArgs as Mt, GetPortfolioInterventionsArgs as N, UpdateWorkstreamResult as Nt, GetCurrentFocusArgs as O, UpdateProjectMetadataArgs as Ot, GetPortfolioInterventionsResult as P, WorkstreamSnapshot as Pt, RemoveDependencyArgs as Q, GetWorkstreamArgs as R, DismissNextActionArgs as S, UpdateInterventionStateArgs as St, DismissPlanForkResult as T, UpdateObjectiveResult as Tt, InspectProjectDirectoryResult as U, HubOverviewResult as V, PingResult as W, RegisterInteractionArgs as X, QueryHistoryResult as Y, RegisterInteractionResult as Z, CreateTopicArgs as _, SetHubResult as _t, BindProjectArgs as a, RescanResult as at, CreateWorkstreamResult as b, UnbindProjectArgs as bt, ClearBlockerResult as c, RestoreProjectArgs as ct, CreateLocalResearchProjectArgs as d, SaveResearchCheckpointResult as dt, RemovePlanItemArgs as et, CreateLocalResearchProjectResult as f, SelectPlanForkArgs as ft, CreatePlanItemResult as g, SetHubArgs as gt, CreatePlanItemArgs as h, SetCurrentFocusResult as ht, AddDependencyResult as i, RescanArgs as it, GetGitHistoryResult as j, UpdateTopicResult as jt, GetCurrentFocusResult as k, UpdateProjectMetadataResult as kt, CreateBlockerArgs as l, RestoreProjectResult as lt, CreateNextActionResult as m, SetCurrentFocusArgs as mt, AckMissingReminderResult as n, ReorderPlanArgs as nt, BindProjectResult as o, RestoreDeclarativeFileArgs as ot, CreateNextActionArgs as p, SelectPlanForkResult as pt, PromoteNextActionResult as q, AddDependencyArgs as r, ReorderPlanResult as rt, ClearBlockerArgs as s, RestoreDeclarativeFileResult as st, AckMissingReminderArgs as t, RemovePlanItemResult as tt, CreateBlockerResult as u, SaveResearchCheckpointArgs as ut, CreateTopicResult as v, TopicSnapshot as vt, DismissPlanForkArgs as w, UpdateObjectiveArgs as wt, DashboardSnapshot as x, UnbindProjectResult as xt, CreateWorkstreamArgs as y, TypertContributionMirror as yt, GetWorkstreamCurrentArgs as z };

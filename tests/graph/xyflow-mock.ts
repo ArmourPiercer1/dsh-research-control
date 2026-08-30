@@ -17,6 +17,9 @@
  *    `nodeTypes[type]` component is invoked with a minimal NodeProps
  *    (`id`/`type`/`data`/`position`) inside the wrapper, so the custom
  *    node SHAPES (G/T/M/ghost, data attributes, badges) render for real;
+ *  - UI-5: `props.onNodeClick` (the selection face) is forwarded as the
+ *    onClick of each node wrapper — clicking `[data-mock-node]` invokes
+ *    it with a stub event + the node record;
  *  - viewport culling EMULATION for `onlyRenderVisibleElements`: when
  *    true, only nodes whose anchor point lies inside the emulated pane
  *    (`XYFLOW_MOCK.pane`, default 1200×800) are rendered — the
@@ -106,6 +109,11 @@ vi.mock('@xyflow/react', async () => {
       const nodes = (props.nodes ?? []) as MockNode[]
       const edges = (props.edges ?? []) as MockEdge[]
       const nodeTypes = (props.nodeTypes ?? {}) as Record<string, (p: Record<string, unknown>) => ReactNode | null>
+      /** UI-5: the view's onNodeClick (the selection face) — forwarded
+       *  to each node wrapper below as its onClick. */
+      const onNodeClick = props.onNodeClick as
+        | ((event: unknown, node: MockNode) => void)
+        | undefined
       const onlyRender = props.onlyRenderVisibleElements === true
       const { width, height } = paneState()
       // Culling emulation: anchor point inside the pane.
@@ -136,6 +144,13 @@ vi.mock('@xyflow/react', async () => {
                 'data-node-type': n.type ?? '',
                 'data-node-x': String(n.position.x),
                 'data-node-y': String(n.position.y),
+                // UI-5: the mock node IS the click target — a click on
+                // the wrapper invokes the view's onNodeClick (a stub
+                // event + the node record).
+                onClick:
+                  onNodeClick !== undefined
+                    ? () => onNodeClick({}, { id: n.id, type: n.type, data: n.data, position: n.position })
+                    : undefined,
               },
               n.type !== undefined && nodeTypes[n.type] !== undefined
                 ? nodeTypes[n.type]({ id: n.id, type: n.type, data: n.data, position: n.position })

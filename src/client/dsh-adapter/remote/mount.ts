@@ -33,6 +33,8 @@ import type {
 import type {
   AckMissingReminderArgs,
   AckMissingReminderResult,
+  AddDependencyArgs,
+  AddDependencyResult,
   BindProjectArgs,
   BindProjectResult,
   ClearBlockerArgs,
@@ -43,6 +45,8 @@ import type {
   CreateLocalResearchProjectResult,
   CreateNextActionArgs,
   CreateNextActionResult,
+  CreatePlanItemArgs,
+  CreatePlanItemResult,
   CreateTopicArgs,
   CreateTopicResult,
   CreateWorkstreamArgs,
@@ -76,6 +80,10 @@ import type {
   PromoteNextActionResult,
   QueryHistoryArgs,
   QueryHistoryResult,
+  RemoveDependencyArgs,
+  RemoveDependencyResult,
+  RemovePlanItemArgs,
+  RemovePlanItemResult,
   ReorderPlanArgs,
   ReorderPlanResult,
   RegisterInteractionArgs,
@@ -101,6 +109,8 @@ import type {
   UpdateInterventionStateResult,
   UpdateObjectiveArgs,
   UpdateObjectiveResult,
+  UpdatePlanItemArgs,
+  UpdatePlanItemResult,
   UpdateProjectMetadataArgs,
   UpdateProjectMetadataResult,
   UpdateTopicArgs,
@@ -378,5 +388,30 @@ export const researchRpc = {
     args: ClearBlockerArgs,
   ): Promise<RemoteResult<ClearBlockerResult>> {
     return requireNamespace().clearBlocker(args)
+  },
+  async createPlanItem(
+    args: CreatePlanItemArgs,
+  ): Promise<RemoteResult<CreatePlanItemResult>> {
+    return requireNamespace().createPlanItem(args)
+  },
+  async updatePlanItem(
+    args: UpdatePlanItemArgs,
+  ): Promise<RemoteResult<UpdatePlanItemResult>> {
+    return requireNamespace().updatePlanItem(args)
+  },
+  async removePlanItem(
+    args: RemovePlanItemArgs,
+  ): Promise<RemoteResult<RemovePlanItemResult>> {
+    return requireNamespace().removePlanItem(args)
+  },
+  async addDependency(
+    args: AddDependencyArgs,
+  ): Promise<RemoteResult<AddDependencyResult>> {
+    return requireNamespace().addDependency(args)
+  },
+  async removeDependency(
+    args: RemoveDependencyArgs,
+  ): Promise<RemoteResult<RemoveDependencyResult>> {
+    return requireNamespace().removeDependency(args)
   },
 }

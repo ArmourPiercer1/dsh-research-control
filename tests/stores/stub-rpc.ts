@@ -92,6 +92,17 @@ import type {
   CreateBlockerResult,
   ClearBlockerArgs,
   ClearBlockerResult,
+  // V2-UI-0.4 UI-5 (brief §3): the 5 plan-editor faces.
+  CreatePlanItemArgs,
+  CreatePlanItemResult,
+  UpdatePlanItemArgs,
+  UpdatePlanItemResult,
+  RemovePlanItemArgs,
+  RemovePlanItemResult,
+  AddDependencyArgs,
+  AddDependencyResult,
+  RemoveDependencyArgs,
+  RemoveDependencyResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -300,6 +311,7 @@ const DEFAULTS: Record<string, () => unknown> = {
       derivedBlockers: [],
       nextActions: [],
       interventions: [],
+      dependencyEdges: [],
     },
   }),
   updateObjective: () => ({
@@ -374,6 +386,46 @@ const DEFAULTS: Record<string, () => unknown> = {
         clearedAt: 1755000013000,
       },
     },
+  }),
+  // V2-UI-0.4 UI-5 (brief §3): wire-valid minimal defaults for the 5
+  // plan-editor faces — LOCAL to this stub (same convention as the UI-4
+  // block); the store suite overrides per-test.
+  createPlanItem: () => ({
+    ok: true,
+    value: {
+      itemId: 'T-9',
+      workstreamId: 'WS-1',
+      kind: 'TASK',
+      planPath: 'workstreams/WS-1/plan.yaml',
+      newOrder: ['T-9'],
+      managementActionId: 'MA-1',
+    },
+  }),
+  updatePlanItem: () => ({
+    ok: true,
+    value: { itemId: 'T-9', workstreamId: 'WS-1', updatedAt: 1755000030000 },
+  }),
+  removePlanItem: () => ({
+    ok: true,
+    value: {
+      workstreamId: 'WS-1',
+      planPath: 'workstreams/WS-1/plan.yaml',
+      newOrder: ['T-1'],
+      managementActionId: 'MA-2',
+      currentFocusCleared: false,
+    },
+  }),
+  addDependency: () => ({
+    ok: true,
+    value: {
+      relationId: 'REL-1',
+      source: { kind: 'TASK', id: 'T-1' },
+      target: { kind: 'TASK', id: 'T-9' },
+    },
+  }),
+  removeDependency: () => ({
+    ok: true,
+    value: { relationId: 'REL-1' },
   }),
 }
 
@@ -490,6 +542,17 @@ export function makeStubRpc(): StubRpc {
       deliverArgs<RemoteResult<CreateBlockerResult>>('createBlocker', args),
     clearBlocker: async (args: ClearBlockerArgs) =>
       deliverArgs<RemoteResult<ClearBlockerResult>>('clearBlocker', args),
+    // V2-UI-0.4 UI-5 (brief §3): the 5 plan-editor methods.
+    createPlanItem: async (args: CreatePlanItemArgs) =>
+      deliverArgs<RemoteResult<CreatePlanItemResult>>('createPlanItem', args),
+    updatePlanItem: async (args: UpdatePlanItemArgs) =>
+      deliverArgs<RemoteResult<UpdatePlanItemResult>>('updatePlanItem', args),
+    removePlanItem: async (args: RemovePlanItemArgs) =>
+      deliverArgs<RemoteResult<RemovePlanItemResult>>('removePlanItem', args),
+    addDependency: async (args: AddDependencyArgs) =>
+      deliverArgs<RemoteResult<AddDependencyResult>>('addDependency', args),
+    removeDependency: async (args: RemoveDependencyArgs) =>
+      deliverArgs<RemoteResult<RemoveDependencyResult>>('removeDependency', args),
   }
 
   return {

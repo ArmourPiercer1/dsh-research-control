@@ -180,3 +180,88 @@ describe('TopologyGraphContainer: slice binding', () => {
     expect(screen.getAllByText('WS-2').length).toBe(2)
   })
 })
+
+/* -------------------------------------------------------------------- *
+ * UI-5 (D4) — the extended face (the WS-page graph): the ADJ-5/ADJ-7
+ * slice join (getWorkstreamCurrent += dependencyEdges, the focus slice)
+ * rides the container as a lazy extra load — and the cockpit call site
+ * (no `extended`) pays nothing new.
+ * -------------------------------------------------------------------- */
+
+const UI5_DEP_EDGE = { relationId: 'REL-1', sourceId: 'T-1', targetId: 'G-1' }
+
+function renderExtended(rpc = makeStubRpc().rpc, onNodeSelect?: (id: string) => void) {
+  const store = createResearchStore({ rpc })
+  const utils = render(
+    <PlanGraphContainer store={store} workstreamId="WS-1" extended onNodeSelect={onNodeSelect ?? vi.fn()} />,
+  )
+  return { store, ...utils }
+}
+
+describe('PlanGraphContainer (UI-5 extended face): the slice join', () => {
+  it('fires getWorkstreamCurrent + getCurrentFocus exactly once (the lazy extra load)', async () => {
+    const stub = makeStubRpc()
+    renderExtended(stub.rpc)
+    await screen.findByText('PF-1')
+    await waitFor(() => expect(stub.countOf('getWorkstreamCurrent')).toBe(1))
+    await waitFor(() => expect(stub.countOf('getCurrentFocus')).toBe(1))
+    expect(stub.countOf('getWorkstream')).toBe(1)
+  })
+
+  it('carries the dependency edges from the current slice to the canvas (data-mock-edge)', async () => {
+    const stub = makeStubRpc()
+    stub.set('getWorkstreamCurrent', {
+      ok: true,
+      value: {
+        workstreamId: 'WS-1',
+        objectives: [],
+        explicitBlockers: [],
+        derivedBlockers: [],
+        nextActions: [],
+        interventions: [],
+        dependencyEdges: [UI5_DEP_EDGE],
+      },
+    })
+    const { container } = renderExtended(stub.rpc)
+    await screen.findByText('PF-1')
+    const depEdge = await waitFor(() => {
+      const el = container.querySelector('[data-mock-edge="dep:REL-1"]')
+      expect(el).not.toBeNull()
+      return el as Element
+    })
+    expect(depEdge.getAttribute('data-edge-source')).toBe('T-1')
+    expect(depEdge.getAttribute('data-edge-target')).toBe('G-1')
+    expect(depEdge.getAttribute('data-edge-class')).toBe('rc-edge-dependency')
+  })
+
+  it('stamps the focus marker from the focus slice (the ADJ-5 pointer)', async () => {
+    const stub = makeStubRpc()
+    stub.set('getCurrentFocus', {
+      ok: true,
+      value: { workstreamId: 'WS-1', focus: { planItemId: 'T-1', updatedAt: 1755000002000 } },
+    })
+    const { container } = renderExtended(stub.rpc)
+    await screen.findByText('PF-1')
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-plan-focus="true"]')).toHaveLength(1)
+    })
+  })
+
+  it('is PF-downgraded by default in the extended face (ADJ-9)', async () => {
+    const { container } = renderExtended()
+    await screen.findByText('PF-1')
+    // the downgrade flag rides the VIEW's root (the inner [data-role=
+    // plan-graph]) and the PF toolbar — the container wrapper does not:
+    const viewRoot = container.querySelectorAll('[data-role="plan-graph"]')[1] as HTMLElement
+    expect(viewRoot.getAttribute('data-pf-downgraded')).toBe('true')
+    expect(container.querySelectorAll('[data-pf-downgraded="true"]')).toHaveLength(2)
+  })
+
+  it('COCKPIT regression: the non-extended face fires NO current/focus loads (the mount cost is unchanged)', async () => {
+    const stub = makeStubRpc()
+    renderPlanContainer(stub.rpc)
+    await screen.findByText('PF-1')
+    expect(stub.countOf('getWorkstreamCurrent')).toBe(0)
+    expect(stub.countOf('getCurrentFocus')).toBe(0)
+  })
+})

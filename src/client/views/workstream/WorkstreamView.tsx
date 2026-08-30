@@ -24,6 +24,18 @@
  *    mutation-fault note are local UI state; the DATA truth is always
  *    the refetched slices (the three-line store idiom — zero optimistic
  *    updates);
+ *  - UI-5 (D4, ADJ-1/5/6/7/9/10/15/16): wires the FULL strip face —
+ *    the selection state (ADJ-6 view-state `useState`, mirrored onto
+ *    the graph node via the extended `PlanGraphContainer`), the
+ *    create/edit/remove entries (B §19 RMW — a blank optional field =
+ *    unknown = omitted on save; the task's acceptanceCriteria IS
+ *    seeded from the Current join, so empty-on-save is an explicit
+ *    clear), and the dependency face (B §17 — the endpoint kinds are
+ *    resolved from the canonical id prefixes); the Future COLUMN wraps
+ *    the strip zone (top) and the extended graph container (bottom —
+ *    B §16), which additionally lazy-loads the `current`/`currentFocus`
+ *    slices for the dependency edges (ADJ-7) + the focus marker (the
+ *    store dedupes against this page's own loads of the same keys);
  *  - passes everything DOWN as plain props to the three PURE zone
  *    components (Current/Future/History) — they carry no hooks and no
  *    store knowledge;
@@ -56,17 +68,29 @@
  *    the last good payload (stale-while-revalidate).
  */
 
-import { useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type {
+  CreatePlanItemArgs,
   GetWorkstreamCurrentResult,
   ReorderPlanArgs,
+  UpdatePlanItemChanges,
   WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
+import { PlanGraphContainer } from '../../graph/PlanGraphContainer.js'
 import type { ResearchStore } from '../../stores/index.js'
 import { CurrentZone, type CurrentFocusView } from './CurrentZone.js'
 import { FutureZone } from './FutureZone.js'
 import { HistoryZone } from './HistoryZone.js'
+import {
+  EMPTY_PLAN_ITEM_DRAFT,
+  newPlanItemDraft,
+  planKindOfId,
+  splitLines,
+  type PlanItemDraft,
+  type PlanItemKind,
+  type TaskExecution,
+} from './plan-item-utils.js'
 import { buildReorderArgs, type MoveDirection } from './reorder.js'
 import {
   useCurrentFocusSlice,
@@ -103,6 +127,15 @@ interface ReorderFace {
 
 const REORDER_IDLE: ReorderFace = { pending: false, fault: null }
 
+/** A UI-5 per-mutation in-flight/fault face (local UI state only — the
+ *  data truth is the refetched slices). */
+interface MutationFace {
+  readonly pending: boolean
+  readonly fault: string | null
+}
+
+const MUTATION_IDLE: MutationFace = { pending: false, fault: null }
+
 /** The `current:<ws>` face while its slice carries no value yet (the
  *  zone renders its low-noise empty states). */
 const EMPTY_CURRENT: GetWorkstreamCurrentResult = {
@@ -112,6 +145,7 @@ const EMPTY_CURRENT: GetWorkstreamCurrentResult = {
   derivedBlockers: [],
   nextActions: [],
   interventions: [],
+  dependencyEdges: [],
 }
 
 /**
@@ -132,6 +166,25 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
   /** The last failed UI-4 mutation (the shared low-noise fault note). */
   const [actionFault, setActionFault] = useState<string | null>(null)
 
+  /* -- UI-5 (D4): the strip face state (ALL view state lives HERE —
+     the zone stays hook-free) -- */
+  /** ADJ-6: the strip/graph selection (view state — never persisted). */
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
+  /** The open create form (the insertion index + the draft's kind). */
+  const [createForm, setCreateForm] = useState<{
+    readonly kind: PlanItemKind
+    readonly index: number
+  } | null>(null)
+  const [draft, setDraft] = useState<PlanItemDraft>(EMPTY_PLAN_ITEM_DRAFT)
+  const [editDraft, setEditDraft] = useState<PlanItemDraft>(EMPTY_PLAN_ITEM_DRAFT)
+  /** The dependency face's add-target select value (transient). */
+  const [depTargetId, setDepTargetId] = useState('')
+  const [createFace, setCreateFace] = useState<MutationFace>(MUTATION_IDLE)
+  const [editFace, setEditFace] = useState<MutationFace>(MUTATION_IDLE)
+  const [removeFace, setRemoveFace] = useState<MutationFace>(MUTATION_IDLE)
+  const [depAddFault, setDepAddFault] = useState<string | null>(null)
+  const [depRemoveFault, setDepRemoveFault] = useState<string | null>(null)
+
   const data = slice.data
   const current = currentSlice.data ?? EMPTY_CURRENT
   const focusPointer = focusSlice.data?.focus ?? null
@@ -147,6 +200,45 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
               : (data.future.plan.orderedItems.find(item => item.id === focusPointer.planItemId)?.title ?? null),
         }
   const currentObjective = current.objectives.length > 0 ? current.objectives[0]! : null
+
+  /* -- UI-5 derived joins (the same-page slices — no extra fetches) -- */
+  /** ADJ-5: task id → execution enum (the strip's execution badges —
+   *  the join rides on the WS slice's `current.tasks`, the same face
+   *  the Current zone renders). */
+  const executionById = useMemo(() => {
+    const map = new Map<string, TaskExecution>()
+    const tasks = data?.current.tasks ?? []
+    for (const task of tasks) map.set(task.id, task.execution)
+    return map
+  }, [data?.current.tasks])
+  /** ADJ-7: the dependency edges (the Current slice projection). */
+  const dependencyEdges = current.dependencyEdges
+
+  /** Seed the edit draft when the selection CHANGES with what the wire
+   *  can show — the title (PlanItemDto) + the task's acceptance
+   *  criteria (the ADJ-5 join). Every other optional field starts
+   *  blank = UNKNOWN = omitted on save (RMW — the form never
+   *  accidentally clears a field it was never shown). The ref makes
+   *  the seed fire once per selection, so a refetch mid-edit (e.g. an
+   *  interleaved reorder) does not clobber the user's in-flight
+   *  draft. */
+  const seededFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (selectedItemId === null) {
+      seededFor.current = null
+      return
+    }
+    if (seededFor.current === selectedItemId || data === null) return
+    const item = data.future.plan.orderedItems.find(entry => entry.id === selectedItemId)
+    if (item === undefined) return
+    seededFor.current = selectedItemId
+    const task = data.current.tasks.find(entry => entry.id === selectedItemId)
+    setEditDraft({
+      ...newPlanItemDraft(item.kind),
+      title: item.title,
+      acceptanceCriteria: item.kind === 'TASK' ? (task?.acceptanceCriteria.join('\n') ?? '') : '',
+    })
+  }, [selectedItemId, data])
 
   /** Surface a mutation fault in the shared low-noise note. */
   function fail(err: unknown): void {
@@ -225,6 +317,196 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
     )
   }
 
+  /* -- UI-5 (D4): the strip face handlers -- */
+
+  /** Row click → selection (B §17.4 two-way sync; the graph stamps the
+   *  same id onto its node). Selecting closes a create form — one
+   *  form at a time. */
+  function handleSelectItem(itemId: string): void {
+    setCreateForm(null)
+    setCreateFace(MUTATION_IDLE)
+    setSelectedItemId(itemId)
+    setDepTargetId('')
+  }
+
+  /** A `+` entry (B §11.4 create before/after): open the create form
+   *  at the given index with a fresh TASK draft. */
+  function handleOpenCreate(index: number): void {
+    setSelectedItemId(null)
+    setEditFace(MUTATION_IDLE)
+    setDraft(newPlanItemDraft('TASK'))
+    setCreateFace(MUTATION_IDLE)
+    setCreateForm({ kind: 'TASK', index })
+  }
+
+  function handleDraftChange(field: keyof PlanItemDraft, value: string): void {
+    setDraft(prev => ({ ...prev, [field]: value }))
+    // B §19: the kind select is the form's identity — keep the open
+    // form's kind in step so the submitted carrier matches the fields
+    // the user sees (handleCreateSubmit builds the carrier from it).
+    if (field === 'kind') {
+      setCreateForm(prev => (prev === null ? prev : { ...prev, kind: value as PlanItemKind }))
+    }
+  }
+
+  function handleEditDraftChange(field: keyof PlanItemDraft, value: string): void {
+    setEditDraft(prev => ({ ...prev, [field]: value }))
+  }
+
+  function handleCloseCreate(): void {
+    setCreateForm(null)
+    setCreateFace(MUTATION_IDLE)
+  }
+
+  function handleCloseEdit(): void {
+    setSelectedItemId(null)
+    setEditFace(MUTATION_IDLE)
+    setDepTargetId('')
+  }
+
+  /** Create a plan item at the open form's index (B §19 — the per-kind
+   *  carrier; empty optional fields are OMITTED, never sent empty).
+   *  On OK the new item is selected so the user sees where it landed. */
+  function handleCreateSubmit(): void {
+    if (createForm === null) return
+    const { kind, index } = createForm
+    const title = draft.title.trim()
+    if (title.length === 0) return
+    const item: CreatePlanItemArgs['item'] =
+      kind === 'TASK'
+        ? {
+            task: {
+              title,
+              ...(draft.goal.trim() !== '' ? { goal: draft.goal.trim() } : {}),
+              ...(splitLines(draft.acceptanceCriteria).length > 0
+                ? { acceptanceCriteria: splitLines(draft.acceptanceCriteria) }
+                : {}),
+              ...(splitLines(draft.deliverables).length > 0
+                ? { deliverables: splitLines(draft.deliverables) }
+                : {}),
+              ...(draft.note.trim() !== '' ? { note: draft.note.trim() } : {}),
+            },
+          }
+        : kind === 'GATE'
+          ? {
+              gate: {
+                title,
+                ...(draft.criteria.trim() !== '' ? { criteria: draft.criteria.trim() } : {}),
+                ...(splitLines(draft.references).length > 0
+                  ? { references: splitLines(draft.references) }
+                  : {}),
+              },
+            }
+          : {
+              milestone: {
+                title,
+                ...(draft.statement.trim() !== '' ? { statement: draft.statement.trim() } : {}),
+              },
+            }
+    setCreateFace({ pending: true, fault: null })
+    void store.createPlanItem({ workstreamId, kind, item, index }).then(
+      result => {
+        // The store invalidated + refetched (the ADJ-8 registry rule);
+        // select the host-confirmed new item.
+        setCreateForm(null)
+        setCreateFace(MUTATION_IDLE)
+        setSelectedItemId(result.itemId)
+        setDepTargetId('')
+      },
+      (err: unknown) =>
+        setCreateFace({ pending: false, fault: err instanceof Error ? err.message : String(err) }),
+    )
+  }
+
+  /** Edit the selected item (B §19 RMW): the title is always sent; the
+   *  task's acceptanceCriteria was seeded with the full joined value,
+   *  so empty-on-save is an explicit CLEAR (null); every other blank
+   *  optional field was never shown → omitted from the changes. */
+  function handleEditSubmit(): void {
+    if (selectedItemId === null) return
+    const title = editDraft.title.trim()
+    if (title.length === 0) return
+    const taskCriteria = editDraft.kind === 'TASK' ? splitLines(editDraft.acceptanceCriteria) : []
+    const taskDeliverables = editDraft.kind === 'TASK' ? splitLines(editDraft.deliverables) : []
+    const gateReferences = editDraft.kind === 'GATE' ? splitLines(editDraft.references) : []
+    const changes: UpdatePlanItemChanges =
+      editDraft.kind === 'TASK'
+        ? {
+            title,
+            // Seeded from the join — empty-on-save is a deliberate clear.
+            acceptanceCriteria: taskCriteria.length > 0 ? taskCriteria : null,
+            ...(editDraft.goal.trim() !== '' ? { goal: editDraft.goal.trim() } : {}),
+            ...(taskDeliverables.length > 0 ? { deliverables: taskDeliverables } : {}),
+            ...(editDraft.note.trim() !== '' ? { note: editDraft.note.trim() } : {}),
+          }
+        : editDraft.kind === 'GATE'
+          ? {
+              title,
+              ...(editDraft.criteria.trim() !== '' ? { criteria: editDraft.criteria.trim() } : {}),
+              ...(gateReferences.length > 0 ? { references: gateReferences } : {}),
+            }
+          : {
+              title,
+              ...(editDraft.statement.trim() !== '' ? { statement: editDraft.statement.trim() } : {}),
+            }
+    setEditFace({ pending: true, fault: null })
+    void store.updatePlanItem({ workstreamId, itemId: selectedItemId, changes }).then(
+      () => setEditFace(MUTATION_IDLE),
+      (err: unknown) =>
+        setEditFace({ pending: false, fault: err instanceof Error ? err.message : String(err) }),
+    )
+  }
+
+  /** The three-state Remove entry (B §19.4 — one `removePlanItem` RPC
+   *  under all three labels; the kernel retains the definition,
+   *  INV-PLAN-9). On OK the selection is cleared when it pointed at
+   *  the removed item. */
+  function handleRemoveItem(itemId: string): void {
+    setRemoveFace({ pending: true, fault: null })
+    void store.removePlanItem({ workstreamId, itemId }).then(
+      () => {
+        setRemoveFace(MUTATION_IDLE)
+        if (selectedItemId === itemId) {
+          setSelectedItemId(null)
+          setEditFace(MUTATION_IDLE)
+          setDepTargetId('')
+        }
+        // ADJ-14: when the removed item WAS the focus, the host
+        // revalidated the pointer — the refetched currentFocus slice
+        // carries the truth (no view bookkeeping).
+      },
+      (err: unknown) =>
+        setRemoveFace({ pending: false, fault: err instanceof Error ? err.message : String(err) }),
+    )
+  }
+
+  /** Add a dependency: the selected item DEPENDS ON the chosen target
+   *  (source = selected, target = the select's value; the kinds are
+   *  resolved from the canonical id prefixes — the wire carries both). */
+  function handleAddDependency(): void {
+    if (selectedItemId === null || depTargetId === '') return
+    const sourceKind = planKindOfId(selectedItemId)
+    const targetKind = planKindOfId(depTargetId)
+    if (sourceKind === null || targetKind === null) return
+    setDepAddFault(null)
+    void store.addDependency({
+      workstreamId,
+      source: { kind: sourceKind, id: selectedItemId },
+      target: { kind: targetKind, id: depTargetId },
+    }).then(
+      () => setDepTargetId(''),
+      (err: unknown) => setDepAddFault(err instanceof Error ? err.message : String(err)),
+    )
+  }
+
+  function handleRemoveDependency(relationId: string): void {
+    setDepRemoveFault(null)
+    void store.removeDependency({ workstreamId, relationId }).then(
+      () => undefined,
+      (err: unknown) => setDepRemoveFault(err instanceof Error ? err.message : String(err)),
+    )
+  }
+
   /* -- no data yet: loading or first-load failure -- */
   if (data === null) {
     if (slice.status === 'error') {
@@ -298,16 +580,56 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
           onPromoteNextAction={handlePromoteNextAction}
           onDismissNextAction={handleDismissNextAction}
         />
-        <FutureZone
-          planItems={data.future.plan.orderedItems}
-          planForks={data.future.planForks}
-          unresolvedPlanForkCount={data.future.unresolvedPlanForkCount}
-          onMoveItem={handleMove}
-          reorderPending={reorder.pending}
-          reorderFault={reorder.fault}
-          focusedPlanItemId={focusPointer?.planItemId ?? null}
-          onSetCurrentFocus={handleSetCurrentFocus}
-        />
+        <div className={styles.futureColumn}>
+          <FutureZone
+            planItems={data.future.plan.orderedItems}
+            planForks={data.future.planForks}
+            unresolvedPlanForkCount={data.future.unresolvedPlanForkCount}
+            onMoveItem={handleMove}
+            reorderPending={reorder.pending}
+            reorderFault={reorder.fault}
+            focusedPlanItemId={focusPointer?.planItemId ?? null}
+            onSetCurrentFocus={handleSetCurrentFocus}
+            selectedItemId={selectedItemId}
+            onSelectItem={handleSelectItem}
+            executionById={executionById}
+            createForm={createForm}
+            draft={draft}
+            onDraftChange={handleDraftChange}
+            onOpenCreate={handleOpenCreate}
+            onCreateSubmit={handleCreateSubmit}
+            onCreateClose={handleCloseCreate}
+            createPending={createFace.pending}
+            createFault={createFace.fault}
+            editDraft={editDraft}
+            onEditDraftChange={handleEditDraftChange}
+            onEditSubmit={handleEditSubmit}
+            onEditClose={handleCloseEdit}
+            updatePending={editFace.pending}
+            updateFault={editFace.fault}
+            onRemoveItem={handleRemoveItem}
+            removePending={removeFace.pending}
+            removeFault={removeFace.fault}
+            dependencyEdges={dependencyEdges}
+            depTargetId={depTargetId}
+            onDepTargetChange={setDepTargetId}
+            onAddDependency={handleAddDependency}
+            addDependencyFault={depAddFault}
+            onRemoveDependency={handleRemoveDependency}
+            removeDependencyFault={depRemoveFault}
+          />
+          {/* B §16: the graph face — strip top + graph bottom. The
+              extended container subscribes the current/currentFocus
+              slices for the dependency edges (ADJ-7) + the focus
+              marker and renders the PF zone downgraded (ADJ-9). */}
+          <PlanGraphContainer
+            store={store}
+            workstreamId={workstreamId}
+            extended
+            selectedItemId={selectedItemId}
+            onNodeSelect={handleSelectItem}
+          />
+        </div>
       </div>
     </div>
   )

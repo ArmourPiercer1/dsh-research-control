@@ -6,10 +6,12 @@
 
 import { describe, expect, it } from 'vitest'
 import type {
+  AddDependencyResult,
   ClearBlockerResult,
   CreateBlockerResult,
   CreateLocalResearchProjectResult,
   CreateNextActionResult,
+  CreatePlanItemResult,
   CreateTopicResult,
   CreateWorkstreamResult,
   DashboardSnapshot,
@@ -24,6 +26,8 @@ import type {
   PromoteNextActionResult,
   QueryHistoryResult,
   ReorderPlanResult,
+  RemoveDependencyResult,
+  RemovePlanItemResult,
   RegisterInteractionResult,
   RestoreDeclarativeFileResult,
   SaveResearchCheckpointResult,
@@ -32,6 +36,7 @@ import type {
   TopicSnapshot,
   UpdateInterventionStateResult,
   UpdateObjectiveResult,
+  UpdatePlanItemResult,
   UpdateProjectMetadataResult,
   UpdateTopicResult,
   UpdateWorkstreamResult,
@@ -203,6 +208,7 @@ const CURRENT_WS1: GetWorkstreamCurrentResult = {
   derivedBlockers: [],
   nextActions: [],
   interventions: [],
+  dependencyEdges: [],
 }
 const CURRENT_WS2: GetWorkstreamCurrentResult = {
   workstreamId: 'WS-2',
@@ -211,6 +217,7 @@ const CURRENT_WS2: GetWorkstreamCurrentResult = {
   derivedBlockers: [],
   nextActions: [],
   interventions: [],
+  dependencyEdges: [],
 }
 const UPDATE_OBJ: UpdateObjectiveResult = {
   objectiveId: 'OBJ-1',
@@ -295,10 +302,39 @@ const CLEAR_BLK: ClearBlockerResult = {
   },
 }
 
+const CREATE_PI: CreatePlanItemResult = {
+  itemId: 'T-9',
+  workstreamId: 'WS-1',
+  kind: 'TASK',
+  planPath: 'workstreams/WS-1/plan.yaml',
+  newOrder: ['G-1', 'T-1', 'T-2', 'T-3', 'T-9', 'M-1'],
+  managementActionId: 'MA-51',
+}
+const UPDATE_PI: UpdatePlanItemResult = {
+  itemId: 'T-1',
+  workstreamId: 'WS-1',
+  updatedAt: 1755000020000,
+}
+const REMOVE_PI: RemovePlanItemResult = {
+  workstreamId: 'WS-1',
+  planPath: 'workstreams/WS-1/plan.yaml',
+  newOrder: ['G-1', 'T-2', 'T-3', 'M-1'],
+  managementActionId: 'MA-52',
+  currentFocusCleared: false,
+}
+const ADD_DEP: AddDependencyResult = {
+  relationId: 'REL-1',
+  source: { kind: 'TASK', id: 'T-1' },
+  target: { kind: 'TASK', id: 'T-9' },
+}
+const REMOVE_DEP: RemoveDependencyResult = {
+  relationId: 'REL-1',
+}
+
 describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
-  it('reorderPlan → the workstream slice ONLY (plan order; history never — ledger, not events)', () => {
+  it('reorderPlan → workstream + current slices (UI-5 ADJ-8 EXTENDED: the unified plan-editor set; history never — ledger, not events)', () => {
     const keys = INVALIDATE_REGISTRY.reorderPlan(REORDER, populatedState())
-    expect(keys).toEqual(['workstreams:WS-1'])
+    expect(keys).toEqual(['workstreams:WS-1', 'current:WS-1'])
   })
 
   it('selectPlanFork → workstream + the owning topic (topicId from the CACHED ws slice)', () => {
@@ -497,6 +533,52 @@ describe('INVALIDATE_REGISTRY — the six UI-4 workstream-management rules', () 
       expect(key === 'history:WS-1').toBe(false)
     }
   })
+
+  // V2-UI-0.4 UI-5 (ADJ-8): the five plan-editor rules — the unified
+  // `workstreams:<ws>` + `current:<ws>` set (direct addressing for the
+  // item faces; conservative cached family listing for the dependency
+  // faces, which carry no workstreamId).
+  it('createPlanItem → the RESULT workstreams:<ws> + current:<ws> (ADJ-8 unified; a new gate changes the derived-blocker inputs)', () => {
+    const keys = INVALIDATE_REGISTRY.createPlanItem(CREATE_PI, populatedState())
+    expect(keys).toEqual(['workstreams:WS-1', 'current:WS-1'])
+    // state-independent: direct addressing from the result
+    expect(INVALIDATE_REGISTRY.createPlanItem(CREATE_PI, initialResearchStoreState())).toEqual([
+      'workstreams:WS-1',
+      'current:WS-1',
+    ])
+  })
+
+  it('updatePlanItem → the RESULT workstreams:<ws> + current:<ws> (ADJ-8 unified; fields change in place)', () => {
+    const keys = INVALIDATE_REGISTRY.updatePlanItem(UPDATE_PI, populatedState())
+    expect(keys).toEqual(['workstreams:WS-1', 'current:WS-1'])
+    expect(INVALIDATE_REGISTRY.updatePlanItem(UPDATE_PI, initialResearchStoreState())).toEqual([
+      'workstreams:WS-1',
+      'current:WS-1',
+    ])
+  })
+
+  it('removePlanItem → the RESULT workstreams:<ws> + current:<ws> (ADJ-8 unified; ADJ-14: the CF-cleared projection rides the current refetch)', () => {
+    const keys = INVALIDATE_REGISTRY.removePlanItem(REMOVE_PI, populatedState())
+    expect(keys).toEqual(['workstreams:WS-1', 'current:WS-1'])
+    expect(INVALIDATE_REGISTRY.removePlanItem(REMOVE_PI, initialResearchStoreState())).toEqual([
+      'workstreams:WS-1',
+      'current:WS-1',
+    ])
+  })
+
+  it('addDependency → every CACHED workstreams:* + current:<ws> (the result carries no workstreamId — conservative family listing; the refetch pass skips idle slices)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.addDependency(ADD_DEP, populatedState()))).toEqual(
+      new Set(['workstreams:WS-1', 'current:WS-1', 'current:WS-2']),
+    )
+    expect(INVALIDATE_REGISTRY.addDependency(ADD_DEP, initialResearchStoreState())).toEqual([])
+  })
+
+  it('removeDependency → same shape as addDependency (the edge leaves the ADJ-7 dependencyEdges projection)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.removeDependency(REMOVE_DEP, populatedState()))).toEqual(
+      new Set(['workstreams:WS-1', 'current:WS-1', 'current:WS-2']),
+    )
+    expect(INVALIDATE_REGISTRY.removeDependency(REMOVE_DEP, initialResearchStoreState())).toEqual([])
+  })
 })
 
 describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
@@ -523,6 +605,12 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     ['dismissNextAction', state => INVALIDATE_REGISTRY.dismissNextAction(DISMISS_NA, state)],
     ['createBlocker', state => INVALIDATE_REGISTRY.createBlocker(CREATE_BLK, state)],
     ['clearBlocker', state => INVALIDATE_REGISTRY.clearBlocker(CLEAR_BLK, state)],
+    // V2-UI-0.4 UI-5 (ADJ-8): the five plan-editor rules join the sweep.
+    ['createPlanItem', state => INVALIDATE_REGISTRY.createPlanItem(CREATE_PI, state)],
+    ['updatePlanItem', state => INVALIDATE_REGISTRY.updatePlanItem(UPDATE_PI, state)],
+    ['removePlanItem', state => INVALIDATE_REGISTRY.removePlanItem(REMOVE_PI, state)],
+    ['addDependency', state => INVALIDATE_REGISTRY.addDependency(ADD_DEP, state)],
+    ['removeDependency', state => INVALIDATE_REGISTRY.removeDependency(REMOVE_DEP, state)],
   ]
 
   it('NO rule invalidates a history window (WS logs are append-only; none of the 13 RPCs appends)', () => {
@@ -554,8 +642,8 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     }
   })
 
-  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces + the 6 UI-4 workstream-management faces)', () => {
+  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces + the 6 UI-4 workstream-management faces + the 5 UI-5 plan-editor faces)', () => {
     expect([...MUTATION_IDS].sort()).toEqual(Object.keys(INVALIDATE_REGISTRY).sort())
-    expect(MUTATION_IDS).toHaveLength(22)
+    expect(MUTATION_IDS).toHaveLength(27)
   })
 })

@@ -40,6 +40,8 @@ import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol'
 import {
   AckMissingReminderArgsSchema,
   AckMissingReminderResultSchema,
+  AddDependencyArgsSchema,
+  AddDependencyResultSchema,
   BindProjectArgsSchema,
   BindProjectResultSchema,
   ClearBlockerArgsSchema,
@@ -50,6 +52,8 @@ import {
   CreateLocalResearchProjectResultSchema,
   CreateNextActionArgsSchema,
   CreateNextActionResultSchema,
+  CreatePlanItemArgsSchema,
+  CreatePlanItemResultSchema,
   CreateTopicArgsSchema,
   CreateTopicResultSchema,
   CreateWorkstreamArgsSchema,
@@ -83,6 +87,10 @@ import {
   PromoteNextActionResultSchema,
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
+  RemoveDependencyArgsSchema,
+  RemoveDependencyResultSchema,
+  RemovePlanItemArgsSchema,
+  RemovePlanItemResultSchema,
   RESEARCH_CONTROL_PACKAGE,
   REGISTERED_RESEARCH_INVOCATIONS,
   ReorderPlanArgsSchema,
@@ -110,6 +118,8 @@ import {
   UpdateInterventionStateResultSchema,
   UpdateObjectiveArgsSchema,
   UpdateObjectiveResultSchema,
+  UpdatePlanItemArgsSchema,
+  UpdatePlanItemResultSchema,
   UpdateProjectMetadataArgsSchema,
   UpdateProjectMetadataResultSchema,
   UpdateTopicArgsSchema,
@@ -133,7 +143,7 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
 
 /**
  * Every wire schema the face uses, as a live zod v4 instance (the loader
- * requires the `_zod` brand on each `TYPERT.schemas` entry). 77 entries:
+ * requires the `_zod` brand on each `TYPERT.schemas` entry). 87 entries:
  * ping's result + the 13 RPCs' args/results (the two zero-arg queries
  * carry no args schema) + the 3 read-only plane RPCs' args/results
  * (V2-T3.2a) + the 6 change-family plane RPCs' args/results (V2-T3.2b —
@@ -143,7 +153,8 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
  * 2 hierarchy-create management RPCs' args/results (V2-UI-0.4 Task 3) +
  * the 6 GUI management RPCs' args/results (V2-UI-0.4 UI-2: the
  * 4 hierarchy update/drop RPCs + the 2 local-project RPCs) + the 7
- * attention RPCs' args/results (V2-UI-0.4 UI-4, D §10).
+ * attention RPCs' args/results (V2-UI-0.4 UI-4, D §10) + the 5
+ * plan-editor RPCs' args/results (V2-UI-0.4 UI-5, brief §3).
  */
 const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'PingResult', schema: PingResultSchema },
@@ -231,6 +242,18 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'CreateBlockerResult', schema: CreateBlockerResultSchema },
   { name: 'ClearBlockerArgs', schema: ClearBlockerArgsSchema },
   { name: 'ClearBlockerResult', schema: ClearBlockerResultSchema },
+  // V2-UI-0.4 UI-5 (brief §3): the 5 plan-editor RPCs — the plan-item
+  // create/update/remove face + the 2 dependency-edge RPCs.
+  { name: 'CreatePlanItemArgs', schema: CreatePlanItemArgsSchema },
+  { name: 'CreatePlanItemResult', schema: CreatePlanItemResultSchema },
+  { name: 'UpdatePlanItemArgs', schema: UpdatePlanItemArgsSchema },
+  { name: 'UpdatePlanItemResult', schema: UpdatePlanItemResultSchema },
+  { name: 'RemovePlanItemArgs', schema: RemovePlanItemArgsSchema },
+  { name: 'RemovePlanItemResult', schema: RemovePlanItemResultSchema },
+  { name: 'AddDependencyArgs', schema: AddDependencyArgsSchema },
+  { name: 'AddDependencyResult', schema: AddDependencyResultSchema },
+  { name: 'RemoveDependencyArgs', schema: RemoveDependencyArgsSchema },
+  { name: 'RemoveDependencyResult', schema: RemoveDependencyResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -506,6 +529,36 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'GUI management (V2-UI-0.4 UI-4, D §10): clear an explicit ACTIVE blocker (the derived projection has no clear face — its blocker is the cause itself).',
           },
+          {
+            name: 'createPlanItem',
+            signature: 'createPlanItem(args: CreatePlanItemArgs): Promise<CreatePlanItemResult>',
+            kind: 'method',
+            summary: 'Plan editor (V2-UI-0.4 UI-5, brief §3): create a new TASK / GATE / MILESTONE plan item in the routed workstream (index optional — omitted appends at the tail); returns the new canonical order + the management ledger row id.',
+          },
+          {
+            name: 'updatePlanItem',
+            signature: 'updatePlanItem(args: UpdatePlanItemArgs): Promise<UpdatePlanItemResult>',
+            kind: 'method',
+            summary: 'Plan editor (V2-UI-0.4 UI-5, brief §3): read-modify-write the named plan item (per-kind optional subset: omit = unchanged, explicit null = clear the field); writes no ledger row (ADJ-4) — returns the write stamp only.',
+          },
+          {
+            name: 'removePlanItem',
+            signature: 'removePlanItem(args: RemovePlanItemArgs): Promise<RemovePlanItemResult>',
+            kind: 'method',
+            summary: 'Plan editor (V2-UI-0.4 UI-5, brief §3): remove a plan item from the routed workstream (an ACTIVE gate is rejected — WRONG_STATE); the current-focus pointer is re-validated at the RPC layer (ADJ-14) and currentFocusCleared folds the pre-mutation comparison.',
+          },
+          {
+            name: 'addDependency',
+            signature: 'addDependency(args: AddDependencyArgs): Promise<AddDependencyResult>',
+            kind: 'method',
+            summary: 'Plan editor (V2-UI-0.4 UI-5, brief §3): add a DEPENDS_ON edge between two plan items (the wire carries endpoints only — the type is fixed server-side); the owner workstream is resolved from the endpoints.',
+          },
+          {
+            name: 'removeDependency',
+            signature: 'removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult>',
+            kind: 'method',
+            summary: 'Plan editor (V2-UI-0.4 UI-5, brief §3): remove an existing DEPENDS_ON edge by relation id (an edge whose target gate is ACTIVE is rejected — WRONG_STATE).',
+          },
         ],
         types: [
           {
@@ -677,7 +730,7 @@ export const TYPERT: TypertHostManifest = {
           {
             name: 'GetWorkstreamCurrentResult',
             declaration:
-              'interface GetWorkstreamCurrentResult { readonly workstreamId: string; readonly objectives: ObjectiveFullDto[]; readonly explicitBlockers: BlockerDto[]; readonly derivedBlockers: DerivedBlockerDto[]; readonly nextActions: NextActionDto[]; readonly interventions: InterventionFullDto[] }',
+              'interface GetWorkstreamCurrentResult { readonly workstreamId: string; readonly objectives: ObjectiveFullDto[]; readonly explicitBlockers: BlockerDto[]; readonly derivedBlockers: DerivedBlockerDto[]; readonly nextActions: NextActionDto[]; readonly interventions: InterventionFullDto[]; readonly dependencyEdges: DependencyEdgeDto[] }',
           },
           {
             name: 'UpdateObjectiveResult',
@@ -708,6 +761,31 @@ export const TYPERT: TypertHostManifest = {
             name: 'ClearBlockerResult',
             declaration:
               'interface ClearBlockerResult { readonly blocker: BlockerDto }',
+          },
+          {
+            name: 'CreatePlanItemResult',
+            declaration:
+              'interface CreatePlanItemResult { readonly itemId: string; readonly workstreamId: string; readonly kind: "TASK" | "GATE" | "MILESTONE"; readonly planPath: string; readonly newOrder: string[]; readonly managementActionId: string }',
+          },
+          {
+            name: 'UpdatePlanItemResult',
+            declaration:
+              'interface UpdatePlanItemResult { readonly itemId: string; readonly workstreamId: string; readonly updatedAt: number }',
+          },
+          {
+            name: 'RemovePlanItemResult',
+            declaration:
+              'interface RemovePlanItemResult { readonly workstreamId: string; readonly planPath: string; readonly newOrder: string[]; readonly managementActionId: string; readonly currentFocusCleared: boolean }',
+          },
+          {
+            name: 'AddDependencyResult',
+            declaration:
+              'interface AddDependencyResult { readonly relationId: string; readonly source: DependencyEndpointRef; readonly target: DependencyEndpointRef }',
+          },
+          {
+            name: 'RemoveDependencyResult',
+            declaration:
+              'interface RemoveDependencyResult { readonly relationId: string }',
           },
         ],
       },

@@ -12,7 +12,10 @@
  *     lints the whole src tree, this pins the graph face in addition);
  *  3. the display components keep their pure-props contract: they import
  *     only react, @xyflow/react, the frozen shared contracts, sibling
- *     graph modules, and their CSS modules.
+ *     graph modules, their CSS modules, and — UI-5 — the i18n copy
+ *     registry (`../i18n/copy.js`: a pure frozen data module — the
+ *     compile-time key set + an identity lookup, no store/DSH/React
+ *     state; the B §18.3 verbatim legend strings live there).
  *
  * The scan is specifier-level (import/export … from), comment- and
  * string-proof by the line-anchored grammar.

@@ -241,6 +241,12 @@ export function makeHistoryFacade(log: readonly HistoryEventDto[]): HistoryFacad
       dismissNextAction: notUsed('dismissNextAction'),
       createBlocker: notUsed('createBlocker'),
       clearBlocker: notUsed('clearBlocker'),
+      // V2-UI-0.4 UI-5 (brief §3): the 5 plan-editor faces (same contract).
+      createPlanItem: notUsed('createPlanItem'),
+      updatePlanItem: notUsed('updatePlanItem'),
+      removePlanItem: notUsed('removePlanItem'),
+      addDependency: notUsed('addDependency'),
+      removeDependency: notUsed('removeDependency'),
     } as ResearchRpcFacade,
     calls,
     nextControlled: () => {
@@ -312,6 +318,12 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     dismissNextAction: notUsed('dismissNextAction'),
     createBlocker: notUsed('createBlocker'),
     clearBlocker: notUsed('clearBlocker'),
+    // V2-UI-0.4 UI-5 (brief §3): the 5 plan-editor faces (same contract).
+    createPlanItem: notUsed('createPlanItem'),
+    updatePlanItem: notUsed('updatePlanItem'),
+    removePlanItem: notUsed('removePlanItem'),
+    addDependency: notUsed('addDependency'),
+    removeDependency: notUsed('removeDependency'),
   } as ResearchRpcFacade
 }
 

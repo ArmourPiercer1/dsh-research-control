@@ -135,6 +135,60 @@ const COPY = {
   // --- Workstream header rows (UI-4 D4, B §12) ---------------------------
   'ws.header.objective': 'Current objective',
   'ws.header.focus': 'Current focus',
+
+  // --- Future Plan zone (UI-5 D4, B §16/§18/§19) -------------------------
+  // Ordered strip (B §16 — strip top + graph bottom). The move-button
+  // values are aria prefixes (the id is appended by the caller); the
+  // pending/fault notes carry the legacy FutureZone copy verbatim.
+  'ws.future.strip.title': 'Future Plan',
+  'ws.future.strip.empty': 'No planned items',
+  'ws.future.strip.addHead': 'Add at start',
+  'ws.future.strip.addRow': 'Add after',
+  'ws.future.strip.moveLeft': '左移',
+  'ws.future.strip.moveRight': '右移',
+  'ws.future.strip.reorderPending': '排序保存中…',
+  'ws.future.strip.reorderFault': '排序失败：',
+  // Graph face (B §18.3 — FROZEN verbatim legend keys):
+  'ws.future.graph.legendCanonical': '──── Canonical order',
+  'ws.future.graph.legendDependency': '- - - Dependency',
+  // PlanFork badge (ADJ-9 — collapsed-by-default count badge; the value
+  // is a prefix, the caller appends the count):
+  'ws.future.pfBadge': '未决 PlanFork：',
+  // Create form (B §19 fields; Title/Save/Cancel reuse the dialog.* keys):
+  'ws.future.create.title': 'Add to Future Plan',
+  'ws.future.create.kind': 'Kind',
+  'ws.future.create.pending': 'Creating…',
+  'ws.future.create.fault': 'Create failed',
+  // Edit form (RMW — B §19; blank optional field = unknown = omitted on
+  // save, never an accidental clear):
+  'ws.future.edit.title': 'Edit planned item',
+  'ws.future.edit.pending': 'Saving…',
+  'ws.future.edit.fault': 'Save failed',
+  'ws.future.edit.fieldGoal': 'Goal',
+  'ws.future.edit.fieldAcceptanceCriteria': 'Acceptance criteria (one per line)',
+  'ws.future.edit.fieldDeliverables': 'Deliverables (one per line)',
+  'ws.future.edit.fieldNote': 'Note',
+  'ws.future.edit.fieldCriteria': 'Gate criteria',
+  'ws.future.edit.fieldReferences': 'References (one per line)',
+  'ws.future.edit.fieldStatement': 'Milestone statement',
+  // Three-state Remove (B §19.4 — FROZEN verbatim keys). A single
+  // removePlanItem RPC underlies all three; the label branches on the
+  // classifier in plan-item-utils (the unused-definition state is
+  // reserved and unreachable in v1 — no definition-deletion RPC yet).
+  'ws.future.remove.fromPlan': 'Remove from Future Plan',
+  'ws.future.remove.drop': 'Drop planned item',
+  'ws.future.remove.deleteUnused': 'Delete unused item',
+  'ws.future.remove.pending': 'Removing…',
+  'ws.future.remove.fault': 'Remove failed',
+  // Dependency face (B §17 — reorder never touches dependencies, B §17.3):
+  'ws.future.dep.title': 'Dependencies',
+  'ws.future.dep.dependsOn': 'Depends on',
+  'ws.future.dep.dependedBy': 'Depended by',
+  'ws.future.dep.add': 'Add dependency',
+  'ws.future.dep.addTarget': 'Target item',
+  'ws.future.dep.remove': 'Remove dependency',
+  'ws.future.dep.empty': 'No dependencies',
+  'ws.future.dep.fault': 'Dependency change failed',
 } as const
 
 /** Compile-time key set — a misspelled key is a tsc error. */

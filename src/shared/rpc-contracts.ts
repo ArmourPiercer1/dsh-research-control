@@ -302,6 +302,12 @@ const epochMs = z.number().int().nonnegative()
 const idTopic = z.string().regex(/^TPC-[1-9][0-9]*$/)
 const idWorkstream = z.string().regex(/^WS-[1-9][0-9]*$/)
 const idTask = z.string().regex(/^T-[1-9][0-9]*$/)
+/** UI-5 (D3): the plan-item id families (the shared ids registry
+ *  prefixes G / M — the same frozen patterns the kernel allocates). */
+const idGate = z.string().regex(/^G-[1-9][0-9]*$/)
+const idMilestone = z.string().regex(/^M-[1-9][0-9]*$/)
+/** UI-5 (D3): the relation id family (registry prefix REL). */
+const idRelation = z.string().regex(/^REL-[1-9][0-9]*$/)
 const idPlanFork = z.string().regex(/^PF-[1-9][0-9]*$/)
 const idIntervention = z.string().regex(/^IV-[1-9][0-9]*$/)
 const idInteraction = z.string().regex(/^INT-[1-9][0-9]*$/)
@@ -2248,7 +2254,8 @@ export const ackMissingReminderInvocation: InvocationDescriptorMirror = descript
  *  additive — the frozen 13 / frozen 14 / plane 9 lists stay
  *  byte-identical). UI-2A: + the update-and-drop set (D §8.2);
  *  UI-2B: + the local-project pair (D §8.7 Create/Bind);
- *  UI-4: + the attention set (D §10). */
+ *  UI-4: + the attention set (D §10);
+ *  UI-5: + the plan-editor set (brief §3). */
 export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'setCurrentFocus',
   'getCurrentFocus',
@@ -2267,6 +2274,11 @@ export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'dismissNextAction',
   'createBlocker',
   'clearBlocker',
+  'createPlanItem',
+  'updatePlanItem',
+  'removePlanItem',
+  'addDependency',
+  'removeDependency',
 ] as const
 
 export type ResearchManagementRpcMethod = (typeof RESEARCH_MANAGEMENT_RPC_METHODS)[number]
@@ -3045,6 +3057,25 @@ export const InterventionFullDtoSchema = z
  *  there, keeping the frozen getWorkstream projection untouched).
  * -------------------------------------------------------------------- */
 
+/** UI-5 (ADJ-7): one ACTIVE DEPENDS_ON edge of the canonical plan —
+ *  both endpoints in the plan, sorted by relation id (the strip/graph
+ *  face; the WorkstreamSnapshot itself stays zero-touched). */
+export interface DependencyEdgeDto {
+  readonly relationId: string
+  /** The source plan-item id (T-…/G-…/M-…). */
+  readonly sourceId: string
+  /** The target plan-item id (T-…/G-…/M-…). */
+  readonly targetId: string
+}
+
+export const DependencyEdgeDtoSchema = z
+  .object({
+    relationId: idRelation,
+    sourceId: z.union([idTask, idGate, idMilestone]),
+    targetId: z.union([idTask, idGate, idMilestone]),
+  })
+  .strict()
+
 export interface GetWorkstreamCurrentArgs {
   readonly workstreamId: string
   /** V2 §12.1: optional multi-project routing target. */
@@ -3074,6 +3105,10 @@ export interface GetWorkstreamCurrentResult {
   /** The interventions naming this WS (all states — the zone renders
    *  the closure state). */
   readonly interventions: readonly InterventionFullDto[]
+  /** UI-5 (ADJ-7): the ACTIVE DEPENDS_ON edges of the canonical plan
+   *  (both endpoints in the plan; sorted by relation id — zero new
+   *  reads: folded from the events the zone already loads). */
+  readonly dependencyEdges: readonly DependencyEdgeDto[]
 }
 
 export const GetWorkstreamCurrentResultSchema = z
@@ -3084,6 +3119,7 @@ export const GetWorkstreamCurrentResultSchema = z
     derivedBlockers: z.array(DerivedBlockerDtoSchema),
     nextActions: z.array(NextActionDtoSchema),
     interventions: z.array(InterventionFullDtoSchema),
+    dependencyEdges: z.array(DependencyEdgeDtoSchema),
   })
   .strict()
 
@@ -3344,6 +3380,335 @@ export const clearBlockerInvocation: InvocationDescriptorMirror = descriptor(
   ClearBlockerResultSchema,
 )
 
+/* -------------------------------------------------------------------- *
+ * UI-5 (D3): the Plan-Editor + Dependency faces (the brief §3 frozen
+ *  contract, verbatim). DTO style = the UI-4 template: every object
+ *  schema `.strict()`, `projectId` an OPTIONAL routing field.
+ * -------------------------------------------------------------------- */
+
+/* ---- createPlanItem — create a Task/Gate/Milestone in the plan ---- */
+
+/** `createPlanItem` TASK payload (the actual declarative
+ *  `task.schema.json` fields: title/goal/acceptance_criteria/
+ *  deliverables/note). */
+export interface CreatePlanItemTaskInput {
+  readonly title: string
+  readonly goal?: string
+  readonly acceptanceCriteria?: string[]
+  readonly deliverables?: string[]
+  readonly note?: string
+}
+
+/** `createPlanItem` GATE payload (the actual declarative
+ *  `gate.schema.json` fields — the schema has NO note key). */
+export interface CreatePlanItemGateInput {
+  readonly title: string
+  readonly criteria?: string
+  readonly references?: string[]
+}
+
+/** `createPlanItem` MILESTONE payload (the actual declarative
+ *  `milestone.schema.json` fields — the schema has NO note key). */
+export interface CreatePlanItemMilestoneInput {
+  readonly title: string
+  readonly statement?: string
+}
+
+/** The wire `item` field — exactly one per-kind payload (the `kind`
+ *  arg must name the same kind; the server rejects a disagreeing pair). */
+export type CreatePlanItemInput =
+  | { readonly task: CreatePlanItemTaskInput }
+  | { readonly gate: CreatePlanItemGateInput }
+  | { readonly milestone: CreatePlanItemMilestoneInput }
+
+export interface CreatePlanItemArgs {
+  readonly workstreamId: string
+  readonly kind: 'TASK' | 'GATE' | 'MILESTONE'
+  readonly item: CreatePlanItemInput
+  /** 0-based insertion index into the canonical order (default = tail). */
+  readonly index?: number
+  readonly projectId?: string
+}
+
+export const CreatePlanItemArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    kind: z.enum(['TASK', 'GATE', 'MILESTONE']),
+    item: z.union([
+      z
+        .object({
+          task: z
+            .object({
+              title: z.string().min(1),
+              goal: z.string().min(1).optional(),
+              acceptanceCriteria: z.array(z.string().min(1)).optional(),
+              deliverables: z.array(z.string().min(1)).optional(),
+              note: z.string().min(1).optional(),
+            })
+            .strict(),
+        })
+        .strict(),
+      z
+        .object({
+          gate: z
+            .object({
+              title: z.string().min(1),
+              criteria: z.string().min(1).optional(),
+              references: z.array(z.string().min(1)).optional(),
+            })
+            .strict(),
+        })
+        .strict(),
+      z
+        .object({
+          milestone: z
+            .object({
+              title: z.string().min(1),
+              statement: z.string().min(1).optional(),
+            })
+            .strict(),
+        })
+        .strict(),
+    ]),
+    index: z.number().int().nonnegative().optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface CreatePlanItemResult {
+  readonly itemId: string
+  readonly workstreamId: string
+  readonly kind: 'TASK' | 'GATE' | 'MILESTONE'
+  /** The `.research/`-relative `plan.yaml` path. */
+  readonly planPath: string
+  /** The canonical order AFTER the create (full id list). */
+  readonly newOrder: string[]
+  readonly managementActionId: string
+}
+
+export const CreatePlanItemResultSchema = z
+  .object({
+    itemId: z.union([idTask, idGate, idMilestone]),
+    workstreamId: idWorkstream,
+    kind: z.enum(['TASK', 'GATE', 'MILESTONE']),
+    planPath: z.string().min(1),
+    newOrder: z.array(z.string().min(1)),
+    managementActionId: idManagementAction,
+  })
+  .strict()
+
+export const createPlanItemInvocation: InvocationDescriptorMirror = descriptor(
+  'createPlanItem',
+  [argsParameter('CreatePlanItemArgs', CreatePlanItemArgsSchema)],
+  'CreatePlanItemResult',
+  CreatePlanItemResultSchema,
+)
+
+/* ---- updatePlanItem — RMW the named plan item (NO ledger row) ---- */
+
+/** `updatePlanItem` changes — a per-kind OPTIONAL SUBSET (RMW: omit =
+ *  unchanged; explicit `null` = clear the named optional field). The
+ *  item kind is derived from the `itemId` prefix server-side; a field
+ *  that belongs to a different kind is rejected by the kernel's frozen
+ *  schema re-validation (fail-loud — the SCHEMA carrier rides the wire). */
+export interface UpdatePlanItemChanges {
+  readonly title?: string
+  readonly goal?: string | null
+  readonly criteria?: string | null
+  readonly statement?: string | null
+  readonly acceptanceCriteria?: string[] | null
+  readonly deliverables?: string[] | null
+  readonly references?: string[] | null
+  readonly note?: string | null
+}
+
+export interface UpdatePlanItemArgs {
+  readonly workstreamId: string
+  readonly itemId: string
+  readonly changes: UpdatePlanItemChanges
+  readonly projectId?: string
+}
+
+export const UpdatePlanItemArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    itemId: z.union([idTask, idGate, idMilestone]),
+    changes: z
+      .object({
+        title: z.string().min(1).optional(),
+        goal: z.string().min(1).nullable().optional(),
+        criteria: z.string().min(1).nullable().optional(),
+        statement: z.string().min(1).nullable().optional(),
+        acceptanceCriteria: z.array(z.string().min(1)).nullable().optional(),
+        deliverables: z.array(z.string().min(1)).nullable().optional(),
+        references: z.array(z.string().min(1)).nullable().optional(),
+        note: z.string().min(1).nullable().optional(),
+      })
+      .strict(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface UpdatePlanItemResult {
+  readonly itemId: string
+  readonly workstreamId: string
+  /** The write stamp (epoch ms) — the client invalidation version.
+   *  ADJ-4: NO managementActionId field (update writes no ledger row —
+   *  the frozen 15-kind enum has no update kind; the field is absent,
+   *  not null). */
+  readonly updatedAt: number
+}
+
+export const UpdatePlanItemResultSchema = z
+  .object({
+    itemId: z.union([idTask, idGate, idMilestone]),
+    workstreamId: idWorkstream,
+    updatedAt: epochMs,
+  })
+  .strict()
+
+export const updatePlanItemInvocation: InvocationDescriptorMirror = descriptor(
+  'updatePlanItem',
+  [argsParameter('UpdatePlanItemArgs', UpdatePlanItemArgsSchema)],
+  'UpdatePlanItemResult',
+  UpdatePlanItemResultSchema,
+)
+
+/* ---- removePlanItem — drop the named plan item from the plan ---- */
+
+export interface RemovePlanItemArgs {
+  readonly workstreamId: string
+  readonly itemId: string
+  readonly projectId?: string
+}
+
+export const RemovePlanItemArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    itemId: z.union([idTask, idGate, idMilestone]),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface RemovePlanItemResult {
+  readonly workstreamId: string
+  /** The `.research/`-relative `plan.yaml` path. */
+  readonly planPath: string
+  /** The canonical order AFTER the remove (full id list). */
+  readonly newOrder: string[]
+  readonly managementActionId: string
+  /** ADJ-14 (RPC layer): true when the removed item WAS the WS current
+   *  focus — the @Remote wrapper clears the stale pointer after the
+   *  service succeeds and folds this flag into the wire result. */
+  readonly currentFocusCleared: boolean
+}
+
+export const RemovePlanItemResultSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    planPath: z.string().min(1),
+    newOrder: z.array(z.string().min(1)),
+    managementActionId: idManagementAction,
+    currentFocusCleared: z.boolean(),
+  })
+  .strict()
+
+export const removePlanItemInvocation: InvocationDescriptorMirror = descriptor(
+  'removePlanItem',
+  [argsParameter('RemovePlanItemArgs', RemovePlanItemArgsSchema)],
+  'RemovePlanItemResult',
+  RemovePlanItemResultSchema,
+)
+
+/* ---- addDependency — add a DEPENDS_ON relation (fixed type) ---- */
+
+/** A plan-item endpoint of a dependency edge (kind ∈ TASK/GATE/
+ *  MILESTONE; both endpoints must resolve inside the same workstream —
+ *  the `workstreamId` arg names that WS, validated server-side). */
+export interface DependencyEndpointRef {
+  readonly kind: 'TASK' | 'GATE' | 'MILESTONE'
+  readonly id: string
+}
+
+const dependencyEndpointSchema = z
+  .object({
+    kind: z.enum(['TASK', 'GATE', 'MILESTONE']),
+    id: z.union([idTask, idGate, idMilestone]),
+  })
+  .strict()
+
+export interface AddDependencyArgs {
+  readonly workstreamId: string
+  readonly source: DependencyEndpointRef
+  readonly target: DependencyEndpointRef
+  readonly projectId?: string
+}
+
+export const AddDependencyArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    source: dependencyEndpointSchema,
+    target: dependencyEndpointSchema,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface AddDependencyResult {
+  readonly relationId: string
+  /** The echoed source endpoint. */
+  readonly source: DependencyEndpointRef
+  /** The echoed target endpoint. */
+  readonly target: DependencyEndpointRef
+}
+
+export const AddDependencyResultSchema = z
+  .object({
+    relationId: idRelation,
+    source: dependencyEndpointSchema,
+    target: dependencyEndpointSchema,
+  })
+  .strict()
+
+export const addDependencyInvocation: InvocationDescriptorMirror = descriptor(
+  'addDependency',
+  [argsParameter('AddDependencyArgs', AddDependencyArgsSchema)],
+  'AddDependencyResult',
+  AddDependencyResultSchema,
+)
+
+/* ---- removeDependency — remove an ACTIVE DEPENDS_ON relation ---- */
+
+export interface RemoveDependencyArgs {
+  readonly workstreamId: string
+  readonly relationId: string
+  readonly projectId?: string
+}
+
+export const RemoveDependencyArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    relationId: idRelation,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface RemoveDependencyResult {
+  readonly relationId: string
+}
+
+export const RemoveDependencyResultSchema = z
+  .object({
+    relationId: idRelation,
+  })
+  .strict()
+
+export const removeDependencyInvocation: InvocationDescriptorMirror = descriptor(
+  'removeDependency',
+  [argsParameter('RemoveDependencyArgs', RemoveDependencyArgsSchema)],
+  'RemoveDependencyResult',
+  RemoveDependencyResultSchema,
+)
+
 /** The GUI management invocation descriptors (appended to the registered
  *  face at the end — the frozen 14 + plane 9 entries stay untouched). */
 export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
@@ -3364,6 +3729,11 @@ export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirro
   dismissNextActionInvocation,
   createBlockerInvocation,
   clearBlockerInvocation,
+  createPlanItemInvocation,
+  updatePlanItemInvocation,
+  removePlanItemInvocation,
+  addDependencyInvocation,
+  removeDependencyInvocation,
 ]
 
 /**
@@ -3412,9 +3782,11 @@ export const RESEARCH_PLANE_INVOCATIONS: readonly InvocationDescriptorMirror[] =
  * Create/Bind: inspectProjectDirectory / createLocalResearchProject);
  * UI-4 appends the 7 attention RPCs (D §10: getWorkstreamCurrent /
  * updateObjective / createNextAction / promoteNextAction /
- * dismissNextAction / createBlocker / clearBlocker) — the
+ * dismissNextAction / createBlocker / clearBlocker); UI-5 appends the
+ * 5 plan-editor RPCs (brief §3: createPlanItem / updatePlanItem /
+ * removePlanItem / addDependency / removeDependency) — the
  * incremental management face grows by slice (D §6.5); the
- * registered face is now 39 business RPCs (40 with ping).
+ * registered face is now 44 business RPCs (45 with ping).
  */
 export const REGISTERED_RESEARCH_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
   ...ALL_RESEARCH_INVOCATIONS,

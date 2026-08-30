@@ -42,6 +42,8 @@ import type {
 import {
   AckMissingReminderArgs,
   AckMissingReminderResult,
+  AddDependencyArgs,
+  AddDependencyResult,
   BindProjectArgs,
   BindProjectResult,
   ClearBlockerArgs,
@@ -52,11 +54,14 @@ import {
   CreateLocalResearchProjectResult,
   CreateNextActionArgs,
   CreateNextActionResult,
+  CreatePlanItemArgs,
+  CreatePlanItemResult,
   CreateTopicArgs,
   CreateTopicResult,
   CreateWorkstreamArgs,
   CreateWorkstreamResult,
   DashboardSnapshot,
+  DependencyEndpointRef,
   DismissNextActionArgs,
   DismissNextActionResult,
   DismissPlanForkArgs,
@@ -91,6 +96,10 @@ import {
   ReorderPlanResult,
   RegisterInteractionArgs,
   RegisterInteractionResult,
+  RemoveDependencyArgs,
+  RemoveDependencyResult,
+  RemovePlanItemArgs,
+  RemovePlanItemResult,
   RescanArgs,
   RescanResult,
   RestoreDeclarativeFileArgs,
@@ -112,6 +121,8 @@ import {
   UpdateInterventionStateResult,
   UpdateObjectiveArgs,
   UpdateObjectiveResult,
+  UpdatePlanItemArgs,
+  UpdatePlanItemResult,
   UpdateProjectMetadataArgs,
   UpdateProjectMetadataResult,
   UpdateTopicArgs,
@@ -230,6 +241,23 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/clearBlocker': (
       args: ClearBlockerArgs,
     ) => Promise<RemoteResult<ClearBlockerResult>>
+    // V2-UI-5 (brief §3): the 5 plan-editor RPCs — plan item CRUD +
+    // the DEPENDS_ON relation management pair.
+    'researchControl/createPlanItem': (
+      args: CreatePlanItemArgs,
+    ) => Promise<RemoteResult<CreatePlanItemResult>>
+    'researchControl/updatePlanItem': (
+      args: UpdatePlanItemArgs,
+    ) => Promise<RemoteResult<UpdatePlanItemResult>>
+    'researchControl/removePlanItem': (
+      args: RemovePlanItemArgs,
+    ) => Promise<RemoteResult<RemovePlanItemResult>>
+    'researchControl/addDependency': (
+      args: AddDependencyArgs,
+    ) => Promise<RemoteResult<AddDependencyResult>>
+    'researchControl/removeDependency': (
+      args: RemoveDependencyArgs,
+    ) => Promise<RemoteResult<RemoveDependencyResult>>
   }
 
   interface TypertRemoteNamespaceMap {
@@ -248,7 +276,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
    * RPCs, plane-level — UI-2B);
    * V2-UI-0.4 UI-4 (D §10): + the 7 attention RPCs (the
    * CurrentExecution projection read + the objective/next-action/blocker
-   * mutation faces).
+   * mutation faces);
+   * V2-UI-5 (brief §3): + the 5 plan-editor RPCs (the plan item CRUD
+   * trio + the DEPENDS_ON relation pair).
    */
   interface TypertRemoteNamespace$726573656172636f6e74726f6c {
     ping: () => Promise<RemoteResult<PingResult>>
@@ -338,6 +368,23 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     clearBlocker: (
       args: ClearBlockerArgs,
     ) => Promise<RemoteResult<ClearBlockerResult>>
+    // V2-UI-5 (brief §3): the 5 plan-editor RPCs (the same face the
+    // flat map above mirrors).
+    createPlanItem: (
+      args: CreatePlanItemArgs,
+    ) => Promise<RemoteResult<CreatePlanItemResult>>
+    updatePlanItem: (
+      args: UpdatePlanItemArgs,
+    ) => Promise<RemoteResult<UpdatePlanItemResult>>
+    removePlanItem: (
+      args: RemovePlanItemArgs,
+    ) => Promise<RemoteResult<RemovePlanItemResult>>
+    addDependency: (
+      args: AddDependencyArgs,
+    ) => Promise<RemoteResult<AddDependencyResult>>
+    removeDependency: (
+      args: RemoveDependencyArgs,
+    ) => Promise<RemoteResult<RemoveDependencyResult>>
   }
 }
 
@@ -350,7 +397,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
  * management descriptors, UI-0.4: the current-focus pair (R-01) and the
  * hierarchy create pair (Task 3) + the 7 attention descriptors, UI-4 (D
  * §10): the CurrentExecution projection read + the
- * objective/next-action/blocker mutation faces — the hand-written map
+ * objective/next-action/blocker mutation faces + the 5 plan-editor
+ * descriptors, UI-5 (brief §3): the plan item CRUD trio + the DEPENDS_ON
+ * relation pair — the hand-written map
  * above mirrors the SAME face by category), strict codecs included.
  */
 export const researchRemotes: TypertRemoteContribution = {

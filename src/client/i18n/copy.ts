@@ -189,6 +189,72 @@ const COPY = {
   'ws.future.dep.remove': 'Remove dependency',
   'ws.future.dep.empty': 'No dependencies',
   'ws.future.dep.fault': 'Dependency change failed',
+
+  // --- Topic topology (UI-6 D4, B §10.3/§10.4/§21/§22/§23, ADJ-9) -----------
+  // Legend (B §10.3: the mandatory legend — three-state line forms +
+  // FORK/MERGE arrow forms + the merge-contract badge).
+  'topic.topology.legend.realized': 'Realized — solid line',
+  'topic.topology.legend.planned': 'Planned — dashed line',
+  'topic.topology.legend.dropped': 'Dropped — hidden by default (show-dropped toggle)',
+  'topic.topology.legend.fork': 'Fork (FORK) — open arrow, route fans out',
+  'topic.topology.legend.merge': 'Merge (MERGE) — filled arrow, route converges',
+  'topic.topology.legend.contract': 'Merge contract badge',
+  // The chip glyph — the badge text as it appears on the node/edge
+  // (R-09: every UI-6 string, legend included, rides the table).
+  'topic.topology.legend.contractChip': '合并契约',
+  // Action bar (B §10.4 basic actions; ADJ-6: the Topic-page topology
+  // zone is the single first-version entry).
+  'topic.topology.action.createFork': 'Create Fork',
+  'topic.topology.action.createMerge': 'Create Planned Merge',
+  'topic.topology.action.drop': 'Drop',
+  // Fork form (B §21.2 minimal flow).
+  'topic.topology.fork.title': 'Create Workstream Fork',
+  'topic.topology.fork.from': 'Fork from:',
+  'topic.topology.fork.newWorkstreams': 'New Workstreams:',
+  'topic.topology.fork.add': 'Add workstream',
+  'topic.topology.fork.remove': 'Remove this workstream',
+  'topic.topology.fork.titlePlaceholder': 'Title',
+  'topic.topology.fork.noteLabel': 'Optional note',
+  'topic.topology.fork.notePlaceholder': 'Note (optional)',
+  'topic.topology.fork.errParent': 'Select the parent workstream to fork from',
+  'topic.topology.fork.errAtLeastOne': 'At least one new workstream is required',
+  'topic.topology.fork.errTitleLength': 'Each title must be 1–200 characters',
+  'topic.topology.fork.errNoteLength': 'The note must be at most 200 characters',
+  // Merge form (B §22 minimal fields; existing-output-first).
+  'topic.topology.merge.title': 'Create Planned Merge',
+  'topic.topology.merge.inputs': 'Inputs:',
+  'topic.topology.merge.output': 'Output:',
+  'topic.topology.merge.outputPlaceholder': 'Select the output workstream',
+  'topic.topology.merge.noteLabel': 'Note (optional)',
+  'topic.topology.merge.notePlaceholder': 'Note (optional)',
+  // B §22 wireframe verbatim: the contract is created/edited LATER, on
+  // the new merge edge (ADJ-7: createPlannedMerge carries no contract).
+  'topic.topology.merge.contractLater': 'Merge Contract: [Create / Edit later]',
+  'topic.topology.merge.errInputs': 'Select at least 2 input workstreams',
+  'topic.topology.merge.errOutput': 'Select the output workstream',
+  'topic.topology.merge.errOutputInInputs': 'The output cannot be one of the inputs',
+  // Merge-contract editor (B §23 / ADJ-7: raw textarea, full replacement,
+  // no front-matter parsing, no "Last updated" — the DTO has no timestamp).
+  'topic.topology.contract.title': 'Merge Contract',
+  'topic.topology.contract.loading': 'Loading…',
+  'topic.topology.contract.none': 'No merge contract',
+  'topic.topology.contract.create': 'Create',
+  'topic.topology.contract.hint': 'Raw Markdown — Save replaces the whole contract',
+  'topic.topology.contract.save': 'Save',
+  'topic.topology.contract.errEmpty': 'The contract content cannot be empty',
+  // Drop confirmation (B §10.4 "Drop planned topology operation"; ADJ-5:
+  // the first-version entry offers PLANNED edges only — the state line in
+  // the dialog carries the edge's current lifecycle, so the wording
+  // distinguishes the three states).
+  'topic.topology.drop.title': 'Drop Topology Edge',
+  'topic.topology.drop.edgeLabel': 'Edge:',
+  'topic.topology.drop.selectPlaceholder': 'Select the planned edge to drop',
+  'topic.topology.drop.message':
+    'Dropping moves this edge to the DROPPED state: DROPPED is terminal (it cannot be restored). The edge row is retained and can be shown in history mode (the "show-dropped" toggle). Confirm the drop?',
+  'topic.topology.drop.confirm': 'Confirm drop',
+  // Shared dialog chrome (the four topology dialogs).
+  'topic.topology.cancel': 'Cancel',
+  'topic.topology.saving': 'Working…',
 } as const
 
 /** Compile-time key set — a misspelled key is a tsc error. */

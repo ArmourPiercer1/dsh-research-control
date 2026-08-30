@@ -263,4 +263,36 @@ export function topologyToGraph(snapshot: TopicSnapshot): TopologyGraphData {
   }
 }
 
+/**
+ * The flow-coordinate bounds of a topology graph (UI-6 #20, the FR4
+ * port from plan-model's `planGraphBounds`): min/max over the node
+ * positions inflated by the CSS-fixed node size.
+ *
+ * The node size is FIXED by the card's CSS (the layout constants above
+ * are the single source of truth for both), so the bounds need no
+ * measured sizes at all — the view fits with `fitBounds`, a pure
+ * function of explicit bounds + the pane size (synchronous, no rAF
+ * queue, no measurement race).
+ *
+ * @param graph - a `topologyToGraph` result.
+ * @returns the bounds rect in flow coordinates, or null for an empty
+ *  graph (nothing to fit).
+ */
+export function topologyGraphBounds(
+  graph: TopologyGraphData,
+): { x: number; y: number; width: number; height: number } | null {
+  if (graph.nodes.length === 0) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const node of graph.nodes) {
+    minX = Math.min(minX, node.position.x)
+    minY = Math.min(minY, node.position.y)
+    maxX = Math.max(maxX, node.position.x + TOPOLOGY_NODE_WIDTH)
+    maxY = Math.max(maxY, node.position.y + TOPOLOGY_NODE_HEIGHT)
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
 export type { MergeContractRefDto, TopicSnapshot, TopologyEdgeDto, WorkstreamCardDto }

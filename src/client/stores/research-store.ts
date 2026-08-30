@@ -53,21 +53,29 @@ import {
   type CreateNextActionResult,
   type CreatePlanItemArgs,
   type CreatePlanItemResult,
+  type CreatePlannedMergeArgs,
+  type CreatePlannedMergeResult,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
   type CreateWorkstreamResult,
+  type CreateWorkstreamForkArgs,
+  type CreateWorkstreamForkResult,
   type DashboardSnapshot,
   type DismissNextActionArgs,
   type DismissNextActionResult,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
+  type DropTopologyEdgeArgs,
+  type DropTopologyEdgeResult,
   type DropWorkstreamArgs,
   type DropWorkstreamResult,
   type GetCurrentFocusArgs,
   type GetCurrentFocusResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
+  type GetMergeContractArgs,
+  type GetMergeContractResult,
   type GetWorkstreamCurrentArgs,
   type GetWorkstreamCurrentResult,
   type InspectProjectDirectoryArgs,
@@ -87,6 +95,8 @@ import {
   type RegisterInteractionResult,
   type RestoreDeclarativeFileArgs,
   type RestoreDeclarativeFileResult,
+  type SaveMergeContractArgs,
+  type SaveMergeContractResult,
   type SaveResearchCheckpointArgs,
   type SaveResearchCheckpointResult,
   type SetCurrentFocusArgs,
@@ -333,6 +343,27 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
    *  refetches every cached `workstreams:*` + `current:*` slice (the
    *  result carries no workstreamId). */
   removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult>
+  /** UI-6 (D1, D §12.2): fork the parent workstream into N children
+   *  (per child: new WS + one 1:1 FORK edge) → TOPOLOGY_EDITED. On OK:
+   *  refetches the owning topic slice + the project index (the result
+   *  carries the topicId). */
+  createWorkstreamFork(args: CreateWorkstreamForkArgs): Promise<CreateWorkstreamForkResult>
+  /** UI-6 (D2, BRIEF §3): plan a merge over existing workstreams (one
+   *  PLANNED MERGE edge, existing-output-first) → TOPOLOGY_EDITED. On
+   *  OK: refetches the owning topic slice + the project index (the
+   *  result carries the topicId). */
+  createPlannedMerge(args: CreatePlannedMergeArgs): Promise<CreatePlannedMergeResult>
+  /** UI-6 (D2, BRIEF §3): read the merge contract for an edge —
+   *  `content` null is the missing-contract value face (no refetch). */
+  getMergeContract(args: GetMergeContractArgs): Promise<GetMergeContractResult>
+  /** UI-6 (D2, BRIEF §3): full-replacement write of the merge contract
+   *  file → CONTRACT_EDITED. On OK: refetches the owning topic slice
+   *  (resolved from the cached edges; no project index — RECON :858). */
+  saveMergeContract(args: SaveMergeContractArgs): Promise<SaveMergeContractResult>
+  /** UI-6 (D3, BRIEF §3): drop a topology edge (state-machine
+   *  authority; DROPPED → DROPPED is the error carrier). On OK:
+   *  refetches the owning topic slice + the project index. */
+  dropTopologyEdge(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult>
 
   /* -- the refresh loop (ARCHITECTURE §8 items 3/4) -- */
 
@@ -771,6 +802,38 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     async removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult> {
       const value = okValue(await rpc.removeDependency(args))
       await refetchKeys(INVALIDATE_REGISTRY.removeDependency(value, base.getState()))
+      return value
+    },
+
+    /* V2-UI-6 — the topology mutation (D §12.2): the same
+       okValue → INVALIDATE_REGISTRY → refetchKeys idiom. */
+    async createWorkstreamFork(args: CreateWorkstreamForkArgs): Promise<CreateWorkstreamForkResult> {
+      const value = okValue(await rpc.createWorkstreamFork(args))
+      await refetchKeys(INVALIDATE_REGISTRY.createWorkstreamFork(value, base.getState()))
+      return value
+    },
+
+    async createPlannedMerge(args: CreatePlannedMergeArgs): Promise<CreatePlannedMergeResult> {
+      const value = okValue(await rpc.createPlannedMerge(args))
+      await refetchKeys(INVALIDATE_REGISTRY.createPlannedMerge(value, base.getState()))
+      return value
+    },
+
+    async getMergeContract(args: GetMergeContractArgs): Promise<GetMergeContractResult> {
+      const value = okValue(await rpc.getMergeContract(args))
+      await refetchKeys(INVALIDATE_REGISTRY.getMergeContract(value, base.getState()))
+      return value
+    },
+
+    async saveMergeContract(args: SaveMergeContractArgs): Promise<SaveMergeContractResult> {
+      const value = okValue(await rpc.saveMergeContract(args))
+      await refetchKeys(INVALIDATE_REGISTRY.saveMergeContract(value, base.getState()))
+      return value
+    },
+
+    async dropTopologyEdge(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult> {
+      const value = okValue(await rpc.dropTopologyEdge(args))
+      await refetchKeys(INVALIDATE_REGISTRY.dropTopologyEdge(value, base.getState()))
       return value
     },
 

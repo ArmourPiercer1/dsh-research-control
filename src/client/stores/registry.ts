@@ -109,11 +109,15 @@ import type {
   CreateLocalResearchProjectResult,
   CreateNextActionResult,
   CreatePlanItemResult,
+  CreatePlannedMergeResult,
   CreateTopicResult,
   CreateWorkstreamResult,
+  CreateWorkstreamForkResult,
   DismissNextActionResult,
   DismissPlanForkResult,
+  DropTopologyEdgeResult,
   DropWorkstreamResult,
+  GetMergeContractResult,
   InspectProjectDirectoryResult,
   PromoteNextActionResult,
   RegisterInteractionResult,
@@ -121,6 +125,7 @@ import type {
   RemoveDependencyResult,
   RemovePlanItemResult,
   RestoreDeclarativeFileResult,
+  SaveMergeContractResult,
   SaveResearchCheckpointResult,
   SetCurrentFocusResult,
   SelectPlanForkResult,
@@ -184,6 +189,11 @@ export type MutationId =
   | 'removePlanItem'
   | 'addDependency'
   | 'removeDependency'
+  | 'createWorkstreamFork'
+  | 'createPlannedMerge'
+  | 'getMergeContract'
+  | 'saveMergeContract'
+  | 'dropTopologyEdge'
 
 export const MUTATION_IDS: readonly MutationId[] = [
   'reorderPlan',
@@ -213,6 +223,11 @@ export const MUTATION_IDS: readonly MutationId[] = [
   'removePlanItem',
   'addDependency',
   'removeDependency',
+  'createWorkstreamFork',
+  'createPlannedMerge',
+  'getMergeContract',
+  'saveMergeContract',
+  'dropTopologyEdge',
 ]
 
 /** One registry rule: pure (result, state) -> affected global slice keys. */
@@ -253,6 +268,11 @@ export const INVALIDATE_REGISTRY: {
   readonly removePlanItem: InvalidationRule<RemovePlanItemResult>
   readonly addDependency: InvalidationRule<AddDependencyResult>
   readonly removeDependency: InvalidationRule<RemoveDependencyResult>
+  readonly createWorkstreamFork: InvalidationRule<CreateWorkstreamForkResult>
+  readonly createPlannedMerge: InvalidationRule<CreatePlannedMergeResult>
+  readonly getMergeContract: InvalidationRule<GetMergeContractResult>
+  readonly saveMergeContract: InvalidationRule<SaveMergeContractResult>
+  readonly dropTopologyEdge: InvalidationRule<DropTopologyEdgeResult>
 } = {
   // UI-5 (ADJ-8): the frozen rule is EXTENDED — unified with the five
   // plan-editor mutations below: `workstreams:<ws>` + `current:<ws>`.
@@ -462,6 +482,47 @@ export const INVALIDATE_REGISTRY: {
     ...[...state.workstreams.keys()].map(key => sliceKey('workstreams', key)),
     ...cachedCurrentKeys(state),
   ],
+
+  // V2-UI-6 (D1, D §12.2): the fork rewrites the owning topic's
+  // topology (new FORK edges + the child workstream cards + the
+  // workstreamCount) and the project aggregate follows — the same
+  // shape as createWorkstream (the result carries the topicId).
+  createWorkstreamFork: (result, _state) => [
+    sliceKey('topics', result.topicId),
+    'project',
+  ],
+
+  // V2-UI-6 (D2, BRIEF §3): the planned merge appends one PLANNED MERGE
+  // edge to the owning topic's topology — same shape as the fork (the
+  // result carries the topicId; the project aggregate follows).
+  createPlannedMerge: (result, _state) => [
+    sliceKey('topics', result.topicId),
+    'project',
+  ],
+
+  // V2-UI-6 (D2, BRIEF §3): the contract read is a pure query — the
+  // uniform face keeps the rule (inspectProjectDirectory precedent);
+  // it invalidates NOTHING (the read writes no file, no ledger row).
+  getMergeContract: (_result, _state) => [],
+
+  // V2-UI-6 (D2, BRIEF §3 + RECON :858): the contract write rewrites
+  // the owning topic's mergeContracts badges — topics:<t> ONLY (no
+  // project aggregate: the project face has no contract projection).
+  // The result carries no topicId, so the owner resolves from the
+  // CACHED edges (the `cachedTopicId` precedent): idle/empty → no
+  // keys (the topic's next load fetches live data).
+  saveMergeContract: (result, state) => {
+    const topicId = cachedTopicOfEdge(state, result.edgeId)
+    return topicId === null ? [] : [sliceKey('topics', topicId)]
+  },
+
+  // V2-UI-6 (D3, BRIEF §3): the edge drop rewrites the owning topic's
+  // topology (and the project index's topology projection) — the result
+  // carries the resolved topicId, so no cache scan is needed.
+  dropTopologyEdge: (result, _state) => [
+    sliceKey('topics', result.topicId),
+    'project',
+  ],
 }
 
 /**
@@ -473,6 +534,23 @@ export const INVALIDATE_REGISTRY: {
 function cachedTopicId(state: ResearchStoreState, workstreamId: string): string | null {
   const data = state.workstreams.get(workstreamId)?.data
   return data === null || data === undefined ? null : data.workstream.topicId
+}
+
+/**
+ * The topic owning a topology edge, resolvable ONLY from the cache (the
+ * saveMergeContract result carries no topicId — it is the edge's owner
+ * under whose `merges/<te>/contract.md` the file lives). Scans the
+ * cached `topics:*` slices' edge lists. `null` when the owning topic
+ * slice is idle/empty or the edge is cached nowhere — the caller then
+ * invalidates nothing (the topic's next load fetches live data).
+ */
+function cachedTopicOfEdge(state: ResearchStoreState, edgeId: string): string | null {
+  for (const [topicId, slice] of state.topics) {
+    const data = slice?.data
+    if (data === null || data === undefined) continue
+    if (data.topology.edges.some(edge => edge.id === edgeId)) return topicId
+  }
+  return null
 }
 
 /**

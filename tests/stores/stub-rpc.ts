@@ -77,6 +77,8 @@ import type {
   CreateTopicResult,
   CreateWorkstreamArgs,
   CreateWorkstreamResult,
+  CreateWorkstreamForkArgs,
+  CreateWorkstreamForkResult,
   // V2-UI-0.4 UI-4 (D §10): the 7 attention faces.
   GetWorkstreamCurrentArgs,
   GetWorkstreamCurrentResult,
@@ -103,6 +105,16 @@ import type {
   AddDependencyResult,
   RemoveDependencyArgs,
   RemoveDependencyResult,
+  // V2-UI-6 (D2, BRIEF §3): the 3 planned-merge / merge-contract faces.
+  CreatePlannedMergeArgs,
+  CreatePlannedMergeResult,
+  GetMergeContractArgs,
+  GetMergeContractResult,
+  SaveMergeContractArgs,
+  SaveMergeContractResult,
+  // V2-UI-6 (D3, BRIEF §3): the edge drop face.
+  DropTopologyEdgeArgs,
+  DropTopologyEdgeResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -427,6 +439,57 @@ const DEFAULTS: Record<string, () => unknown> = {
     ok: true,
     value: { relationId: 'REL-1' },
   }),
+  // V2-UI-6 (D1, D §12.2): wire-valid minimal default for the topology
+  // fork face — LOCAL to this stub (same convention); the store suite
+  // overrides per-test.
+  createWorkstreamFork: () => ({
+    ok: true,
+    value: {
+      topicId: 'TPC-1',
+      edgeIds: ['TE-3'],
+      workstreamIds: ['WS-9'],
+      managementActionId: 'MA-9',
+    },
+  }),
+  // V2-UI-6 (D2, BRIEF §3): wire-valid minimal defaults for the 3
+  // planned-merge / merge-contract faces — LOCAL to this stub (same
+  // convention); the store suite overrides per-test.
+  createPlannedMerge: () => ({
+    ok: true,
+    value: {
+      edgeId: 'TE-3',
+      topicId: 'TPC-1',
+      inputs: ['WS-1', 'WS-2'],
+      outputWorkstreamId: 'WS-3',
+      lifecycle: 'PLANNED',
+      managementActionId: 'MA-9',
+    },
+  }),
+  getMergeContract: () => ({
+    ok: true,
+    value: {
+      edgeId: 'TE-2',
+      content: '# Merge contract\n',
+      path: 'merges/TE-2/contract.md',
+    },
+  }),
+  saveMergeContract: () => ({
+    ok: true,
+    value: {
+      edgeId: 'TE-2',
+      path: 'merges/TE-2/contract.md',
+      managementActionId: 'MA-9',
+    },
+  }),
+  dropTopologyEdge: () => ({
+    ok: true,
+    value: {
+      edgeId: 'TE-1',
+      topicId: 'TPC-1',
+      lifecycle: 'DROPPED',
+      managementActionId: 'MA-9',
+    },
+  }),
 }
 
 /**
@@ -553,6 +616,19 @@ export function makeStubRpc(): StubRpc {
       deliverArgs<RemoteResult<AddDependencyResult>>('addDependency', args),
     removeDependency: async (args: RemoveDependencyArgs) =>
       deliverArgs<RemoteResult<RemoveDependencyResult>>('removeDependency', args),
+    createWorkstreamFork: async (args: CreateWorkstreamForkArgs) =>
+      deliverArgs<RemoteResult<CreateWorkstreamForkResult>>('createWorkstreamFork', args),
+    // V2-UI-6 (D2, BRIEF §3): the 3 planned-merge / merge-contract
+    // methods.
+    createPlannedMerge: async (args: CreatePlannedMergeArgs) =>
+      deliverArgs<RemoteResult<CreatePlannedMergeResult>>('createPlannedMerge', args),
+    getMergeContract: async (args: GetMergeContractArgs) =>
+      deliverArgs<RemoteResult<GetMergeContractResult>>('getMergeContract', args),
+    saveMergeContract: async (args: SaveMergeContractArgs) =>
+      deliverArgs<RemoteResult<SaveMergeContractResult>>('saveMergeContract', args),
+    // V2-UI-6 (D3, BRIEF §3): the edge drop method.
+    dropTopologyEdge: async (args: DropTopologyEdgeArgs) =>
+      deliverArgs<RemoteResult<DropTopologyEdgeResult>>('dropTopologyEdge', args),
   }
 
   return {

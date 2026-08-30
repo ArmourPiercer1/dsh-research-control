@@ -60,7 +60,7 @@ function freshStore(stub: StubRpc): ResearchStore {
 }
 
 describe('createResearchStore — factory & face', () => {
-  it('exports the full face (observable + 8 loads + 27 mutations + refresh loop)', () => {
+  it('exports the full face (observable + 8 loads + 31 mutations + refresh loop)', () => {
     const store = freshStore(makeStubRpc())
     for (const name of [
       'getSnapshot',
@@ -93,6 +93,11 @@ describe('createResearchStore — factory & face', () => {
       'removePlanItem',
       'addDependency',
       'removeDependency',
+      'createWorkstreamFork',
+      'createPlannedMerge',
+      'getMergeContract',
+      'saveMergeContract',
+      'dropTopologyEdge',
       'refresh',
       'onRefetch',
     ]) {
@@ -1572,6 +1577,64 @@ describe('UI-5 — the five plan-editor mutations (brief §3; ADJ-8 unified inva
     expect(stub.countOf('getWorkstreamCurrent')).toBe(4)
   })
 
+  it('createWorkstreamFork → refetches the result topic slice + the project root (UI-6 D1 rule)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+
+    const result = await store.createWorkstreamFork({
+      topicId: 'TPC-1',
+      parentWorkstreamId: 'WS-1',
+      children: [{ title: 'Forked child' }],
+    })
+    // the stub default result
+    expect(result).toEqual({
+      topicId: 'TPC-1',
+      edgeIds: ['TE-3'],
+      workstreamIds: ['WS-9'],
+      managementActionId: 'MA-9',
+    })
+    expect(stub.countOf('getProject')).toBe(2) // 1 initial + 1 refetch
+    expect(stub.countOf('getTopic')).toBe(2) // 1 initial + 1 refetch
+  })
+
+  it('createWorkstreamFork with IDLE topic + project slices → nothing to refetch', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.createWorkstreamFork({
+      topicId: 'TPC-1',
+      parentWorkstreamId: 'WS-1',
+      children: [{ title: 'Forked child' }],
+    })
+    expect(stub.countOf('getProject')).toBe(0)
+    expect(stub.countOf('getTopic')).toBe(0)
+  })
+
+  it('createWorkstreamFork business fault (ok:false): rejects with ResearchRpcError and refetches NOTHING', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadTopic('TPC-1')
+    stub.set('createWorkstreamFork', {
+      ok: false,
+      error: { code: 'validation', message: 'children must not be empty', details: { field: 'children' } },
+    })
+    let caught: unknown
+    try {
+      await store.createWorkstreamFork({
+        topicId: 'TPC-1',
+        parentWorkstreamId: 'WS-1',
+        children: [],
+      } as never)
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(ResearchRpcError)
+    expect((caught as ResearchRpcError).code).toBe('validation')
+    expect(stub.countOf('getTopic')).toBe(1) // no refetch after a fault
+    expect(stub.countOf('getProject')).toBe(0)
+  })
+
   it('createPlanItem with an IDLE workstream slice → nothing to refetch (the refetch pass skips idle slices)', async () => {
     const stub = makeStubRpc()
     const store = freshStore(stub)
@@ -1623,5 +1686,129 @@ describe('UI-5 — the five plan-editor mutations (brief §3; ADJ-8 unified inva
     expect(caught).toBeInstanceOf(Error)
     expect(caught).not.toBeInstanceOf(ResearchRpcError)
     expect((caught as Error).message).toBe('gateway down')
+  })
+
+  /* ---------------------------------------------------------------- *
+   * V2-UI-6 (D2): the planned-merge / merge-contract faces
+   * ---------------------------------------------------------------- */
+
+  it('createPlannedMerge → refetches the result topic slice + the project root (UI-6 D2 rule)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+
+    const result = await store.createPlannedMerge({
+      topicId: 'TPC-1',
+      inputWorkstreamIds: ['WS-1', 'WS-2'],
+      outputWorkstreamId: 'WS-3',
+    })
+    // the stub default result
+    expect(result).toEqual({
+      edgeId: 'TE-3',
+      topicId: 'TPC-1',
+      inputs: ['WS-1', 'WS-2'],
+      outputWorkstreamId: 'WS-3',
+      lifecycle: 'PLANNED',
+      managementActionId: 'MA-9',
+    })
+    expect(stub.countOf('getProject')).toBe(2) // 1 initial + 1 refetch
+    expect(stub.countOf('getTopic')).toBe(2) // 1 initial + 1 refetch
+  })
+
+  it('createPlannedMerge with IDLE topic + project slices → nothing to refetch', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.createPlannedMerge({
+      topicId: 'TPC-1',
+      inputWorkstreamIds: ['WS-1', 'WS-2'],
+      outputWorkstreamId: 'WS-3',
+    })
+    expect(stub.countOf('getProject')).toBe(0)
+    expect(stub.countOf('getTopic')).toBe(0)
+  })
+
+  it('createPlannedMerge business fault (ok:false): rejects with ResearchRpcError and refetches NOTHING', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+    stub.set('createPlannedMerge', {
+      ok: false,
+      error: { code: 'topo-workstream-not-found', message: 'output workstream does not exist', details: null },
+    })
+    let caught: unknown
+    try {
+      await store.createPlannedMerge({
+        topicId: 'TPC-1',
+        inputWorkstreamIds: ['WS-1', 'WS-2'],
+        outputWorkstreamId: 'WS-99',
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(ResearchRpcError)
+    expect((caught as ResearchRpcError).code).toBe('topo-workstream-not-found')
+    expect(stub.countOf('getProject')).toBe(1) // no invalidation on failure
+    expect(stub.countOf('getTopic')).toBe(1)
+  })
+
+  it('saveMergeContract → refetches ONLY the cached owning topic slice (no project — RECON :858)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+    // TE-1 lives in the cached topic face (TOPIC_FIXTURE's edge list).
+    stub.set('saveMergeContract', {
+      ok: true,
+      value: { edgeId: 'TE-1', path: 'merges/TE-1/contract.md', managementActionId: 'MA-9' },
+    })
+    const result = await store.saveMergeContract({ edgeId: 'TE-1', content: 'D2 契约\n' })
+    expect(result).toEqual({ edgeId: 'TE-1', path: 'merges/TE-1/contract.md', managementActionId: 'MA-9' })
+    expect(stub.countOf('getTopic')).toBe(2) // 1 initial + 1 refetch (the owning topic)
+    expect(stub.countOf('getProject')).toBe(1) // NO project refetch
+  })
+
+  it('saveMergeContract with an UNCACHED edge → nothing to refetch (the topic is idle; its next load fetches live data)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+    await store.saveMergeContract({ edgeId: 'TE-99', content: 'D2 契约\n' })
+    expect(stub.countOf('getTopic')).toBe(1) // no refetch
+    expect(stub.countOf('getProject')).toBe(1)
+  })
+
+  it('getMergeContract → returns the content; refetches NOTHING (the pure-query [] rule)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+    const result = await store.getMergeContract({ edgeId: 'TE-2' })
+    expect(result).toEqual({
+      edgeId: 'TE-2',
+      content: '# Merge contract\n',
+      path: 'merges/TE-2/contract.md',
+    })
+    expect(stub.countOf('getProject')).toBe(1)
+    expect(stub.countOf('getTopic')).toBe(1)
+  })
+
+  it('dropTopologyEdge → refetches the result topic slice + the project root (UI-6 D3 rule)', async () => {
+    const stub = makeStubRpc()
+    const store = freshStore(stub)
+    await store.loadProject()
+    await store.loadTopic('TPC-1')
+
+    const result = await store.dropTopologyEdge({ edgeId: 'TE-1' })
+    // the stub default result
+    expect(result).toEqual({
+      edgeId: 'TE-1',
+      topicId: 'TPC-1',
+      lifecycle: 'DROPPED',
+      managementActionId: 'MA-9',
+    })
+    expect(stub.countOf('getProject')).toBe(2) // 1 initial + 1 refetch
+    expect(stub.countOf('getTopic')).toBe(2) // 1 initial + 1 refetch
   })
 })

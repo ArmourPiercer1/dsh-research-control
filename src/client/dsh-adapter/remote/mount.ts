@@ -47,15 +47,21 @@ import type {
   CreateNextActionResult,
   CreatePlanItemArgs,
   CreatePlanItemResult,
+  CreatePlannedMergeArgs,
+  CreatePlannedMergeResult,
   CreateTopicArgs,
   CreateTopicResult,
   CreateWorkstreamArgs,
   CreateWorkstreamResult,
+  CreateWorkstreamForkArgs,
+  CreateWorkstreamForkResult,
   DashboardSnapshot,
   DismissNextActionArgs,
   DismissNextActionResult,
   DismissPlanForkArgs,
   DismissPlanForkResult,
+  DropTopologyEdgeArgs,
+  DropTopologyEdgeResult,
   DropWorkstreamArgs,
   DropWorkstreamResult,
   GetCurrentFocusArgs,
@@ -63,6 +69,8 @@ import type {
   GetGitHistoryArgs,
   GetGitHistoryResult,
   GetHubOverviewArgs,
+  GetMergeContractArgs,
+  GetMergeContractResult,
   GetPortfolioInterventionsArgs,
   GetPortfolioInterventionsResult,
   GetResearchPlaneStateArgs,
@@ -94,6 +102,8 @@ import type {
   RestoreDeclarativeFileResult,
   RestoreProjectArgs,
   RestoreProjectResult,
+  SaveMergeContractArgs,
+  SaveMergeContractResult,
   SaveResearchCheckpointArgs,
   SaveResearchCheckpointResult,
   SelectPlanForkArgs,
@@ -413,5 +423,30 @@ export const researchRpc = {
     args: RemoveDependencyArgs,
   ): Promise<RemoteResult<RemoveDependencyResult>> {
     return requireNamespace().removeDependency(args)
+  },
+  async createWorkstreamFork(
+    args: CreateWorkstreamForkArgs,
+  ): Promise<RemoteResult<CreateWorkstreamForkResult>> {
+    return requireNamespace().createWorkstreamFork(args)
+  },
+  async createPlannedMerge(
+    args: CreatePlannedMergeArgs,
+  ): Promise<RemoteResult<CreatePlannedMergeResult>> {
+    return requireNamespace().createPlannedMerge(args)
+  },
+  async getMergeContract(
+    args: GetMergeContractArgs,
+  ): Promise<RemoteResult<GetMergeContractResult>> {
+    return requireNamespace().getMergeContract(args)
+  },
+  async saveMergeContract(
+    args: SaveMergeContractArgs,
+  ): Promise<RemoteResult<SaveMergeContractResult>> {
+    return requireNamespace().saveMergeContract(args)
+  },
+  async dropTopologyEdge(
+    args: DropTopologyEdgeArgs,
+  ): Promise<RemoteResult<DropTopologyEdgeResult>> {
+    return requireNamespace().dropTopologyEdge(args)
   },
 }

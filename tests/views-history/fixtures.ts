@@ -324,6 +324,12 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     removePlanItem: notUsed('removePlanItem'),
     addDependency: notUsed('addDependency'),
     removeDependency: notUsed('removeDependency'),
+    // V2-UI-0.4 UI-6 (brief §3): the 5 topology faces (same contract).
+    createWorkstreamFork: notUsed('createWorkstreamFork'),
+    createPlannedMerge: notUsed('createPlannedMerge'),
+    getMergeContract: notUsed('getMergeContract'),
+    saveMergeContract: notUsed('saveMergeContract'),
+    dropTopologyEdge: notUsed('dropTopologyEdge'),
   } as ResearchRpcFacade
 }
 

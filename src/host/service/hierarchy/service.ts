@@ -556,7 +556,7 @@ export class HierarchyService {
     const relPath = `topics/${input.topicId}/workstreams/${workstreamId}/workstream.yaml`
     this.#probeFree('createWorkstream', `workstream ${workstreamId}`, relPath, 'HIER_WORKSTREAM_EXISTS')
     const createdAtMs = this.#now()
-    this.#write(relPath, workstreamYamlText({ id: workstreamId, topicId: input.topicId, title: input.title, summary: input.summary, createdAtMs }))
+    this.#write(relPath, workstreamYamlText({ id: workstreamId, topicId: input.topicId, title: input.title, summary: input.summary, originTopologyEdgeRef: input.originTopologyEdgeRef, createdAtMs }))
     return { workstreamId, topicId: input.topicId, title: input.title, path: relPath, createdAt: createdAtMs }
   }
 

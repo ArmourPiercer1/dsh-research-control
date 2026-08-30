@@ -229,6 +229,11 @@ export interface CreateWorkstreamInput {
   /** Omitted = field absent from the written YAML (lifecycle then
    *  materializes to its frozen default PLANNED at load time). */
   readonly summary?: string
+  /** UI-6 (ADJ-4, D §12.2/ADJ-4): the FORK edge this workstream was
+   *  created under (the frozen schema's `origin_topology_edge_ref`);
+   *  omitted = field absent from the written YAML. Pure append — the
+   *  existing `createWorkstream` RPC arg shape is untouched. */
+  readonly originTopologyEdgeRef?: string
 }
 
 export interface CreateWorkstreamOutput {

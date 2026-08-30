@@ -75,11 +75,15 @@ import {
   type CreateNextActionResult,
   type CreatePlanItemArgs,
   type CreatePlanItemResult,
+  type CreatePlannedMergeArgs,
+  type CreatePlannedMergeResult,
   type CurrentTaskDto,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
   type CreateWorkstreamResult,
+  type CreateWorkstreamForkArgs,
+  type CreateWorkstreamForkResult,
   type DashboardSnapshot,
   type DependencyEndpointRef,
   type DerivedBlockerDto,
@@ -87,12 +91,16 @@ import {
   type DismissNextActionResult,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
+  type DropTopologyEdgeArgs,
+  type DropTopologyEdgeResult,
   type DropWorkstreamArgs,
   type DropWorkstreamResult,
   type GetCurrentFocusArgs,
   type GetCurrentFocusResult,
   type GetGitHistoryArgs,
   type GetGitHistoryResult,
+  type GetMergeContractArgs,
+  type GetMergeContractResult,
   type GetTopicArgs,
   type GetWorkstreamArgs,
   type GetWorkstreamCurrentArgs,
@@ -122,6 +130,8 @@ import {
   type RemovePlanItemResult,
   type RestoreDeclarativeFileArgs,
   type RestoreDeclarativeFileResult,
+  type SaveMergeContractArgs,
+  type SaveMergeContractResult,
   type SaveResearchCheckpointArgs,
   type SaveResearchCheckpointResult,
   type SelectPlanForkArgs,
@@ -163,6 +173,7 @@ import {
   type DependencyWorkstreamIndex,
 } from '../../service/dependency/index.js'
 import { PlanWriterService, mapPlanWriterError } from '../../service/plan-writer/index.js'
+import { TopologyService, TopologyServiceError, mapTopologyServiceError } from '../../service/topology/index.js'
 import { isCurrentFocusError } from '../../service/current-focus/index.js'
 import { isHierarchyError } from '../../service/hierarchy/index.js'
 import {
@@ -189,7 +200,7 @@ import {
   saveResearchCheckpoint,
   type StructuredLogger,
 } from '../../service/checkpoint/index.js'
-import { FsPlanFileWriter } from '../../service/fs/index.js'
+import { FsPlanFileWriter, FsTopologyFileIo } from '../../service/fs/index.js'
 import { PlanStore } from '../../domain/plan/index.js'
 import {
   PlanForkSelectService,
@@ -368,6 +379,56 @@ export interface ResearchRpcServices {
    * fold).
    */
   removeDependency(args: RemoveDependencyArgs): Promise<RemoveDependencyResult>
+  /**
+   * UI-6 (D1, D §12.2): fork the parent workstream into N children —
+   * per child: a new workstream (with `origin_topology_edge_ref`) + one
+   * 1:1 FORK edge (explicit file-derived id, §30 WS-before-edge) → full
+   * post-mutation re-validation → TOPOLOGY_EDITED ledger row. The
+   * service owns the inverse compensation (ADJ-2); the face is a
+   * pass-through. Port-optional (and the other four UI-6 faces below
+   * with it): the frozen-13 rpc-face stub must stay byte-identical to
+   * BASE for the tsc gate, and TS2740 only lists REQUIRED missing
+   * properties — the production implementation provides all five as
+   * required, and the @Remote forwarders call them with a non-null
+   * assertion.
+   */
+  createWorkstreamFork?(args: CreateWorkstreamForkArgs): Promise<CreateWorkstreamForkResult>
+  /**
+   * UI-6 (D2, BRIEF §3): plan a merge over existing workstreams — one
+   * MERGE edge (explicit file-derived id, PLANNED lifecycle) whose
+   * `inputs` are the deduplicated input workstreams and `outputs` the
+   * single existing output workstream. Existing-output-first: a missing
+   * output is an error guiding the two-step UI, never created here.
+   * The wire `projectId` routing field is consumed by requireRpc,
+   * never forwarded. Port-optional (see the note on createWorkstreamFork).
+   */
+  createPlannedMerge?(args: CreatePlannedMergeArgs): Promise<CreatePlannedMergeResult>
+  /**
+   * UI-6 (D2, BRIEF §3): read the merge contract face for an edge —
+   * `content` null is the value face for a missing contract (NOT an
+   * error code); no ledger row is written. Port-optional (see the note
+   * on createWorkstreamFork).
+   */
+  getMergeContract?(args: GetMergeContractArgs): Promise<GetMergeContractResult>
+  /**
+   * UI-6 (D2, BRIEF §3): full-replacement write of the merge contract
+   * file for an edge → CONTRACT_EDITED ledger row. The unknown-edge
+   * pre-gate is TOPO_CONTRACT_TE_UNKNOWN; the wire `projectId` routing
+   * field is consumed by requireRpc, never forwarded. Port-optional
+   * (see the note on createWorkstreamFork).
+   */
+  saveMergeContract?(args: SaveMergeContractArgs): Promise<SaveMergeContractResult>
+  /**
+   * UI-6 (D3, BRIEF §3): drop a topology edge. The state machine is
+   * the sole authority (PLANNED / REALIZED → DROPPED, USER actor;
+   * DROPPED → DROPPED is the INVALID_TRANSITION carrier); the owning
+   * topic is resolved server-side (edge ids are project-unique), an
+   * unknown edge is TOPO_EDGE_NOT_FOUND. TOPOLOGY_EDITED ledger row,
+   * detail carries the from-state. The wire `projectId` routing field
+   * is consumed by requireRpc, never forwarded. Port-optional (see the
+   * note on createWorkstreamFork).
+   */
+  dropTopologyEdge?(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult>
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -576,6 +637,11 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    *  dependency service is constructed PER CALL (its plan index is a
    *  fresh tree fold — never cached). */
   readonly #planWriter: PlanWriterService
+  /** UI-6 (D1): the topology service (brief §3 — self-constructed,
+   *  the PlanWriterService precedent: the same fresh-kernel /
+   *  FsTopologyFileIo spine, the same second connection for the
+   *  MANAGEMENT_ACTION ledger rows, HostWiring NOT extended). */
+  readonly #topology: TopologyService
   #closed = false
 
   constructor(options: ProductionResearchRpcServicesOptions) {
@@ -699,6 +765,26 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       db: this.#db,
       now: this.#now,
     })
+
+    // UI-6 (D1, brief §3/ADJ-13): the topology service — SELF-CONSTRUCTED
+    // (the PlanWriterService precedent: the per-call TopologyStore /
+    // MergeContractStore kernels over a shared FsTopologyFileIo, the
+    // same second connection for the MANAGEMENT_ACTION ledger rows; the
+    // wiring's read-only REJECTING_WRITER is untouched, HostWiring NOT
+    // extended). The tree loader is the fail-loud full-tree load (the
+    // service performs the cross-file re-validation the store boundary
+    // comment assigns to the service layer).
+    this.#topology = new TopologyService({
+      io: new FsTopologyFileIo(),
+      researchRoot: options.wiring.researchRoot,
+      schemaDir: this.#declarativeDir,
+      loadTree: (operation) => loadResearchTreeOrThrow(options.wiring.researchRoot, this.#declarativeDir, operation),
+      hierarchy: options.wiring.hierarchy,
+      allocator: options.wiring.allocator,
+      projectId: options.wiring.projectId,
+      db: this.#db,
+      now: this.#now,
+    })
   }
 
   /**
@@ -764,6 +850,25 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    */
   #mapDependencyError(e: unknown): unknown {
     return mapDependencyError(e)
+  }
+
+  /**
+   * UI-6 (D1): map the topology service's error family onto the wire
+   * error carrier. The service pass (`mapTopologyServiceError`) maps the
+   * kernel errors to `TopologyServiceError` WITHOUT building the prefix
+   * into the message — so, like the CF_/HIER_/ATTN_ face mappers, THIS
+   * face pass is where the `[research-control] <CODE>: <message>`
+   * carrier is constructed (the family convention documented in
+   * service/topology/errors.ts; t65/t67 precedent; the t71 ⑥a/⑥b
+   * negative probes pin it). A mapped carrier is a plain `Error`, not a
+   * `TopologyServiceError`, so the pass cannot double-prefix.
+   */
+  #mapTopologyServiceError(e: unknown): unknown {
+    const mapped = mapTopologyServiceError(e)
+    if (mapped instanceof TopologyServiceError) {
+      return new Error(`[research-control] ${mapped.code}: ${mapped.message}`, { cause: mapped })
+    }
+    return mapped
   }
 
   /**
@@ -1293,6 +1398,95 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
       return { relationId: out.relationId }
     } catch (e) {
       throw this.#mapDependencyError(e)
+    }
+  }
+
+  /**
+   * UI-6 (D1, D §12.2): the topology fork. The service owns the full
+   * gate order (fresh load → topic/parent validation → file-derived TE
+   * numbers → per-child WS-then-edge → re-validation → ledger) and the
+   * inverse compensation (ADJ-2); the face is a pure pass-through
+   * (the wire `projectId` routing field is consumed by requireRpc,
+   * never forwarded).
+   */
+  async createWorkstreamFork(args: CreateWorkstreamForkArgs): Promise<CreateWorkstreamForkResult> {
+    try {
+      return this.#topology.createWorkstreamFork({
+        topicId: args.topicId,
+        parentWorkstreamId: args.parentWorkstreamId,
+        children: args.children,
+      })
+    } catch (e) {
+      throw this.#mapTopologyServiceError(e)
+    }
+  }
+
+  /**
+   * UI-6 (D2, BRIEF §3): the planned merge. The service owns the gate
+   * order (dedup → fresh load → topic/inputs/output validation →
+   * duplicate-pair gate → file-derived TE number → single atomic edge
+   * write → re-validation → ledger); the face is a pure pass-through
+   * (the wire `projectId` routing field is consumed by requireRpc,
+   * never forwarded).
+   */
+  async createPlannedMerge(args: CreatePlannedMergeArgs): Promise<CreatePlannedMergeResult> {
+    try {
+      return this.#topology.createPlannedMerge({
+        topicId: args.topicId,
+        inputWorkstreamIds: args.inputWorkstreamIds,
+        outputWorkstreamId: args.outputWorkstreamId,
+        ...(args.note === undefined ? {} : { note: args.note }),
+      })
+    } catch (e) {
+      throw this.#mapTopologyServiceError(e)
+    }
+  }
+
+  /**
+   * UI-6 (D2, BRIEF §3): the merge contract read face. A missing
+   * contract is a null `content` value (the CONTRACT_NOT_FOUND code
+   * folds in the service); the face is a pass-through.
+   */
+  async getMergeContract(args: GetMergeContractArgs): Promise<GetMergeContractResult> {
+    try {
+      return this.#topology.getMergeContract({ edgeId: args.edgeId })
+    } catch (e) {
+      throw this.#mapTopologyServiceError(e)
+    }
+  }
+
+  /**
+   * UI-6 (D2, BRIEF §3): the merge contract write face. The service
+   * gates the unknown edge up front (TOPO_CONTRACT_TE_UNKNOWN), writes
+   * the file byte-for-byte (full replacement) and records the
+   * CONTRACT_EDITED ledger row; the face is a pass-through (the wire
+   * `projectId` routing field is consumed by requireRpc, never
+   * forwarded).
+   */
+  async saveMergeContract(args: SaveMergeContractArgs): Promise<SaveMergeContractResult> {
+    try {
+      return this.#topology.saveMergeContract({
+        edgeId: args.edgeId,
+        content: args.content,
+      })
+    } catch (e) {
+      throw this.#mapTopologyServiceError(e)
+    }
+  }
+
+  /**
+   * UI-6 (D3, BRIEF §3): the edge drop face. The service owns the full
+   * gate order (fresh load → owning-topic resolution → state-machine
+   * transition → re-validation → TOPOLOGY_EDITED ledger with the
+   * from-state in the detail); the face is a pure pass-through (the
+   * wire `projectId` routing field is consumed by requireRpc, never
+   * forwarded).
+   */
+  async dropTopologyEdge(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult> {
+    try {
+      return this.#topology.dropTopologyEdge({ edgeId: args.edgeId })
+    } catch (e) {
+      throw this.#mapTopologyServiceError(e)
     }
   }
 

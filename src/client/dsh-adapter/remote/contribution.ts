@@ -56,16 +56,22 @@ import {
   CreateNextActionResult,
   CreatePlanItemArgs,
   CreatePlanItemResult,
+  CreatePlannedMergeArgs,
+  CreatePlannedMergeResult,
   CreateTopicArgs,
   CreateTopicResult,
   CreateWorkstreamArgs,
   CreateWorkstreamResult,
+  CreateWorkstreamForkArgs,
+  CreateWorkstreamForkResult,
   DashboardSnapshot,
   DependencyEndpointRef,
   DismissNextActionArgs,
   DismissNextActionResult,
   DismissPlanForkArgs,
   DismissPlanForkResult,
+  DropTopologyEdgeArgs,
+  DropTopologyEdgeResult,
   DropWorkstreamArgs,
   DropWorkstreamResult,
   GetCurrentFocusArgs,
@@ -73,6 +79,8 @@ import {
   GetGitHistoryArgs,
   GetGitHistoryResult,
   GetHubOverviewArgs,
+  GetMergeContractArgs,
+  GetMergeContractResult,
   GetPortfolioInterventionsArgs,
   GetPortfolioInterventionsResult,
   GetResearchPlaneStateArgs,
@@ -106,6 +114,8 @@ import {
   RestoreDeclarativeFileResult,
   RestoreProjectArgs,
   RestoreProjectResult,
+  SaveMergeContractArgs,
+  SaveMergeContractResult,
   SaveResearchCheckpointArgs,
   SaveResearchCheckpointResult,
   SetCurrentFocusArgs,
@@ -258,6 +268,21 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/removeDependency': (
       args: RemoveDependencyArgs,
     ) => Promise<RemoteResult<RemoveDependencyResult>>
+    'researchControl/createWorkstreamFork': (
+      args: CreateWorkstreamForkArgs,
+    ) => Promise<RemoteResult<CreateWorkstreamForkResult>>
+    'researchControl/createPlannedMerge': (
+      args: CreatePlannedMergeArgs,
+    ) => Promise<RemoteResult<CreatePlannedMergeResult>>
+    'researchControl/getMergeContract': (
+      args: GetMergeContractArgs,
+    ) => Promise<RemoteResult<GetMergeContractResult>>
+    'researchControl/saveMergeContract': (
+      args: SaveMergeContractArgs,
+    ) => Promise<RemoteResult<SaveMergeContractResult>>
+    'researchControl/dropTopologyEdge': (
+      args: DropTopologyEdgeArgs,
+    ) => Promise<RemoteResult<DropTopologyEdgeResult>>
   }
 
   interface TypertRemoteNamespaceMap {
@@ -385,6 +410,21 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     removeDependency: (
       args: RemoveDependencyArgs,
     ) => Promise<RemoteResult<RemoveDependencyResult>>
+    createWorkstreamFork: (
+      args: CreateWorkstreamForkArgs,
+    ) => Promise<RemoteResult<CreateWorkstreamForkResult>>
+    createPlannedMerge: (
+      args: CreatePlannedMergeArgs,
+    ) => Promise<RemoteResult<CreatePlannedMergeResult>>
+    getMergeContract: (
+      args: GetMergeContractArgs,
+    ) => Promise<RemoteResult<GetMergeContractResult>>
+    saveMergeContract: (
+      args: SaveMergeContractArgs,
+    ) => Promise<RemoteResult<SaveMergeContractResult>>
+    dropTopologyEdge: (
+      args: DropTopologyEdgeArgs,
+    ) => Promise<RemoteResult<DropTopologyEdgeResult>>
   }
 }
 

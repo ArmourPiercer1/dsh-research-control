@@ -316,6 +316,9 @@ const idManagementAction = z.string().regex(/^MA-[1-9][0-9]*$/)
 const idObjective = z.string().regex(/^OBJ-[1-9][0-9]*$/)
 const idNextAction = z.string().regex(/^NA-[1-9][0-9]*$/)
 const idBlocker = z.string().regex(/^BLK-[1-9][0-9]*$/)
+/** UI-6 (D1): the topology edge id family (the frozen
+ *  `common.schema.json#/$defs/idTopologyEdge` pattern). */
+const idTopologyEdge = z.string().regex(/^TE-[1-9][0-9]*$/)
 const fullOid = z.string().regex(/^[0-9a-f]{40}$/)
 
 /**
@@ -2279,6 +2282,11 @@ export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'removePlanItem',
   'addDependency',
   'removeDependency',
+  'createWorkstreamFork',
+  'createPlannedMerge',
+  'getMergeContract',
+  'saveMergeContract',
+  'dropTopologyEdge',
 ] as const
 
 export type ResearchManagementRpcMethod = (typeof RESEARCH_MANAGEMENT_RPC_METHODS)[number]
@@ -3709,6 +3717,258 @@ export const removeDependencyInvocation: InvocationDescriptorMirror = descriptor
   RemoveDependencyResultSchema,
 )
 
+/* ---- createWorkstreamFork — D §12.2 topology fork (UI-6 D1) ---- */
+
+/** One child of a `createWorkstreamFork` (B §21.2 minimal form: a title
+ *  plus an optional note — the note lands on the child's FORK edge). */
+export interface CreateWorkstreamForkChild {
+  readonly title: string
+  readonly note?: string
+}
+
+export interface CreateWorkstreamForkArgs {
+  readonly topicId: string
+  readonly parentWorkstreamId: string
+  /** ≥1 child; each child becomes a new workstream + one 1:1 FORK edge
+   *  from the parent (the child's `origin_topology_edge_ref` points at
+   *  its edge). */
+  readonly children: CreateWorkstreamForkChild[]
+  readonly projectId?: string
+}
+
+export const CreateWorkstreamForkArgsSchema = z
+  .object({
+    topicId: idTopic,
+    parentWorkstreamId: idWorkstream,
+    children: z
+      .array(z.object({ title: z.string().min(1), note: z.string().min(1).optional() }).strict())
+      .min(1),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface CreateWorkstreamForkResult {
+  readonly topicId: string
+  /** One per child, in children[] order (each a FORK edge parent → child). */
+  readonly edgeIds: string[]
+  /** One per child, in children[] order. */
+  readonly workstreamIds: string[]
+  readonly managementActionId: string
+}
+
+export const CreateWorkstreamForkResultSchema = z
+  .object({
+    topicId: idTopic,
+    edgeIds: z.array(idTopologyEdge).min(1),
+    workstreamIds: z.array(idWorkstream).min(1),
+    managementActionId: idManagementAction,
+  })
+  .strict()
+
+export const createWorkstreamForkInvocation: InvocationDescriptorMirror = descriptor(
+  'createWorkstreamFork',
+  [argsParameter('CreateWorkstreamForkArgs', CreateWorkstreamForkArgsSchema)],
+  'CreateWorkstreamForkResult',
+  CreateWorkstreamForkResultSchema,
+)
+
+/* ---- createPlannedMerge — D §12.3 planned merge (UI-6 D2) ---- */
+
+/**
+ * Create a PLANNED MERGE edge (D §12.3, brief §3.2): `inputWorkstreamIds`
+ * (≥2, deduplicated) converge into the SINGLE `outputWorkstreamId`.
+ * existing-output-first — the output workstream MUST already exist in the
+ * topic (a missing output is an error that guides the two-step UI:
+ * create the workstream first, then the merge). The result carries NO
+ * contract (B §22 "Merge Contract: [Create / Edit later]" — the contract
+ * is a separate `saveMergeContract` face).
+ */
+export interface CreatePlannedMergeArgs {
+  readonly topicId: string
+  /** ≥2 input workstreams (deduplicated by the service — zod 4.4 has no
+   *  `.unique()`); each must be a workstream of the topic. */
+  readonly inputWorkstreamIds: string[]
+  /** The single output workstream (existing-output-first — must already
+   *  exist in the topic). */
+  readonly outputWorkstreamId: string
+  /** Optional edge note (lands on the MERGE edge). */
+  readonly note?: string
+  readonly projectId?: string
+}
+
+export const CreatePlannedMergeArgsSchema = z
+  .object({
+    topicId: idTopic,
+    inputWorkstreamIds: z.array(idWorkstream).min(2),
+    outputWorkstreamId: idWorkstream,
+    note: z.string().min(1).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface CreatePlannedMergeResult {
+  readonly edgeId: string
+  readonly topicId: string
+  /** The stored input order (the deduplicated, order-preserving input). */
+  readonly inputs: string[]
+  readonly outputWorkstreamId: string
+  readonly lifecycle: 'PLANNED'
+  readonly managementActionId: string
+}
+
+export const CreatePlannedMergeResultSchema = z
+  .object({
+    edgeId: idTopologyEdge,
+    topicId: idTopic,
+    inputs: z.array(idWorkstream).min(2),
+    outputWorkstreamId: idWorkstream,
+    lifecycle: z.literal('PLANNED'),
+    managementActionId: idManagementAction,
+  })
+  .strict()
+
+export const createPlannedMergeInvocation: InvocationDescriptorMirror = descriptor(
+  'createPlannedMerge',
+  [argsParameter('CreatePlannedMergeArgs', CreatePlannedMergeArgsSchema)],
+  'CreatePlannedMergeResult',
+  CreatePlannedMergeResultSchema,
+)
+
+/* ---- getMergeContract — D §12.5 merge contract READ (UI-6 D2) ---- */
+
+/**
+ * Read a merge contract's raw Markdown content (D §12.5, brief §3.4).
+ * A MISSING contract is a VALUE face — `content: null` (ADJ-7: not an
+ * error, no CONTRACT_NOT_FOUND thrown). The content is free Markdown,
+ * byte-for-byte (no front-matter parsing, no validation — ADJ-7).
+ */
+export interface GetMergeContractArgs {
+  readonly edgeId: string
+  readonly projectId?: string
+}
+
+export const GetMergeContractArgsSchema = z
+  .object({
+    edgeId: idTopologyEdge,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface GetMergeContractResult {
+  readonly edgeId: string
+  /** `null` = no contract file yet (the UI "No merge contract [Create]"
+   *  state); a string = the raw Markdown, byte-for-byte. */
+  readonly content: string | null
+  /** `.research/merges/<edgeId>/contract.md` (root-relative POSIX). */
+  readonly path: string
+}
+
+export const GetMergeContractResultSchema = z
+  .object({
+    edgeId: idTopologyEdge,
+    content: z.string().nullable(),
+    path: z.string().min(1),
+  })
+  .strict()
+
+export const getMergeContractInvocation: InvocationDescriptorMirror = descriptor(
+  'getMergeContract',
+  [argsParameter('GetMergeContractArgs', GetMergeContractArgsSchema)],
+  'GetMergeContractResult',
+  GetMergeContractResultSchema,
+)
+
+/* ---- saveMergeContract — D §12.5 merge contract WRITE (UI-6 D2) ---- */
+
+/**
+ * Write (FULL-REPLACE) a merge contract (D §12.5, brief §3.5). The edge
+ * must already exist in the topic (CONTRACT_TE_UNKNOWN pre-gate ⇒ error
+ * carrier). The content is free Markdown, stored byte-for-byte (ADJ-7 —
+ * no front-matter parsing). Writes a CONTRACT_EDITED ledger row (ADJ-10).
+ */
+export interface SaveMergeContractArgs {
+  readonly edgeId: string
+  /** ≥1 char; the full replacement content. */
+  readonly content: string
+  readonly projectId?: string
+}
+
+export const SaveMergeContractArgsSchema = z
+  .object({
+    edgeId: idTopologyEdge,
+    content: z.string().min(1),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface SaveMergeContractResult {
+  readonly edgeId: string
+  /** `.research/merges/<edgeId>/contract.md` (root-relative POSIX). */
+  readonly path: string
+  readonly managementActionId: string
+}
+
+export const SaveMergeContractResultSchema = z
+  .object({
+    edgeId: idTopologyEdge,
+    path: z.string().min(1),
+    managementActionId: idManagementAction,
+  })
+  .strict()
+
+export const saveMergeContractInvocation: InvocationDescriptorMirror = descriptor(
+  'saveMergeContract',
+  [argsParameter('SaveMergeContractArgs', SaveMergeContractArgsSchema)],
+  'SaveMergeContractResult',
+  SaveMergeContractResultSchema,
+)
+
+/* ---- dropTopologyEdge — D §12.4 edge DROP (UI-6 D3) ---- */
+
+/**
+ * Drop a topology edge (D §12.4, brief §3.3). The state machine is the
+ * SOLE authority: PLANNED / REALIZED → DROPPED (USER actor); a
+ * DROPPED edge refuses the re-drop (INVALID_TRANSITION carrier). The
+ * owning topic is resolved from the loaded tree (edge ids are
+ * project-unique); an unknown edge is TOPO_EDGE_NOT_FOUND. Writes a
+ * TOPOLOGY_EDITED ledger row whose detail carries the from-state.
+ */
+export interface DropTopologyEdgeArgs {
+  readonly edgeId: string
+  readonly projectId?: string
+}
+
+export const DropTopologyEdgeArgsSchema = z
+  .object({
+    edgeId: idTopologyEdge,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface DropTopologyEdgeResult {
+  readonly edgeId: string
+  /** The topic that owns the edge (resolved server-side). */
+  readonly topicId: string
+  readonly lifecycle: 'DROPPED'
+  readonly managementActionId: string
+}
+
+export const DropTopologyEdgeResultSchema = z
+  .object({
+    edgeId: idTopologyEdge,
+    topicId: idTopic,
+    lifecycle: z.literal('DROPPED'),
+    managementActionId: idManagementAction,
+  })
+  .strict()
+
+export const dropTopologyEdgeInvocation: InvocationDescriptorMirror = descriptor(
+  'dropTopologyEdge',
+  [argsParameter('DropTopologyEdgeArgs', DropTopologyEdgeArgsSchema)],
+  'DropTopologyEdgeResult',
+  DropTopologyEdgeResultSchema,
+)
+
 /** The GUI management invocation descriptors (appended to the registered
  *  face at the end — the frozen 14 + plane 9 entries stay untouched). */
 export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
@@ -3734,6 +3994,11 @@ export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirro
   removePlanItemInvocation,
   addDependencyInvocation,
   removeDependencyInvocation,
+  createWorkstreamForkInvocation,
+  createPlannedMergeInvocation,
+  getMergeContractInvocation,
+  saveMergeContractInvocation,
+  dropTopologyEdgeInvocation,
 ]
 
 /**

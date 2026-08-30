@@ -9,10 +9,11 @@
 
 import './xyflow-mock.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TopologyGraphView } from '../../src/client/graph/TopologyGraphView.js'
 import { topologyToGraph, type TopologyGraphData } from '../../src/client/graph/topology-model.js'
 import { TOPOLOGY_GRAPH_STYLES as viewStyles } from '../../src/client/graph/graph-styles.js'
+import { COPY_TABLE } from '../../src/client/i18n/copy.js'
 import { topicSnapshot, wsCard } from './fixtures.js'
 import type { TopicSnapshot } from '../../src/shared/rpc-contracts.js'
 
@@ -133,5 +134,112 @@ describe('§27.5: planned Workstream dimmed (class level)', () => {
     expect(planned.classList.contains(viewStyles.wsNode_PLANNED)).toBe(true)
     expect(realized.classList.contains(viewStyles.wsNode_PLANNED)).toBe(false)
     expect(realized.classList.contains(viewStyles.wsNode_REALIZED)).toBe(true)
+  })
+})
+
+/* -------------------------------------------------------------------- *
+ * UI-6 D4 — the legend, the real edge id on the path (R-08), and the
+ * merge-edge contract entry (B §23.1). The custom `topoEdge` component
+ * itself is NOT unit-driven here (t70 idiom: the mock ReactFlow renders
+ * its data-attr paths, never edgeTypes — PlanGraphView's DependencyArc
+ * is pinned the same way); the path-level DOM facts (d='M…', the
+ * presentation-attribute dash, the path class, data-edge-id) are
+ * verified by the live e2e t71 (RECON §9.3) against the real canvas.
+ * -------------------------------------------------------------------- */
+
+describe('UI-6 D4: the legend (B §10.3 — the mandatory six entries)', () => {
+  it('renders both rows with all six data-legend entries and the frozen copy', () => {
+    const { utils } = renderGraph()
+    const legend = utils.container.querySelector('[data-topology-legend]')
+    expect(legend).not.toBeNull()
+    const rows = [...legend!.querySelectorAll('[data-legend-row]')].map(r => r.getAttribute('data-legend-row'))
+    expect(rows).toEqual(['lifecycle', 'form'])
+    const items = [...legend!.querySelectorAll('[data-legend]')].map(e => e.getAttribute('data-legend'))
+    expect(items).toEqual(['realized', 'planned', 'dropped', 'fork', 'merge', 'contract'])
+    // the legend copy rides the frozen table (single source of truth):
+    expect(COPY_TABLE['topic.topology.legend.planned']).toBe('Planned — dashed line')
+    expect(COPY_TABLE['topic.topology.legend.contractChip']).toBe('合并契约')
+    // the chip shows the badge glyph exactly as the node/edge badge does:
+    expect(legend!.querySelector('[data-legend="contract"]')!.textContent).toContain('合并契约')
+  })
+
+  it('the three lifecycle legend lines carry the data-legend-line hooks', () => {
+    const { utils } = renderGraph()
+    const legend = utils.container.querySelector('[data-topology-legend]')!
+    for (const lc of ['realized', 'planned', 'dropped']) {
+      const line = legend.querySelector(`[data-legend-line="${lc}"]`)
+      expect(line).not.toBeNull()
+      expect(line!.classList.contains(viewStyles.legendLine)).toBe(true)
+    }
+  })
+})
+
+describe('UI-6 D4: the REAL edge id rides the path (R-08 — the t71 hook)', () => {
+  it('every rendered edge path carries its TE id (never the pair id) and the custom edge type', () => {
+    const { utils } = renderGraph()
+    const paths = [...utils.container.querySelectorAll('[data-mock-edge]')]
+    expect(paths.length).toBe(3)
+    for (const p of paths) {
+      const pairId = p.getAttribute('data-mock-edge')!
+      const teId = p.getAttribute('data-edge-id')!
+      // the real TE id (file-derived, ADJ-3) — not the pair id:
+      expect(teId).toMatch(/^TE-\d+$/)
+      expect(teId).not.toEqual(pairId)
+      // and the pair id is derived FROM it: `${TE}:${input}->${output}`:
+      expect(pairId.startsWith(`${teId}:`)).toBe(true)
+      expect(p.getAttribute('data-edge-type')).toBe('topoEdge')
+    }
+    expect(utils.container.querySelector('[data-mock-edge="TE-1:WS-1->WS-2"]')!.getAttribute('data-edge-id')).toBe(
+      'TE-1',
+    )
+    expect(utils.container.querySelector('[data-mock-edge="TE-2:WS-1->WS-3"]')!.getAttribute('data-edge-id')).toBe(
+      'TE-2',
+    )
+    expect(utils.container.querySelector('[data-mock-edge="TE-2:WS-2->WS-3"]')!.getAttribute('data-edge-id')).toBe(
+      'TE-2',
+    )
+  })
+})
+
+describe('UI-6 D4: the merge edge is the contract entry (B §23.1)', () => {
+  it('clicking a MERGE edge opens the contract editor; the FORK edge is inert', async () => {
+    const g = topologyToGraph(fixtureSnapshot())
+    const utils = render(
+      <TopologyGraphView
+        graph={g}
+        loadContract={async (edgeId: string) => ({ content: null, path: `merges/${edgeId}/contract.md` })}
+        onSaveContract={async () => undefined}
+      />,
+    )
+    fireEvent.click(utils.container.querySelector('[data-mock-edge="TE-2:WS-1->WS-3"]') as HTMLElement)
+    const dialog = await waitFor(() => {
+      const d = utils.container.querySelector('[data-topology-dialog="contract"]')
+      expect(d).not.toBeNull()
+      return d as HTMLElement
+    })
+    expect(dialog.querySelector('[data-contract-edge]')!.getAttribute('data-contract-edge')).toBe('TE-2')
+    // content null ⇒ the "No merge contract [Create]" state:
+    await waitFor(() => expect(dialog.querySelector('[data-contract-status="empty"]')).not.toBeNull())
+    expect(dialog.querySelector('[data-contract-create]')).not.toBeNull()
+    // the FORK edge carries no contract face — the click is inert:
+    fireEvent.click(utils.container.querySelector('[data-mock-edge="TE-1:WS-1->WS-2"]') as HTMLElement)
+    expect(utils.container.querySelectorAll('[data-topology-dialog]').length).toBe(1)
+    expect(dialog.querySelector('[data-contract-edge]')!.getAttribute('data-contract-edge')).toBe('TE-2')
+  })
+
+  it('an EXISTING contract opens straight in the editable view (v1 [View]/[Edit] collapse)', async () => {
+    const g = topologyToGraph(fixtureSnapshot())
+    const utils = render(
+      <TopologyGraphView
+        graph={g}
+        loadContract={async () => ({ content: '# Merge contract\n\nTE-2 bytes', path: 'merges/TE-2/contract.md' })}
+        onSaveContract={async () => undefined}
+      />,
+    )
+    fireEvent.click(utils.container.querySelector('[data-mock-edge="TE-2:WS-2->WS-3"]') as HTMLElement)
+    await waitFor(() => expect(utils.container.querySelector('[data-contract-status="editing"]')).not.toBeNull())
+    const text = utils.container.querySelector('[data-contract-text]') as HTMLTextAreaElement
+    expect(text.value).toBe('# Merge contract\n\nTE-2 bytes')
+    expect(utils.container.querySelector('[data-contract-save]')).not.toBeNull()
   })
 })

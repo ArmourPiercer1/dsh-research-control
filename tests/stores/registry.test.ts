@@ -12,14 +12,18 @@ import type {
   CreateLocalResearchProjectResult,
   CreateNextActionResult,
   CreatePlanItemResult,
+  CreatePlannedMergeResult,
   CreateTopicResult,
+  CreateWorkstreamForkResult,
   CreateWorkstreamResult,
   DashboardSnapshot,
   DismissNextActionResult,
   DismissPlanForkResult,
+  DropTopologyEdgeResult,
   DropWorkstreamResult,
   GetCurrentFocusResult,
   GetGitHistoryResult,
+  GetMergeContractResult,
   GetWorkstreamCurrentResult,
   InspectProjectDirectoryResult,
   ProjectSnapshot,
@@ -30,6 +34,7 @@ import type {
   RemovePlanItemResult,
   RegisterInteractionResult,
   RestoreDeclarativeFileResult,
+  SaveMergeContractResult,
   SaveResearchCheckpointResult,
   SelectPlanForkResult,
   SetCurrentFocusResult,
@@ -186,6 +191,45 @@ const CREATE_WS: CreateWorkstreamResult = {
   title: 'Created workstream',
   path: '/tmp/ui3-ws/.research/topics/TPC-1/WS-7',
   createdAt: 1755000007000,
+}
+
+// V2-UI-6 D1: the fork result fixture (local — wire-valid per the frozen
+// BRIEF §3 contract 1).
+const FORK_RESULT: CreateWorkstreamForkResult = {
+  topicId: 'TPC-1',
+  edgeIds: ['TE-3'],
+  workstreamIds: ['WS-9'],
+  managementActionId: 'MA-9',
+}
+
+// V2-UI-6 D2: the planned-merge / merge-contract result fixtures
+// (local — wire-valid per the frozen BRIEF §3 contracts 2/4/5).
+const MERGE_RESULT: CreatePlannedMergeResult = {
+  edgeId: 'TE-3',
+  topicId: 'TPC-1',
+  inputs: ['WS-1', 'WS-3'],
+  outputWorkstreamId: 'WS-2',
+  lifecycle: 'PLANNED',
+  managementActionId: 'MA-9',
+}
+const GET_CONTRACT_RESULT: GetMergeContractResult = {
+  edgeId: 'TE-1',
+  content: null,
+  path: 'merges/TE-1/contract.md',
+}
+const SAVE_CONTRACT_RESULT: SaveMergeContractResult = {
+  edgeId: 'TE-1',
+  path: 'merges/TE-1/contract.md',
+  managementActionId: 'MA-9',
+}
+
+// V2-UI-6 D3: the edge-drop result fixture (local — wire-valid per the
+// frozen BRIEF §3 contract 3).
+const DROP_RESULT: DropTopologyEdgeResult = {
+  edgeId: 'TE-1',
+  topicId: 'TPC-1',
+  lifecycle: 'DROPPED',
+  managementActionId: 'MA-9',
 }
 
 // V2-UI-4: the six workstream-management result fixtures (local — same
@@ -471,6 +515,61 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
   })
 })
 
+describe('INVALIDATE_REGISTRY — the UI-6 D1 topology rules', () => {
+  it('createWorkstreamFork → the RESULT topic slice + project (same shape as createWorkstream: the fork adds a workstream card AND a topology edge to the topic face — state-independent)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.createWorkstreamFork(FORK_RESULT, populatedState()))).toEqual(
+      new Set(['topics:TPC-1', 'project']),
+    )
+    expect(new Set(INVALIDATE_REGISTRY.createWorkstreamFork(FORK_RESULT, initialResearchStoreState()))).toEqual(
+      new Set(['topics:TPC-1', 'project']),
+    )
+  })
+})
+
+describe('INVALIDATE_REGISTRY — the UI-6 D2 merge/contract rules', () => {
+  it('createPlannedMerge → the RESULT topic slice + project (same shape as the fork — state-independent)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.createPlannedMerge(MERGE_RESULT, populatedState()))).toEqual(
+      new Set(['topics:TPC-1', 'project']),
+    )
+    expect(new Set(INVALIDATE_REGISTRY.createPlannedMerge(MERGE_RESULT, initialResearchStoreState()))).toEqual(
+      new Set(['topics:TPC-1', 'project']),
+    )
+  })
+
+  it('getMergeContract → NO keys (the pure query writes nothing — the uniform-face [] rule, inspectProjectDirectory precedent)', () => {
+    expect(INVALIDATE_REGISTRY.getMergeContract(GET_CONTRACT_RESULT, populatedState())).toEqual([])
+    expect(INVALIDATE_REGISTRY.getMergeContract(GET_CONTRACT_RESULT, initialResearchStoreState())).toEqual([])
+  })
+
+  it('saveMergeContract → the CACHED owning topic slice ONLY (no project — RECON :858): edge TE-1 is cached under TPC-1', () => {
+    // Populated: the edge is found in the TPC-1 topic slice.
+    expect(INVALIDATE_REGISTRY.saveMergeContract(SAVE_CONTRACT_RESULT, populatedState())).toEqual([
+      'topics:TPC-1',
+    ])
+    // Unknown edge (cached nowhere): no keys — the topic's next load
+    // fetches live data (the cachedTopicId precedent).
+    expect(
+      INVALIDATE_REGISTRY.saveMergeContract(
+        { ...SAVE_CONTRACT_RESULT, edgeId: 'TE-99' },
+        populatedState(),
+      ),
+    ).toEqual([])
+    // Idle cache: no keys.
+    expect(INVALIDATE_REGISTRY.saveMergeContract(SAVE_CONTRACT_RESULT, initialResearchStoreState())).toEqual([])
+  })
+})
+
+describe('INVALIDATE_REGISTRY — the UI-6 D3 edge-drop rule', () => {
+  it('dropTopologyEdge → the RESULT topic slice + project (same shape as fork/merge: the edge row lives on the topic face — state-independent)', () => {
+    expect(new Set(INVALIDATE_REGISTRY.dropTopologyEdge(DROP_RESULT, populatedState()))).toEqual(
+      new Set(['topics:TPC-1', 'project']),
+    )
+    expect(new Set(INVALIDATE_REGISTRY.dropTopologyEdge(DROP_RESULT, initialResearchStoreState()))).toEqual(
+      new Set(['topics:TPC-1', 'project']),
+    )
+  })
+})
+
 describe('INVALIDATE_REGISTRY — the six UI-4 workstream-management rules', () => {
   it('updateObjective → project + every CACHED current:<ws> (the objective set renders in both; result carries no workstreamId)', () => {
     expect(new Set(INVALIDATE_REGISTRY.updateObjective(UPDATE_OBJ, populatedState()))).toEqual(
@@ -612,6 +711,14 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     ['removePlanItem', state => INVALIDATE_REGISTRY.removePlanItem(REMOVE_PI, state)],
     ['addDependency', state => INVALIDATE_REGISTRY.addDependency(ADD_DEP, state)],
     ['removeDependency', state => INVALIDATE_REGISTRY.removeDependency(REMOVE_DEP, state)],
+    // V2-UI-6 D1: the fork rule joins the invariant sweep.
+    ['createWorkstreamFork', state => INVALIDATE_REGISTRY.createWorkstreamFork(FORK_RESULT, state)],
+    // V2-UI-6 D2: the merge/contract rules join the invariant sweep.
+    ['createPlannedMerge', state => INVALIDATE_REGISTRY.createPlannedMerge(MERGE_RESULT, state)],
+    ['getMergeContract', state => INVALIDATE_REGISTRY.getMergeContract(GET_CONTRACT_RESULT, state)],
+    ['saveMergeContract', state => INVALIDATE_REGISTRY.saveMergeContract(SAVE_CONTRACT_RESULT, state)],
+    // V2-UI-6 D3: the edge-drop rule joins the invariant sweep.
+    ['dropTopologyEdge', state => INVALIDATE_REGISTRY.dropTopologyEdge(DROP_RESULT, state)],
   ]
 
   it('NO rule invalidates a history window (WS logs are append-only; none of the 13 RPCs appends)', () => {
@@ -643,8 +750,8 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     }
   })
 
-  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces + the 6 UI-4 workstream-management faces + the 5 UI-5 plan-editor faces)', () => {
+  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces + the 6 UI-4 workstream-management faces + the 5 UI-5 plan-editor faces + the 5 UI-6 topology/contract faces)', () => {
     expect([...MUTATION_IDS].sort()).toEqual(Object.keys(INVALIDATE_REGISTRY).sort())
-    expect(MUTATION_IDS).toHaveLength(27)
+    expect(MUTATION_IDS).toHaveLength(32)
   })
 })

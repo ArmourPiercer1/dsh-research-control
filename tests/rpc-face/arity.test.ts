@@ -52,7 +52,7 @@ describe('WP-4.1a RR-006 arity — descriptor parameter face == method signature
     ])
   })
 
-  it('V2-T3.2b + UI-0.4 + V2-UI-0.4 (UI-2 + UI-4 + UI-5): the REGISTERED face is the frozen 14 + all 9 plane RPCs + all 10 GUI management RPCs + the 7 attention RPCs + the 5 plan-editor RPCs (in order)', () => {
+  it('V2-T3.2b + UI-0.4 + V2-UI-0.4 (UI-2 + UI-4 + UI-5) + V2-UI-6 D1+D2+D3: the REGISTERED face is the frozen 14 + all 9 plane RPCs + all 15 GUI management RPCs (incl. the 5 V2-UI-6 topology/contract RPCs) + the 7 attention RPCs + the 5 plan-editor RPCs (in order)', () => {
     expect(REGISTERED_RESEARCH_INVOCATIONS.map((d) => d.method)).toEqual([
       'ping',
       'getDashboard',
@@ -99,6 +99,11 @@ describe('WP-4.1a RR-006 arity — descriptor parameter face == method signature
       'removePlanItem',
       'addDependency',
       'removeDependency',
+      'createWorkstreamFork',
+      'createPlannedMerge',
+      'getMergeContract',
+      'saveMergeContract',
+      'dropTopologyEdge',
     ])
   })
 

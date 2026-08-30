@@ -163,14 +163,18 @@ import {
   CreateLocalResearchProjectArgsSchema,
   CreateNextActionArgsSchema,
   CreatePlanItemArgsSchema,
+  CreatePlannedMergeArgsSchema,
   CreateTopicArgsSchema,
   CreateWorkstreamArgsSchema,
+  CreateWorkstreamForkArgsSchema,
   DismissNextActionArgsSchema,
   DismissPlanForkArgsSchema,
+  DropTopologyEdgeArgsSchema,
   DropWorkstreamArgsSchema,
   GetGitHistoryArgsSchema,
   GetCurrentFocusArgsSchema,
   GetHubOverviewArgsSchema,
+  GetMergeContractArgsSchema,
   GetPortfolioInterventionsArgsSchema,
   GetResearchPlaneStateArgsSchema,
   GetTopicArgsSchema,
@@ -183,6 +187,7 @@ import {
   RescanArgsSchema,
   RestoreDeclarativeFileArgsSchema,
   RestoreProjectArgsSchema,
+  SaveMergeContractArgsSchema,
   SaveResearchCheckpointArgsSchema,
   SelectPlanForkArgsSchema,
   SetCurrentFocusArgsSchema,
@@ -213,15 +218,21 @@ import {
   type CreateNextActionResult,
   type CreatePlanItemArgs,
   type CreatePlanItemResult,
+  type CreatePlannedMergeArgs,
+  type CreatePlannedMergeResult,
   type CreateTopicArgs,
   type CreateTopicResult,
   type CreateWorkstreamArgs,
+  type CreateWorkstreamForkArgs,
+  type CreateWorkstreamForkResult,
   type CreateWorkstreamResult,
   type DashboardSnapshot,
   type DismissNextActionArgs,
   type DismissNextActionResult,
   type DismissPlanForkArgs,
   type DismissPlanForkResult,
+  type DropTopologyEdgeArgs,
+  type DropTopologyEdgeResult,
   type DropWorkstreamArgs,
   type DropWorkstreamResult,
   type GetGitHistoryArgs,
@@ -229,6 +240,8 @@ import {
   type GetCurrentFocusArgs,
   type GetCurrentFocusResult,
   type GetHubOverviewArgs,
+  type GetMergeContractArgs,
+  type GetMergeContractResult,
   type GetPortfolioInterventionsArgs,
   type GetPortfolioInterventionsResult,
   type GetResearchPlaneStateArgs,
@@ -260,6 +273,8 @@ import {
   type RestoreDeclarativeFileResult,
   type RestoreProjectArgs,
   type RestoreProjectResult,
+  type SaveMergeContractArgs,
+  type SaveMergeContractResult,
   type SaveResearchCheckpointArgs,
   type SaveResearchCheckpointResult,
   type SelectPlanForkArgs,
@@ -1285,6 +1300,36 @@ export class ResearchControlService extends TypertRemoteService {
   async removeDependency(args: unknown): Promise<RemoveDependencyResult> {
     const decoded = RemoveDependencyArgsSchema.parse(args) satisfies RemoveDependencyArgs
     return this.requireRpc(decoded.projectId).removeDependency(decoded)
+  }
+
+  @Remote('createWorkstreamFork')
+  async createWorkstreamFork(args: unknown): Promise<CreateWorkstreamForkResult> {
+    const decoded = CreateWorkstreamForkArgsSchema.parse(args) satisfies CreateWorkstreamForkArgs
+    return this.requireRpc(decoded.projectId).createWorkstreamFork!(decoded)
+  }
+
+  @Remote('createPlannedMerge')
+  async createPlannedMerge(args: unknown): Promise<CreatePlannedMergeResult> {
+    const decoded = CreatePlannedMergeArgsSchema.parse(args) satisfies CreatePlannedMergeArgs
+    return this.requireRpc(decoded.projectId).createPlannedMerge!(decoded)
+  }
+
+  @Remote('getMergeContract')
+  async getMergeContract(args: unknown): Promise<GetMergeContractResult> {
+    const decoded = GetMergeContractArgsSchema.parse(args) satisfies GetMergeContractArgs
+    return this.requireRpc(decoded.projectId).getMergeContract!(decoded)
+  }
+
+  @Remote('saveMergeContract')
+  async saveMergeContract(args: unknown): Promise<SaveMergeContractResult> {
+    const decoded = SaveMergeContractArgsSchema.parse(args) satisfies SaveMergeContractArgs
+    return this.requireRpc(decoded.projectId).saveMergeContract!(decoded)
+  }
+
+  @Remote('dropTopologyEdge')
+  async dropTopologyEdge(args: unknown): Promise<DropTopologyEdgeResult> {
+    const decoded = DropTopologyEdgeArgsSchema.parse(args) satisfies DropTopologyEdgeArgs
+    return this.requireRpc(decoded.projectId).dropTopologyEdge!(decoded)
   }
 
   /* ------------------------------------------------------------------ *

@@ -11547,6 +11547,7 @@ function workstreamYamlText(input) {
 		title: input.title
 	};
 	if (input.summary !== void 0) doc.summary = input.summary;
+	if (input.originTopologyEdgeRef !== void 0) doc.origin_topology_edge_ref = input.originTopologyEdgeRef;
 	doc.created_at = isoTimestampUtc(input.createdAtMs);
 	return stringify(doc, { lineWidth: 0 });
 }
@@ -12038,6 +12039,7 @@ var HierarchyService = class {
 			topicId: input.topicId,
 			title: input.title,
 			summary: input.summary,
+			originTopologyEdgeRef: input.originTopologyEdgeRef,
 			createdAtMs
 		}));
 		return {

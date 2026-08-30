@@ -54,15 +54,21 @@ import {
   CreateNextActionResultSchema,
   CreatePlanItemArgsSchema,
   CreatePlanItemResultSchema,
+  CreatePlannedMergeArgsSchema,
+  CreatePlannedMergeResultSchema,
   CreateTopicArgsSchema,
   CreateTopicResultSchema,
   CreateWorkstreamArgsSchema,
+  CreateWorkstreamForkArgsSchema,
+  CreateWorkstreamForkResultSchema,
   CreateWorkstreamResultSchema,
   DashboardSnapshotSchema,
   DismissNextActionArgsSchema,
   DismissNextActionResultSchema,
   DismissPlanForkArgsSchema,
   DismissPlanForkResultSchema,
+  DropTopologyEdgeArgsSchema,
+  DropTopologyEdgeResultSchema,
   DropWorkstreamArgsSchema,
   DropWorkstreamResultSchema,
   GetGitHistoryArgsSchema,
@@ -70,6 +76,8 @@ import {
   GetCurrentFocusArgsSchema,
   GetCurrentFocusResultSchema,
   GetHubOverviewArgsSchema,
+  GetMergeContractArgsSchema,
+  GetMergeContractResultSchema,
   GetPortfolioInterventionsArgsSchema,
   GetPortfolioInterventionsResultSchema,
   GetResearchPlaneStateArgsSchema,
@@ -103,6 +111,8 @@ import {
   RestoreDeclarativeFileResultSchema,
   RestoreProjectArgsSchema,
   RestoreProjectResultSchema,
+  SaveMergeContractArgsSchema,
+  SaveMergeContractResultSchema,
   SaveResearchCheckpointArgsSchema,
   SaveResearchCheckpointResultSchema,
   SelectPlanForkArgsSchema,
@@ -143,7 +153,7 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
 
 /**
  * Every wire schema the face uses, as a live zod v4 instance (the loader
- * requires the `_zod` brand on each `TYPERT.schemas` entry). 87 entries:
+ * requires the `_zod` brand on each `TYPERT.schemas` entry). 97 entries:
  * ping's result + the 13 RPCs' args/results (the two zero-arg queries
  * carry no args schema) + the 3 read-only plane RPCs' args/results
  * (V2-T3.2a) + the 6 change-family plane RPCs' args/results (V2-T3.2b —
@@ -154,7 +164,11 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
  * the 6 GUI management RPCs' args/results (V2-UI-0.4 UI-2: the
  * 4 hierarchy update/drop RPCs + the 2 local-project RPCs) + the 7
  * attention RPCs' args/results (V2-UI-0.4 UI-4, D §10) + the 5
- * plan-editor RPCs' args/results (V2-UI-0.4 UI-5, brief §3).
+ * plan-editor RPCs' args/results (V2-UI-0.4 UI-5, brief §3) + the 1
+ * fork RPC's args/results (V2-UI-6 D1, brief §12) + the 3
+ * planned-merge / merge-contract RPCs' args/results (V2-UI-6 D2,
+ * brief §3) + the 1 edge-drop RPC's args/results (V2-UI-6 D3,
+ * brief §3).
  */
 const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'PingResult', schema: PingResultSchema },
@@ -254,6 +268,16 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'AddDependencyResult', schema: AddDependencyResultSchema },
   { name: 'RemoveDependencyArgs', schema: RemoveDependencyArgsSchema },
   { name: 'RemoveDependencyResult', schema: RemoveDependencyResultSchema },
+  { name: 'CreateWorkstreamForkArgs', schema: CreateWorkstreamForkArgsSchema },
+  { name: 'CreateWorkstreamForkResult', schema: CreateWorkstreamForkResultSchema },
+  { name: 'CreatePlannedMergeArgs', schema: CreatePlannedMergeArgsSchema },
+  { name: 'CreatePlannedMergeResult', schema: CreatePlannedMergeResultSchema },
+  { name: 'GetMergeContractArgs', schema: GetMergeContractArgsSchema },
+  { name: 'GetMergeContractResult', schema: GetMergeContractResultSchema },
+  { name: 'SaveMergeContractArgs', schema: SaveMergeContractArgsSchema },
+  { name: 'SaveMergeContractResult', schema: SaveMergeContractResultSchema },
+  { name: 'DropTopologyEdgeArgs', schema: DropTopologyEdgeArgsSchema },
+  { name: 'DropTopologyEdgeResult', schema: DropTopologyEdgeResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -559,6 +583,36 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'Plan editor (V2-UI-0.4 UI-5, brief §3): remove an existing DEPENDS_ON edge by relation id (an edge whose target gate is ACTIVE is rejected — WRONG_STATE).',
           },
+          {
+            name: 'createWorkstreamFork',
+            signature: 'createWorkstreamFork(args: CreateWorkstreamForkArgs): Promise<CreateWorkstreamForkResult>',
+            kind: 'method',
+            summary: 'Topology (V2-UI-6 D1, brief §12): fork N child workstreams off a parent workstream — one PLANNED FORK edge per child, child written before its edge (WS-before-edge); failed pairs are compensated in reverse order and residue is reported loudly (manual reconciliation).',
+          },
+          {
+            name: 'createPlannedMerge',
+            signature: 'createPlannedMerge(args: CreatePlannedMergeArgs): Promise<CreatePlannedMergeResult>',
+            kind: 'method',
+            summary: 'Topology (V2-UI-6 D2, brief §3): plan a merge over existing workstreams — one PLANNED MERGE edge with the deduplicated inputs and a single existing output workstream (existing-output-first: a missing output is an error guiding the two-step UI, never created here); duplicate (inputs, output) pairs over live edges are rejected.',
+          },
+          {
+            name: 'getMergeContract',
+            signature: 'getMergeContract(args: GetMergeContractArgs): Promise<GetMergeContractResult>',
+            kind: 'method',
+            summary: 'Topology (V2-UI-6 D2, brief §3): read the merge contract for an edge — a missing contract is a null `content` value face (not an error code); no ledger row is written.',
+          },
+          {
+            name: 'saveMergeContract',
+            signature: 'saveMergeContract(args: SaveMergeContractArgs): Promise<SaveMergeContractResult>',
+            kind: 'method',
+            summary: 'Topology (V2-UI-6 D2, brief §3): full-replacement write of the merge contract file for an edge (the unknown-edge pre-gate is TOPO_CONTRACT_TE_UNKNOWN); a CONTRACT_EDITED ledger row is recorded.',
+          },
+          {
+            name: 'dropTopologyEdge',
+            signature: 'dropTopologyEdge(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult>',
+            kind: 'method',
+            summary: 'Topology (V2-UI-6 D3, brief §3): drop a topology edge (the state machine is the sole authority — DROPPED → DROPPED is the INVALID_TRANSITION carrier; an unknown edge is TOPO_EDGE_NOT_FOUND); a TOPOLOGY_EDITED ledger row is recorded, its detail carrying the from-state.',
+          },
         ],
         types: [
           {
@@ -786,6 +840,31 @@ export const TYPERT: TypertHostManifest = {
             name: 'RemoveDependencyResult',
             declaration:
               'interface RemoveDependencyResult { readonly relationId: string }',
+          },
+          {
+            name: 'CreateWorkstreamForkResult',
+            declaration:
+              'interface CreateWorkstreamForkResult { readonly topicId: string; readonly edgeIds: string[]; readonly workstreamIds: string[]; readonly managementActionId: string }',
+          },
+          {
+            name: 'CreatePlannedMergeResult',
+            declaration:
+              'interface CreatePlannedMergeResult { readonly edgeId: string; readonly topicId: string; readonly inputs: string[]; readonly outputWorkstreamId: string; readonly lifecycle: "PLANNED"; readonly managementActionId: string }',
+          },
+          {
+            name: 'GetMergeContractResult',
+            declaration:
+              'interface GetMergeContractResult { readonly edgeId: string; readonly content: string | null; readonly path: string }',
+          },
+          {
+            name: 'SaveMergeContractResult',
+            declaration:
+              'interface SaveMergeContractResult { readonly edgeId: string; readonly path: string; readonly managementActionId: string }',
+          },
+          {
+            name: 'DropTopologyEdgeResult',
+            declaration:
+              'interface DropTopologyEdgeResult { readonly edgeId: string; readonly topicId: string; readonly lifecycle: "DROPPED"; readonly managementActionId: string }',
           },
         ],
       },

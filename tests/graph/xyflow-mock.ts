@@ -27,7 +27,13 @@
  *    「只渲染 viewport（节点数断言）」test needs;
  *  - one `<path data-mock-edge>` per edge with stroke /
  *    stroke-dasharray / className / animated copied to attributes and the
- *    edge label as a child `<title data-mock-edge-label>`.
+ *    edge label as a child `<title data-mock-edge-label>`;
+ *  - UI-6 D4: the edge record's `data.edgeId` (when a string) rides the
+ *    path as `data-edge-id` (the REAL topology edge id — the t71
+ *    assertions), and `props.onEdgeClick` (the view's edge-click face,
+ *    e.g. the merge-contract editor entry) is forwarded as the onClick
+ *    of each edge path — a click on `[data-mock-edge]` invokes it with
+ *    a stub event + the edge record.
  *
  * IMPORT ORDER: a test file must `import './xyflow-mock.js'` BEFORE any
  * import that (transitively) loads `@xyflow/react` — the mock registers
@@ -143,19 +149,58 @@ vi.mock('@xyflow/react', async () => {
      *  class (`react-flow__edge-path` + the forwarded className) + the
      *  marker/style attributes — so a test driving the custom edge
      *  component directly can assert the same path-level facts the live
-     *  t70 run asserts. The generic mock ReactFlow does NOT invoke
-     *  edgeTypes (it renders its data-attr paths); this export exists so
-     *  the module import resolves and direct component tests work. */
-    BaseEdge: ({ path, className, style, markerEnd }: Record<string, unknown>) =>
+     *  t70 run asserts.
+     *  UI-6 D4: like the real v12 BaseEdge (dist/esm index.mjs :2577),
+     *  the mock SPREADS the unknown props onto the path — so
+     *  `data-edge-id` (the TopoEdge hook) reaches the DOM. The
+     *  label/labelX/labelY/labelStyle/labelBg* props and the endpoint
+     *  geometry are ABSORBED (the mock's path carries no label box —
+     *  those on a <path> would raise invalid-DOM-property warnings),
+     *  and the LIFTED `strokeDasharray` prop (the DependencyArc/TopoEdge
+     *  idiom — the dash rides a presentation attribute, not the inline
+     *  style) takes precedence over `style.strokeDasharray`. The generic
+     *  mock ReactFlow does NOT invoke edgeTypes (it renders its
+     *  data-attr paths); this export exists so the module import
+     *  resolves and direct component tests work. */
+    BaseEdge: ({
+      path,
+      className,
+      style,
+      markerEnd,
+      strokeDasharray,
+      // Absorbed (never rendered — see the doc above):
+      markerStart,
+      label,
+      labelX,
+      labelY,
+      labelStyle,
+      labelShowBg,
+      labelBgStyle,
+      labelBgPadding,
+      labelBgBorderRadius,
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      sourcePosition,
+      targetPosition,
+      id,
+      interactionWidth,
+      // Everything else (e.g. `data-edge-id`) lands on the path:
+      ...rest
+    }: Record<string, unknown>) =>
       h('path', {
+        ...rest,
         d: path as string,
         className: ['react-flow__edge-path', (className as string | undefined) ?? ''].filter(Boolean).join(' '),
         'marker-end': (markerEnd as string | undefined) ?? '',
         // camelCase (React renders it as the stroke-dasharray attribute;
         // the dashed key would raise an invalid-DOM-property warning).
-        strokeDasharray: (style as Record<string, unknown> | undefined)?.strokeDasharray as
-          | string
-          | undefined,
+        // The lifted prop (the custom-edge idiom) wins; the style
+        // fallback keeps the t70-era direct uses green.
+        strokeDasharray:
+          (strokeDasharray as string | number | undefined) ??
+          ((style as Record<string, unknown> | undefined)?.strokeDasharray as string | undefined),
       }),
     ReactFlow: (props: Record<string, unknown>) => {
       const nodes = (props.nodes ?? []) as MockNode[]
@@ -165,6 +210,12 @@ vi.mock('@xyflow/react', async () => {
        *  to each node wrapper below as its onClick. */
       const onNodeClick = props.onNodeClick as
         | ((event: unknown, node: MockNode) => void)
+        | undefined
+      /** UI-6 D4: the view's onEdgeClick (the edge-click face — the
+       *  merge-contract editor entry) — forwarded to each edge path
+       *  below as its onClick (stub event + the edge record). */
+      const onEdgeClick = props.onEdgeClick as
+        | ((event: unknown, edge: MockEdge) => void)
         | undefined
       const onlyRender = props.onlyRenderVisibleElements === true
       const { width, height } = paneState()
@@ -247,6 +298,14 @@ vi.mock('@xyflow/react', async () => {
                   'data-edge-type': e.type ?? '',
                   'data-edge-animated': e.animated ? 'true' : 'false',
                   'data-edge-marker-end': e.markerEnd?.type ?? '',
+                  // UI-6 D4: the REAL topology edge id from the edge record
+                  // (the view's shapeTopologyEdge puts it in `data`).
+                  'data-edge-id':
+                    typeof (e.data as { edgeId?: unknown } | null | undefined)?.edgeId === 'string'
+                      ? ((e.data as { edgeId: string }).edgeId)
+                      : '',
+                  // UI-6 D4: the view's onEdgeClick, like onNodeClick above.
+                  onClick: onEdgeClick !== undefined ? () => onEdgeClick({}, e) : undefined,
                   stroke: (e.style?.stroke as string | undefined) ?? '',
                   'stroke-dasharray': (e.style?.strokeDasharray as string | undefined) ?? '',
                 },

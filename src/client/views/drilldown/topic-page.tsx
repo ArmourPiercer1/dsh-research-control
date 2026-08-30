@@ -14,9 +14,12 @@
  *    snapshot's `objectives` — G4 R5 supplement; the objectiveRefs id
  *    list stays as the header meta).
  *
- * Read-only here: the page's state operations live on the workstream
- * page (PF panel / git panel / intervention board) — §26 drill-down is
- * read-only by definition.
+ * Mostly read-only here: the workstream state operations (PF panel /
+ * git panel / intervention board) live on the workstream page. The
+ * exception is the topology zone above — UI-6 (B §10.4/§21/§22/§23,
+ * ADJ-6) makes it the single Topic-page entry for the topology
+ * mutations: workstream fork, planned merge, edge drop, and the
+ * merge-contract editor.
  */
 
 import type { ReactElement } from 'react'

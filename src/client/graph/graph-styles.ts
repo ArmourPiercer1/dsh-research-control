@@ -59,15 +59,34 @@ export const PLAN_GRAPH_STYLES: Record<string, string> = {
 }
 
 export const TOPOLOGY_GRAPH_STYLES: Record<string, string> = {
+  actionBar: 'rc-tgv-actionBar',
+  actionBtn: 'rc-tgv-actionBtn',
+  actionBtnDanger: 'rc-tgv-actionBtnDanger',
   canvas: 'rc-tgv-canvas',
   canvasWrap: 'rc-tgv-canvasWrap',
+  childRow: 'rc-tgv-childRow',
+  checkRow: 'rc-tgv-checkRow',
   contractBadge: 'rc-tgv-contractBadge',
+  dialogActions: 'rc-tgv-dialogActions',
+  dialogError: 'rc-tgv-dialogError',
+  dialogField: 'rc-tgv-dialogField',
+  dialogLabel: 'rc-tgv-dialogLabel',
+  dialogMeta: 'rc-tgv-dialogMeta',
   errorBanner: 'rc-tgv-errorBanner',
   header: 'rc-tgv-header',
   headerMeta: 'rc-tgv-headerMeta',
   headerTitle: 'rc-tgv-headerTitle',
+  iconBtn: 'rc-tgv-iconBtn',
+  input: 'rc-tgv-input',
+  legend: 'rc-tgv-legend',
+  legendChip: 'rc-tgv-legendChip',
+  legendItem: 'rc-tgv-legendItem',
+  legendLine: 'rc-tgv-legendLine',
+  legendRow: 'rc-tgv-legendRow',
   loading: 'rc-tgv-loading',
   root: 'rc-tgv-root',
+  select: 'rc-tgv-select',
+  textarea: 'rc-tgv-textarea',
   toggleBtn: 'rc-tgv-toggleBtn',
   tsx: 'rc-tgv-tsx',
   wsHead: 'rc-tgv-wsHead',
@@ -797,6 +816,168 @@ export const GRAPH_BASE_CSS: string = [
   `
 .rc-pgv-root[data-pf-downgraded='true'] .rc-pgv-ghost[data-stale='true'] {
   opacity: 0.28;
+}
+  `,
+  `
+/* UI-6 D4: the topology legend (B §10.3 — mandatory: three-state line
+   forms + FORK/MERGE arrow forms + the merge-contract badge). */
+.rc-tgv-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--rc-border-l1);
+  border-radius: 6px;
+  background: var(--rc-bg-layer-2);
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+.rc-tgv-legendRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+.rc-tgv-legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rc-tgv-legendLine {
+  stroke: var(--rc-label-secondary);
+  stroke-width: 1.5;
+}
+.rc-tgv-legendLine[data-legend-line='planned'] {
+  stroke-dasharray: 6 4;
+}
+.rc-tgv-legendLine[data-legend-line='dropped'] {
+  stroke: var(--rc-label-caption);
+  stroke-dasharray: 3 6;
+  opacity: 0.6;
+}
+.rc-tgv-legendArrow {
+  display: inline-block;
+}
+.rc-tgv-legendChip {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--dsw-alias-state-success-primary);
+  font-size: 10px;
+  font-weight: 600;
+}
+  `,
+  `
+/* UI-6 D4: the topology action bar (B §10.4 basic actions). */
+.rc-tgv-actionBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rc-tgv-actionBtn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l1);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-primary);
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xxs);
+  cursor: pointer;
+}
+.rc-tgv-actionBtn:hover:not(:disabled) {
+  border-color: var(--rc-accent-primary);
+}
+.rc-tgv-actionBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.rc-tgv-actionBtnDanger {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+.rc-tgv-actionBtnDanger:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-state-error-tertiary);
+}
+  `,
+  `
+/* UI-6 D4: the topology dialogs (fork / merge / drop / contract forms).
+   The overlay + frame reuse the vendored ConfirmDialog styles (rc-cd-*);
+   these rules cover the form content only. */
+.rc-tgv-dialogField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+.rc-tgv-dialogLabel {
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+.rc-tgv-dialogMeta {
+  margin-top: 8px;
+  font-size: var(--rc-font-xxs);
+  color: var(--rc-label-secondary);
+}
+.rc-tgv-dialogError {
+  margin-top: 10px;
+  font-size: var(--rc-font-xxs);
+  color: var(--dsw-alias-state-error-primary);
+}
+.rc-tgv-input,
+.rc-tgv-select {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l1);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  font-family: var(--rc-font-family);
+  font-size: var(--rc-font-xs);
+}
+.rc-tgv-textarea {
+  min-height: 140px;
+  resize: vertical;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--rc-border-l1);
+  background: var(--rc-bg-layer-1);
+  color: var(--rc-label-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--rc-font-xxs);
+  line-height: 1.5;
+}
+.rc-tgv-childRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rc-tgv-checkRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: var(--rc-font-xs);
+  color: var(--rc-label-primary);
+}
+.rc-tgv-iconBtn {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--rc-border-l1);
+  background: var(--rc-bg-layer-2);
+  color: var(--rc-label-secondary);
+  font-size: var(--rc-font-xxs);
+  cursor: pointer;
+}
+.rc-tgv-iconBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.rc-tgv-dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
 }
   `,
 ].join('\n')

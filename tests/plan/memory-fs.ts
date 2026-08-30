@@ -96,6 +96,44 @@ export class MemoryFs implements ResearchFileReader, PlanFileWriter {
     return this
   }
 
+  /**
+   * POSIX rename (move) over the flat map — the `TopologyFileIo` move
+   * primitive the atomic-write protocol uses (tmp → target). Throws when
+   * the source is absent (mirrors `renameSync`).
+   */
+  rename(from: string, to: string): void {
+    const f = norm(from)
+    const t = norm(to)
+    if (!this.files.has(f)) throw new Error(`rename: no such file ${f}`)
+    const content = this.files.get(f)!
+    this.files.delete(f)
+    this.files.set(t, content)
+  }
+
+  /** Delete one file; throws when absent (the `TopologyFileIo` contract,
+   *  mirroring `unlinkSync`). */
+  unlink(path: string): void {
+    const p = norm(path)
+    if (!this.files.has(p)) throw new Error(`unlink: no such file ${p}`)
+    this.files.delete(p)
+  }
+
+  /** Remove every file under `dir` (the `HierarchyRemoveDir` port — the
+   *  recursive `rmSync` equivalent over the flat map; throws when the
+   *  directory is unknown, mirroring `recursive: true, force: false`). */
+  removeDir(dir: string): void {
+    const d = norm(dir)
+    const prefix = `${d}/`
+    const victims = [...this.files.keys()].filter((p) => p.startsWith(prefix))
+    if (victims.length === 0 && !this.dirs.has(d)) {
+      throw new Error(`removeDir: no such directory ${d}`)
+    }
+    for (const p of victims) this.files.delete(p)
+    for (const p of [...this.dirs]) {
+      if (p === d || p.startsWith(prefix)) this.dirs.delete(p)
+    }
+  }
+
   /** Make the next `count` writeAtomic calls throw (atomicity probes). */
   failNextWrite(count = 1): this {
     this.failNextWrites = count

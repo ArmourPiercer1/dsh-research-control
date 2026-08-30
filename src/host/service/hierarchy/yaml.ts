@@ -60,6 +60,10 @@ export interface WorkstreamYamlInput {
   readonly topicId: string
   readonly title: string
   readonly summary?: string
+  /** UI-6 (ADJ-4): the frozen schema's `origin_topology_edge_ref`
+   *  (key order per workstream.schema.json: … summary, origin…,
+   *  created_at). */
+  readonly originTopologyEdgeRef?: string
   /** Epoch ms; serialized as ISO-8601 UTC second precision. */
   readonly createdAtMs: number
 }
@@ -72,6 +76,9 @@ export function workstreamYamlText(input: WorkstreamYamlInput): string {
   }
   if (input.summary !== undefined) {
     doc.summary = input.summary
+  }
+  if (input.originTopologyEdgeRef !== undefined) {
+    doc.origin_topology_edge_ref = input.originTopologyEdgeRef
   }
   doc.created_at = isoTimestampUtc(input.createdAtMs)
   return stringify(doc, { lineWidth: 0 })

@@ -1320,5 +1320,113 @@ interface RemoveDependencyArgs {
 interface RemoveDependencyResult {
   readonly relationId: string;
 }
+/** One child of a `createWorkstreamFork` (B §21.2 minimal form: a title
+ *  plus an optional note — the note lands on the child's FORK edge). */
+interface CreateWorkstreamForkChild {
+  readonly title: string;
+  readonly note?: string;
+}
+interface CreateWorkstreamForkArgs {
+  readonly topicId: string;
+  readonly parentWorkstreamId: string;
+  /** ≥1 child; each child becomes a new workstream + one 1:1 FORK edge
+   *  from the parent (the child's `origin_topology_edge_ref` points at
+   *  its edge). */
+  readonly children: CreateWorkstreamForkChild[];
+  readonly projectId?: string;
+}
+interface CreateWorkstreamForkResult {
+  readonly topicId: string;
+  /** One per child, in children[] order (each a FORK edge parent → child). */
+  readonly edgeIds: string[];
+  /** One per child, in children[] order. */
+  readonly workstreamIds: string[];
+  readonly managementActionId: string;
+}
+/**
+ * Create a PLANNED MERGE edge (D §12.3, brief §3.2): `inputWorkstreamIds`
+ * (≥2, deduplicated) converge into the SINGLE `outputWorkstreamId`.
+ * existing-output-first — the output workstream MUST already exist in the
+ * topic (a missing output is an error that guides the two-step UI:
+ * create the workstream first, then the merge). The result carries NO
+ * contract (B §22 "Merge Contract: [Create / Edit later]" — the contract
+ * is a separate `saveMergeContract` face).
+ */
+interface CreatePlannedMergeArgs {
+  readonly topicId: string;
+  /** ≥2 input workstreams (deduplicated by the service — zod 4.4 has no
+   *  `.unique()`); each must be a workstream of the topic. */
+  readonly inputWorkstreamIds: string[];
+  /** The single output workstream (existing-output-first — must already
+   *  exist in the topic). */
+  readonly outputWorkstreamId: string;
+  /** Optional edge note (lands on the MERGE edge). */
+  readonly note?: string;
+  readonly projectId?: string;
+}
+interface CreatePlannedMergeResult {
+  readonly edgeId: string;
+  readonly topicId: string;
+  /** The stored input order (the deduplicated, order-preserving input). */
+  readonly inputs: string[];
+  readonly outputWorkstreamId: string;
+  readonly lifecycle: 'PLANNED';
+  readonly managementActionId: string;
+}
+/**
+ * Read a merge contract's raw Markdown content (D §12.5, brief §3.4).
+ * A MISSING contract is a VALUE face — `content: null` (ADJ-7: not an
+ * error, no CONTRACT_NOT_FOUND thrown). The content is free Markdown,
+ * byte-for-byte (no front-matter parsing, no validation — ADJ-7).
+ */
+interface GetMergeContractArgs {
+  readonly edgeId: string;
+  readonly projectId?: string;
+}
+interface GetMergeContractResult {
+  readonly edgeId: string;
+  /** `null` = no contract file yet (the UI "No merge contract [Create]"
+   *  state); a string = the raw Markdown, byte-for-byte. */
+  readonly content: string | null;
+  /** `.research/merges/<edgeId>/contract.md` (root-relative POSIX). */
+  readonly path: string;
+}
+/**
+ * Write (FULL-REPLACE) a merge contract (D §12.5, brief §3.5). The edge
+ * must already exist in the topic (CONTRACT_TE_UNKNOWN pre-gate ⇒ error
+ * carrier). The content is free Markdown, stored byte-for-byte (ADJ-7 —
+ * no front-matter parsing). Writes a CONTRACT_EDITED ledger row (ADJ-10).
+ */
+interface SaveMergeContractArgs {
+  readonly edgeId: string;
+  /** ≥1 char; the full replacement content. */
+  readonly content: string;
+  readonly projectId?: string;
+}
+interface SaveMergeContractResult {
+  readonly edgeId: string;
+  /** `.research/merges/<edgeId>/contract.md` (root-relative POSIX). */
+  readonly path: string;
+  readonly managementActionId: string;
+}
+/**
+ * Drop a topology edge (D §12.4, brief §3.3). The state machine is the
+ * SOLE authority: PLANNED / REALIZED → DROPPED (USER actor); a
+ * DROPPED edge refuses the re-drop (INVALID_TRANSITION carrier). The
+ * owning topic is resolved from the loaded tree (edge ids are
+ * project-unique); an unknown edge is TOPO_EDGE_NOT_FOUND. Writes a
+ * TOPOLOGY_EDITED ledger row whose detail carries the from-state.
+ */
+interface DropTopologyEdgeArgs {
+  readonly edgeId: string;
+  readonly projectId?: string;
+}
+interface DropTopologyEdgeResult {
+  readonly edgeId: string;
+  /** The topic that owns the edge (resolved server-side). */
+  readonly topicId: string;
+  readonly lifecycle: 'DROPPED';
+  readonly managementActionId: string;
+}
 //#endregion
-export { RemoveDependencyResult as $, GetGitHistoryArgs as A, UpdateTopicArgs as At, GetWorkstreamCurrentResult as B, DismissNextActionResult as C, UpdateInterventionStateResult as Ct, DropWorkstreamResult as D, UpdatePlanItemResult as Dt, DropWorkstreamArgs as E, UpdatePlanItemArgs as Et, GetResearchPlaneStateArgs as F, ProjectSnapshot as G, InspectProjectDirectoryArgs as H, GetResearchPlaneStateResult as I, QueryHistoryArgs as J, PromoteNextActionArgs as K, GetTopicArgs as L, GetHubOverviewArgs as M, UpdateWorkstreamArgs as Mt, GetPortfolioInterventionsArgs as N, UpdateWorkstreamResult as Nt, GetCurrentFocusArgs as O, UpdateProjectMetadataArgs as Ot, GetPortfolioInterventionsResult as P, WorkstreamSnapshot as Pt, RemoveDependencyArgs as Q, GetWorkstreamArgs as R, DismissNextActionArgs as S, UpdateInterventionStateArgs as St, DismissPlanForkResult as T, UpdateObjectiveResult as Tt, InspectProjectDirectoryResult as U, HubOverviewResult as V, PingResult as W, RegisterInteractionArgs as X, QueryHistoryResult as Y, RegisterInteractionResult as Z, CreateTopicArgs as _, SetHubResult as _t, BindProjectArgs as a, RescanResult as at, CreateWorkstreamResult as b, UnbindProjectArgs as bt, ClearBlockerResult as c, RestoreProjectArgs as ct, CreateLocalResearchProjectArgs as d, SaveResearchCheckpointResult as dt, RemovePlanItemArgs as et, CreateLocalResearchProjectResult as f, SelectPlanForkArgs as ft, CreatePlanItemResult as g, SetHubArgs as gt, CreatePlanItemArgs as h, SetCurrentFocusResult as ht, AddDependencyResult as i, RescanArgs as it, GetGitHistoryResult as j, UpdateTopicResult as jt, GetCurrentFocusResult as k, UpdateProjectMetadataResult as kt, CreateBlockerArgs as l, RestoreProjectResult as lt, CreateNextActionResult as m, SetCurrentFocusArgs as mt, AckMissingReminderResult as n, ReorderPlanArgs as nt, BindProjectResult as o, RestoreDeclarativeFileArgs as ot, CreateNextActionArgs as p, SelectPlanForkResult as pt, PromoteNextActionResult as q, AddDependencyArgs as r, ReorderPlanResult as rt, ClearBlockerArgs as s, RestoreDeclarativeFileResult as st, AckMissingReminderArgs as t, RemovePlanItemResult as tt, CreateBlockerResult as u, SaveResearchCheckpointArgs as ut, CreateTopicResult as v, TopicSnapshot as vt, DismissPlanForkArgs as w, UpdateObjectiveArgs as wt, DashboardSnapshot as x, UnbindProjectResult as xt, CreateWorkstreamArgs as y, TypertContributionMirror as yt, GetWorkstreamCurrentArgs as z };
+export { ProjectSnapshot as $, DropTopologyEdgeArgs as A, UnbindProjectArgs as At, GetMergeContractResult as B, UpdateTopicArgs as Bt, CreateWorkstreamForkResult as C, SelectPlanForkResult as Ct, DismissNextActionResult as D, SetHubResult as Dt, DismissNextActionArgs as E, SetHubArgs as Et, GetCurrentFocusResult as F, UpdateObjectiveResult as Ft, GetTopicArgs as G, GetPortfolioInterventionsResult as H, UpdateWorkstreamArgs as Ht, GetGitHistoryArgs as I, UpdatePlanItemArgs as It, GetWorkstreamCurrentResult as J, GetWorkstreamArgs as K, GetGitHistoryResult as L, UpdatePlanItemResult as Lt, DropWorkstreamArgs as M, UpdateInterventionStateArgs as Mt, DropWorkstreamResult as N, UpdateInterventionStateResult as Nt, DismissPlanForkArgs as O, TopicSnapshot as Ot, GetCurrentFocusArgs as P, UpdateObjectiveArgs as Pt, PingResult as Q, GetHubOverviewArgs as R, UpdateProjectMetadataArgs as Rt, CreateWorkstreamForkArgs as S, SelectPlanForkArgs as St, DashboardSnapshot as T, SetCurrentFocusResult as Tt, GetResearchPlaneStateArgs as U, UpdateWorkstreamResult as Ut, GetPortfolioInterventionsArgs as V, UpdateTopicResult as Vt, GetResearchPlaneStateResult as W, WorkstreamSnapshot as Wt, InspectProjectDirectoryArgs as X, HubOverviewResult as Y, InspectProjectDirectoryResult as Z, CreatePlannedMergeArgs as _, RestoreProjectResult as _t, BindProjectArgs as a, RegisterInteractionResult as at, CreateTopicResult as b, SaveResearchCheckpointArgs as bt, ClearBlockerResult as c, RemovePlanItemArgs as ct, CreateLocalResearchProjectArgs as d, ReorderPlanResult as dt, PromoteNextActionArgs as et, CreateLocalResearchProjectResult as f, RescanArgs as ft, CreatePlanItemResult as g, RestoreProjectArgs as gt, CreatePlanItemArgs as h, RestoreDeclarativeFileResult as ht, AddDependencyResult as i, RegisterInteractionArgs as it, DropTopologyEdgeResult as j, UnbindProjectResult as jt, DismissPlanForkResult as k, TypertContributionMirror as kt, CreateBlockerArgs as l, RemovePlanItemResult as lt, CreateNextActionResult as m, RestoreDeclarativeFileArgs as mt, AckMissingReminderResult as n, QueryHistoryArgs as nt, BindProjectResult as o, RemoveDependencyArgs as ot, CreateNextActionArgs as p, RescanResult as pt, GetWorkstreamCurrentArgs as q, AddDependencyArgs as r, QueryHistoryResult as rt, ClearBlockerArgs as s, RemoveDependencyResult as st, AckMissingReminderArgs as t, PromoteNextActionResult as tt, CreateBlockerResult as u, ReorderPlanArgs as ut, CreatePlannedMergeResult as v, SaveMergeContractArgs as vt, CreateWorkstreamResult as w, SetCurrentFocusArgs as wt, CreateWorkstreamArgs as x, SaveResearchCheckpointResult as xt, CreateTopicArgs as y, SaveMergeContractResult as yt, GetMergeContractArgs as z, UpdateProjectMetadataResult as zt };

@@ -379,9 +379,11 @@ describe('createWorkstreamFork — inverse compensation', () => {
 
     // The residue is listed (manual reconciliation): the dangling child
     // WS CANNOT be dropped (its own origin ref poisons every load), and
-    // the never-written edge is reported too; child 1's WS is residue as
-    // well (its drop is poisoned by child 2's dangling ref) while its
-    // edge WAS deleted.
+    // child 1's WS is residue as well (its drop is poisoned by child 2's
+    // dangling ref) while its edge WAS deleted. The never-written edge is
+    // NOT listed: the failed child's teId never entered `createdEdges`
+    // (push happens only after addEdge succeeds), so compensation's
+    // `if (teId !== undefined)` skips deleteEdge entirely.
     expect(err.residuals).toEqual(['WS-5', 'WS-4'])
     expect(err.message).toContain('manual reconciliation')
     expect(err.message).toContain('WS-5')

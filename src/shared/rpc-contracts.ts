@@ -3041,7 +3041,7 @@ export const InterventionFullDtoSchema = z
  * getWorkstreamCurrent — the Current-zone read face (D §10; ADJ-5/6/7/8:
  *  the derived projection + the explicit/intervention thin passes). The
  *  current-focus pointer is NOT in this result — it stays on the main-
- *  store `currentFocus` slice (the D §10.11 CF linkage reads it from
+ *  store `currentFocus` slice (the D §10.6 CF linkage reads it from
  *  there, keeping the frozen getWorkstream projection untouched).
  * -------------------------------------------------------------------- */
 
@@ -3142,7 +3142,7 @@ export const updateObjectiveInvocation: InvocationDescriptorMirror = descriptor(
 )
 
 /* -------------------------------------------------------------------- *
- * createNextAction — propose a NextAction (D §10.5; USER/AGENT matrix
+ * createNextAction — propose a NextAction (D §10.4; USER/AGENT matrix
  *  row, the USER GUI face)
  * -------------------------------------------------------------------- */
 
@@ -3182,7 +3182,7 @@ export const createNextActionInvocation: InvocationDescriptorMirror = descriptor
 
 /* -------------------------------------------------------------------- *
  * promoteNextAction — materialize the PROPOSED NA as a canonical plan
- *  Task (D §10.6; USER-only — the matrix row「PROMOTE 仅用户」)
+ *  Task (D §10.4; USER-only — the matrix row「PROMOTE 仅用户」)
  * -------------------------------------------------------------------- */
 
 export interface PromoteNextActionArgs {
@@ -3237,7 +3237,7 @@ export const promoteNextActionInvocation: InvocationDescriptorMirror = descripto
 )
 
 /* -------------------------------------------------------------------- *
- * dismissNextAction — terminal-dismiss a PROPOSED NA (D §10.5)
+ * dismissNextAction — terminal-dismiss a PROPOSED NA (D §10.4)
  * -------------------------------------------------------------------- */
 
 export interface DismissNextActionArgs {
@@ -3270,7 +3270,7 @@ export const dismissNextActionInvocation: InvocationDescriptorMirror = descripto
 )
 
 /* -------------------------------------------------------------------- *
- * createBlocker — raise an Explicit Blocker (D §10.7; USER-only — the
+ * createBlocker — raise an Explicit Blocker (D §10.2; USER-only — the
  *  Agent-writable closed set excludes Blockers)
  * -------------------------------------------------------------------- */
 
@@ -3311,7 +3311,7 @@ export const createBlockerInvocation: InvocationDescriptorMirror = descriptor(
 )
 
 /* -------------------------------------------------------------------- *
- * clearBlocker — clear an ACTIVE Explicit Blocker (D §10.7; the DERIVED
+ * clearBlocker — clear an ACTIVE Explicit Blocker (D §10.2; the DERIVED
  *  face has no clear — ADJ-4)
  * -------------------------------------------------------------------- */
 

@@ -117,20 +117,20 @@ interface ResearchRpcServices {
    * change (≥1 field, service-enforced).
    */
   updateObjective(args: UpdateObjectiveArgs): Promise<UpdateObjectiveResult>;
-  /** UI-4 (D §10.5): propose a NextAction (optionally WS-scoped). */
+  /** UI-4 (D §10.4): propose a NextAction (optionally WS-scoped). */
   createNextAction(args: CreateNextActionArgs): Promise<CreateNextActionResult>;
   /**
-   * UI-4 (D §10.6): promote the PROPOSED NA to a canonical plan Task
+   * UI-4 (D §10.4): promote the PROPOSED NA to a canonical plan Task
    * (USER-only; plan.yaml materialization + the management-action
    * ledger row — the materialization receipt is returned verbatim).
    */
   promoteNextAction(args: PromoteNextActionArgs): Promise<PromoteNextActionResult>;
-  /** UI-4 (D §10.5): terminal-dismiss a PROPOSED NA. */
+  /** UI-4 (D §10.4): terminal-dismiss a PROPOSED NA. */
   dismissNextAction(args: DismissNextActionArgs): Promise<DismissNextActionResult>;
-  /** UI-4 (D §10.7): raise an Explicit Blocker (USER-only). */
+  /** UI-4 (D §10.2): raise an Explicit Blocker (USER-only). */
   createBlocker(args: CreateBlockerArgs): Promise<CreateBlockerResult>;
   /**
-   * UI-4 (D §10.7): clear an ACTIVE Explicit Blocker. The DERIVED
+   * UI-4 (D §10.2): clear an ACTIVE Explicit Blocker. The DERIVED
    * face has no clear (ADJ-4) — clearing the cause removes it.
    */
   clearBlocker(args: ClearBlockerArgs): Promise<ClearBlockerResult>;

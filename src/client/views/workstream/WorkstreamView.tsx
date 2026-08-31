@@ -82,6 +82,7 @@ import type { ResearchStore } from '../../stores/index.js'
 import { CurrentZone, type CurrentFocusView } from './CurrentZone.js'
 import { FutureZone } from './FutureZone.js'
 import { HistoryZone } from './HistoryZone.js'
+import { RecordsSection } from './RecordsSection.js'
 import {
   EMPTY_PLAN_ITEM_DRAFT,
   newPlanItemDraft,
@@ -109,6 +110,10 @@ export interface WorkstreamViewProps {
   readonly workstreamId: string
   /** Opens the event timeline (WP-4.4 wiring provides the target). */
   readonly onOpenHistory?: () => void
+  /** UI-7 (B §26): deep link into the Records tab pre-filtered to a
+   *  related object (`KIND:ID`) — set by the History timeline's
+   *  「Related Records (n)」 entry. Undefined = default Workspace tab. */
+  readonly initialRecordsRelated?: string
 }
 
 /** 产品文案（中文）— workstream lifecycle. */
@@ -154,7 +159,7 @@ const EMPTY_CURRENT: GetWorkstreamCurrentResult = {
  * @returns the page element (header + the three zones, or a
  *  loading/failure state).
  */
-export function WorkstreamView({ store, workstreamId, onOpenHistory }: WorkstreamViewProps): ReactElement {
+export function WorkstreamView({ store, workstreamId, onOpenHistory, initialRecordsRelated }: WorkstreamViewProps): ReactElement {
   const slice = useWorkstreamSlice(store, workstreamId)
   const currentSlice = useWorkstreamCurrentSlice(store, workstreamId)
   const focusSlice = useCurrentFocusSlice(store, workstreamId)
@@ -165,6 +170,12 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
   const [promotedTaskId, setPromotedTaskId] = useState<string | null>(null)
   /** The last failed UI-4 mutation (the shared low-noise fault note). */
   const [actionFault, setActionFault] = useState<string | null>(null)
+  /** UI-7 (B §13.2): the page-body workspace toggle (view state — the
+   *  deep link IS the state; no URL routing). Default: the three-zone
+   *  Workspace face. */
+  const [wsTab, setWsTab] = useState<'workspace' | 'records'>(() =>
+    initialRecordsRelated !== undefined && initialRecordsRelated !== '' ? 'records' : 'workspace',
+  )
 
   /* -- UI-5 (D4): the strip face state (ALL view state lives HERE —
      the zone stays hook-free) -- */
@@ -582,6 +593,34 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
         </p>
       )}
 
+      {/* UI-7 (B §13.2): the page-body [Workspace] / [Records] toggle —
+          view state, the deep link IS the state (no URL routing). */}
+      <div className={styles.wsTabs} role="tablist" aria-label={t('ws.records.title')}>
+        <button
+          type="button"
+          role="tab"
+          className={styles.wsTab}
+          data-ws-tab="workspace"
+          aria-selected={wsTab === 'workspace'}
+          onClick={() => setWsTab('workspace')}
+        >
+          {t('ws.records.tab.workspace')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={styles.wsTab}
+          data-ws-tab="records"
+          aria-selected={wsTab === 'records'}
+          onClick={() => setWsTab('records')}
+        >
+          {t('ws.records.tab.records')}
+        </button>
+      </div>
+
+      {wsTab === 'records' ? (
+        <RecordsSection store={store} workstreamId={workstreamId} initialRelated={initialRecordsRelated} />
+      ) : (
       <div className={styles.grid}>
         <HistoryZone
           eventCount={data.history.eventCount}
@@ -652,6 +691,7 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory }: Workstrea
           />
         </div>
       </div>
+      )}
     </div>
   )
 }

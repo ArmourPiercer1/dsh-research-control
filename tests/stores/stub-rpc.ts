@@ -115,6 +115,23 @@ import type {
   // V2-UI-6 (D3, BRIEF §3): the edge drop face.
   DropTopologyEdgeArgs,
   DropTopologyEdgeResult,
+  // V2-UI-0.4 UI-7 (D §13): the 8 Records faces.
+  RecordFactArgs,
+  RecordFactResult,
+  RecordClaimArgs,
+  RecordClaimResult,
+  RetractClaimArgs,
+  RetractClaimResult,
+  RegisterArtifactArgs,
+  RegisterArtifactResult,
+  MarkArtifactMissingArgs,
+  MarkArtifactMissingResult,
+  AddRelationArgs,
+  AddRelationResult,
+  RemoveRelationArgs,
+  RemoveRelationResult,
+  QueryRecordsArgs,
+  QueryRecordsResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -490,6 +507,60 @@ const DEFAULTS: Record<string, () => unknown> = {
       managementActionId: 'MA-9',
     },
   }),
+  // V2-UI-0.4 UI-7 (D §13): wire-valid minimal defaults for the 8
+  // Records faces.
+  recordFact: () => ({
+    ok: true,
+    value: {
+      factId: 'F-1',
+      workstreamId: 'WS-1',
+      statement: 'stub fact',
+      references: [],
+      status: 'ACTIVE',
+      recordedAt: 1755000000000,
+      eventId: 'H-1',
+    },
+  }),
+  recordClaim: () => ({
+    ok: true,
+    value: {
+      claimId: 'C-1',
+      workstreamId: 'WS-1',
+      statement: 'stub claim',
+      references: [],
+      status: 'ACTIVE',
+      recordedAt: 1755000000000,
+      eventId: 'H-2',
+    },
+  }),
+  retractClaim: () => ({ ok: true, value: { claimId: 'C-1', status: 'RETRACTED', eventId: 'H-3' } }),
+  registerArtifact: () => ({
+    ok: true,
+    value: {
+      artifactId: 'A-1',
+      workstreamId: 'WS-1',
+      type: 'NOTE',
+      title: 'stub artifact',
+      uri: 'file:///stub',
+      status: 'REGISTERED',
+      recordedAt: 1755000000000,
+      eventId: 'H-4',
+    },
+  }),
+  markArtifactMissing: () => ({ ok: true, value: { artifactId: 'A-1', status: 'MISSING', eventId: 'H-5' } }),
+  addRelation: () => ({
+    ok: true,
+    value: {
+      relationId: 'REL-1',
+      source: { kind: 'CLAIM', id: 'C-1' },
+      relationType: 'SUPPORTS',
+      target: { kind: 'FACT', id: 'F-1' },
+      status: 'ACTIVE',
+      eventId: 'H-6',
+    },
+  }),
+  removeRelation: () => ({ ok: true, value: { relationId: 'REL-1', status: 'REMOVED', eventId: 'H-7' } }),
+  queryRecords: () => ({ ok: true, value: { records: [], total: 0 } }),
 }
 
 /**
@@ -629,6 +700,23 @@ export function makeStubRpc(): StubRpc {
     // V2-UI-6 (D3, BRIEF §3): the edge drop method.
     dropTopologyEdge: async (args: DropTopologyEdgeArgs) =>
       deliverArgs<RemoteResult<DropTopologyEdgeResult>>('dropTopologyEdge', args),
+    // V2-UI-0.4 UI-7 (D §13): the 8 Records faces.
+    recordFact: async (args: RecordFactArgs) =>
+      deliverArgs<RemoteResult<RecordFactResult>>('recordFact', args),
+    recordClaim: async (args: RecordClaimArgs) =>
+      deliverArgs<RemoteResult<RecordClaimResult>>('recordClaim', args),
+    retractClaim: async (args: RetractClaimArgs) =>
+      deliverArgs<RemoteResult<RetractClaimResult>>('retractClaim', args),
+    registerArtifact: async (args: RegisterArtifactArgs) =>
+      deliverArgs<RemoteResult<RegisterArtifactResult>>('registerArtifact', args),
+    markArtifactMissing: async (args: MarkArtifactMissingArgs) =>
+      deliverArgs<RemoteResult<MarkArtifactMissingResult>>('markArtifactMissing', args),
+    addRelation: async (args: AddRelationArgs) =>
+      deliverArgs<RemoteResult<AddRelationResult>>('addRelation', args),
+    removeRelation: async (args: RemoveRelationArgs) =>
+      deliverArgs<RemoteResult<RemoveRelationResult>>('removeRelation', args),
+    queryRecords: async (args: QueryRecordsArgs) =>
+      deliverArgs<RemoteResult<QueryRecordsResult>>('queryRecords', args),
   }
 
   return {

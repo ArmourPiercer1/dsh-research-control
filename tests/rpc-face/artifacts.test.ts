@@ -1,12 +1,13 @@
 /**
  * WP-4.1a — build-artifact verification: the built `lib/typert.host.js`
- * and `lib/typert.remote-client.js` must carry the FULL 50-endpoint
+ * and `lib/typert.remote-client.js` must carry the FULL 58-endpoint
  * descriptor face (all 13 §7.1 RPCs + ping + the 9 plane RPCs of
  * design §12 — 3 read-only, V2-T3.2a; 6 change-family, V2-T3.2b — plus
  * the 4 GUI management RPCs of UI-0.4 + the 6 GUI management RPCs of
  * V2-UI-0.4 UI-2 + the 7 attention RPCs of V2-UI-0.4 UI-4 (D §10) +
  * the 5 plan-editor RPCs of V2-UI-0.4 UI-5 (brief §3) + the 5
- * topology/contract RPCs of V2-UI-6 D1+D2+D3 (brief §12/§3)).
+ * topology/contract RPCs of V2-UI-6 D1+D2+D3 (brief §12/§3) + the 8
+ * records RPCs of V2-UI-7 D5 (D §13)).
  *
  * `lib/` is a build product (gitignored): run `pnpm run build` before the
  * test suite (the standard four-piece order: tsc → lint → build → test).
@@ -70,16 +71,24 @@ const METHODS = [
   'getMergeContract',
   'saveMergeContract',
   'dropTopologyEdge',
+  'recordFact',
+  'recordClaim',
+  'retractClaim',
+  'registerArtifact',
+  'markArtifactMissing',
+  'addRelation',
+  'removeRelation',
+  'queryRecords',
 ]
 
-describe('WP-4.1a build artifacts — the full 50-endpoint registered descriptor face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2 + UI-4 + V2-UI-0.4 UI-5 + V2-UI-6 D1+D2+D3)', () => {
+describe('WP-4.1a build artifacts — the full 58-endpoint registered descriptor face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2 + UI-4 + V2-UI-0.4 UI-5 + V2-UI-6 D1+D2+D3 + V2-UI-7 D5)', () => {
   it('the build artifacts exist (run `pnpm run build` before the suite)', () => {
     for (const p of [hostArtifact, clientArtifact]) {
       expect(existsSync(p), `missing ${p} — run \`pnpm run build\``).toBe(true)
     }
   })
 
-  it('lib/typert.host.js TYPERT carries the full 50 descriptors (13 §7.1 + ping + 9 plane + 15 GUI management (incl. the 5 V2-UI-6 topology/contract RPCs) + 7 attention + 5 plan-editor)', async () => {
+  it('lib/typert.host.js TYPERT carries the full 58 descriptors (13 §7.1 + ping + 9 plane + 15 GUI management (incl. the 5 V2-UI-6 topology/contract RPCs) + 7 attention + 5 plan-editor + 8 records (V2-UI-7))', async () => {
     const mod = (await import(hostArtifact)) as {
       TYPERT: {
         package: string
@@ -116,13 +125,13 @@ describe('WP-4.1a build artifacts — the full 50-endpoint registered descriptor
       expect(built!.result.mode).toBe('strict')
       expect('_zod' in (built!.result.schema as object), `${src.method} result codec zod brand`).toBe(true)
     }
-    expect(t.schemas).toHaveLength(97)
+    expect(t.schemas).toHaveLength(113)
     const [service] = t.model.services
     expect(service.key).toBe('researchControl')
     expect(service.members.map((m) => m.name)).toEqual(METHODS)
   })
 
-  it('lib/typert.remote-client.js researchRemotes carries the same 50 descriptors', async () => {
+  it('lib/typert.remote-client.js researchRemotes carries the same 58 descriptors', async () => {
     const mod = (await import(clientArtifact)) as {
       default: {
         package: string

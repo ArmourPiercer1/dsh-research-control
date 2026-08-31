@@ -1,4 +1,4 @@
-import { $ as ProjectSnapshot, A as DropTopologyEdgeArgs, At as UnbindProjectArgs, B as GetMergeContractResult, Bt as UpdateTopicArgs, C as CreateWorkstreamForkResult, Ct as SelectPlanForkResult, D as DismissNextActionResult, Dt as SetHubResult, E as DismissNextActionArgs, Et as SetHubArgs, F as GetCurrentFocusResult, Ft as UpdateObjectiveResult, G as GetTopicArgs, H as GetPortfolioInterventionsResult, Ht as UpdateWorkstreamArgs, I as GetGitHistoryArgs, It as UpdatePlanItemArgs, J as GetWorkstreamCurrentResult, K as GetWorkstreamArgs, L as GetGitHistoryResult, Lt as UpdatePlanItemResult, M as DropWorkstreamArgs, Mt as UpdateInterventionStateArgs, N as DropWorkstreamResult, Nt as UpdateInterventionStateResult, O as DismissPlanForkArgs, Ot as TopicSnapshot, P as GetCurrentFocusArgs, Pt as UpdateObjectiveArgs, Q as PingResult, R as GetHubOverviewArgs, Rt as UpdateProjectMetadataArgs, S as CreateWorkstreamForkArgs, St as SelectPlanForkArgs, T as DashboardSnapshot, Tt as SetCurrentFocusResult, U as GetResearchPlaneStateArgs, Ut as UpdateWorkstreamResult, V as GetPortfolioInterventionsArgs, Vt as UpdateTopicResult, W as GetResearchPlaneStateResult, Wt as WorkstreamSnapshot, Y as HubOverviewResult, Z as InspectProjectDirectoryResult, _ as CreatePlannedMergeArgs, _t as RestoreProjectResult, a as BindProjectArgs, at as RegisterInteractionResult, b as CreateTopicResult, bt as SaveResearchCheckpointArgs, c as ClearBlockerResult, ct as RemovePlanItemArgs, dt as ReorderPlanResult, et as PromoteNextActionArgs, f as CreateLocalResearchProjectResult, ft as RescanArgs, g as CreatePlanItemResult, gt as RestoreProjectArgs, h as CreatePlanItemArgs, ht as RestoreDeclarativeFileResult, i as AddDependencyResult, it as RegisterInteractionArgs, j as DropTopologyEdgeResult, jt as UnbindProjectResult, k as DismissPlanForkResult, l as CreateBlockerArgs, lt as RemovePlanItemResult, m as CreateNextActionResult, mt as RestoreDeclarativeFileArgs, n as AckMissingReminderResult, nt as QueryHistoryArgs, o as BindProjectResult, ot as RemoveDependencyArgs, p as CreateNextActionArgs, pt as RescanResult, q as GetWorkstreamCurrentArgs, r as AddDependencyArgs, rt as QueryHistoryResult, s as ClearBlockerArgs, st as RemoveDependencyResult, t as AckMissingReminderArgs, tt as PromoteNextActionResult, u as CreateBlockerResult, ut as ReorderPlanArgs, v as CreatePlannedMergeResult, vt as SaveMergeContractArgs, w as CreateWorkstreamResult, wt as SetCurrentFocusArgs, x as CreateWorkstreamArgs, xt as SaveResearchCheckpointResult, y as CreateTopicArgs, yt as SaveMergeContractResult, z as GetMergeContractArgs, zt as UpdateProjectMetadataResult } from "./rpc-contracts-BQWpuTs7.js";
+import { $ as InspectProjectDirectoryResult, $t as UpdatePlanItemResult, A as DismissPlanForkArgs, At as RestoreProjectArgs, B as GetHubOverviewArgs, Bt as SetCurrentFocusArgs, C as CreateWorkstreamArgs, Ct as RemoveRelationResult, D as DashboardSnapshot, Dt as RescanResult, E as CreateWorkstreamResult, Et as RescanArgs, F as DropWorkstreamResult, Ft as SaveMergeContractResult, G as GetResearchPlaneStateArgs, H as GetMergeContractResult, Ht as SetHubArgs, I as GetCurrentFocusArgs, It as SaveResearchCheckpointArgs, J as GetWorkstreamArgs, Jt as UpdateInterventionStateArgs, K as GetResearchPlaneStateResult, Kt as UnbindProjectArgs, L as GetCurrentFocusResult, Lt as SaveResearchCheckpointResult, M as DropTopologyEdgeArgs, Mt as RetractClaimArgs, N as DropTopologyEdgeResult, Nt as RetractClaimResult, O as DismissNextActionArgs, Ot as RestoreDeclarativeFileArgs, P as DropWorkstreamArgs, Pt as SaveMergeContractArgs, Qt as UpdatePlanItemArgs, R as GetGitHistoryArgs, Rt as SelectPlanForkArgs, S as CreateTopicResult, St as RemoveRelationArgs, T as CreateWorkstreamForkResult, Tt as ReorderPlanResult, U as GetPortfolioInterventionsArgs, Ut as SetHubResult, V as GetMergeContractArgs, Vt as SetCurrentFocusResult, W as GetPortfolioInterventionsResult, Wt as TopicSnapshot, X as GetWorkstreamCurrentResult, Xt as UpdateObjectiveArgs, Y as GetWorkstreamCurrentArgs, Yt as UpdateInterventionStateResult, Z as HubOverviewResult, Zt as UpdateObjectiveResult, _ as CreatePlanItemArgs, _t as RegisterInteractionResult, a as AddRelationArgs, an as UpdateWorkstreamResult, at as PromoteNextActionResult, b as CreatePlannedMergeResult, bt as RemovePlanItemArgs, c as BindProjectResult, ct as QueryRecordsArgs, d as CreateBlockerArgs, dt as RecordClaimResult, en as UpdateProjectMetadataArgs, et as MarkArtifactMissingArgs, f as CreateBlockerResult, ft as RecordFactArgs, g as CreateNextActionResult, gt as RegisterInteractionArgs, h as CreateNextActionArgs, ht as RegisterArtifactResult, i as AddDependencyResult, in as UpdateWorkstreamArgs, it as PromoteNextActionArgs, j as DismissPlanForkResult, jt as RestoreProjectResult, k as DismissNextActionResult, kt as RestoreDeclarativeFileResult, l as ClearBlockerArgs, lt as QueryRecordsResult, m as CreateLocalResearchProjectResult, mt as RegisterArtifactArgs, n as AckMissingReminderResult, nn as UpdateTopicArgs, nt as PingResult, o as AddRelationResult, on as WorkstreamSnapshot, ot as QueryHistoryArgs, pt as RecordFactResult, q as GetTopicArgs, qt as UnbindProjectResult, r as AddDependencyArgs, rn as UpdateTopicResult, rt as ProjectSnapshot, s as BindProjectArgs, st as QueryHistoryResult, t as AckMissingReminderArgs, tn as UpdateProjectMetadataResult, tt as MarkArtifactMissingResult, u as ClearBlockerResult, ut as RecordClaimArgs, v as CreatePlanItemResult, vt as RemoveDependencyArgs, w as CreateWorkstreamForkArgs, wt as ReorderPlanArgs, x as CreateTopicArgs, xt as RemovePlanItemResult, y as CreatePlannedMergeArgs, yt as RemoveDependencyResult, z as GetGitHistoryResult, zt as SelectPlanForkResult } from "./rpc-contracts-2FQsZJVd.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import s from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
@@ -215,6 +215,59 @@ interface ResearchRpcServices {
    * note on createWorkstreamFork).
    */
   dropTopologyEdge?(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult>;
+  /**
+   * UI-7 (D1, D §13.2): record an immutable Fact — FACT_RECORDED
+   * (status const ACTIVE; the id comes from the shared allocator, never
+   * from the wire — ADJ-12). Port-optional (see the note on
+   * createWorkstreamFork).
+   */
+  recordFact?(args: RecordFactArgs): Promise<RecordFactResult>;
+  /**
+   * UI-7 (D1, D §13.2): record an ACTIVE Claim — CLAIM_RECORDED (the
+   * id comes from the shared allocator — ADJ-12). Port-optional (see
+   * the note on createWorkstreamFork).
+   */
+  recordClaim?(args: RecordClaimArgs): Promise<RecordClaimResult>;
+  /**
+   * UI-7 (D2, D §13.2): terminal-retract an ACTIVE Claim —
+   * CLAIM_RETRACTED (RETRACTED is terminal, §13; re-retract is
+   * WRONG_STATE). Port-optional (see the note on createWorkstreamFork).
+   */
+  retractClaim?(args: RetractClaimArgs): Promise<RetractClaimResult>;
+  /**
+   * UI-7 (D2, D §13.2/§13.6): register an artifact BY REFERENCE —
+   * ARTIFACT_REGISTERED (the file is never copied into Research
+   * Control; the 7-value frozen artifactType enum). Port-optional (see
+   * the note on createWorkstreamFork).
+   */
+  registerArtifact?(args: RegisterArtifactArgs): Promise<RegisterArtifactResult>;
+  /**
+   * UI-7 (D2, D §13.2): mark a REGISTERED artifact MISSING —
+   * ARTIFACT_MARKED_MISSING (V1 one-way — 「找回可恢复」 recovery is out
+   * of V1 scope). Port-optional (see the note on createWorkstreamFork).
+   */
+  markArtifactMissing?(args: MarkArtifactMissingArgs): Promise<MarkArtifactMissingResult>;
+  /**
+   * UI-7 (D3, D §13.2/§8): add a semantic relation edge — RELATION_ADDED
+   * (the owner is DERIVED: source.ws ?? target.ws; the frozen 10
+   * relation types + the §8 combination table; the §5.5 5-tuple
+   * uniqueness). Port-optional (see the note on createWorkstreamFork).
+   */
+  addRelation?(args: AddRelationArgs): Promise<AddRelationResult>;
+  /**
+   * UI-7 (D3, D §13.2): remove an ACTIVE relation edge — RELATION_REMOVED
+   * (REMOVED is terminal; the §5.5 payload mirrors the stored edge —
+   * recovered from the owner log fold, never re-invented). Port-optional
+   * (see the note on createWorkstreamFork).
+   */
+  removeRelation?(args: RemoveRelationArgs): Promise<RemoveRelationResult>;
+  /**
+   * UI-7 (D4, D §13.4): the Records read face — the operational
+   * `derived_state` projection (the History timeline is FORBIDDEN as a
+   * source; no `.research` file reads). Port-optional (see the note on
+   * createWorkstreamFork).
+   */
+  queryRecords?(args: QueryRecordsArgs): Promise<QueryRecordsResult>;
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -569,6 +622,14 @@ declare class ResearchControlService extends TypertRemoteService {
   getMergeContract(args: unknown): Promise<GetMergeContractResult>;
   saveMergeContract(args: unknown): Promise<SaveMergeContractResult>;
   dropTopologyEdge(args: unknown): Promise<DropTopologyEdgeResult>;
+  recordFact(args: unknown): Promise<RecordFactResult>;
+  recordClaim(args: unknown): Promise<RecordClaimResult>;
+  retractClaim(args: unknown): Promise<RetractClaimResult>;
+  registerArtifact(args: unknown): Promise<RegisterArtifactResult>;
+  markArtifactMissing(args: unknown): Promise<MarkArtifactMissingResult>;
+  addRelation(args: unknown): Promise<AddRelationResult>;
+  removeRelation(args: unknown): Promise<RemoveRelationResult>;
+  queryRecords(args: unknown): Promise<QueryRecordsResult>;
   inspectProjectDirectory(args: unknown): Promise<InspectProjectDirectoryResult>;
   createLocalResearchProject(args: unknown): Promise<CreateLocalResearchProjectResult>;
   /**

@@ -21,7 +21,7 @@
 
 import type { QueryHistoryArgs, QueryHistoryResult, ResearchRpcFacade, ResearchStore } from '../../src/client/stores/index.js'
 import { createResearchStore } from '../../src/client/stores/index.js'
-import type { HistoryEventDto } from '../../src/shared/rpc-contracts.js'
+import type { HistoryEventDto, QueryRecordsArgs, SemanticRecordDto } from '../../src/shared/rpc-contracts.js'
 
 /* -------------------------------------------------------------------- *
  * The scenario log
@@ -128,6 +128,9 @@ export interface HistoryFacade {
   readonly rpc: ResearchRpcFacade
   /** Every `queryHistory` call's args, verbatim, in order. */
   readonly calls: readonly QueryHistoryArgs[]
+  /** UI-7 (B §26): every `queryRecords` call's args, verbatim, in order
+   *  (the records service is opt-in — the legacy face never calls it). */
+  readonly recordCalls: readonly QueryRecordsArgs[]
   /** Arm the NEXT `queryHistory` call to await `resolve` (loading state). */
   readonly nextControlled: () => void
   /** Arm the NEXT `queryHistory` call to answer with a business fault. */
@@ -164,8 +167,12 @@ export function pageOf(log: readonly HistoryEventDto[], args: QueryHistoryArgs):
  * loudly (the history view must never call them — a call = a failing test
  * through the unhandled rejection the store surfaces as a slice error).
  */
-export function makeHistoryFacade(log: readonly HistoryEventDto[]): HistoryFacade {
+export function makeHistoryFacade(
+  log: readonly HistoryEventDto[],
+  records?: readonly SemanticRecordDto[],
+): HistoryFacade {
   const calls: QueryHistoryArgs[] = []
+  const recordCalls: QueryRecordsArgs[] = []
   let armed = false
   let failNext: { code: string; message: string } | null = null
   let resolveNext: ((result: QueryHistoryResult) => void) | null = null
@@ -247,8 +254,36 @@ export function makeHistoryFacade(log: readonly HistoryEventDto[]): HistoryFacad
       removePlanItem: notUsed('removePlanItem'),
       addDependency: notUsed('addDependency'),
       removeDependency: notUsed('removeDependency'),
+      // V2-UI-0.4 UI-6 (brief §3): the 5 topology faces (same contract).
+      createWorkstreamFork: notUsed('createWorkstreamFork'),
+      createPlannedMerge: notUsed('createPlannedMerge'),
+      getMergeContract: notUsed('getMergeContract'),
+      saveMergeContract: notUsed('saveMergeContract'),
+      dropTopologyEdge: notUsed('dropTopologyEdge'),
+      // V2-UI-0.4 UI-7 (D §13): the 8 Records faces — the 7 writes follow
+      // the same must-not-be-called contract; queryRecords is OPT-IN
+      // (serves the test-provided set when given, notUsed otherwise —
+      // the legacy face must never call it).
+      recordFact: notUsed('recordFact'),
+      recordClaim: notUsed('recordClaim'),
+      retractClaim: notUsed('retractClaim'),
+      registerArtifact: notUsed('registerArtifact'),
+      markArtifactMissing: notUsed('markArtifactMissing'),
+      addRelation: notUsed('addRelation'),
+      removeRelation: notUsed('removeRelation'),
+      queryRecords:
+        records === undefined
+          ? notUsed('queryRecords')
+          : async (args: QueryRecordsArgs): Promise<
+              { ok: true; value: { records: SemanticRecordDto[]; total: number } } |
+              { ok: false; error: { code: string; message: string; details: object } }
+            > => {
+            recordCalls.push(args)
+            return { ok: true, value: { records: [...records], total: records.length } }
+          },
     } as ResearchRpcFacade,
     calls,
+    recordCalls,
     nextControlled: () => {
       armed = true
     },
@@ -330,6 +365,15 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     getMergeContract: notUsed('getMergeContract'),
     saveMergeContract: notUsed('saveMergeContract'),
     dropTopologyEdge: notUsed('dropTopologyEdge'),
+    // V2-UI-0.4 UI-7 (D §13): the 8 Records faces (same contract).
+    recordFact: notUsed('recordFact'),
+    recordClaim: notUsed('recordClaim'),
+    retractClaim: notUsed('retractClaim'),
+    registerArtifact: notUsed('registerArtifact'),
+    markArtifactMissing: notUsed('markArtifactMissing'),
+    addRelation: notUsed('addRelation'),
+    removeRelation: notUsed('removeRelation'),
+    queryRecords: notUsed('queryRecords'),
   } as ResearchRpcFacade
 }
 

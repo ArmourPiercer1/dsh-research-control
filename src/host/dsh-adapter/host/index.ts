@@ -157,6 +157,7 @@ import { HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   AckMissingReminderArgsSchema,
   AddDependencyArgsSchema,
+  AddRelationArgsSchema,
   BindProjectArgsSchema,
   ClearBlockerArgsSchema,
   CreateBlockerArgsSchema,
@@ -181,8 +182,15 @@ import {
   GetWorkstreamArgsSchema,
   GetWorkstreamCurrentArgsSchema,
   InspectProjectDirectoryArgsSchema,
+  MarkArtifactMissingArgsSchema,
   PromoteNextActionArgsSchema,
   QueryHistoryArgsSchema,
+  QueryRecordsArgsSchema,
+  RecordClaimArgsSchema,
+  RecordFactArgsSchema,
+  RegisterArtifactArgsSchema,
+  RemoveRelationArgsSchema,
+  RetractClaimArgsSchema,
   ReorderPlanArgsSchema,
   RescanArgsSchema,
   RestoreDeclarativeFileArgsSchema,
@@ -206,6 +214,8 @@ import {
   type AckMissingReminderResult,
   type AddDependencyArgs,
   type AddDependencyResult,
+  type AddRelationArgs,
+  type AddRelationResult,
   type BindProjectArgs,
   type BindProjectResult,
   type ClearBlockerArgs,
@@ -253,18 +263,30 @@ import {
   type HubOverviewResult,
   type InspectProjectDirectoryArgs,
   type InspectProjectDirectoryResult,
+  type MarkArtifactMissingArgs,
+  type MarkArtifactMissingResult,
   type PingResult,
   type ProjectSnapshot,
   type PromoteNextActionArgs,
   type PromoteNextActionResult,
   type QueryHistoryArgs,
   type QueryHistoryResult,
+  type QueryRecordsArgs,
+  type QueryRecordsResult,
+  type RecordClaimArgs,
+  type RecordClaimResult,
+  type RecordFactArgs,
+  type RecordFactResult,
   type RemoveDependencyArgs,
   type RemoveDependencyResult,
   type RemovePlanItemArgs,
   type RemovePlanItemResult,
+  type RemoveRelationArgs,
+  type RemoveRelationResult,
   type ReorderPlanArgs,
   type ReorderPlanResult,
+  type RegisterArtifactArgs,
+  type RegisterArtifactResult,
   type RegisterInteractionArgs,
   type RegisterInteractionResult,
   type RescanArgs,
@@ -273,6 +295,8 @@ import {
   type RestoreDeclarativeFileResult,
   type RestoreProjectArgs,
   type RestoreProjectResult,
+  type RetractClaimArgs,
+  type RetractClaimResult,
   type SaveMergeContractArgs,
   type SaveMergeContractResult,
   type SaveResearchCheckpointArgs,
@@ -1330,6 +1354,63 @@ export class ResearchControlService extends TypertRemoteService {
   async dropTopologyEdge(args: unknown): Promise<DropTopologyEdgeResult> {
     const decoded = DropTopologyEdgeArgsSchema.parse(args) satisfies DropTopologyEdgeArgs
     return this.requireRpc(decoded.projectId).dropTopologyEdge!(decoded)
+  }
+
+  /* ------------------------------------------------------------------ *
+   * UI-7 (D1–D4, brief §3) — the Records face (face grows 50 → 58):
+   * the seven semantic writes of D §13 + the queryRecords read. Same
+   * THIN decode-and-forward shape (the strict schema is the wire
+   * contract; requireRpc consumes the `projectId` routing field, never
+   * forwarded). Port-optional like createWorkstreamFork — `!` is the
+   * fail-loud guard (a boot-time stale wiring must NOT be swallowed).
+   * ------------------------------------------------------------------ */
+
+  @Remote('recordFact')
+  async recordFact(args: unknown): Promise<RecordFactResult> {
+    const decoded = RecordFactArgsSchema.parse(args) satisfies RecordFactArgs
+    return this.requireRpc(decoded.projectId).recordFact!(decoded)
+  }
+
+  @Remote('recordClaim')
+  async recordClaim(args: unknown): Promise<RecordClaimResult> {
+    const decoded = RecordClaimArgsSchema.parse(args) satisfies RecordClaimArgs
+    return this.requireRpc(decoded.projectId).recordClaim!(decoded)
+  }
+
+  @Remote('retractClaim')
+  async retractClaim(args: unknown): Promise<RetractClaimResult> {
+    const decoded = RetractClaimArgsSchema.parse(args) satisfies RetractClaimArgs
+    return this.requireRpc(decoded.projectId).retractClaim!(decoded)
+  }
+
+  @Remote('registerArtifact')
+  async registerArtifact(args: unknown): Promise<RegisterArtifactResult> {
+    const decoded = RegisterArtifactArgsSchema.parse(args) satisfies RegisterArtifactArgs
+    return this.requireRpc(decoded.projectId).registerArtifact!(decoded)
+  }
+
+  @Remote('markArtifactMissing')
+  async markArtifactMissing(args: unknown): Promise<MarkArtifactMissingResult> {
+    const decoded = MarkArtifactMissingArgsSchema.parse(args) satisfies MarkArtifactMissingArgs
+    return this.requireRpc(decoded.projectId).markArtifactMissing!(decoded)
+  }
+
+  @Remote('addRelation')
+  async addRelation(args: unknown): Promise<AddRelationResult> {
+    const decoded = AddRelationArgsSchema.parse(args) satisfies AddRelationArgs
+    return this.requireRpc(decoded.projectId).addRelation!(decoded)
+  }
+
+  @Remote('removeRelation')
+  async removeRelation(args: unknown): Promise<RemoveRelationResult> {
+    const decoded = RemoveRelationArgsSchema.parse(args) satisfies RemoveRelationArgs
+    return this.requireRpc(decoded.projectId).removeRelation!(decoded)
+  }
+
+  @Remote('queryRecords')
+  async queryRecords(args: unknown): Promise<QueryRecordsResult> {
+    const decoded = QueryRecordsArgsSchema.parse(args) satisfies QueryRecordsArgs
+    return this.requireRpc(decoded.projectId).queryRecords!(decoded)
   }
 
   /* ------------------------------------------------------------------ *

@@ -186,6 +186,9 @@ export interface WorkstreamPageProps {
   readonly onOpenSession: (sessionId: string, runId: string) => void
   readonly onOpenHistory: () => void
   readonly onBack: () => void
+  /** UI-7 (B §26): deep link into the Records tab pre-filtered to a
+   *  related object (`KIND:ID`); forwarded to the workstream view. */
+  readonly initialRecordsRelated?: string
 }
 
 /** The workstream page body (the three-zone view + the WP-4.6 panels).
@@ -198,6 +201,7 @@ export function WorkstreamPage({
   onOpenSession,
   onOpenHistory,
   onBack,
+  initialRecordsRelated,
 }: WorkstreamPageProps): ReactElement {
   return (
     <section className={styles.page} aria-label="工作流域页">
@@ -209,7 +213,7 @@ export function WorkstreamPage({
       </h1>
       <div className={styles.wsPageGrid}>
         <div className={styles.wsPageMain}>
-          <WorkstreamView store={store} workstreamId={workstreamId} onOpenHistory={onOpenHistory} />
+          <WorkstreamView store={store} workstreamId={workstreamId} onOpenHistory={onOpenHistory} initialRecordsRelated={initialRecordsRelated} />
           <h2 className={styles.sectionTitle}>计划图（正典 + PlanFork overlay）</h2>
           <div className={styles.graphBox} data-ws-id={workstreamId}>
             <PlanGraphContainer store={store} workstreamId={workstreamId} />

@@ -308,6 +308,14 @@ const idGate = z.string().regex(/^G-[1-9][0-9]*$/)
 const idMilestone = z.string().regex(/^M-[1-9][0-9]*$/)
 /** UI-5 (D3): the relation id family (registry prefix REL). */
 const idRelation = z.string().regex(/^REL-[1-9][0-9]*$/)
+/** UI-7 (D §13): the semantic record id families (the §1.1 registry
+ *  prefixes C / F / A — the same frozen patterns the kernel allocates). */
+const idClaim = z.string().regex(/^C-[1-9][0-9]*$/)
+const idFact = z.string().regex(/^F-[1-9][0-9]*$/)
+const idArtifact = z.string().regex(/^A-[1-9][0-9]*$/)
+/** UI-7 (D §13): the history event id family (registry prefix H — the
+ *  write receipts' `eventId` carrier). */
+const idHistoryEvent = z.string().regex(/^H-[1-9][0-9]*$/)
 const idPlanFork = z.string().regex(/^PF-[1-9][0-9]*$/)
 const idIntervention = z.string().regex(/^IV-[1-9][0-9]*$/)
 const idInteraction = z.string().regex(/^INT-[1-9][0-9]*$/)
@@ -2287,6 +2295,14 @@ export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'getMergeContract',
   'saveMergeContract',
   'dropTopologyEdge',
+  'recordFact',
+  'recordClaim',
+  'retractClaim',
+  'registerArtifact',
+  'markArtifactMissing',
+  'addRelation',
+  'removeRelation',
+  'queryRecords',
 ] as const
 
 export type ResearchManagementRpcMethod = (typeof RESEARCH_MANAGEMENT_RPC_METHODS)[number]
@@ -3969,6 +3985,526 @@ export const dropTopologyEdgeInvocation: InvocationDescriptorMirror = descriptor
   DropTopologyEdgeResultSchema,
 )
 
+/* -------------------------------------------------------------------- *
+ * UI-7 (D §13): the 7 semantic record writes + the queryRecords read.
+ * The wire vocabulary of the §13.2/§13.4 frozen contracts (BRIEF §3);
+ * the semantic domain (validation / reducer / combination table) is
+ * REUSED by the host service, never redeclared.
+ * -------------------------------------------------------------------- */
+
+/** The 24 frozen object kinds (common.schema `objectKind` — the relation
+ *  endpoint vocabulary; the §8 combination table then decides legality
+ *  per relation type server-side). */
+const semanticEndpointKind = z.enum([
+  'PROJECT',
+  'TOPIC',
+  'WORKSTREAM',
+  'TASK',
+  'GATE',
+  'MILESTONE',
+  'RUN',
+  'CLAIM',
+  'FACT',
+  'ARTIFACT',
+  'RELATION',
+  'OBJECTIVE',
+  'INTERVENTION',
+  'NEXT_ACTION',
+  'BLOCKER',
+  'INTERACTION',
+  'REPORTING_ITEM',
+  'SCHEDULED_EVENT',
+  'INBOX_ITEM',
+  'PLAN_FORK',
+  'TOPOLOGY_EDGE',
+  'DISCOVERED_SESSION',
+  'HISTORY_EVENT',
+  'ANALYSIS_RECORD',
+])
+
+/** One relation endpoint / related-object reference (BRIEF §3 `{kind,
+ *  id}`). The id is a non-empty string on the wire: the per-kind id
+ *  shape + existence + the §8 combination table are enforced by the
+ *  domain/registry validation (24 kinds — a per-kind id union would be
+ *  surface noise without authority). */
+const semanticEndpointSchema = z
+  .object({
+    kind: semanticEndpointKind,
+    id: z.string().min(1),
+  })
+  .strict()
+
+export interface SemanticEndpointRef {
+  readonly kind: (typeof semanticEndpointKind.options)[number]
+  readonly id: string
+}
+
+export const SemanticEndpointRefSchema = semanticEndpointSchema
+
+/** The frozen 10 relation types (INV-REL-3 — mirrors the domain union). */
+const relationTypeSchema = z.enum([
+  'DEPENDS_ON',
+  'SUPPORTED_BY',
+  'CONTRADICTED_BY',
+  'DERIVED_FROM',
+  'PRODUCED_BY',
+  'VALIDATED_BY',
+  'CONSUMES',
+  'CONTRIBUTES_TO',
+  'IMPLEMENTS',
+  'RELATED_TO',
+])
+
+/** The frozen 7 artifact types (mirrors the domain union). */
+const artifactTypeSchema = z.enum(['DATASET', 'FIGURE', 'MODEL', 'CODE', 'REPORT', 'NOTE', 'OTHER'])
+
+/** One record reference (an id string — the §5.3 `references` carrier). */
+const recordReferenceSchema = z.string().min(1)
+
+/* ---- recordFact — record an immutable Fact (D §13.2) ---- */
+
+export interface RecordFactArgs {
+  readonly workstreamId: string
+  readonly statement: string
+  readonly references?: string[]
+  readonly projectId?: string
+}
+
+export const RecordFactArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    statement: z.string().min(1),
+    references: z.array(recordReferenceSchema).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface RecordFactResult {
+  readonly factId: string
+  readonly workstreamId: string
+  readonly statement: string
+  readonly references: string[]
+  readonly status: 'ACTIVE'
+  readonly recordedAt: number
+  readonly eventId: string
+}
+
+export const RecordFactResultSchema = z
+  .object({
+    factId: idFact,
+    workstreamId: idWorkstream,
+    statement: z.string(),
+    references: z.array(recordReferenceSchema),
+    status: z.literal('ACTIVE'),
+    recordedAt: epochMs,
+    eventId: idHistoryEvent,
+  })
+  .strict()
+
+export const recordFactInvocation: InvocationDescriptorMirror = descriptor(
+  'recordFact',
+  [argsParameter('RecordFactArgs', RecordFactArgsSchema)],
+  'RecordFactResult',
+  RecordFactResultSchema,
+)
+
+/* ---- recordClaim — record an ACTIVE Claim (D §13.2) ---- */
+
+export interface RecordClaimArgs {
+  readonly workstreamId: string
+  readonly statement: string
+  readonly references?: string[]
+  readonly projectId?: string
+}
+
+export const RecordClaimArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    statement: z.string().min(1),
+    references: z.array(recordReferenceSchema).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface RecordClaimResult {
+  readonly claimId: string
+  readonly workstreamId: string
+  readonly statement: string
+  readonly references: string[]
+  readonly status: 'ACTIVE'
+  readonly recordedAt: number
+  readonly eventId: string
+}
+
+export const RecordClaimResultSchema = z
+  .object({
+    claimId: idClaim,
+    workstreamId: idWorkstream,
+    statement: z.string(),
+    references: z.array(recordReferenceSchema),
+    status: z.literal('ACTIVE'),
+    recordedAt: epochMs,
+    eventId: idHistoryEvent,
+  })
+  .strict()
+
+export const recordClaimInvocation: InvocationDescriptorMirror = descriptor(
+  'recordClaim',
+  [argsParameter('RecordClaimArgs', RecordClaimArgsSchema)],
+  'RecordClaimResult',
+  RecordClaimResultSchema,
+)
+
+/* ---- retractClaim — terminal-retract an ACTIVE Claim (D §13.2) ---- */
+
+export interface RetractClaimArgs {
+  readonly claimId: string
+  readonly reason?: string
+  readonly projectId?: string
+}
+
+export const RetractClaimArgsSchema = z
+  .object({
+    claimId: idClaim,
+    reason: z.string().min(1).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface RetractClaimResult {
+  readonly claimId: string
+  readonly status: 'RETRACTED'
+  readonly eventId: string
+}
+
+export const RetractClaimResultSchema = z
+  .object({
+    claimId: idClaim,
+    status: z.literal('RETRACTED'),
+    eventId: idHistoryEvent,
+  })
+  .strict()
+
+export const retractClaimInvocation: InvocationDescriptorMirror = descriptor(
+  'retractClaim',
+  [argsParameter('RetractClaimArgs', RetractClaimArgsSchema)],
+  'RetractClaimResult',
+  RetractClaimResultSchema,
+)
+
+/* ---- registerArtifact — register an artifact BY REFERENCE (D §13.2/
+ *        §13.6 — the file is never copied into Research Control) ---- */
+
+export interface RegisterArtifactArgs {
+  readonly workstreamId: string
+  readonly type: (typeof artifactTypeSchema.options)[number]
+  readonly title: string
+  readonly uri: string
+  readonly contentHash?: string
+  readonly relatedTaskId?: string
+  readonly supersedes?: string
+  readonly projectId?: string
+}
+
+export const RegisterArtifactArgsSchema = z
+  .object({
+    workstreamId: idWorkstream,
+    type: artifactTypeSchema,
+    title: z.string().min(1),
+    uri: z.string().min(1),
+    contentHash: z.string().min(1).optional(),
+    relatedTaskId: idTask.optional(),
+    supersedes: idArtifact.optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface RegisterArtifactResult {
+  readonly artifactId: string
+  readonly workstreamId: string
+  readonly type: (typeof artifactTypeSchema.options)[number]
+  readonly title: string
+  readonly uri: string
+  readonly status: 'REGISTERED'
+  readonly recordedAt: number
+  readonly eventId: string
+}
+
+export const RegisterArtifactResultSchema = z
+  .object({
+    artifactId: idArtifact,
+    workstreamId: idWorkstream,
+    type: artifactTypeSchema,
+    title: z.string(),
+    uri: z.string(),
+    status: z.literal('REGISTERED'),
+    recordedAt: epochMs,
+    eventId: idHistoryEvent,
+  })
+  .strict()
+
+export const registerArtifactInvocation: InvocationDescriptorMirror = descriptor(
+  'registerArtifact',
+  [argsParameter('RegisterArtifactArgs', RegisterArtifactArgsSchema)],
+  'RegisterArtifactResult',
+  RegisterArtifactResultSchema,
+)
+
+/* ---- markArtifactMissing — flag a REGISTERED artifact MISSING (V1
+ *        one-way; the recovery edge has no V1 event, out of scope) ---- */
+
+export interface MarkArtifactMissingArgs {
+  readonly artifactId: string
+  readonly reason?: string
+  readonly projectId?: string
+}
+
+export const MarkArtifactMissingArgsSchema = z
+  .object({
+    artifactId: idArtifact,
+    reason: z.string().min(1).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface MarkArtifactMissingResult {
+  readonly artifactId: string
+  readonly status: 'MISSING'
+  readonly eventId: string
+}
+
+export const MarkArtifactMissingResultSchema = z
+  .object({
+    artifactId: idArtifact,
+    status: z.literal('MISSING'),
+    eventId: idHistoryEvent,
+  })
+  .strict()
+
+export const markArtifactMissingInvocation: InvocationDescriptorMirror = descriptor(
+  'markArtifactMissing',
+  [argsParameter('MarkArtifactMissingArgs', MarkArtifactMissingArgsSchema)],
+  'MarkArtifactMissingResult',
+  MarkArtifactMissingResultSchema,
+)
+
+/* ---- addRelation — add one of the frozen 10 relation types (D §13.2;
+ *        the §8 combination table / uniqueness / owner rules are
+ *        enforced by the reused domain validator) ---- */
+
+export interface AddRelationArgs {
+  readonly source: SemanticEndpointRef
+  readonly relationType: (typeof relationTypeSchema.options)[number]
+  readonly target: SemanticEndpointRef
+  readonly projectId?: string
+}
+
+export const AddRelationArgsSchema = z
+  .object({
+    source: semanticEndpointSchema,
+    relationType: relationTypeSchema,
+    target: semanticEndpointSchema,
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface AddRelationResult {
+  readonly relationId: string
+  readonly source: SemanticEndpointRef
+  readonly relationType: (typeof relationTypeSchema.options)[number]
+  readonly target: SemanticEndpointRef
+  readonly status: 'ACTIVE'
+  readonly eventId: string
+}
+
+export const AddRelationResultSchema = z
+  .object({
+    relationId: idRelation,
+    source: semanticEndpointSchema,
+    relationType: relationTypeSchema,
+    target: semanticEndpointSchema,
+    status: z.literal('ACTIVE'),
+    eventId: idHistoryEvent,
+  })
+  .strict()
+
+export const addRelationInvocation: InvocationDescriptorMirror = descriptor(
+  'addRelation',
+  [argsParameter('AddRelationArgs', AddRelationArgsSchema)],
+  'AddRelationResult',
+  AddRelationResultSchema,
+)
+
+/* ---- removeRelation — remove an ACTIVE relation (D §13.2; the §5.5
+ *        payload mirrors the stored edge, recovered from the owner
+ *        log fold — the row is never re-invented) ---- */
+
+export interface RemoveRelationArgs {
+  readonly relationId: string
+  readonly reason?: string
+  readonly projectId?: string
+}
+
+export const RemoveRelationArgsSchema = z
+  .object({
+    relationId: idRelation,
+    reason: z.string().min(1).optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface RemoveRelationResult {
+  readonly relationId: string
+  readonly status: 'REMOVED'
+  readonly eventId: string
+}
+
+export const RemoveRelationResultSchema = z
+  .object({
+    relationId: idRelation,
+    status: z.literal('REMOVED'),
+    eventId: idHistoryEvent,
+  })
+  .strict()
+
+export const removeRelationInvocation: InvocationDescriptorMirror = descriptor(
+  'removeRelation',
+  [argsParameter('RemoveRelationArgs', RemoveRelationArgsSchema)],
+  'RemoveRelationResult',
+  RemoveRelationResultSchema,
+)
+
+/* ---- queryRecords — the Records read face (D §13.4: the operational
+ *        `derived_state` projection — the History timeline is
+ *        forbidden as a source) ---- */
+
+/** One `SemanticRecordDto` (BRIEF §3 verbatim shape). */
+export interface SemanticRecordDto {
+  readonly id: string
+  readonly type: 'FACT' | 'CLAIM' | 'ARTIFACT'
+  readonly workstreamId: string
+  /** The fact/claim statement. */
+  readonly statement?: string
+  /** The artifact title. */
+  readonly title?: string
+  /** The artifact type (7-value frozen enum). */
+  readonly artifactType?: (typeof artifactTypeSchema.options)[number]
+  /** The artifact reference URI. */
+  readonly uri?: string
+  /** The derived status column (ACTIVE / RETRACTED / REGISTERED /
+   *  MISSING). */
+  readonly status: 'ACTIVE' | 'RETRACTED' | 'REGISTERED' | 'MISSING'
+  readonly recordedAt: number
+  /** The recording actor (`created_by`); `label` is the display name. */
+  readonly createdBy?: { readonly kind: string; readonly label?: string }
+  readonly references: string[]
+  /** The ACTIVE relation edges touching this record (outgoing + the
+   *  derived reverse view — one entry per edge). */
+  readonly relations: {
+    readonly relationId: string
+    readonly relationType: string
+    readonly direction: 'out' | 'in'
+    readonly other: SemanticEndpointRef
+  }[]
+  /** The mechanical conflict flag (claims only; PENDING_REVIEW — the
+   *  CONTRADICTED_BY edge existence, no content analysis). */
+  readonly conflictFlag?: { readonly kind: 'PENDING_REVIEW'; readonly relationIds: string[] }
+}
+
+const semanticRecordDtoSchema = z
+  .object({
+    id: z.string(),
+    type: z.enum(['FACT', 'CLAIM', 'ARTIFACT']),
+    workstreamId: idWorkstream,
+    statement: z.string().optional(),
+    title: z.string().optional(),
+    artifactType: artifactTypeSchema.optional(),
+    uri: z.string().optional(),
+    status: z.enum(['ACTIVE', 'RETRACTED', 'REGISTERED', 'MISSING']),
+    recordedAt: epochMs,
+    createdBy: z
+      .object({
+        kind: z.string(),
+        label: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    references: z.array(recordReferenceSchema),
+    relations: z
+      .array(
+        z
+          .object({
+            relationId: idRelation,
+            relationType: z.string(),
+            direction: z.enum(['out', 'in']),
+            other: semanticEndpointSchema,
+          })
+          .strict(),
+      ),
+    conflictFlag: z
+      .object({
+        kind: z.literal('PENDING_REVIEW'),
+        relationIds: z.array(idRelation),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+
+export const SemanticRecordDtoSchema = semanticRecordDtoSchema
+
+export interface QueryRecordsArgs {
+  readonly workstreamId?: string
+  readonly type?: 'FACT' | 'CLAIM' | 'ARTIFACT'
+  /** The derived status column filter (any of the four). */
+  readonly status?: string
+  /** Case-insensitive substring over statement/title. */
+  readonly keyword?: string
+  readonly relatedObject?: SemanticEndpointRef
+  readonly timeFrom?: number
+  readonly timeTo?: number
+  /** Default 50, cap 200. */
+  readonly limit?: number
+  /** Default 0. */
+  readonly offset?: number
+  readonly projectId?: string
+}
+
+export const QueryRecordsArgsSchema = z
+  .object({
+    workstreamId: idWorkstream.optional(),
+    type: z.enum(['FACT', 'CLAIM', 'ARTIFACT']).optional(),
+    status: z.string().min(1).optional(),
+    keyword: z.string().min(1).optional(),
+    relatedObject: semanticEndpointSchema.optional(),
+    timeFrom: epochMs.optional(),
+    timeTo: epochMs.optional(),
+    limit: z.number().int().positive().max(200).optional(),
+    offset: z.number().int().nonnegative().optional(),
+    projectId: idProject.optional(),
+  })
+  .strict()
+
+export interface QueryRecordsResult {
+  readonly records: SemanticRecordDto[]
+  /** The filtered total (before pagination). */
+  readonly total: number
+}
+
+export const QueryRecordsResultSchema = z
+  .object({
+    records: z.array(semanticRecordDtoSchema),
+    total: z.number().int().nonnegative(),
+  })
+  .strict()
+
+export const queryRecordsInvocation: InvocationDescriptorMirror = descriptor(
+  'queryRecords',
+  [argsParameter('QueryRecordsArgs', QueryRecordsArgsSchema)],
+  'QueryRecordsResult',
+  QueryRecordsResultSchema,
+)
+
 /** The GUI management invocation descriptors (appended to the registered
  *  face at the end — the frozen 14 + plane 9 entries stay untouched). */
 export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
@@ -3999,6 +4535,14 @@ export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirro
   getMergeContractInvocation,
   saveMergeContractInvocation,
   dropTopologyEdgeInvocation,
+  recordFactInvocation,
+  recordClaimInvocation,
+  retractClaimInvocation,
+  registerArtifactInvocation,
+  markArtifactMissingInvocation,
+  addRelationInvocation,
+  removeRelationInvocation,
+  queryRecordsInvocation,
 ]
 
 /**

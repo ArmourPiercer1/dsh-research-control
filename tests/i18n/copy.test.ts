@@ -187,7 +187,63 @@ describe('i18n copy (UI-3 D6)', () => {
       'ws.metaOpenForks',
       'ws.metaPlanItems',
       'ws.metaRunning',
-
+      // V2-UI-0.4 UI-7 (D §13.5): the Records face keys.
+      'ws.records.action.addRelation',
+      'ws.records.action.fault',
+      'ws.records.action.markMissing',
+      'ws.records.action.markMissing.reason',
+      'ws.records.action.removeRelation',
+      'ws.records.action.removeRelation.reason',
+      'ws.records.action.retract',
+      'ws.records.action.retract.reason',
+      'ws.records.add',
+      'ws.records.add.artifactType',
+      'ws.records.add.cancel',
+      'ws.records.add.contentHash',
+      'ws.records.add.fault',
+      'ws.records.add.kind',
+      'ws.records.add.kind.artifact',
+      'ws.records.add.kind.claim',
+      'ws.records.add.kind.fact',
+      'ws.records.add.references',
+      'ws.records.add.relatedTask',
+      'ws.records.add.save',
+      'ws.records.add.statement',
+      'ws.records.add.statementRequired',
+      'ws.records.add.supersedes',
+      'ws.records.add.title',
+      'ws.records.add.titleField',
+      'ws.records.add.titleRequired',
+      'ws.records.add.uri',
+      'ws.records.add.uriRequired',
+      'ws.records.artifact.referenceNotice',
+      'ws.records.conflict',
+      'ws.records.detail.back',
+      'ws.records.detail.byReference',
+      'ws.records.detail.createdBy',
+      'ws.records.detail.references',
+      'ws.records.detail.relations',
+      'ws.records.detail.select',
+      'ws.records.filter.all',
+      'ws.records.filter.related',
+      'ws.records.filter.search',
+      'ws.records.filter.status',
+      'ws.records.filter.timeFrom',
+      'ws.records.filter.timeTo',
+      'ws.records.filter.type',
+      'ws.records.list.empty',
+      'ws.records.list.error',
+      'ws.records.list.loading',
+      'ws.records.related.count',
+      'ws.records.relation.fault',
+      'ws.records.relation.source',
+      'ws.records.relation.targetId',
+      'ws.records.relation.targetIdRequired',
+      'ws.records.relation.targetKind',
+      'ws.records.relation.type',
+      'ws.records.tab.records',
+      'ws.records.tab.workspace',
+      'ws.records.title',
     ])
   })
 
@@ -226,6 +282,16 @@ describe('i18n copy (UI-3 D6)', () => {
     expect(t('ws.future.remove.fromPlan')).toBe('Remove from Future Plan')
     expect(t('ws.future.remove.drop')).toBe('Drop planned item')
     expect(t('ws.future.remove.deleteUnused')).toBe('Delete unused item')
+    // V2-UI-0.4 UI-7 (D §13.5 / ADJ-5): the Records tab labels, the
+    // related-count template, and the artifact reference notice are
+    // frozen copy (D §13.6 verbatim for the notice).
+    expect(t('ws.records.title')).toBe('Records')
+    expect(t('ws.records.tab.workspace')).toBe('[Workspace]')
+    expect(t('ws.records.tab.records')).toBe('[Records]')
+    expect(t('ws.records.related.count')).toBe('Related Records (n)')
+    expect(t('ws.records.artifact.referenceNotice')).toBe(
+      'Artifact is registered by reference; Research Control does not copy/store the file.'
+    )
   })
 
   it('investigator has no nav label (hidden from first level, B §2.1)', () => {

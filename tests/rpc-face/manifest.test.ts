@@ -26,6 +26,8 @@ import {
   AckMissingReminderResultSchema,
   AddDependencyArgsSchema,
   AddDependencyResultSchema,
+  AddRelationArgsSchema,
+  AddRelationResultSchema,
   BindProjectArgsSchema,
   BindProjectResultSchema,
   ClearBlockerArgsSchema,
@@ -73,16 +75,26 @@ import {
   HubOverviewResultSchema,
   InspectProjectDirectoryArgsSchema,
   InspectProjectDirectoryResultSchema,
+  MarkArtifactMissingArgsSchema,
+  MarkArtifactMissingResultSchema,
   PingResultSchema,
   ProjectSnapshotSchema,
   PromoteNextActionArgsSchema,
   PromoteNextActionResultSchema,
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
+  QueryRecordsArgsSchema,
+  QueryRecordsResultSchema,
+  RecordClaimArgsSchema,
+  RecordClaimResultSchema,
+  RecordFactArgsSchema,
+  RecordFactResultSchema,
   RemoveDependencyArgsSchema,
   RemoveDependencyResultSchema,
   RemovePlanItemArgsSchema,
   RemovePlanItemResultSchema,
+  RemoveRelationArgsSchema,
+  RemoveRelationResultSchema,
   RESEARCH_CONTROL_PACKAGE,
   RESEARCH_MANAGEMENT_INVOCATIONS,
   RESEARCH_RPC_INVOCATIONS,
@@ -90,6 +102,8 @@ import {
   pingInvocation,
   ReorderPlanArgsSchema,
   ReorderPlanResultSchema,
+  RegisterArtifactArgsSchema,
+  RegisterArtifactResultSchema,
   RegisterInteractionArgsSchema,
   RegisterInteractionResultSchema,
   RescanArgsSchema,
@@ -98,6 +112,8 @@ import {
   RestoreDeclarativeFileResultSchema,
   RestoreProjectArgsSchema,
   RestoreProjectResultSchema,
+  RetractClaimArgsSchema,
+  RetractClaimResultSchema,
   SaveMergeContractArgsSchema,
   SaveMergeContractResultSchema,
   SaveResearchCheckpointArgsSchema,
@@ -319,8 +335,81 @@ const dropTopologyEdgeFixture = {
   lifecycle: 'DROPPED',
   managementActionId: 'MA-9',
 }
+const recordFactFixture = {
+  factId: 'F-1',
+  workstreamId: 'WS-1',
+  statement: 'Alpha: model converged at epoch 12',
+  references: ['T-1'],
+  status: 'ACTIVE',
+  recordedAt: 1755000040000,
+  eventId: 'H-1',
+}
+const recordClaimFixture = {
+  claimId: 'C-1',
+  workstreamId: 'WS-1',
+  statement: 'Alpha is better than beta',
+  references: [],
+  status: 'ACTIVE',
+  recordedAt: 1755000041000,
+  eventId: 'H-2',
+}
+const retractClaimFixture = {
+  claimId: 'C-2',
+  status: 'RETRACTED',
+  eventId: 'H-3',
+}
+const registerArtifactFixture = {
+  artifactId: 'A-1',
+  workstreamId: 'WS-1',
+  type: 'MODEL',
+  title: 'Alpha model v1',
+  uri: 'file:///alpha/model.bin',
+  status: 'REGISTERED',
+  recordedAt: 1755000042000,
+  eventId: 'H-4',
+}
+const markArtifactMissingFixture = {
+  artifactId: 'A-2',
+  status: 'MISSING',
+  eventId: 'H-5',
+}
+const addRelationFixture = {
+  relationId: 'REL-1',
+  source: { kind: 'CLAIM', id: 'C-1' },
+  relationType: 'SUPPORTED_BY',
+  target: { kind: 'FACT', id: 'F-1' },
+  status: 'ACTIVE',
+  eventId: 'H-6',
+}
+const removeRelationFixture = {
+  relationId: 'REL-2',
+  status: 'REMOVED',
+  eventId: 'H-7',
+}
+const queryRecordsFixture = {
+  records: [
+    {
+      id: 'F-1',
+      type: 'FACT',
+      workstreamId: 'WS-1',
+      statement: 'Alpha: model converged at epoch 12',
+      status: 'ACTIVE',
+      recordedAt: 1755000040000,
+      references: ['T-1'],
+      relations: [
+        {
+          relationId: 'REL-1',
+          relationType: 'SUPPORTED_BY',
+          direction: 'in',
+          other: { kind: 'CLAIM', id: 'C-1' },
+        },
+      ],
+    },
+  ],
+  total: 1,
+}
 
-/** The 50 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
+/** The 58 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
  *  V2-T3.2b: the 6 change-family plane RPCs + UI-0.4: the 4 GUI
  *  management RPCs (the 2 current-focus + the 2 hierarchy-create) +
  *  V2-UI-0.4 UI-2: the 6 GUI management RPCs (the 4 hierarchy
@@ -330,7 +419,10 @@ const dropTopologyEdgeFixture = {
  *  (createWorkstreamFork) + V2-UI-6 (D2, BRIEF §3): the 3
  *  planned-merge / merge-contract RPCs
  *  (createPlannedMerge, getMergeContract, saveMergeContract)
- *  + V2-UI-6 (D3, BRIEF §3): the 1 edge-drop RPC (dropTopologyEdge),
+ *  + V2-UI-6 (D3, BRIEF §3): the 1 edge-drop RPC (dropTopologyEdge)
+ *  + V2-UI-7 (D §13): the 8 records RPCs (recordFact, recordClaim,
+ *  retractClaim, registerArtifact, markArtifactMissing, addRelation,
+ *  removeRelation, queryRecords),
  *  appended after the frozen 14), each with its
  *  wire-valid result fixture. */
 const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = [
@@ -384,13 +476,22 @@ const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = 
   { method: 'getMergeContract', resultFixture: getMergeContractFixture },
   { method: 'saveMergeContract', resultFixture: saveMergeContractFixture },
   { method: 'dropTopologyEdge', resultFixture: dropTopologyEdgeFixture },
+  { method: 'recordFact', resultFixture: recordFactFixture },
+  { method: 'recordClaim', resultFixture: recordClaimFixture },
+  { method: 'retractClaim', resultFixture: retractClaimFixture },
+  { method: 'registerArtifact', resultFixture: registerArtifactFixture },
+  { method: 'markArtifactMissing', resultFixture: markArtifactMissingFixture },
+  { method: 'addRelation', resultFixture: addRelationFixture },
+  { method: 'removeRelation', resultFixture: removeRelationFixture },
+  { method: 'queryRecords', resultFixture: queryRecordsFixture },
 ]
 
-/** The args-schema identity table (47 parameterized RPCs: the frozen 11
+/** The args-schema identity table (55 parameterized RPCs: the frozen 11
  *  + the 9 plane RPCs + the 11 GUI management RPCs + the 7 attention
  *  RPCs + the 5 plan-editor RPCs (V2-UI-0.4 UI-5) + the 1 topology-fork
  *  RPC (V2-UI-6 D1) + the 3 planned-merge / merge-contract RPCs
- *  (V2-UI-6 D2) + the 1 edge-drop RPC (V2-UI-6 D3) — every one carries a
+ *  (V2-UI-6 D2) + the 1 edge-drop RPC (V2-UI-6 D3) + the 8 records
+ *  RPCs (V2-UI-7 D5) — every one carries a
  *  strict args object). */
 const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getTopic: GetTopicArgsSchema,
@@ -440,6 +541,14 @@ const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getMergeContract: GetMergeContractArgsSchema,
   saveMergeContract: SaveMergeContractArgsSchema,
   dropTopologyEdge: DropTopologyEdgeArgsSchema,
+  recordFact: RecordFactArgsSchema,
+  recordClaim: RecordClaimArgsSchema,
+  retractClaim: RetractClaimArgsSchema,
+  registerArtifact: RegisterArtifactArgsSchema,
+  markArtifactMissing: MarkArtifactMissingArgsSchema,
+  addRelation: AddRelationArgsSchema,
+  removeRelation: RemoveRelationArgsSchema,
+  queryRecords: QueryRecordsArgsSchema,
 }
 
 /** Narrow a descriptor codec to its strict arm. */
@@ -448,13 +557,13 @@ function strictCodec(codec: TypertCodec): Extract<TypertCodec, { mode: 'strict' 
   return codec
 }
 
-describe('WP-4.1a manifest — the full 50-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2 + UI-4 + V2-UI-0.4 UI-5 + V2-UI-6 D1 + V2-UI-6 D2 + V2-UI-6 D3)', () => {
+describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2 + UI-4 + V2-UI-0.4 UI-5 + V2-UI-6 D1 + V2-UI-6 D2 + V2-UI-6 D3 + V2-UI-7 D5)', () => {
   it('TYPERT passes the mirrored loader validation (validateTypertManifest semantics)', () => {
     expect(() => validateTypertManifest(RESEARCH_CONTROL_PACKAGE, TYPERT)).not.toThrow()
   })
 
-  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 15 GUI management RPCs (incl. the 5 V2-UI-6 topology/contract RPCs) + the 7 attention RPCs + the 5 plan-editor RPCs, in order', () => {
-    expect(TYPERT.invocations).toHaveLength(50)
+  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 15 GUI management RPCs (incl. the 5 V2-UI-6 topology/contract RPCs) + the 7 attention RPCs + the 5 plan-editor RPCs + the 8 V2-UI-7 records RPCs, in order', () => {
+    expect(TYPERT.invocations).toHaveLength(58)
     expect(TYPERT.invocations.map((i) => i.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,
@@ -494,10 +603,18 @@ describe('WP-4.1a manifest — the full 50-endpoint registered face (V2-T3.2a + 
       'getMergeContract',
       'saveMergeContract',
       'dropTopologyEdge',
+      'recordFact',
+      'recordClaim',
+      'retractClaim',
+      'registerArtifact',
+      'markArtifactMissing',
+      'addRelation',
+      'removeRelation',
+      'queryRecords',
     ])
     // The host manifest re-exports the SHARED descriptors (identity):
     // index 0 is the shared ping descriptor, indices 1..13 are the shared
-    // RESEARCH_RPC_INVOCATIONS in order, indices 23..49 are the shared
+    // RESEARCH_RPC_INVOCATIONS in order, indices 23..57 are the shared
     // RESEARCH_MANAGEMENT_INVOCATIONS in order.
     expect(TYPERT.invocations[0]).toBe(pingInvocation)
     expect(TYPERT.invocations[1]).toBe(RESEARCH_RPC_INVOCATIONS[0])
@@ -529,6 +646,14 @@ describe('WP-4.1a manifest — the full 50-endpoint registered face (V2-T3.2a + 
     expect(TYPERT.invocations[47]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[24])
     expect(TYPERT.invocations[48]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[25])
     expect(TYPERT.invocations[49]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[26])
+    expect(TYPERT.invocations[50]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[27])
+    expect(TYPERT.invocations[51]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[28])
+    expect(TYPERT.invocations[52]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[29])
+    expect(TYPERT.invocations[53]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[30])
+    expect(TYPERT.invocations[54]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[31])
+    expect(TYPERT.invocations[55]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[32])
+    expect(TYPERT.invocations[56]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[33])
+    expect(TYPERT.invocations[57]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[34])
   })
 
   it('every invocation carries the id grammar + direct receiver + strict codecs', () => {
@@ -611,6 +736,14 @@ describe('WP-4.1a manifest — the full 50-endpoint registered face (V2-T3.2a + 
       getMergeContract: GetMergeContractResultSchema,
       saveMergeContract: SaveMergeContractResultSchema,
       dropTopologyEdge: DropTopologyEdgeResultSchema,
+      recordFact: RecordFactResultSchema,
+      recordClaim: RecordClaimResultSchema,
+      retractClaim: RetractClaimResultSchema,
+      registerArtifact: RegisterArtifactResultSchema,
+      markArtifactMissing: MarkArtifactMissingResultSchema,
+      addRelation: AddRelationResultSchema,
+      removeRelation: RemoveRelationResultSchema,
+      queryRecords: QueryRecordsResultSchema,
     }
     for (const { method, resultFixture } of endpointFixtures) {
       const invocation = (TYPERT.invocations as readonly InvocationDescriptorMirror[]).find(
@@ -629,10 +762,10 @@ describe('WP-4.1a manifest — the full 50-endpoint registered face (V2-T3.2a + 
     }
   })
 
-  it('TYPERT.schemas covers the full contract: ping + 47 args + 49 results, live zod instances, unique names', () => {
+  it('TYPERT.schemas covers the full contract: ping + 55 args + 57 results, live zod instances, unique names', () => {
     const names = TYPERT.schemas.map((s) => s.name)
-    expect(names).toHaveLength(97)
-    expect(new Set(names).size).toBe(97)
+    expect(names).toHaveLength(113)
+    expect(new Set(names).size).toBe(113)
     for (const s of TYPERT.schemas) {
       expect('_zod' in (s.schema as object), `${s.name} must be a live zod v4 instance`).toBe(true)
     }
@@ -679,12 +812,20 @@ describe('WP-4.1a manifest — the full 50-endpoint registered face (V2-T3.2a + 
       'GetMergeContractArgs', 'GetMergeContractResult',
       'SaveMergeContractArgs', 'SaveMergeContractResult',
       'DropTopologyEdgeArgs', 'DropTopologyEdgeResult',
+      'RecordFactArgs', 'RecordFactResult',
+      'RecordClaimArgs', 'RecordClaimResult',
+      'RetractClaimArgs', 'RetractClaimResult',
+      'RegisterArtifactArgs', 'RegisterArtifactResult',
+      'MarkArtifactMissingArgs', 'MarkArtifactMissingResult',
+      'AddRelationArgs', 'AddRelationResult',
+      'RemoveRelationArgs', 'RemoveRelationResult',
+      'QueryRecordsArgs', 'QueryRecordsResult',
     ]) {
       expect(names, `missing schema entry ${expected}`).toContain(expected)
     }
   })
 
-  it('the model carries the full 50-member service face', () => {
+  it('the model carries the full 58-member service face', () => {
     const [service] = TYPERT.model.services
     expect(TYPERT.model.events).toEqual([])
     expect(TYPERT.model.objects).toEqual([])
@@ -729,6 +870,14 @@ describe('WP-4.1a manifest — the full 50-endpoint registered face (V2-T3.2a + 
       'getMergeContract',
       'saveMergeContract',
       'dropTopologyEdge',
+      'recordFact',
+      'recordClaim',
+      'retractClaim',
+      'registerArtifact',
+      'markArtifactMissing',
+      'addRelation',
+      'removeRelation',
+      'queryRecords',
     ])
     for (const member of service.members) {
       expect(member.kind).toBe('method')
@@ -767,12 +916,20 @@ describe('WP-4.1a manifest — the full 50-endpoint registered face (V2-T3.2a + 
     expect(service.types.map((t) => t.name)).toContain('GetMergeContractResult')
     expect(service.types.map((t) => t.name)).toContain('SaveMergeContractResult')
     expect(service.types.map((t) => t.name)).toContain('DropTopologyEdgeResult')
+    expect(service.types.map((t) => t.name)).toContain('RecordFactResult')
+    expect(service.types.map((t) => t.name)).toContain('RecordClaimResult')
+    expect(service.types.map((t) => t.name)).toContain('RetractClaimResult')
+    expect(service.types.map((t) => t.name)).toContain('RegisterArtifactResult')
+    expect(service.types.map((t) => t.name)).toContain('MarkArtifactMissingResult')
+    expect(service.types.map((t) => t.name)).toContain('AddRelationResult')
+    expect(service.types.map((t) => t.name)).toContain('RemoveRelationResult')
+    expect(service.types.map((t) => t.name)).toContain('QueryRecordsResult')
   })
 
-  it('③ the client contribution exports the SAME 50 strict descriptor objects (no drift)', () => {
+  it('③ the client contribution exports the SAME 58 strict descriptor objects (no drift)', () => {
     expect(researchRemotes.package).toBe(RESEARCH_CONTROL_PACKAGE)
-    expect(researchRemotes.descriptors).toHaveLength(50)
-    for (let i = 0; i < 50; i += 1) {
+    expect(researchRemotes.descriptors).toHaveLength(58)
+    for (let i = 0; i < 58; i += 1) {
       expect(researchRemotes.descriptors[i], `descriptor ${i} identity`).toBe(TYPERT.invocations[i])
     }
     // And the first (ping) remains the WP-0.3 shared object.

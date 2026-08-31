@@ -44,6 +44,8 @@ import {
   AckMissingReminderResult,
   AddDependencyArgs,
   AddDependencyResult,
+  AddRelationArgs,
+  AddRelationResult,
   BindProjectArgs,
   BindProjectResult,
   ClearBlockerArgs,
@@ -92,14 +94,28 @@ import {
   HubOverviewResult,
   InspectProjectDirectoryArgs,
   InspectProjectDirectoryResult,
+  MarkArtifactMissingArgs,
+  MarkArtifactMissingResult,
   PingResult,
   ProjectSnapshot,
   PromoteNextActionArgs,
   PromoteNextActionResult,
   QueryHistoryArgs,
   QueryHistoryResult,
+  QueryRecordsArgs,
+  QueryRecordsResult,
   RESEARCH_CONTROL_PACKAGE,
   REGISTERED_RESEARCH_INVOCATIONS,
+  RecordClaimArgs,
+  RecordClaimResult,
+  RecordFactArgs,
+  RecordFactResult,
+  RegisterArtifactArgs,
+  RegisterArtifactResult,
+  RemoveRelationArgs,
+  RemoveRelationResult,
+  RetractClaimArgs,
+  RetractClaimResult,
   ReorderPlanArgs,
   ReorderPlanResult,
   RegisterInteractionArgs,
@@ -283,6 +299,32 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/dropTopologyEdge': (
       args: DropTopologyEdgeArgs,
     ) => Promise<RemoteResult<DropTopologyEdgeResult>>
+    // V2-UI-7 (D §13): the Records face — the seven semantic writes +
+    // the queryRecords read.
+    'researchControl/recordFact': (
+      args: RecordFactArgs,
+    ) => Promise<RemoteResult<RecordFactResult>>
+    'researchControl/recordClaim': (
+      args: RecordClaimArgs,
+    ) => Promise<RemoteResult<RecordClaimResult>>
+    'researchControl/retractClaim': (
+      args: RetractClaimArgs,
+    ) => Promise<RemoteResult<RetractClaimResult>>
+    'researchControl/registerArtifact': (
+      args: RegisterArtifactArgs,
+    ) => Promise<RemoteResult<RegisterArtifactResult>>
+    'researchControl/markArtifactMissing': (
+      args: MarkArtifactMissingArgs,
+    ) => Promise<RemoteResult<MarkArtifactMissingResult>>
+    'researchControl/addRelation': (
+      args: AddRelationArgs,
+    ) => Promise<RemoteResult<AddRelationResult>>
+    'researchControl/removeRelation': (
+      args: RemoveRelationArgs,
+    ) => Promise<RemoteResult<RemoveRelationResult>>
+    'researchControl/queryRecords': (
+      args: QueryRecordsArgs,
+    ) => Promise<RemoteResult<QueryRecordsResult>>
   }
 
   interface TypertRemoteNamespaceMap {
@@ -425,6 +467,32 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     dropTopologyEdge: (
       args: DropTopologyEdgeArgs,
     ) => Promise<RemoteResult<DropTopologyEdgeResult>>
+    // V2-UI-7 (D §13): the Records face (the same face the flat map
+    // above mirrors).
+    recordFact: (
+      args: RecordFactArgs,
+    ) => Promise<RemoteResult<RecordFactResult>>
+    recordClaim: (
+      args: RecordClaimArgs,
+    ) => Promise<RemoteResult<RecordClaimResult>>
+    retractClaim: (
+      args: RetractClaimArgs,
+    ) => Promise<RemoteResult<RetractClaimResult>>
+    registerArtifact: (
+      args: RegisterArtifactArgs,
+    ) => Promise<RemoteResult<RegisterArtifactResult>>
+    markArtifactMissing: (
+      args: MarkArtifactMissingArgs,
+    ) => Promise<RemoteResult<MarkArtifactMissingResult>>
+    addRelation: (
+      args: AddRelationArgs,
+    ) => Promise<RemoteResult<AddRelationResult>>
+    removeRelation: (
+      args: RemoveRelationArgs,
+    ) => Promise<RemoteResult<RemoveRelationResult>>
+    queryRecords: (
+      args: QueryRecordsArgs,
+    ) => Promise<RemoteResult<QueryRecordsResult>>
   }
 }
 

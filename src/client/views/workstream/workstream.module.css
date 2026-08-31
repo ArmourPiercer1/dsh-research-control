@@ -652,3 +652,301 @@
   color: var(--rc-danger);
   font-size: 12px;
 }
+
+/* -- UI-7 (D4): the page-body [Workspace] / [Records] toggle (B §13.2) -- */
+
+.wsTabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.wsTab {
+  padding: 4px 14px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface);
+  color: var(--rc-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.wsTab[aria-selected='true'] {
+  background: var(--rc-accent-soft);
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+  font-weight: 600;
+}
+
+/* -- UI-7 (D4): the Records face (B §24/§25) -- */
+
+.recordsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--rc-surface);
+  border: 1px solid var(--rc-border);
+  border-radius: 8px;
+}
+
+.recordsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.recordsAdd {
+  padding: 4px 12px;
+  border: 1px solid var(--rc-accent);
+  border-radius: 6px;
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recordsNotice {
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px dashed var(--rc-border);
+  border-radius: 6px;
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+.recordsLoading,
+.recordsEmpty {
+  margin: 4px 0;
+  color: var(--rc-text-muted);
+  font-size: 13px;
+}
+
+.recordsRetry {
+  align-self: flex-start;
+  padding: 4px 12px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface-alt);
+  color: var(--rc-text);
+  cursor: pointer;
+}
+
+/* -- the Add Record form (wireframe §25) -- */
+
+.addForm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface-alt);
+}
+
+.addKinds {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.addKindButton {
+  padding: 3px 12px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface);
+  color: var(--rc-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.addKindButton[aria-pressed='true'] {
+  border-color: var(--rc-accent);
+  color: var(--rc-accent);
+  font-weight: 600;
+}
+
+.addField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--rc-text-muted);
+}
+
+.addInput {
+  padding: 4px 8px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface);
+  color: var(--rc-text);
+  font-size: 13px;
+}
+
+.addActions {
+  display: flex;
+  gap: 8px;
+}
+
+.addSave,
+.addCancel {
+  padding: 4px 14px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface-alt);
+  color: var(--rc-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.addSave {
+  border-color: var(--rc-accent);
+  background: var(--rc-accent-soft);
+  color: var(--rc-accent);
+  font-weight: 600;
+}
+
+.addSave:disabled,
+.addCancel:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* -- the filter row (B §24.1) -- */
+
+.recordsFilters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--rc-text-muted);
+}
+
+.filterInput {
+  padding: 4px 8px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface);
+  color: var(--rc-text);
+  font-size: 13px;
+}
+
+/* -- list | detail (wireframe §24.1) -- */
+
+.recordsGrid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 1.3fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .recordsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.recordItem {
+  list-style: none;
+}
+
+.recordItemButton {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-bottom: 1px solid var(--rc-border);
+  background: transparent;
+  color: var(--rc-text);
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.recordItemButton[aria-pressed='true'] {
+  background: var(--rc-accent-soft);
+}
+
+.recordStatus {
+  font-size: 11px;
+  color: var(--rc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.recordStatus[data-record-status='ACTIVE'],
+.recordStatus[data-record-status='REGISTERED'] {
+  color: var(--rc-ok);
+}
+
+.recordStatus[data-record-status='RETRACTED'],
+.recordStatus[data-record-status='MISSING'] {
+  color: var(--rc-warn);
+}
+
+.recordStatement {
+  margin: 2px 0;
+  font-size: 13px;
+}
+
+.recordMeta {
+  margin: 2px 0;
+  color: var(--rc-text-muted);
+  font-size: 12px;
+}
+
+.recordConflict {
+  margin: 2px 0;
+  padding: 4px 10px;
+  border: 1px solid var(--rc-warn);
+  border-radius: 6px;
+  color: var(--rc-warn);
+  font-size: 12px;
+}
+
+.detailBlock {
+  margin-top: 8px;
+}
+
+.recordAction {
+  margin-top: 4px;
+  padding: 3px 12px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: var(--rc-surface-alt);
+  color: var(--rc-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recordAction:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.recordEdgeRemove {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--rc-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--rc-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.recordEdgeRemove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

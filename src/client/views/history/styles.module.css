@@ -157,6 +157,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* UI-7 (B §26): the optional Related Records context entry — a full-row
+   left-aligned button below the event line. */
+.relatedButton {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 1px 10px;
+  border: 1px solid var(--rc-line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--rc-fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.relatedButton:hover {
+  border-color: var(--rc-muted);
+}
+
 .payload {
   grid-column: 1 / -1;
   font-size: 12px;

@@ -39,6 +39,7 @@
  */
 
 import { makeValidateHook } from '../runbinding/events.js'
+import { canonicalSemanticAppend, type SemanticValidateHook } from '../semantics/protocol.js'
 import { mapDependencyError } from './errors.js'
 import type {
   AddDependencyArgs,
@@ -60,11 +61,9 @@ import type {
   TypedRef,
   WorkstreamSnapshot,
 } from '../../history/registry/types.js'
-import type { HistoryEventInput } from '../../persistence/store/types.js'
 
 const RELATION_ADDED = 'RELATION_ADDED'
 const RELATION_REMOVED = 'RELATION_REMOVED'
-const EVENT_SCHEMA_VERSION = 1
 const DEPENDS_ON = 'DEPENDS_ON'
 
 /** The USER management actor (the face's action — no user_id in V1;
@@ -144,48 +143,33 @@ export class DependencyService {
 
   #addDependencyImpl(args: AddDependencyArgs): AddDependencyResult {
     const ownerWs = args.workstreamId
-    const relRes = this.#allocator.reserve('RELATION', this.#projectId)
-    const hRes = this.#allocator.reserve('HISTORY_EVENT', this.#projectId)
-    const releaseAll = (): void => {
-      for (const res of [relRes, hRes]) {
-        try {
-          this.#allocator.release(res)
-        } catch {
-          /* 释放失败不掩盖主失败 — 号已烧（§1.1 单调, gap 合法） */
-        }
-      }
-    }
-    const event: HistoryEventInput = {
-      eventId: hRes.id,
-      ownerWorkstreamId: ownerWs,
-      eventType: RELATION_ADDED,
-      schemaVersion: EVENT_SCHEMA_VERSION,
-      occurredAt: this.#now(),
-      actor: USER_ACTOR,
-      payload: {
-        relation_id: relRes.id,
-        source: { kind: args.source.kind, id: args.source.id },
-        relation_type: DEPENDS_ON,
-        target: { kind: args.target.kind, id: args.target.id },
+    // The canonical semantic append (ADJ-2, ../semantics/protocol.js):
+    // reserve RELATION + HISTORY_EVENT → append with the composed
+    // registry hook (the RR-011(b) fold seam then applies the semantic
+    // incremental fold in the same tx, AFTER this hook, exactly once)
+    // → commit both; release on any failure (the id gap is legal —
+    // never reused). Zero behavior change vs the inline pipeline this
+    // replaced — pure structural move (行为零变化, 纯结构归位).
+    const result = canonicalSemanticAppend(
+      { allocator: this.#allocator, store: this.#store, projectId: this.#projectId },
+      {
+        objectKind: 'RELATION',
+        eventType: RELATION_ADDED,
+        ownerWorkstreamId: ownerWs,
+        occurredAt: this.#now(),
+        actor: USER_ACTOR,
+        buildPayload: (ids) => ({
+          relation_id: ids.objectId as string,
+          source: { kind: args.source.kind, id: args.source.id },
+          relation_type: DEPENDS_ON,
+          target: { kind: args.target.kind, id: args.target.id },
+        }),
+        validate: this.#composedValidate(ownerWs),
+        label: 'dependency',
       },
-    }
-    try {
-      this.#store.appendEvents([event], { validate: this.#composedValidate(ownerWs) })
-    } catch (e) {
-      releaseAll()
-      throw e
-    }
-    try {
-      this.#allocator.commit(relRes)
-      this.#allocator.commit(hRes)
-    } catch (e) {
-      throw new Error(
-        `dependency: RELATION_ADDED ${relRes.id} was appended to ${ownerWs} but the allocator commit failed — the event is in the log, the id reservation is unconfirmed (manual reconciliation): ${e instanceof Error ? e.message : String(e)}`,
-        { cause: e },
-      )
-    }
+    )
     return {
-      relationId: relRes.id,
+      relationId: result.objectId as string,
       source: { kind: args.source.kind, id: args.source.id },
       target: { kind: args.target.kind, id: args.target.id },
     }
@@ -210,39 +194,29 @@ export class DependencyService {
         `[research-control] OBJECT_NOT_FOUND: Relation ${JSON.stringify(relationId)} does not exist (catalog §5.5: 存在)`,
       )
     }
-    const hRes = this.#allocator.reserve('HISTORY_EVENT', this.#projectId)
-    const event: HistoryEventInput = {
-      eventId: hRes.id,
-      ownerWorkstreamId: ownerWs,
-      eventType: RELATION_REMOVED,
-      schemaVersion: EVENT_SCHEMA_VERSION,
-      occurredAt: this.#now(),
-      actor: USER_ACTOR,
-      payload: {
-        relation_id: relationId,
-        source: { kind: stored.source.kind, id: stored.source.id },
-        relation_type: stored.relationType,
-        target: { kind: stored.target.kind, id: stored.target.id },
+    // The canonical semantic append (ADJ-2, ../semantics/protocol.js):
+    // reserve HISTORY_EVENT → append with the composed registry hook
+    // (the §5.5 payload mirrors the STORED edge — the redundancy fields
+    // were recovered above, never invented) → commit; release on any
+    // failure. Zero behavior change vs the inline pipeline this
+    // replaced — pure structural move.
+    canonicalSemanticAppend(
+      { allocator: this.#allocator, store: this.#store, projectId: this.#projectId },
+      {
+        eventType: RELATION_REMOVED,
+        ownerWorkstreamId: ownerWs,
+        occurredAt: this.#now(),
+        actor: USER_ACTOR,
+        buildPayload: () => ({
+          relation_id: relationId,
+          source: { kind: stored.source.kind, id: stored.source.id },
+          relation_type: stored.relationType,
+          target: { kind: stored.target.kind, id: stored.target.id },
+        }),
+        validate: this.#composedValidate(ownerWs),
+        label: 'dependency',
       },
-    }
-    try {
-      this.#store.appendEvents([event], { validate: this.#composedValidate(ownerWs) })
-    } catch (e) {
-      try {
-        this.#allocator.release(hRes)
-      } catch {
-        /* 释放失败不掩盖主失败 — 号已烧（§1.1 单调, gap 合法） */
-      }
-      throw e
-    }
-    try {
-      this.#allocator.commit(hRes)
-    } catch (e) {
-      throw new Error(
-        `dependency: RELATION_REMOVED ${relationId} was appended to ${ownerWs} but the allocator commit failed — the event is in the log, the id reservation is unconfirmed (manual reconciliation): ${e instanceof Error ? e.message : String(e)}`,
-        { cause: e },
-      )
-    }
+    )
     return { relationId }
   }
 
@@ -258,7 +232,7 @@ export class DependencyService {
    * failure of addDependency/removeDependency.)
    * ---------------------------------------------------------------- */
 
-  #composedValidate(ownerWs: string): NonNullable<Parameters<DependencyStorePort['appendEvents']>[1]>['validate'] {
+  #composedValidate(ownerWs: string): SemanticValidateHook {
     return makeValidateHook(this.#registry, () => this.#buildContext(ownerWs))
   }
 

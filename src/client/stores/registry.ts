@@ -104,6 +104,7 @@
 
 import type {
   AddDependencyResult,
+  AddRelationResult,
   ClearBlockerResult,
   CreateBlockerResult,
   CreateLocalResearchProjectResult,
@@ -119,12 +120,18 @@ import type {
   DropWorkstreamResult,
   GetMergeContractResult,
   InspectProjectDirectoryResult,
+  MarkArtifactMissingResult,
   PromoteNextActionResult,
+  RecordClaimResult,
+  RecordFactResult,
+  RegisterArtifactResult,
   RegisterInteractionResult,
   ReorderPlanResult,
   RemoveDependencyResult,
   RemovePlanItemResult,
+  RemoveRelationResult,
   RestoreDeclarativeFileResult,
+  RetractClaimResult,
   SaveMergeContractResult,
   SaveResearchCheckpointResult,
   SetCurrentFocusResult,
@@ -194,6 +201,13 @@ export type MutationId =
   | 'getMergeContract'
   | 'saveMergeContract'
   | 'dropTopologyEdge'
+  | 'recordFact'
+  | 'recordClaim'
+  | 'retractClaim'
+  | 'registerArtifact'
+  | 'markArtifactMissing'
+  | 'addRelation'
+  | 'removeRelation'
 
 export const MUTATION_IDS: readonly MutationId[] = [
   'reorderPlan',
@@ -228,6 +242,13 @@ export const MUTATION_IDS: readonly MutationId[] = [
   'getMergeContract',
   'saveMergeContract',
   'dropTopologyEdge',
+  'recordFact',
+  'recordClaim',
+  'retractClaim',
+  'registerArtifact',
+  'markArtifactMissing',
+  'addRelation',
+  'removeRelation',
 ]
 
 /** One registry rule: pure (result, state) -> affected global slice keys. */
@@ -273,6 +294,13 @@ export const INVALIDATE_REGISTRY: {
   readonly getMergeContract: InvalidationRule<GetMergeContractResult>
   readonly saveMergeContract: InvalidationRule<SaveMergeContractResult>
   readonly dropTopologyEdge: InvalidationRule<DropTopologyEdgeResult>
+  readonly recordFact: InvalidationRule<RecordFactResult>
+  readonly recordClaim: InvalidationRule<RecordClaimResult>
+  readonly retractClaim: InvalidationRule<RetractClaimResult>
+  readonly registerArtifact: InvalidationRule<RegisterArtifactResult>
+  readonly markArtifactMissing: InvalidationRule<MarkArtifactMissingResult>
+  readonly addRelation: InvalidationRule<AddRelationResult>
+  readonly removeRelation: InvalidationRule<RemoveRelationResult>
 } = {
   // UI-5 (ADJ-8): the frozen rule is EXTENDED — unified with the five
   // plan-editor mutations below: `workstreams:<ws>` + `current:<ws>`.
@@ -523,6 +551,51 @@ export const INVALIDATE_REGISTRY: {
     sliceKey('topics', result.topicId),
     'project',
   ],
+
+  // V2-UI-7 (D §13): the workstream-scoped writes — the result carries
+  // the workstreamId. The `workstreams:<ws>` slice rides along (the
+  // snapshot zones are unchanged — the records are semantic derived
+  // state, not a tree field — but the same key keeps the page
+  // coherent); the `records:<ws>` slice is the data owner.
+  recordFact: (result, _state) => [
+    sliceKey('workstreams', result.workstreamId),
+    sliceKey('records', result.workstreamId),
+  ],
+
+  recordClaim: (result, _state) => [
+    sliceKey('workstreams', result.workstreamId),
+    sliceKey('records', result.workstreamId),
+  ],
+
+  // V2-UI-7 (D §13): the object-scoped writes — the results carry no
+  // workstreamId (the owner is derived server-side from the stored row
+  // / the endpoints), so the affected slices are resolvable only as a
+  // conservative family listing (the same shape as the addDependency
+  // rule; the refetch pass skips idle slices).
+  retractClaim: (_result, state) => [
+    ...[...state.workstreams.keys()].map(key => sliceKey('workstreams', key)),
+    ...cachedRecordsKeys(state),
+  ],
+
+  registerArtifact: (result, _state) => [
+    sliceKey('workstreams', result.workstreamId),
+    sliceKey('records', result.workstreamId),
+  ],
+
+  markArtifactMissing: (_result, state) => [
+    ...[...state.workstreams.keys()].map(key => sliceKey('workstreams', key)),
+    ...cachedRecordsKeys(state),
+  ],
+
+  addRelation: (_result, state) => [
+    ...[...state.workstreams.keys()].map(key => sliceKey('workstreams', key)),
+    ...cachedRecordsKeys(state),
+  ],
+
+  removeRelation: (_result, state) => [
+    ...[...state.workstreams.keys()].map(key => sliceKey('workstreams', key)),
+    ...cachedRecordsKeys(state),
+  ],
 }
 
 /**
@@ -563,4 +636,15 @@ function cachedTopicOfEdge(state: ResearchStoreState, edgeId: string): string | 
  */
 function cachedCurrentKeys(state: ResearchStoreState): SliceKey[] {
   return [...state.current.keys()].map(key => sliceKey('current', key))
+}
+
+/**
+ * The global keys of every CACHED `records:*` slice (UI-7, D §13).
+ * Same conservative shape as `cachedCurrentKeys`: the object-scoped
+ * record writes carry no workstreamId in their results, so the
+ * affected slices are the full family listing; the refetch pass skips
+ * idle slices.
+ */
+function cachedRecordsKeys(state: ResearchStoreState): SliceKey[] {
+  return [...state.records.keys()].map(key => sliceKey('records', key))
 }

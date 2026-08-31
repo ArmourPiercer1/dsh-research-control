@@ -20,6 +20,7 @@ export {
 export { actorLabel, actorLetter, EVENT_TYPE_META, eventTypeMeta, formatEpochMs, type EventTypeMeta } from './event-meta.js'
 export { orderEvents, type HistoryOrder } from './ordered-events.js'
 export { runGroups, type HistoryRunGroup, type RunEndEventType, type RunGroupStatus } from './run-group.js'
+export { relatedRecordCount, semanticRecordRef } from './related-records.js'
 export { EventRow, type EventRowProps } from './EventRow.js'
 export { RunGroupCard, RUN_STATUS_LABEL, type RunGroupCardProps } from './RunGroupCard.js'
 export { useResearchStore } from './use-research-store.js'

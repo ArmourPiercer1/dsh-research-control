@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import type {
   AddDependencyResult,
+  AddRelationResult,
   ClearBlockerResult,
   CreateBlockerResult,
   CreateLocalResearchProjectResult,
@@ -26,14 +27,20 @@ import type {
   GetMergeContractResult,
   GetWorkstreamCurrentResult,
   InspectProjectDirectoryResult,
+  MarkArtifactMissingResult,
   ProjectSnapshot,
   PromoteNextActionResult,
   QueryHistoryResult,
+  RecordClaimResult,
+  RecordFactResult,
   ReorderPlanResult,
   RemoveDependencyResult,
   RemovePlanItemResult,
+  RemoveRelationResult,
+  RegisterArtifactResult,
   RegisterInteractionResult,
   RestoreDeclarativeFileResult,
+  RetractClaimResult,
   SaveMergeContractResult,
   SaveResearchCheckpointResult,
   SelectPlanForkResult,
@@ -111,6 +118,7 @@ function populatedState(): ResearchStoreState {
       ['WS-1', ready<GetWorkstreamCurrentResult>(CURRENT_WS1)],
       ['WS-2', ready<GetWorkstreamCurrentResult>(CURRENT_WS2)],
     ]),
+    records: new Map(),
   }
 }
 
@@ -373,6 +381,61 @@ const ADD_DEP: AddDependencyResult = {
 }
 const REMOVE_DEP: RemoveDependencyResult = {
   relationId: 'REL-1',
+}
+// V2-UI-7 (D §13): the seven record-write rule fixtures. The
+// workstream-scoped rules read `workstreamId` off the result; the
+// object-scoped rules ignore the result entirely (the owner is derived
+// server-side), so their fixtures only satisfy the wire types.
+const RECORD_FACT: RecordFactResult = {
+  factId: 'F-1',
+  workstreamId: 'WS-1',
+  statement: 'Alpha: model converged at epoch 12',
+  references: ['T-1'],
+  status: 'ACTIVE',
+  recordedAt: 1788200000000,
+  eventId: 'H-1',
+}
+const RECORD_CLAIM: RecordClaimResult = {
+  claimId: 'C-1',
+  workstreamId: 'WS-1',
+  statement: 'Alpha is better than beta',
+  references: [],
+  status: 'ACTIVE',
+  recordedAt: 1788200001000,
+  eventId: 'H-2',
+}
+const REGISTER_ARTIFACT: RegisterArtifactResult = {
+  artifactId: 'A-1',
+  workstreamId: 'WS-1',
+  type: 'MODEL',
+  title: 'Alpha model v1',
+  uri: 'file:///alpha/model.bin',
+  status: 'REGISTERED',
+  recordedAt: 1788200002000,
+  eventId: 'H-3',
+}
+const RETRACT_CLAIM: RetractClaimResult = {
+  claimId: 'C-2',
+  status: 'RETRACTED',
+  eventId: 'H-4',
+}
+const MARK_MISSING: MarkArtifactMissingResult = {
+  artifactId: 'A-2',
+  status: 'MISSING',
+  eventId: 'H-5',
+}
+const ADD_REL: AddRelationResult = {
+  relationId: 'REL-1',
+  source: { kind: 'CLAIM', id: 'C-1' },
+  relationType: 'SUPPORTED_BY',
+  target: { kind: 'FACT', id: 'F-1' },
+  status: 'ACTIVE',
+  eventId: 'H-6',
+}
+const REMOVE_REL: RemoveRelationResult = {
+  relationId: 'REL-2',
+  status: 'REMOVED',
+  eventId: 'H-7',
 }
 
 describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
@@ -719,6 +782,15 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
     ['saveMergeContract', state => INVALIDATE_REGISTRY.saveMergeContract(SAVE_CONTRACT_RESULT, state)],
     // V2-UI-6 D3: the edge-drop rule joins the invariant sweep.
     ['dropTopologyEdge', state => INVALIDATE_REGISTRY.dropTopologyEdge(DROP_RESULT, state)],
+    // V2-UI-7 (D §13): the seven record-write rules join the invariant
+    // sweep (queryRecords is a read — no invalidation rule).
+    ['recordFact', state => INVALIDATE_REGISTRY.recordFact(RECORD_FACT, state)],
+    ['recordClaim', state => INVALIDATE_REGISTRY.recordClaim(RECORD_CLAIM, state)],
+    ['retractClaim', state => INVALIDATE_REGISTRY.retractClaim(RETRACT_CLAIM, state)],
+    ['registerArtifact', state => INVALIDATE_REGISTRY.registerArtifact(REGISTER_ARTIFACT, state)],
+    ['markArtifactMissing', state => INVALIDATE_REGISTRY.markArtifactMissing(MARK_MISSING, state)],
+    ['addRelation', state => INVALIDATE_REGISTRY.addRelation(ADD_REL, state)],
+    ['removeRelation', state => INVALIDATE_REGISTRY.removeRelation(REMOVE_REL, state)],
   ]
 
   it('NO rule invalidates a history window (WS logs are append-only; none of the 13 RPCs appends)', () => {
@@ -744,14 +816,14 @@ describe('INVALIDATE_REGISTRY — cross-cutting invariants', () => {
       for (const key of rule(state)) {
         const prefix = key.includes(':') ? key.slice(0, key.indexOf(':')) : key
         expect(
-          ['dashboard', 'project', 'topics', 'workstreams', 'history', 'gitHistory', 'currentFocus', 'current'],
+          ['dashboard', 'project', 'topics', 'workstreams', 'history', 'gitHistory', 'currentFocus', 'current', 'records'],
         ).toContain(prefix)
       }
     }
   })
 
-  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces + the 6 UI-4 workstream-management faces + the 5 UI-5 plan-editor faces + the 5 UI-6 topology/contract faces)', () => {
+  it('MUTATION_IDS is exactly the registry key set (8 frozen-13 mutations + the 6 UI-2 management faces + the 2 UI-3 create faces + the 6 UI-4 workstream-management faces + the 5 UI-5 plan-editor faces + the 5 UI-6 topology/contract faces + the 7 UI-7 record-write faces (queryRecords is a read — no rule))', () => {
     expect([...MUTATION_IDS].sort()).toEqual(Object.keys(INVALIDATE_REGISTRY).sort())
-    expect(MUTATION_IDS).toHaveLength(32)
+    expect(MUTATION_IDS).toHaveLength(39)
   })
 })

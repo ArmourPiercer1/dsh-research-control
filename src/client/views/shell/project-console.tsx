@@ -53,7 +53,15 @@ import dialogStyles from './shell.module.css'
 export type ConsolePage =
   | { readonly kind: 'project' }
   | { readonly kind: 'topic'; readonly topicId: string }
-  | { readonly kind: 'ws'; readonly workstreamId: string; readonly topicId: string }
+  | {
+      readonly kind: 'ws'
+      readonly workstreamId: string
+      readonly topicId: string
+      /** UI-7 (B §26): deep link into the Records tab pre-filtered to a
+       *  related object (`KIND:ID`), e.g. from the History timeline's
+       *  「Related Records (n)」 entry. Undefined = default landing. */
+      readonly recordsRelated?: string
+    }
   | { readonly kind: 'history'; readonly workstreamId: string; readonly topicId: string }
 
 export interface ProjectConsoleProps {
@@ -454,6 +462,7 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
           onOpenSession={handleOpenSession}
           onOpenHistory={() => setPage({ kind: 'history', workstreamId: page.workstreamId, topicId: page.topicId })}
           onBack={() => goToTopic(page.topicId)}
+          initialRecordsRelated={page.recordsRelated}
         />
       )}
 
@@ -469,7 +478,20 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
             </button>{' '}
             历史时间线 · {page.workstreamId}
           </h1>
-          <HistoryTimelineView store={store} workstreamId={page.workstreamId} pageSize={200} initialOrder="semantic" />
+          <HistoryTimelineView
+            store={store}
+            workstreamId={page.workstreamId}
+            pageSize={200}
+            initialOrder="semantic"
+            onShowRelated={(ref) =>
+              setPage({
+                kind: 'ws',
+                workstreamId: page.workstreamId,
+                topicId: page.topicId,
+                recordsRelated: `${ref.kind}:${ref.id}`,
+              })
+            }
+          />
         </section>
       )}
         </div>

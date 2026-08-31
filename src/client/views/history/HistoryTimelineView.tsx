@@ -45,6 +45,10 @@
  */
 
 import { useEffect, useState, type ReactElement } from 'react'
+import type {
+  SemanticEndpointRef,
+  SemanticRecordDto,
+} from '../../../shared/rpc-contracts.js'
 import {
   historyKey,
   type QueryHistoryArgs,
@@ -53,6 +57,7 @@ import {
   type SliceState,
 } from '../../stores/index.js'
 import { EventRow } from './EventRow.js'
+import { relatedRecordCount, semanticRecordRef } from './related-records.js'
 import { RunGroupCard } from './RunGroupCard.js'
 import { orderEvents, type HistoryOrder } from './ordered-events.js'
 import { runGroups } from './run-group.js'
@@ -76,6 +81,12 @@ export interface HistoryTimelineViewProps {
   readonly pageSize?: number
   /** The initial replay order (default `'semantic'` — catalog §2 default). */
   readonly initialOrder?: HistoryOrder
+  /** UI-7 (B §26): the Records context entry. When provided, the
+   *  container lazy-loads the workstream's derived-records slice (one
+   *  `queryRecords`) for the 「Related Records (n)」 badge and wires the
+   *  EventRow button → the caller's deep link (view state, no URL).
+   *  Absent = the entry is inert (zero records RPC — the legacy face). */
+  readonly onShowRelated?: (ref: SemanticEndpointRef) => void
 }
 
 type HistorySlice = SliceState<QueryHistoryResult>
@@ -119,6 +130,27 @@ export function HistoryTimelineView(props: HistoryTimelineViewProps): ReactEleme
     setPages([{ key: historyKey(firstArgs), args: firstArgs }])
     void store.loadHistory(firstArgs)
   }, [store, workstreamId, order, pageSize])
+
+  // UI-7 (B §26): the Records context entry is OPT-IN via onShowRelated —
+  // when wired, the container lazy-loads the workstream's derived-records
+  // slice (the SAME slice the Records face uses — one `queryRecords`, the
+  // store dedupes in-flight fetches) so the per-row 「Related Records (n)」
+  // badge has its display data. Absent ⇒ zero records RPC (the legacy
+  // face is untouched — the history view suites pin that).
+  const onShowRelated = props.onShowRelated
+  const recordsSlice = snapshot.records.get(workstreamId)
+  useEffect(() => {
+    if (
+      onShowRelated !== undefined &&
+      (recordsSlice === undefined || recordsSlice.status === 'idle')
+    ) {
+      void store.loadRecords({ workstreamId })
+    }
+  }, [store, workstreamId, onShowRelated, recordsSlice])
+  const relatedRecords: readonly SemanticRecordDto[] | null =
+    recordsSlice !== undefined && recordsSlice.status === 'ready'
+      ? (recordsSlice.data?.records ?? [])
+      : null
 
   /* -- re-derive everything from the snapshot (stale-while-revalidate
          falls out for free: a loading/error slice keeps its last data) -- */
@@ -199,9 +231,29 @@ export function HistoryTimelineView(props: HistoryTimelineViewProps): ReactEleme
         )}
         {mode === 'atomic' ? (
           <ul className={styles.timeline} aria-label="原子时间线">
-            {events.map((event, index) => (
-              <EventRow key={`${event.eventId}-${index}`} event={event} order={order} />
-            ))}
+            {events.map((event, index) => {
+              // UI-7 (B §26): derive the semantic record this event
+              // touches (if any) + how many of the workstream's records
+              // relate to it; the row renders the 「Related Records (n)」
+              // entry only when the count is non-zero.
+              const ref = semanticRecordRef(event)
+              const count =
+                relatedRecords !== null && ref !== null
+                  ? relatedRecordCount(relatedRecords, ref)
+                  : null
+              return (
+                <EventRow
+                  key={`${event.eventId}-${index}`}
+                  event={event}
+                  order={order}
+                  relatedRef={ref}
+                  relatedCount={count}
+                  onShowRelated={
+                    ref !== null && onShowRelated !== undefined ? () => onShowRelated(ref) : undefined
+                  }
+                />
+              )
+            })}
           </ul>
         ) : groups.length > 0 ? (
           <div className={styles.runGroups} aria-label="按 Run 聚合">

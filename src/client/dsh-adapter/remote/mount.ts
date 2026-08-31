@@ -35,6 +35,8 @@ import type {
   AckMissingReminderResult,
   AddDependencyArgs,
   AddDependencyResult,
+  AddRelationArgs,
+  AddRelationResult,
   BindProjectArgs,
   BindProjectResult,
   ClearBlockerArgs,
@@ -82,20 +84,34 @@ import type {
   HubOverviewResult,
   InspectProjectDirectoryArgs,
   InspectProjectDirectoryResult,
+  MarkArtifactMissingArgs,
+  MarkArtifactMissingResult,
   PingResult,
   ProjectSnapshot,
   PromoteNextActionArgs,
   PromoteNextActionResult,
   QueryHistoryArgs,
   QueryHistoryResult,
+  QueryRecordsArgs,
+  QueryRecordsResult,
+  RecordClaimArgs,
+  RecordClaimResult,
+  RecordFactArgs,
+  RecordFactResult,
+  RegisterArtifactArgs,
+  RegisterArtifactResult,
   RemoveDependencyArgs,
   RemoveDependencyResult,
   RemovePlanItemArgs,
   RemovePlanItemResult,
+  RemoveRelationArgs,
+  RemoveRelationResult,
   ReorderPlanArgs,
   ReorderPlanResult,
   RegisterInteractionArgs,
   RegisterInteractionResult,
+  RetractClaimArgs,
+  RetractClaimResult,
   RescanArgs,
   RescanResult,
   RestoreDeclarativeFileArgs,
@@ -448,5 +464,41 @@ export const researchRpc = {
     args: DropTopologyEdgeArgs,
   ): Promise<RemoteResult<DropTopologyEdgeResult>> {
     return requireNamespace().dropTopologyEdge(args)
+  },
+  async recordFact(args: RecordFactArgs): Promise<RemoteResult<RecordFactResult>> {
+    return requireNamespace().recordFact(args)
+  },
+  async recordClaim(
+    args: RecordClaimArgs,
+  ): Promise<RemoteResult<RecordClaimResult>> {
+    return requireNamespace().recordClaim(args)
+  },
+  async retractClaim(
+    args: RetractClaimArgs,
+  ): Promise<RemoteResult<RetractClaimResult>> {
+    return requireNamespace().retractClaim(args)
+  },
+  async registerArtifact(
+    args: RegisterArtifactArgs,
+  ): Promise<RemoteResult<RegisterArtifactResult>> {
+    return requireNamespace().registerArtifact(args)
+  },
+  async markArtifactMissing(
+    args: MarkArtifactMissingArgs,
+  ): Promise<RemoteResult<MarkArtifactMissingResult>> {
+    return requireNamespace().markArtifactMissing(args)
+  },
+  async addRelation(args: AddRelationArgs): Promise<RemoteResult<AddRelationResult>> {
+    return requireNamespace().addRelation(args)
+  },
+  async removeRelation(
+    args: RemoveRelationArgs,
+  ): Promise<RemoteResult<RemoveRelationResult>> {
+    return requireNamespace().removeRelation(args)
+  },
+  async queryRecords(
+    args: QueryRecordsArgs,
+  ): Promise<RemoteResult<QueryRecordsResult>> {
+    return requireNamespace().queryRecords(args)
   },
 }

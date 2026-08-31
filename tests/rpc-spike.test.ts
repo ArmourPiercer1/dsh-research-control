@@ -271,9 +271,10 @@ describe('WP-0.3 ping RPC spike', () => {
     // management RPCs (D §8.1/§8.3); V2-UI-0.4 UI-4 (D §10): + the 7
     // attention RPCs; V2-UI-0.4 UI-5 (brief §3): + the 5 plan-editor
     // RPCs; V2-UI-6 D1+D2+D3 (brief §12/§3): + the 5 topology/contract
-    // RPCs — the exhaustive 50-method equality
+    // RPCs; V2-UI-7 D5 (D §13): + the 8 records
+    // RPCs — the exhaustive 58-method equality
     // is pinned in tests/rpc-face/.
-    expect(methods).toHaveLength(50)
+    expect(methods).toHaveLength(58)
     // Same key as the wire namespace (DSH_ADAPTER §5 step 1).
     expect(svc.typertRemote.serviceKey).toBe('researchControl')
     expect(svc.typertRemote.namespace).toBe('researchControl')
@@ -383,9 +384,10 @@ describe('WP-0.3 ping RPC spike', () => {
     // V2-UI-0.4 UI-4 (D §10): + the 7 attention RPCs;
     // V2-UI-0.4 UI-5 (brief §3): + the 5 plan-editor RPCs;
     // V2-UI-6 D1+D2+D3 (brief §12/§3): + the 5 topology/contract RPCs;
-    // the exhaustive 50-descriptor equality is pinned in
+    // V2-UI-7 D5 (D §13): + the 8 records RPCs;
+    // the exhaustive 58-descriptor equality is pinned in
     // tests/rpc-face/.
-    expect(researchRemotes.descriptors).toHaveLength(50)
+    expect(researchRemotes.descriptors).toHaveLength(58)
     // Both faces re-export the shared descriptor object — no drift by construction.
     expect(researchRemotes.descriptors[0]).toBe(pingInvocation)
     expect(TYPERT.invocations[0]).toBe(pingInvocation)

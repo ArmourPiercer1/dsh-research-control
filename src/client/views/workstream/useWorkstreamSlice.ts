@@ -30,6 +30,8 @@ import { useEffect, useSyncExternalStore } from 'react'
 import type {
   GetWorkstreamCurrentResult,
   GetCurrentFocusResult,
+  QueryRecordsArgs,
+  QueryRecordsResult,
 } from '../../../shared/rpc-contracts.js'
 import {
   idleSlice,
@@ -44,6 +46,8 @@ const EMPTY_SLICE = idleSlice<WorkstreamSnapshot>()
 const EMPTY_CURRENT_SLICE = idleSlice<GetWorkstreamCurrentResult>()
 /** Shared idle-slice constant for the `currentFocus:<ws>` family. */
 const EMPTY_FOCUS_SLICE = idleSlice<GetCurrentFocusResult>()
+/** Shared idle-slice constant for the `records:<ws>` family (UI-7). */
+const EMPTY_RECORDS_SLICE = idleSlice<QueryRecordsResult>()
 
 /**
  * Bind one workstream slice of the research store for a view.
@@ -118,4 +122,40 @@ export function useCurrentFocusSlice(
   }, [store, workstreamId, slice])
 
   return slice ?? EMPTY_FOCUS_SLICE
+}
+
+/**
+ * Bind the `records:<ws>` slice for the workstream's Records face
+ * (V2-UI-0.4 UI-7, D §13). Lazy first load on mount with the
+ * idle-guard discipline (ARCHITECTURE §8); the caller re-issues
+ * `store.loadRecords` with the active filter args whenever a filter
+ * changes — the same key re-fetches (the store dedupes only
+ * in-flight fetches).
+ * @param store - the `createResearchStore()` instance (via props, never a
+ *   module-level handle).
+ * @param workstreamId - the page's workstream (the slice local key).
+ * @param initialArgs - the FIRST-LOAD query args. The default is the
+ *   bare `{ workstreamId }`; the B §26 deep link passes the PRE-FILTERED
+ *   args (e.g. `relatedObject`) so the lazy load itself carries the
+ *   filter — a separate filtered issue after the bare lazy load would
+ *   JOIN that in-flight fetch and be swallowed by the dedupe.
+ * @returns the slice state machine for this workstream's record query.
+ */
+export function useRecordsSlice(
+  store: ResearchStore,
+  workstreamId: string,
+  initialArgs?: QueryRecordsArgs,
+): SliceState<QueryRecordsResult> {
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  const slice = state.records.get(workstreamId)
+
+  useEffect(() => {
+    if (slice === undefined || slice.status === 'idle') {
+      void store.loadRecords(
+        initialArgs !== undefined ? { ...initialArgs, workstreamId } : { workstreamId },
+      )
+    }
+  }, [store, workstreamId, slice, initialArgs])
+
+  return slice ?? EMPTY_RECORDS_SLICE
 }

@@ -42,6 +42,8 @@ import {
   AckMissingReminderResultSchema,
   AddDependencyArgsSchema,
   AddDependencyResultSchema,
+  AddRelationArgsSchema,
+  AddRelationResultSchema,
   BindProjectArgsSchema,
   BindProjectResultSchema,
   ClearBlockerArgsSchema,
@@ -89,14 +91,26 @@ import {
   HubOverviewResultSchema,
   InspectProjectDirectoryArgsSchema,
   InspectProjectDirectoryResultSchema,
+  MarkArtifactMissingArgsSchema,
+  MarkArtifactMissingResultSchema,
   PingResultSchema,
   ProjectSnapshotSchema,
   PromoteNextActionArgsSchema,
   PromoteNextActionResultSchema,
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
+  QueryRecordsArgsSchema,
+  QueryRecordsResultSchema,
+  RecordClaimArgsSchema,
+  RecordClaimResultSchema,
+  RecordFactArgsSchema,
+  RecordFactResultSchema,
+  RegisterArtifactArgsSchema,
+  RegisterArtifactResultSchema,
   RemoveDependencyArgsSchema,
   RemoveDependencyResultSchema,
+  RemoveRelationArgsSchema,
+  RemoveRelationResultSchema,
   RemovePlanItemArgsSchema,
   RemovePlanItemResultSchema,
   RESEARCH_CONTROL_PACKAGE,
@@ -111,6 +125,8 @@ import {
   RestoreDeclarativeFileResultSchema,
   RestoreProjectArgsSchema,
   RestoreProjectResultSchema,
+  RetractClaimArgsSchema,
+  RetractClaimResultSchema,
   SaveMergeContractArgsSchema,
   SaveMergeContractResultSchema,
   SaveResearchCheckpointArgsSchema,
@@ -278,6 +294,22 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'SaveMergeContractResult', schema: SaveMergeContractResultSchema },
   { name: 'DropTopologyEdgeArgs', schema: DropTopologyEdgeArgsSchema },
   { name: 'DropTopologyEdgeResult', schema: DropTopologyEdgeResultSchema },
+  { name: 'RecordFactArgs', schema: RecordFactArgsSchema },
+  { name: 'RecordFactResult', schema: RecordFactResultSchema },
+  { name: 'RecordClaimArgs', schema: RecordClaimArgsSchema },
+  { name: 'RecordClaimResult', schema: RecordClaimResultSchema },
+  { name: 'RetractClaimArgs', schema: RetractClaimArgsSchema },
+  { name: 'RetractClaimResult', schema: RetractClaimResultSchema },
+  { name: 'RegisterArtifactArgs', schema: RegisterArtifactArgsSchema },
+  { name: 'RegisterArtifactResult', schema: RegisterArtifactResultSchema },
+  { name: 'MarkArtifactMissingArgs', schema: MarkArtifactMissingArgsSchema },
+  { name: 'MarkArtifactMissingResult', schema: MarkArtifactMissingResultSchema },
+  { name: 'AddRelationArgs', schema: AddRelationArgsSchema },
+  { name: 'AddRelationResult', schema: AddRelationResultSchema },
+  { name: 'RemoveRelationArgs', schema: RemoveRelationArgsSchema },
+  { name: 'RemoveRelationResult', schema: RemoveRelationResultSchema },
+  { name: 'QueryRecordsArgs', schema: QueryRecordsArgsSchema },
+  { name: 'QueryRecordsResult', schema: QueryRecordsResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -613,6 +645,54 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'Topology (V2-UI-6 D3, brief §3): drop a topology edge (the state machine is the sole authority — DROPPED → DROPPED is the INVALID_TRANSITION carrier; an unknown edge is TOPO_EDGE_NOT_FOUND); a TOPOLOGY_EDITED ledger row is recorded, its detail carrying the from-state.',
           },
+          {
+            name: 'recordFact',
+            signature: 'recordFact(args: RecordFactArgs): Promise<RecordFactResult>',
+            kind: 'method',
+            summary: 'Records (V2-UI-0.4 UI-7, brief §3): record a FACT row for the routed workstream (status const ACTIVE); persisted ONLY as a FACT_RECORDED history event with the derived row folded in the same tx (the §30 red line — no .research semantic file, no management_action row).',
+          },
+          {
+            name: 'recordClaim',
+            signature: 'recordClaim(args: RecordClaimArgs): Promise<RecordClaimResult>',
+            kind: 'method',
+            summary: 'Records (V2-UI-0.4 UI-7, brief §3): record a CLAIM row (ACTIVE); the claim id is reserved from the shared allocator and the payload carries the reserved id (ADJ-12: ids and created_by_run are not parameters).',
+          },
+          {
+            name: 'retractClaim',
+            signature: 'retractClaim(args: RetractClaimArgs): Promise<RetractClaimResult>',
+            kind: 'method',
+            summary: 'Records (V2-UI-0.4 UI-7, brief §3): retract an ACTIVE claim (RETRACTED is terminal); a missing or already-retracted claim is a domain-code carrier (OBJECT_NOT_FOUND / WRONG_STATE); the owner is derived from the derived-state row inside the service.',
+          },
+          {
+            name: 'registerArtifact',
+            signature: 'registerArtifact(args: RegisterArtifactArgs): Promise<RegisterArtifactResult>',
+            kind: 'method',
+            summary: 'Records (V2-UI-0.4 UI-7, brief §3): register an external resource BY REFERENCE (7-value frozen artifact type; non-empty title/uri; related_task / supersedes endpoints must exist) — the file is never copied into the plane.',
+          },
+          {
+            name: 'markArtifactMissing',
+            signature: 'markArtifactMissing(args: MarkArtifactMissingArgs): Promise<MarkArtifactMissingResult>',
+            kind: 'method',
+            summary: 'Records (V2-UI-0.4 UI-7, brief §3): flag a REGISTERED artifact MISSING (V1 one-way — the recovery edge has no V1 event); the owner is derived from the derived-state row.',
+          },
+          {
+            name: 'addRelation',
+            signature: 'addRelation(args: AddRelationArgs): Promise<AddRelationResult>',
+            kind: 'method',
+            summary: 'Records (V2-UI-0.4 UI-7, brief §3): add a relation edge of one of the 10 frozen types; the owner workstream is DERIVED from the endpoints (source.ws ?? target.ws — no workstreamId on the wire); the combination table / duplicate / reverse-form / self-loop checks are domain-owned.',
+          },
+          {
+            name: 'removeRelation',
+            signature: 'removeRelation(args: RemoveRelationArgs): Promise<RemoveRelationResult>',
+            kind: 'method',
+            summary: 'Records (V2-UI-0.4 UI-7, brief §3): remove an ACTIVE relation edge by id (REMOVED is terminal); the §5.5 payload mirrors the stored edge recovered from the owner log — the row is never re-invented.',
+          },
+          {
+            name: 'queryRecords',
+            signature: 'queryRecords(args: QueryRecordsArgs): Promise<QueryRecordsResult>',
+            kind: 'method',
+            summary: 'Records (V2-UI-0.4 UI-7, brief §3): query FACT/CLAIM/ARTIFACT records in-memory over the derived semantic state (no file read, zero queryHistory dependency); keyword / type / status / related-object filters + time range + limit/offset pagination; the mechanical PENDING_REVIEW conflict flag rides claims that carry a CONTRADICTED_BY edge.',
+          },
         ],
         types: [
           {
@@ -865,6 +945,46 @@ export const TYPERT: TypertHostManifest = {
             name: 'DropTopologyEdgeResult',
             declaration:
               'interface DropTopologyEdgeResult { readonly edgeId: string; readonly topicId: string; readonly lifecycle: "DROPPED"; readonly managementActionId: string }',
+          },
+          {
+            name: 'RecordFactResult',
+            declaration:
+              'interface RecordFactResult { readonly factId: string; readonly workstreamId: string; readonly statement: string; readonly references: string[]; readonly status: "ACTIVE"; readonly recordedAt: number; readonly eventId: string }',
+          },
+          {
+            name: 'RecordClaimResult',
+            declaration:
+              'interface RecordClaimResult { readonly claimId: string; readonly workstreamId: string; readonly statement: string; readonly references: string[]; readonly status: "ACTIVE"; readonly recordedAt: number; readonly eventId: string }',
+          },
+          {
+            name: 'RetractClaimResult',
+            declaration:
+              'interface RetractClaimResult { readonly claimId: string; readonly status: "RETRACTED"; readonly eventId: string }',
+          },
+          {
+            name: 'RegisterArtifactResult',
+            declaration:
+              'interface RegisterArtifactResult { readonly artifactId: string; readonly workstreamId: string; readonly type: string; readonly title: string; readonly uri: string; readonly status: "REGISTERED"; readonly recordedAt: number; readonly eventId: string }',
+          },
+          {
+            name: 'MarkArtifactMissingResult',
+            declaration:
+              'interface MarkArtifactMissingResult { readonly artifactId: string; readonly status: "MISSING"; readonly eventId: string }',
+          },
+          {
+            name: 'AddRelationResult',
+            declaration:
+              'interface AddRelationResult { readonly relationId: string; readonly source: SemanticEndpointRef; readonly relationType: string; readonly target: SemanticEndpointRef; readonly status: "ACTIVE"; readonly eventId: string }',
+          },
+          {
+            name: 'RemoveRelationResult',
+            declaration:
+              'interface RemoveRelationResult { readonly relationId: string; readonly status: "REMOVED"; readonly eventId: string }',
+          },
+          {
+            name: 'QueryRecordsResult',
+            declaration:
+              'interface QueryRecordsResult { readonly records: SemanticRecordDto[]; readonly total: number }',
           },
         ],
       },

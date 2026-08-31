@@ -43,6 +43,8 @@ import { researchRpc } from '../dsh-adapter/remote/mount.js'
 import {
   type AddDependencyArgs,
   type AddDependencyResult,
+  type AddRelationArgs,
+  type AddRelationResult,
   type ClearBlockerArgs,
   type ClearBlockerResult,
   type CreateBlockerArgs,
@@ -80,11 +82,25 @@ import {
   type GetWorkstreamCurrentResult,
   type InspectProjectDirectoryArgs,
   type InspectProjectDirectoryResult,
+  type MarkArtifactMissingArgs,
+  type MarkArtifactMissingResult,
   type ProjectSnapshot,
   type PromoteNextActionArgs,
   type PromoteNextActionResult,
   type QueryHistoryArgs,
   type QueryHistoryResult,
+  type QueryRecordsArgs,
+  type QueryRecordsResult,
+  type RecordClaimArgs,
+  type RecordClaimResult,
+  type RecordFactArgs,
+  type RecordFactResult,
+  type RegisterArtifactArgs,
+  type RegisterArtifactResult,
+  type RemoveRelationArgs,
+  type RemoveRelationResult,
+  type RetractClaimArgs,
+  type RetractClaimResult,
   type ReorderPlanArgs,
   type ReorderPlanResult,
   type RemoveDependencyArgs,
@@ -365,6 +381,48 @@ export interface ResearchStore extends StoreSnapshotSource<ResearchStoreState> {
    *  refetches the owning topic slice + the project index. */
   dropTopologyEdge(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult>
 
+  /* -- V2-UI-7 (D §13): the Records face — the seven semantic writes +
+          the queryRecords read. Same idiom: okValue →
+          INVALIDATE_REGISTRY → refetchKeys. -- */
+
+  /** Fetch the workstream's Records (FACT/CLAIM/ARTIFACT rows with the
+   *  derived relations + the PENDING_REVIEW conflict flag, D §13.4);
+   *  cached per `workstreamId` (the `records` slice family — load +
+   *  cache + stale-while-revalidate like the other families). The
+   *  UI-driven load always carries the workstreamId (the slice key);
+   *  the filter/pagination args ride `lastArgs` (a refetch re-issues
+   *  the LAST full query for the key). */
+  loadRecords(args: QueryRecordsArgs & { readonly workstreamId: string }): Promise<void>
+  /** Record a FACT row (status const ACTIVE; the event log is the only
+   *  storage — the derived row is folded in the same tx). On OK:
+   *  refetches `workstreams:<ws>` + `records:<ws>`. */
+  recordFact(args: RecordFactArgs): Promise<RecordFactResult>
+  /** Record a CLAIM row (ACTIVE). On OK: refetches `workstreams:<ws>` +
+   *  `records:<ws>`. */
+  recordClaim(args: RecordClaimArgs): Promise<RecordClaimResult>
+  /** Retract an ACTIVE claim (RETRACTED terminal; a missing or
+   *  already-retracted claim rejects with the domain-code carrier). On
+   *  OK: refetches every cached `workstreams:*` + `records:*` slice
+   *  (the result carries no workstreamId). */
+  retractClaim(args: RetractClaimArgs): Promise<RetractClaimResult>
+  /** Register an external artifact BY REFERENCE (7-value frozen type;
+   *  the file is never copied). On OK: refetches `workstreams:<ws>` +
+   *  `records:<ws>`. */
+  registerArtifact(args: RegisterArtifactArgs): Promise<RegisterArtifactResult>
+  /** Mark a REGISTERED artifact MISSING (V1 one-way). On OK: refetches
+   *  every cached `workstreams:*` + `records:*` slice (the result
+   *  carries no workstreamId). */
+  markArtifactMissing(args: MarkArtifactMissingArgs): Promise<MarkArtifactMissingResult>
+  /** Add a relation edge (one of the 10 frozen types; the owner
+   *  workstream is derived from the endpoints — no workstreamId on the
+   *  wire). On OK: refetches every cached `workstreams:*` +
+   *  `records:*` slice. */
+  addRelation(args: AddRelationArgs): Promise<AddRelationResult>
+  /** Remove an ACTIVE relation edge (REMOVED terminal; the §5.5 payload
+   *  mirrors the stored edge). On OK: refetches every cached
+   *  `workstreams:*` + `records:*` slice. */
+  removeRelation(args: RemoveRelationArgs): Promise<RemoveRelationResult>
+
   /* -- the refresh loop (ARCHITECTURE §8 items 3/4) -- */
 
   /**
@@ -398,6 +456,7 @@ type SliceFamily =
   | 'gitHistory'
   | 'currentFocus'
   | 'current'
+  | 'records'
 
 interface FamilyData {
   dashboard: DashboardSnapshot
@@ -408,6 +467,7 @@ interface FamilyData {
   gitHistory: GetGitHistoryResult
   currentFocus: GetCurrentFocusResult
   current: GetWorkstreamCurrentResult
+  records: QueryRecordsResult
 }
 
 /** Unwrap an `RpcResult`: business fault → `ResearchRpcError`; OK → the value. */
@@ -561,6 +621,19 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
         return loadQuery('current', localKey, { workstreamId: localKey }, () =>
           rpc.getWorkstreamCurrent({ workstreamId: localKey }),
         )
+      case 'records':
+        // The Records face (UI-7) — keyed by the bare workstreamId; the
+        // refetch re-issues the LAST full query for the key (filters +
+        // pagination ride lastArgs, like the history/gitHistory windows).
+        return loadQuery(
+          'records',
+          localKey,
+          lastArgs.get(sliceKey('records', localKey)),
+          async () => {
+            const args = lastArgs.get(sliceKey('records', localKey)) as QueryRecordsArgs
+            return rpc.queryRecords(args)
+          },
+        )
     }
   }
 
@@ -584,7 +657,7 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     const keys: SliceKey[] = []
     if (state.dashboard.status !== 'idle') keys.push('dashboard')
     if (state.project.status !== 'idle') keys.push('project')
-    for (const family of ['topics', 'workstreams', 'history', 'gitHistory', 'currentFocus', 'current'] as const) {
+    for (const family of ['topics', 'workstreams', 'history', 'gitHistory', 'currentFocus', 'current', 'records'] as const) {
       for (const [localKey, slice] of state[family]) {
         if (slice.status !== 'idle') keys.push(sliceKey(family, localKey))
       }
@@ -616,6 +689,11 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     // family, the same machinery as the CF slice above.
     loadWorkstreamCurrent: (args: GetWorkstreamCurrentArgs) =>
       loadQuery('current', args.workstreamId, args, () => rpc.getWorkstreamCurrent(args)),
+    // UI-7 (D §13): the Records face — its own slice family, keyed by
+    // the bare workstreamId (the filter/pagination args ride lastArgs;
+    // a refetch re-issues the LAST full query for the key).
+    loadRecords: (args: QueryRecordsArgs & { readonly workstreamId: string }) =>
+      loadQuery('records', args.workstreamId, args, () => rpc.queryRecords(args)),
 
     /* the mutation actions */
 
@@ -834,6 +912,50 @@ export function createResearchStore(options?: ResearchStoreOptions): ResearchSto
     async dropTopologyEdge(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult> {
       const value = okValue(await rpc.dropTopologyEdge(args))
       await refetchKeys(INVALIDATE_REGISTRY.dropTopologyEdge(value, base.getState()))
+      return value
+    },
+
+    /* V2-UI-7 — the Records face (D §13): the seven semantic writes.
+       The same okValue → INVALIDATE_REGISTRY → refetchKeys idiom. */
+    async recordFact(args: RecordFactArgs): Promise<RecordFactResult> {
+      const value = okValue(await rpc.recordFact(args))
+      await refetchKeys(INVALIDATE_REGISTRY.recordFact(value, base.getState()))
+      return value
+    },
+
+    async recordClaim(args: RecordClaimArgs): Promise<RecordClaimResult> {
+      const value = okValue(await rpc.recordClaim(args))
+      await refetchKeys(INVALIDATE_REGISTRY.recordClaim(value, base.getState()))
+      return value
+    },
+
+    async retractClaim(args: RetractClaimArgs): Promise<RetractClaimResult> {
+      const value = okValue(await rpc.retractClaim(args))
+      await refetchKeys(INVALIDATE_REGISTRY.retractClaim(value, base.getState()))
+      return value
+    },
+
+    async registerArtifact(args: RegisterArtifactArgs): Promise<RegisterArtifactResult> {
+      const value = okValue(await rpc.registerArtifact(args))
+      await refetchKeys(INVALIDATE_REGISTRY.registerArtifact(value, base.getState()))
+      return value
+    },
+
+    async markArtifactMissing(args: MarkArtifactMissingArgs): Promise<MarkArtifactMissingResult> {
+      const value = okValue(await rpc.markArtifactMissing(args))
+      await refetchKeys(INVALIDATE_REGISTRY.markArtifactMissing(value, base.getState()))
+      return value
+    },
+
+    async addRelation(args: AddRelationArgs): Promise<AddRelationResult> {
+      const value = okValue(await rpc.addRelation(args))
+      await refetchKeys(INVALIDATE_REGISTRY.addRelation(value, base.getState()))
+      return value
+    },
+
+    async removeRelation(args: RemoveRelationArgs): Promise<RemoveRelationResult> {
+      const value = okValue(await rpc.removeRelation(args))
+      await refetchKeys(INVALIDATE_REGISTRY.removeRelation(value, base.getState()))
       return value
     },
 

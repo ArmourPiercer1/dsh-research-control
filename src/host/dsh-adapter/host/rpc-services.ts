@@ -65,6 +65,8 @@ import { join } from 'node:path'
 import {
   type AddDependencyArgs,
   type AddDependencyResult,
+  type AddRelationArgs,
+  type AddRelationResult,
   type AffectsRefDto,
   type BlockerDto,
   type ClearBlockerArgs,
@@ -108,6 +110,8 @@ import {
   type InterventionDto,
   type InterventionFullDto,
   type LinkedRefDto,
+  type MarkArtifactMissingArgs,
+  type MarkArtifactMissingResult,
   type MergeContractRefDto,
   type NextActionDto,
   type ObjectiveDto,
@@ -120,20 +124,33 @@ import {
   type HistoryEventDto,
   type QueryHistoryArgs,
   type QueryHistoryResult,
+  type QueryRecordsArgs,
+  type QueryRecordsResult,
+  type RecordClaimArgs,
+  type RecordClaimResult,
+  type RecordFactArgs,
+  type RecordFactResult,
   type ReorderPlanArgs,
   type ReorderPlanResult,
+  type RegisterArtifactArgs,
+  type RegisterArtifactResult,
   type RegisterInteractionArgs,
   type RegisterInteractionResult,
   type RemoveDependencyArgs,
   type RemoveDependencyResult,
   type RemovePlanItemArgs,
   type RemovePlanItemResult,
+  type RemoveRelationArgs,
+  type RemoveRelationResult,
+  type RetractClaimArgs,
+  type RetractClaimResult,
   type RestoreDeclarativeFileArgs,
   type RestoreDeclarativeFileResult,
   type SaveMergeContractArgs,
   type SaveMergeContractResult,
   type SaveResearchCheckpointArgs,
   type SaveResearchCheckpointResult,
+  type SemanticRecordDto,
   type SelectPlanForkArgs,
   type SelectPlanForkResult,
   type SetCurrentFocusArgs,
@@ -172,6 +189,11 @@ import {
   projectDependencyEdges,
   type DependencyWorkstreamIndex,
 } from '../../service/dependency/index.js'
+import {
+  SemanticRecordsService,
+  mapSemanticsError,
+  type SemanticWorkstreamIndex,
+} from '../../service/semantics/index.js'
 import { PlanWriterService, mapPlanWriterError } from '../../service/plan-writer/index.js'
 import { TopologyService, TopologyServiceError, mapTopologyServiceError } from '../../service/topology/index.js'
 import { isCurrentFocusError } from '../../service/current-focus/index.js'
@@ -429,6 +451,65 @@ export interface ResearchRpcServices {
    * note on createWorkstreamFork).
    */
   dropTopologyEdge?(args: DropTopologyEdgeArgs): Promise<DropTopologyEdgeResult>
+  /* ---- UI-7 (D §13): the seven semantic record writes + the query
+   * face. The writes persist ONLY as semantic history events (the §30
+   * red line — records live in the operational sqlite, never in
+   * `.research` files); the wire `projectId` routing field is consumed
+   * by requireRpc, never forwarded. Port-optional (see the note on
+   * createWorkstreamFork). ---- */
+  /**
+   * UI-7 (D1, D §13.2): record an immutable Fact — FACT_RECORDED
+   * (status const ACTIVE; the id comes from the shared allocator, never
+   * from the wire — ADJ-12). Port-optional (see the note on
+   * createWorkstreamFork).
+   */
+  recordFact?(args: RecordFactArgs): Promise<RecordFactResult>
+  /**
+   * UI-7 (D1, D §13.2): record an ACTIVE Claim — CLAIM_RECORDED (the
+   * id comes from the shared allocator — ADJ-12). Port-optional (see
+   * the note on createWorkstreamFork).
+   */
+  recordClaim?(args: RecordClaimArgs): Promise<RecordClaimResult>
+  /**
+   * UI-7 (D2, D §13.2): terminal-retract an ACTIVE Claim —
+   * CLAIM_RETRACTED (RETRACTED is terminal, §13; re-retract is
+   * WRONG_STATE). Port-optional (see the note on createWorkstreamFork).
+   */
+  retractClaim?(args: RetractClaimArgs): Promise<RetractClaimResult>
+  /**
+   * UI-7 (D2, D §13.2/§13.6): register an artifact BY REFERENCE —
+   * ARTIFACT_REGISTERED (the file is never copied into Research
+   * Control; the 7-value frozen artifactType enum). Port-optional (see
+   * the note on createWorkstreamFork).
+   */
+  registerArtifact?(args: RegisterArtifactArgs): Promise<RegisterArtifactResult>
+  /**
+   * UI-7 (D2, D §13.2): mark a REGISTERED artifact MISSING —
+   * ARTIFACT_MARKED_MISSING (V1 one-way — 「找回可恢复」 recovery is out
+   * of V1 scope). Port-optional (see the note on createWorkstreamFork).
+   */
+  markArtifactMissing?(args: MarkArtifactMissingArgs): Promise<MarkArtifactMissingResult>
+  /**
+   * UI-7 (D3, D §13.2/§8): add a semantic relation edge — RELATION_ADDED
+   * (the owner is DERIVED: source.ws ?? target.ws; the frozen 10
+   * relation types + the §8 combination table; the §5.5 5-tuple
+   * uniqueness). Port-optional (see the note on createWorkstreamFork).
+   */
+  addRelation?(args: AddRelationArgs): Promise<AddRelationResult>
+  /**
+   * UI-7 (D3, D §13.2): remove an ACTIVE relation edge — RELATION_REMOVED
+   * (REMOVED is terminal; the §5.5 payload mirrors the stored edge —
+   * recovered from the owner log fold, never re-invented). Port-optional
+   * (see the note on createWorkstreamFork).
+   */
+  removeRelation?(args: RemoveRelationArgs): Promise<RemoveRelationResult>
+  /**
+   * UI-7 (D4, D §13.4): the Records read face — the operational
+   * `derived_state` projection (the History timeline is FORBIDDEN as a
+   * source; no `.research` file reads). Port-optional (see the note on
+   * createWorkstreamFork).
+   */
+  queryRecords?(args: QueryRecordsArgs): Promise<QueryRecordsResult>
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -850,6 +931,15 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
    */
   #mapDependencyError(e: unknown): unknown {
     return mapDependencyError(e)
+  }
+
+  /**
+   * UI-7 (D3): map the semantic records service's error family onto the
+   * wire error carrier (same idempotent double-safety-net shape as
+   * `#mapDependencyError`).
+   */
+  #mapSemanticsError(e: unknown): unknown {
+    return mapSemanticsError(e)
   }
 
   /**
@@ -1488,6 +1578,208 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     } catch (e) {
       throw this.#mapTopologyServiceError(e)
     }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * UI-7 (D1–D3, brief §3) — the Records face: the seven writes of D §13
+   * (face grows 50 → 58; queryRecords lands in D4). Each write resolves
+   * its owner, calls the self-constructed service, and folds the wire
+   * result (the wire `projectId` routing field is consumed by requireRpc,
+   * never forwarded). Owner resolution:
+   *
+   *   workstream-scoped (recordFact / recordClaim / registerArtifact) —
+   *   the WS node existence gate runs up front (`#findWorkstreamNode`);
+   *   object-scoped (retractClaim / markArtifactMissing / addRelation /
+   *   removeRelation) — the owner is derived from the derived state (or
+   *   from the endpoints, for addRelation) INSIDE the service, so the
+   *   OBJECT_NOT_FOUND / OWNER_MISMATCH verdicts are domain-owned and
+   *   the adapter only loads the tree for the plan index.
+   *
+   * The canonical reserve→append→commit protocol the service runs is
+   * `../service/semantics/protocol.js` (ADJ-2 — the UI-5 dependency
+   * service delegates its same body to it).
+   * ------------------------------------------------------------------ */
+
+  async recordFact(args: RecordFactArgs): Promise<RecordFactResult> {
+    try {
+      const tree = this.#loadTree('recordFact')
+      this.#findWorkstreamNode(tree, args.workstreamId, 'recordFact')
+      const service = this.#makeSemanticRecordsService(tree)
+      return service.recordFact({
+        workstreamId: args.workstreamId,
+        statement: args.statement,
+        references: args.references,
+      })
+    } catch (e) {
+      throw this.#mapSemanticsError(e)
+    }
+  }
+
+  async recordClaim(args: RecordClaimArgs): Promise<RecordClaimResult> {
+    try {
+      const tree = this.#loadTree('recordClaim')
+      this.#findWorkstreamNode(tree, args.workstreamId, 'recordClaim')
+      const service = this.#makeSemanticRecordsService(tree)
+      return service.recordClaim({
+        workstreamId: args.workstreamId,
+        statement: args.statement,
+        references: args.references,
+      })
+    } catch (e) {
+      throw this.#mapSemanticsError(e)
+    }
+  }
+
+  async retractClaim(args: RetractClaimArgs): Promise<RetractClaimResult> {
+    try {
+      const tree = this.#loadTree('retractClaim')
+      const service = this.#makeSemanticRecordsService(tree)
+      return service.retractClaim({
+        claimId: args.claimId,
+        reason: args.reason,
+      })
+    } catch (e) {
+      throw this.#mapSemanticsError(e)
+    }
+  }
+
+  async registerArtifact(args: RegisterArtifactArgs): Promise<RegisterArtifactResult> {
+    try {
+      const tree = this.#loadTree('registerArtifact')
+      this.#findWorkstreamNode(tree, args.workstreamId, 'registerArtifact')
+      const service = this.#makeSemanticRecordsService(tree)
+      return service.registerArtifact({
+        workstreamId: args.workstreamId,
+        type: args.type,
+        title: args.title,
+        uri: args.uri,
+        contentHash: args.contentHash,
+        relatedTaskId: args.relatedTaskId,
+        supersedes: args.supersedes,
+      })
+    } catch (e) {
+      throw this.#mapSemanticsError(e)
+    }
+  }
+
+  async markArtifactMissing(args: MarkArtifactMissingArgs): Promise<MarkArtifactMissingResult> {
+    try {
+      const tree = this.#loadTree('markArtifactMissing')
+      const service = this.#makeSemanticRecordsService(tree)
+      return service.markArtifactMissing({
+        artifactId: args.artifactId,
+        reason: args.reason,
+      })
+    } catch (e) {
+      throw this.#mapSemanticsError(e)
+    }
+  }
+
+  async addRelation(args: AddRelationArgs): Promise<AddRelationResult> {
+    try {
+      const tree = this.#loadTree('addRelation')
+      const service = this.#makeSemanticRecordsService(tree)
+      const out = service.addRelation({
+        source: { kind: args.source.kind, id: args.source.id },
+        relationType: args.relationType,
+        target: { kind: args.target.kind, id: args.target.id },
+      })
+      return {
+        relationId: out.relationId,
+        source: { kind: out.source.kind, id: out.source.id },
+        relationType: out.relationType,
+        target: { kind: out.target.kind, id: out.target.id },
+        status: out.status,
+        eventId: out.eventId,
+      }
+    } catch (e) {
+      throw this.#mapSemanticsError(e)
+    }
+  }
+
+  async removeRelation(args: RemoveRelationArgs): Promise<RemoveRelationResult> {
+    try {
+      const tree = this.#loadTree('removeRelation')
+      const service = this.#makeSemanticRecordsService(tree)
+      return service.removeRelation({
+        relationId: args.relationId,
+        reason: args.reason,
+      })
+    } catch (e) {
+      throw this.#mapSemanticsError(e)
+    }
+  }
+
+  async queryRecords(args: QueryRecordsArgs): Promise<QueryRecordsResult> {
+    try {
+      const service = this.#makeSemanticRecordsQueryService()
+      return service.queryRecords({
+        workstreamId: args.workstreamId,
+        type: args.type,
+        status: args.status,
+        keyword: args.keyword,
+        relatedObject: args.relatedObject,
+        timeFrom: args.timeFrom,
+        timeTo: args.timeTo,
+        limit: args.limit,
+        offset: args.offset,
+      })
+    } catch (e) {
+      throw this.#mapSemanticsError(e)
+    }
+  }
+
+  /**
+   * UI-7 (D1): build the per-call semantic records service. The plan
+   * index is a FRESH fold of the just-loaded tree (the same rule as
+   * `#makeDependencyService` — the file is the truth): every workstream's
+   * DEFINITION-file id sets (task/gate/milestone nodes). The service's
+   * registry validation hook rides the composed in-tx validate (its own
+   * pre-check runs OUTSIDE the tx for the UX error; the registry hook +
+   * the reducer throw inside the fold are the authoritative gate, in the
+   * same transaction).
+   */
+  #makeSemanticRecordsService(tree: ResearchTree): SemanticRecordsService {
+    const workstreams: SemanticWorkstreamIndex[] = []
+    for (const topic of tree.topics) {
+      for (const ws of topic.workstreams) {
+        workstreams.push({
+          id: ws.id,
+          topicId: ws.topicId,
+          taskIds: ws.tasks.map((n) => n.id),
+          gateIds: ws.gates.map((n) => n.id),
+          milestoneIds: ws.milestones.map((n) => n.id),
+        })
+      }
+    }
+    return new SemanticRecordsService({
+      store: this.#wiring.store,
+      registry: this.#wiring.registry,
+      allocator: this.#wiring.allocator,
+      plans: { workstreams },
+      projectId: this.#wiring.projectId,
+      now: this.#now,
+    })
+  }
+
+  /**
+   * UI-7 (D4): build the queryRecords READ-path service. ADJ-11: the read
+   * path never loads the research tree — the derived-state row is the
+   * single source for filters, sort, and pagination, and the plan index
+   * is an empty stub that `querySemanticRecords` never consults.
+   * Skipping `#loadTree` keeps the read path free of file I/O and of any
+   * stale-tree coupling (the derived row is the truth, like the write
+   * path's in-tx fold).
+   */
+  #makeSemanticRecordsQueryService(): SemanticRecordsService {
+    return new SemanticRecordsService({
+      store: this.#wiring.store,
+      registry: this.#wiring.registry,
+      allocator: this.#wiring.allocator,
+      plans: { workstreams: [] },
+      projectId: this.#wiring.projectId,
+      now: this.#now,
+    })
   }
 
   /**

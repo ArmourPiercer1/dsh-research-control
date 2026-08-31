@@ -1428,5 +1428,214 @@ interface DropTopologyEdgeResult {
   readonly lifecycle: 'DROPPED';
   readonly managementActionId: string;
 }
+/** The 24 frozen object kinds (common.schema `objectKind` — the relation
+ *  endpoint vocabulary; the §8 combination table then decides legality
+ *  per relation type server-side). */
+declare const semanticEndpointKind: z.ZodEnum<{
+  ANALYSIS_RECORD: "ANALYSIS_RECORD";
+  ARTIFACT: "ARTIFACT";
+  BLOCKER: "BLOCKER";
+  CLAIM: "CLAIM";
+  DISCOVERED_SESSION: "DISCOVERED_SESSION";
+  FACT: "FACT";
+  GATE: "GATE";
+  HISTORY_EVENT: "HISTORY_EVENT";
+  INBOX_ITEM: "INBOX_ITEM";
+  INTERACTION: "INTERACTION";
+  INTERVENTION: "INTERVENTION";
+  MILESTONE: "MILESTONE";
+  NEXT_ACTION: "NEXT_ACTION";
+  OBJECTIVE: "OBJECTIVE";
+  PLAN_FORK: "PLAN_FORK";
+  PROJECT: "PROJECT";
+  RELATION: "RELATION";
+  REPORTING_ITEM: "REPORTING_ITEM";
+  RUN: "RUN";
+  SCHEDULED_EVENT: "SCHEDULED_EVENT";
+  TASK: "TASK";
+  TOPIC: "TOPIC";
+  TOPOLOGY_EDGE: "TOPOLOGY_EDGE";
+  WORKSTREAM: "WORKSTREAM";
+}>;
+interface SemanticEndpointRef {
+  readonly kind: (typeof semanticEndpointKind.options)[number];
+  readonly id: string;
+}
+/** The frozen 10 relation types (INV-REL-3 — mirrors the domain union). */
+declare const relationTypeSchema: z.ZodEnum<{
+  CONSUMES: "CONSUMES";
+  CONTRADICTED_BY: "CONTRADICTED_BY";
+  CONTRIBUTES_TO: "CONTRIBUTES_TO";
+  DEPENDS_ON: "DEPENDS_ON";
+  DERIVED_FROM: "DERIVED_FROM";
+  IMPLEMENTS: "IMPLEMENTS";
+  PRODUCED_BY: "PRODUCED_BY";
+  RELATED_TO: "RELATED_TO";
+  SUPPORTED_BY: "SUPPORTED_BY";
+  VALIDATED_BY: "VALIDATED_BY";
+}>;
+/** The frozen 7 artifact types (mirrors the domain union). */
+declare const artifactTypeSchema: z.ZodEnum<{
+  CODE: "CODE";
+  DATASET: "DATASET";
+  FIGURE: "FIGURE";
+  MODEL: "MODEL";
+  NOTE: "NOTE";
+  OTHER: "OTHER";
+  REPORT: "REPORT";
+}>;
+interface RecordFactArgs {
+  readonly workstreamId: string;
+  readonly statement: string;
+  readonly references?: string[];
+  readonly projectId?: string;
+}
+interface RecordFactResult {
+  readonly factId: string;
+  readonly workstreamId: string;
+  readonly statement: string;
+  readonly references: string[];
+  readonly status: 'ACTIVE';
+  readonly recordedAt: number;
+  readonly eventId: string;
+}
+interface RecordClaimArgs {
+  readonly workstreamId: string;
+  readonly statement: string;
+  readonly references?: string[];
+  readonly projectId?: string;
+}
+interface RecordClaimResult {
+  readonly claimId: string;
+  readonly workstreamId: string;
+  readonly statement: string;
+  readonly references: string[];
+  readonly status: 'ACTIVE';
+  readonly recordedAt: number;
+  readonly eventId: string;
+}
+interface RetractClaimArgs {
+  readonly claimId: string;
+  readonly reason?: string;
+  readonly projectId?: string;
+}
+interface RetractClaimResult {
+  readonly claimId: string;
+  readonly status: 'RETRACTED';
+  readonly eventId: string;
+}
+interface RegisterArtifactArgs {
+  readonly workstreamId: string;
+  readonly type: (typeof artifactTypeSchema.options)[number];
+  readonly title: string;
+  readonly uri: string;
+  readonly contentHash?: string;
+  readonly relatedTaskId?: string;
+  readonly supersedes?: string;
+  readonly projectId?: string;
+}
+interface RegisterArtifactResult {
+  readonly artifactId: string;
+  readonly workstreamId: string;
+  readonly type: (typeof artifactTypeSchema.options)[number];
+  readonly title: string;
+  readonly uri: string;
+  readonly status: 'REGISTERED';
+  readonly recordedAt: number;
+  readonly eventId: string;
+}
+interface MarkArtifactMissingArgs {
+  readonly artifactId: string;
+  readonly reason?: string;
+  readonly projectId?: string;
+}
+interface MarkArtifactMissingResult {
+  readonly artifactId: string;
+  readonly status: 'MISSING';
+  readonly eventId: string;
+}
+interface AddRelationArgs {
+  readonly source: SemanticEndpointRef;
+  readonly relationType: (typeof relationTypeSchema.options)[number];
+  readonly target: SemanticEndpointRef;
+  readonly projectId?: string;
+}
+interface AddRelationResult {
+  readonly relationId: string;
+  readonly source: SemanticEndpointRef;
+  readonly relationType: (typeof relationTypeSchema.options)[number];
+  readonly target: SemanticEndpointRef;
+  readonly status: 'ACTIVE';
+  readonly eventId: string;
+}
+interface RemoveRelationArgs {
+  readonly relationId: string;
+  readonly reason?: string;
+  readonly projectId?: string;
+}
+interface RemoveRelationResult {
+  readonly relationId: string;
+  readonly status: 'REMOVED';
+  readonly eventId: string;
+}
+/** One `SemanticRecordDto` (BRIEF §3 verbatim shape). */
+interface SemanticRecordDto {
+  readonly id: string;
+  readonly type: 'FACT' | 'CLAIM' | 'ARTIFACT';
+  readonly workstreamId: string;
+  /** The fact/claim statement. */
+  readonly statement?: string;
+  /** The artifact title. */
+  readonly title?: string;
+  /** The artifact type (7-value frozen enum). */
+  readonly artifactType?: (typeof artifactTypeSchema.options)[number];
+  /** The artifact reference URI. */
+  readonly uri?: string;
+  /** The derived status column (ACTIVE / RETRACTED / REGISTERED /
+   *  MISSING). */
+  readonly status: 'ACTIVE' | 'RETRACTED' | 'REGISTERED' | 'MISSING';
+  readonly recordedAt: number;
+  /** The recording actor (`created_by`); `label` is the display name. */
+  readonly createdBy?: {
+    readonly kind: string;
+    readonly label?: string;
+  };
+  readonly references: string[];
+  /** The ACTIVE relation edges touching this record (outgoing + the
+   *  derived reverse view — one entry per edge). */
+  readonly relations: {
+    readonly relationId: string;
+    readonly relationType: string;
+    readonly direction: 'out' | 'in';
+    readonly other: SemanticEndpointRef;
+  }[];
+  /** The mechanical conflict flag (claims only; PENDING_REVIEW — the
+   *  CONTRADICTED_BY edge existence, no content analysis). */
+  readonly conflictFlag?: {
+    readonly kind: 'PENDING_REVIEW';
+    readonly relationIds: string[];
+  };
+}
+interface QueryRecordsArgs {
+  readonly workstreamId?: string;
+  readonly type?: 'FACT' | 'CLAIM' | 'ARTIFACT';
+  /** The derived status column filter (any of the four). */
+  readonly status?: string;
+  /** Case-insensitive substring over statement/title. */
+  readonly keyword?: string;
+  readonly relatedObject?: SemanticEndpointRef;
+  readonly timeFrom?: number;
+  readonly timeTo?: number;
+  /** Default 50, cap 200. */
+  readonly limit?: number;
+  /** Default 0. */
+  readonly offset?: number;
+  readonly projectId?: string;
+}
+interface QueryRecordsResult {
+  readonly records: SemanticRecordDto[];
+  /** The filtered total (before pagination). */
+  readonly total: number;
+}
 //#endregion
-export { ProjectSnapshot as $, DropTopologyEdgeArgs as A, UnbindProjectArgs as At, GetMergeContractResult as B, UpdateTopicArgs as Bt, CreateWorkstreamForkResult as C, SelectPlanForkResult as Ct, DismissNextActionResult as D, SetHubResult as Dt, DismissNextActionArgs as E, SetHubArgs as Et, GetCurrentFocusResult as F, UpdateObjectiveResult as Ft, GetTopicArgs as G, GetPortfolioInterventionsResult as H, UpdateWorkstreamArgs as Ht, GetGitHistoryArgs as I, UpdatePlanItemArgs as It, GetWorkstreamCurrentResult as J, GetWorkstreamArgs as K, GetGitHistoryResult as L, UpdatePlanItemResult as Lt, DropWorkstreamArgs as M, UpdateInterventionStateArgs as Mt, DropWorkstreamResult as N, UpdateInterventionStateResult as Nt, DismissPlanForkArgs as O, TopicSnapshot as Ot, GetCurrentFocusArgs as P, UpdateObjectiveArgs as Pt, PingResult as Q, GetHubOverviewArgs as R, UpdateProjectMetadataArgs as Rt, CreateWorkstreamForkArgs as S, SelectPlanForkArgs as St, DashboardSnapshot as T, SetCurrentFocusResult as Tt, GetResearchPlaneStateArgs as U, UpdateWorkstreamResult as Ut, GetPortfolioInterventionsArgs as V, UpdateTopicResult as Vt, GetResearchPlaneStateResult as W, WorkstreamSnapshot as Wt, InspectProjectDirectoryArgs as X, HubOverviewResult as Y, InspectProjectDirectoryResult as Z, CreatePlannedMergeArgs as _, RestoreProjectResult as _t, BindProjectArgs as a, RegisterInteractionResult as at, CreateTopicResult as b, SaveResearchCheckpointArgs as bt, ClearBlockerResult as c, RemovePlanItemArgs as ct, CreateLocalResearchProjectArgs as d, ReorderPlanResult as dt, PromoteNextActionArgs as et, CreateLocalResearchProjectResult as f, RescanArgs as ft, CreatePlanItemResult as g, RestoreProjectArgs as gt, CreatePlanItemArgs as h, RestoreDeclarativeFileResult as ht, AddDependencyResult as i, RegisterInteractionArgs as it, DropTopologyEdgeResult as j, UnbindProjectResult as jt, DismissPlanForkResult as k, TypertContributionMirror as kt, CreateBlockerArgs as l, RemovePlanItemResult as lt, CreateNextActionResult as m, RestoreDeclarativeFileArgs as mt, AckMissingReminderResult as n, QueryHistoryArgs as nt, BindProjectResult as o, RemoveDependencyArgs as ot, CreateNextActionArgs as p, RescanResult as pt, GetWorkstreamCurrentArgs as q, AddDependencyArgs as r, QueryHistoryResult as rt, ClearBlockerArgs as s, RemoveDependencyResult as st, AckMissingReminderArgs as t, PromoteNextActionResult as tt, CreateBlockerResult as u, ReorderPlanArgs as ut, CreatePlannedMergeResult as v, SaveMergeContractArgs as vt, CreateWorkstreamResult as w, SetCurrentFocusArgs as wt, CreateWorkstreamArgs as x, SaveResearchCheckpointResult as xt, CreateTopicArgs as y, SaveMergeContractResult as yt, GetMergeContractArgs as z, UpdateProjectMetadataResult as zt };
+export { InspectProjectDirectoryResult as $, UpdatePlanItemResult as $t, DismissPlanForkArgs as A, RestoreProjectArgs as At, GetHubOverviewArgs as B, SetCurrentFocusArgs as Bt, CreateWorkstreamArgs as C, RemoveRelationResult as Ct, DashboardSnapshot as D, RescanResult as Dt, CreateWorkstreamResult as E, RescanArgs as Et, DropWorkstreamResult as F, SaveMergeContractResult as Ft, GetResearchPlaneStateArgs as G, TypertContributionMirror as Gt, GetMergeContractResult as H, SetHubArgs as Ht, GetCurrentFocusArgs as I, SaveResearchCheckpointArgs as It, GetWorkstreamArgs as J, UpdateInterventionStateArgs as Jt, GetResearchPlaneStateResult as K, UnbindProjectArgs as Kt, GetCurrentFocusResult as L, SaveResearchCheckpointResult as Lt, DropTopologyEdgeArgs as M, RetractClaimArgs as Mt, DropTopologyEdgeResult as N, RetractClaimResult as Nt, DismissNextActionArgs as O, RestoreDeclarativeFileArgs as Ot, DropWorkstreamArgs as P, SaveMergeContractArgs as Pt, InspectProjectDirectoryArgs as Q, UpdatePlanItemArgs as Qt, GetGitHistoryArgs as R, SelectPlanForkArgs as Rt, CreateTopicResult as S, RemoveRelationArgs as St, CreateWorkstreamForkResult as T, ReorderPlanResult as Tt, GetPortfolioInterventionsArgs as U, SetHubResult as Ut, GetMergeContractArgs as V, SetCurrentFocusResult as Vt, GetPortfolioInterventionsResult as W, TopicSnapshot as Wt, GetWorkstreamCurrentResult as X, UpdateObjectiveArgs as Xt, GetWorkstreamCurrentArgs as Y, UpdateInterventionStateResult as Yt, HubOverviewResult as Z, UpdateObjectiveResult as Zt, CreatePlanItemArgs as _, RegisterInteractionResult as _t, AddRelationArgs as a, UpdateWorkstreamResult as an, PromoteNextActionResult as at, CreatePlannedMergeResult as b, RemovePlanItemArgs as bt, BindProjectResult as c, QueryRecordsArgs as ct, CreateBlockerArgs as d, RecordClaimResult as dt, UpdateProjectMetadataArgs as en, MarkArtifactMissingArgs as et, CreateBlockerResult as f, RecordFactArgs as ft, CreateNextActionResult as g, RegisterInteractionArgs as gt, CreateNextActionArgs as h, RegisterArtifactResult as ht, AddDependencyResult as i, UpdateWorkstreamArgs as in, PromoteNextActionArgs as it, DismissPlanForkResult as j, RestoreProjectResult as jt, DismissNextActionResult as k, RestoreDeclarativeFileResult as kt, ClearBlockerArgs as l, QueryRecordsResult as lt, CreateLocalResearchProjectResult as m, RegisterArtifactArgs as mt, AckMissingReminderResult as n, UpdateTopicArgs as nn, PingResult as nt, AddRelationResult as o, WorkstreamSnapshot as on, QueryHistoryArgs as ot, CreateLocalResearchProjectArgs as p, RecordFactResult as pt, GetTopicArgs as q, UnbindProjectResult as qt, AddDependencyArgs as r, UpdateTopicResult as rn, ProjectSnapshot as rt, BindProjectArgs as s, QueryHistoryResult as st, AckMissingReminderArgs as t, UpdateProjectMetadataResult as tn, MarkArtifactMissingResult as tt, ClearBlockerResult as u, RecordClaimArgs as ut, CreatePlanItemResult as v, RemoveDependencyArgs as vt, CreateWorkstreamForkArgs as w, ReorderPlanArgs as wt, CreateTopicArgs as x, RemovePlanItemResult as xt, CreatePlannedMergeArgs as y, RemoveDependencyResult as yt, GetGitHistoryResult as z, SelectPlanForkResult as zt };

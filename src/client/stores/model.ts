@@ -45,6 +45,7 @@ import type {
   ProjectSnapshot,
   QueryHistoryArgs,
   QueryHistoryResult,
+  QueryRecordsResult,
   ReorderPlanArgs,
   ReorderPlanResult,
   RegisterInteractionArgs,
@@ -77,6 +78,7 @@ export type {
   ProjectSnapshot,
   QueryHistoryArgs,
   QueryHistoryResult,
+  QueryRecordsResult,
   ReorderPlanArgs,
   ReorderPlanResult,
   RegisterInteractionArgs,
@@ -168,6 +170,15 @@ export interface ResearchStoreState {
    * these faces, so they live in their own slice family.
    */
   readonly current: ReadonlyMap<string, SliceState<GetWorkstreamCurrentResult>>
+  /**
+   * Keyed by `workstreamId` (UI-7, D §13). The Records face: the
+   * `queryRecords` result for the workstream (the FACT / CLAIM /
+   * ARTIFACT rows with their derived relations + the mechanical
+   * PENDING_REVIEW conflict flag). Its OWN slice family — the records
+   * are semantic derived state, not a field of the frozen
+   * `WorkstreamSnapshot`.
+   */
+  readonly records: ReadonlyMap<string, SliceState<QueryRecordsResult>>
 }
 
 /** The initial store snapshot: all slices idle, all maps empty. */
@@ -181,6 +192,7 @@ export function initialResearchStoreState(): ResearchStoreState {
     gitHistory: new Map(),
     currentFocus: new Map(),
     current: new Map(),
+    records: new Map(),
   }
 }
 
@@ -223,6 +235,7 @@ export type SliceName =
   | 'gitHistory'
   | 'currentFocus'
   | 'current'
+  | 'records'
 
 export const SLICE_NAMES: readonly SliceName[] = [
   'dashboard',
@@ -233,6 +246,7 @@ export const SLICE_NAMES: readonly SliceName[] = [
   'gitHistory',
   'currentFocus',
   'current',
+  'records',
 ]
 
 /**
@@ -249,6 +263,7 @@ export type SliceKey =
   | `gitHistory:${string}`
   | `currentFocus:${string}`
   | `current:${string}`
+  | `records:${string}`
 
 /** Compose a global slice key. */
 export function sliceKey(slice: SliceName, localKey: string): SliceKey {

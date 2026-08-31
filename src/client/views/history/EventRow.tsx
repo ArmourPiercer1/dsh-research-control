@@ -24,7 +24,8 @@
  */
 
 import type { ReactElement } from 'react'
-import type { HistoryEventDto } from '../../../shared/rpc-contracts.js'
+import type { HistoryEventDto, SemanticEndpointRef } from '../../../shared/rpc-contracts.js'
+import { t } from '../../i18n/copy.js'
 import { actorLabel, actorLetter, eventTypeMeta, formatEpochMs } from './event-meta.js'
 import type { HistoryOrder } from './ordered-events.js'
 import styles from './styles.module.css'
@@ -34,6 +35,15 @@ export interface EventRowProps {
   readonly event: HistoryEventDto
   /** The active replay order — selects the highlighted timestamp. */
   readonly order: HistoryOrder
+  /** UI-7 (B §26): the related-object ref this event's context points at
+   *  (e.g. the payload's plan item) — enables the Related Records entry. */
+  readonly relatedRef?: SemanticEndpointRef | null
+  /** UI-7 (B §26): the related-record count for the entry (the caller
+   *  resolves it via queryRecords' `relatedObject` dimension). */
+  readonly relatedCount?: number | null
+  /** UI-7 (B §26): opens the Records face carrying the related filter
+   *  (the deep link IS the view state). */
+  readonly onShowRelated?: () => void
 }
 
 /**
@@ -42,13 +52,19 @@ export interface EventRowProps {
  * @param props - row props (pure).
  * @returns the timeline row element.
  */
-export function EventRow({ event, order }: EventRowProps): ReactElement {
+export function EventRow({ event, order, relatedRef, relatedCount, onShowRelated }: EventRowProps): ReactElement {
   const meta = eventTypeMeta(event.eventType)
   const letter = actorLetter(event.actor.kind)
   const label = actorLabel(event.actor)
   const occurred = formatEpochMs(event.occurredAt)
   const recorded = formatEpochMs(event.recordedAt)
   const semanticPrimary = order === 'semantic'
+  const showRelated =
+    relatedRef !== undefined &&
+    relatedRef !== null &&
+    relatedCount !== undefined &&
+    relatedCount !== null &&
+    relatedCount > 0
 
   return (
     <li className={styles.event} data-event-type={event.eventType} data-actor-kind={event.actor.kind}>
@@ -68,6 +84,17 @@ export function EventRow({ event, order }: EventRowProps): ReactElement {
       <span className={styles.seq}>
         #{event.eventSeq} · {event.eventId}
       </span>
+      {showRelated && relatedRef !== null && (
+        <button
+          type="button"
+          className={styles.relatedButton}
+          data-event-related
+          data-related-ref={`${relatedRef.kind}:${relatedRef.id}`}
+          onClick={onShowRelated}
+        >
+          {t('ws.records.related.count').replace('n', String(relatedCount))}
+        </button>
+      )}
       <details className={styles.payload}>
         <summary>事件载荷</summary>
         <pre>{JSON.stringify(event.payload, null, 2)}</pre>

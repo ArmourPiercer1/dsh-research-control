@@ -11,12 +11,60 @@
  * RUN RECORD (main agent fills after each live window; the implementer leaves
  * the placeholder — BRIEF D5「spec 头部复跑记录」/ LIVE-WINDOW §7 回填):
  * ================================================================================
- *   - rounds / resets:      (PENDING — fill: round #, reset-loop count per LIVE-WINDOW §5)
- *   - L-5 cold start:       (PENDING — PLANE_SESSION_UNKNOWN first-session handling, §4 分诊)
- *   - restart gate:         (PENDING — LIVE-WINDOW §5b: no-reset restart + E2E_T74_PERSISTENCE=1
- *                            + `-g 'T74-P'` result)
- *   - counter collisions:   (PENDING — if any: the stop-server DB-bump + restart per §4)
- *   - see also:             .acceptance/v2-t74/LIVE-WINDOW.md (the step-by-step recipe)
+ *   - rounds / resets:      WINDOW COMPLETE 2026-08-31 — all journeys + gate
+ *                            GREEN. Per-journey rounds (window total): J1 ×6
+ *                            green (last 14.2s; one extra pre-browser red =
+ *                            orchestrator env var E2E_T74_CREATE_WS omitted),
+ *                            J2 ×4 green (last 14.3s; env var
+ *                            E2E_T74_BIND_WS=bind-ws on every J2 run),
+ *                            J3 ×3 green (last 16.8s), J4 ×11 (r1–r9 red with
+ *                            distinct root causes, all fixed in-spec; r10+r11
+ *                            green, last 13.5s), J5 ×2 (r1 red — contract
+ *                            EDIT saved the stale 166-char baseline: MA ledger
+ *                            byte-count forensics, isolated repro green; r2
+ *                            green 9.9s after full reset + the bracketed
+ *                            content-load waits below), J6 ×1 green (13.0s),
+ *                            J7 ×1 green (8.6s), T74-P ×3 (r1 red — Phase C
+ *                            spec bug: the relation edge renders only in the
+ *                            SELECTED record's detail face, and selection
+ *                            does not survive the restart, so the .or()
+ *                            count was 0; r2 red — environmental: the
+ *                            研究树缺失 modal ack is run-scoped in-memory,
+ *                            so a same-server-run re-run correctly sees no
+ *                            modal; r3 green 15.8s after the Phase C fix +
+ *                            a fresh no-reset server run). Full resets (§1
+ *                            1a–1i): 2 — after J4 r9 (one-shot relation
+ *                            5-tuple + plan-local id reuse ⇒ light reset
+ *                            impossible) and after J5 r1 (fixture carried
+ *                            J1–J4 + J5-partial + diag-sentinel residue).
+ *                            No-reset restarts: 2 (the §5b gate + the T74-P
+ *                            modal-ack clear). Fail artifacts:
+ *                            .acceptance/v2-ui9/t74-run{2,3,4,5,10,11}-fail-
+ *                            artifacts/.
+ *   - L-5 cold start:       transient plane-load rejection observed once in
+ *                            an early window span (recovered via the
+ *                            waitForConsoleFrame 重试 tolerance — 观察项, not
+ *                            a defect); no PLANE_SESSION_UNKNOWN events in
+ *                            the final green cycle (post-reset A/B/C + gate D).
+ *   - restart gate:         PASS — probe D (CF=T-1; derived [DERIVED-GATE-G-1];
+ *                            explicit 1 CLEARED (BLK-1); dependencyEdges 1
+ *                            (REL-1 T-8→T-2); IV-1 CLOSED) + T74-P 15.8s
+ *                            (read-only re-walk: Phase A registry missing-
+ *                            listed J1/J2 + WS-1 face, Phase B topology +
+ *                            on-disk contract bytes TE-2=EDITED / TE-5=CREATED,
+ *                            Phase C 3 records + the SUPPORTED_BY edge in the
+ *                            claim's detail, Phase D attention CLOSED IV-1 fold
+ *                            + live derived card).
+ *   - counter collisions:   NONE in the green cycle — the per-session schedule
+ *                            minted PRJ-2 (J1) and bound PRJ-3 (J2) with no
+ *                            UNIQUE-collision; final registry PRJ-1/PRJ-2/PRJ-3
+ *                            verified live in probes B/C/D. No stop-server
+ *                            DB-bump was needed this cycle.
+ *   - see also:             .acceptance/v2-t74/LIVE-WINDOW.md (the step-by-step
+ *                            recipe; §9 deviation log (a)–(n) — (k) one-shot
+ *                            relation 5-tuple semantics, (l) J5 stale-save,
+ *                            (m) T74-P Phase C detail-face locator, (n)
+ *                            run-scoped missing-tree modal ack).
  *
  * ================================================================================
  * PREREQUISITES (orchestrator materializes — the spec assumes a running server
@@ -52,6 +100,22 @@
  *        is 'T74 绑定项目' (J2's bind target, t68.2 precedent — the tree is
  *        unregistered in the hub registry before the journey runs).
  *    The spec fails loud (a `toBeTruthy()` on the env var) when unset.
+ *    PER-SESSION FIXTURE SCHEDULE (LIVE-WINDOW §1) — the frozen §12.1
+ *    routing (discovery.ts resolveProject) admits a projectId-less read
+ *    only under EXACTLY ONE active project, and the UI never passes
+ *    projectId (research-store.ts), so each server session of the window
+ *    carries a workspace.json variant with exactly one console-render
+ *    target active (the t68 per-journey-fixture pattern):
+ *      - session A (J1):   hub + create-ws — PRJ-1 missing-listed; the
+ *        create mints PRJ-2 (knownProjectIds = registry ids ∪ live tree
+ *        ids) and becomes the sole active;
+ *      - session B (J2):   hub + bind-ws — PRJ-1/PRJ-2 missing-listed;
+ *        the PRJ-3 tree STANDALONE-active; the bind keeps it sole active;
+ *      - session C (J3–J7): hub + tree-ws — PRJ-2/PRJ-3 missing-listed;
+ *        PRJ-1 sole active; the seeded DB + the J3–J7 mutations
+ *        accumulate in the hub DB across the journey;
+ *      - session D (T74-P): hub + tree-ws (no reset, LIVE-WINDOW §5b) —
+ *        PRJ-2/PRJ-3 missing-listed (the Phase A pin), PRJ-1 sole active.
  *  - SERVER: the rebuilt plugin (UI-9, 59 faces) booted on port 3180
  *    (LIVE-WINDOW §2) — the t74 spec is the window's FIRST browser session
  *    (L-5) after every reset, so the retry-tolerant navigation below is
@@ -103,7 +167,9 @@
  *        MANAGED project's integrity is writable) + the head `+`.
  *      - persistence: registry entry + tree + empty plan survive reload.
  *  J2 (reuse t68.2/t68.3/t67):
- *      - the unregistered onboarding card → 设置 → STANDALONE actions →
+ *      - the STANDALONE console (the complete unregistered tree boots
+ *        STANDALONE-active — t68.2: no onboarding card for a tree at a
+ *        registered ws with no hub entry) → 设置 → STANDALONE actions →
  *        接入研究管理系统 confirm dialog (frozen line 确认后将登记为中枢的
  *        active…; the 项目显示名 field) → MANAGED flip + the tree's
  *        project.yaml title in the header (the Project Overview);
@@ -193,7 +259,10 @@
  *      READ-ONLY re-walk of every journey's created state after a no-reset
  *      server restart; gated by `E2E_T74_PERSISTENCE=1` (skipped in place
  *      otherwise, so the normal run stays green on a fresh fixture). The
- *      main agent runs it via `… t74 -g 'T74-P'` per §5b.
+ *      main agent runs it via `… t74 -g 'T74-P'` per §5b. Phase A pins the
+ *      J1/J2 registry entries as MISSING-listed in the 研究树缺失 modal
+ *      (their workspaces are absent from the §5b fixture — a hub card
+ *      renders only for ACTIVE projects; t68 idiom).
  *
  * FAILURE DIAGNOSTICS: on any test failure the afterEach hook dumps the
  * page HTML to `/tmp/t74-dom-dump-<sanitized-title>.html` (LIVE-WINDOW §4
@@ -371,7 +440,7 @@ function expectWireOk(out: {
  */
 async function waitForConsoleFrame(
   page: Page,
-  role: 'HUB' | 'MANAGED',
+  role: 'HUB' | 'MANAGED' | 'STANDALONE',
   what = 'hop-3 console frame',
 ): Promise<void> {
   const frame = page.locator(`[data-role="${role}"]`)
@@ -392,6 +461,37 @@ async function waitForConsoleFrame(
     await page.waitForTimeout(1_000)
   }
   await expect(frame, `${what} not visible within 60s (重试 clicks: ${retryClicks})`).toBeVisible()
+}
+
+/** J1's UNREGISTERED first render (the onboarding card — the shell
+ *  renders NO console frame for that role, so waitForConsoleFrame cannot
+ *  cover it): the same L-5 tolerance. The shell's initial plane-state
+ *  fetch can be rejected on a cold server (the D3 group-1 failure face —
+ *  研究平面状态加载失败 + 重试, shell.tsx `data-shell-phase="failed"`);
+ *  the user-facing recovery is 重试 and the spec exercises it. Evidence:
+ *  the t74 run-3 J1 failure (artifact
+ *  .acceptance/v2-ui9/t74-run3-fail-artifacts/) — the identical steps
+ *  succeeded on the same server ten minutes later (diag-t74-plane-fail). */
+async function waitForOnboardingCard(page: Page): Promise<Locator> {
+  const card = page.locator('[data-onboarding-card]')
+  const errorFace = page.getByText('研究平面状态加载失败')
+  const retry = page.getByRole('button', { name: '重试' })
+  const deadline = Date.now() + 60_000
+  let retryClicks = 0
+  for (;;) {
+    if (await card.isVisible().catch(() => false)) return card
+    if (
+      (await errorFace.isVisible().catch(() => false)) &&
+      (await retry.isVisible().catch(() => false))
+    ) {
+      await retry.click()
+      retryClicks += 1
+    }
+    if (Date.now() >= deadline) break
+    await page.waitForTimeout(1_000)
+  }
+  await expect(card, `onboarding card not visible within 60s (重试 clicks: ${retryClicks})`).toBeVisible()
+  return card
 }
 
 /** Ack the plane-level 研究树缺失处置 modal (t68.3 idiom) — 推后 each
@@ -448,6 +548,11 @@ async function landOnWorkstream(page: Page, sessionTitle: string): Promise<void>
   await ensureSessionOpen(page, sessionTitle, HUB_WS_TITLE)
   await researchTab(page).click()
   await waitForConsoleFrame(page, 'HUB', `${sessionTitle} hop-3 HUB frame`)
+  // Defensive: the first ready render of a fresh backend run pops the
+  // 研究树缺失 modal for the entries whose workspaces are absent from
+  // this session's fixture (t68.3 idiom — 推后, no mutation; a later
+  // journey in the same run never re-pops — the pinned dedup rule).
+  await dismissMissingTreeModals(page)
   await drillToWorkstream(page)
 }
 
@@ -604,11 +709,14 @@ function readFixture(rel: string): string {
 const contractFile = (teId: string): string =>
   readFixture(`.research/merges/${teId}/contract.md`)
 
-/** The Future strip ids in DOM order (the canonical plan order). */
+/** The Future strip ids in DOM order (the canonical plan order). The
+ *  list renders async after the ws page container becomes visible (a
+ *  one-shot evaluateAll in that window resolves [] — run-5 J4: 0 of 10
+ *  rows at the baseline read), so wait for the first item first. */
 async function stripOrder(scope: Locator): Promise<string[]> {
-  return scope
-    .locator('[data-strip-item]')
-    .evaluateAll(rows => rows.map(row => row.getAttribute('data-strip-item') ?? ''))
+  const items = scope.locator('[data-strip-item]')
+  await expect(items.first()).toBeVisible({ timeout: 30_000 })
+  return items.evaluateAll(rows => rows.map(row => row.getAttribute('data-strip-item') ?? ''))
 }
 
 /** Open the Records tab (the list PANEL renders in every state — the
@@ -618,11 +726,13 @@ async function openRecordsTab(page: Page): Promise<void> {
   await expect(page.locator('[data-records-list-panel]')).toBeVisible({ timeout: 30_000 })
 }
 
-/** The record ids in LIST DOM order (the recordedAt DESC pin). */
+/** The record ids in LIST DOM order (the recordedAt DESC pin). The list
+ *  loads async after the panel mounts (same one-shot [] hazard as the
+ *  strip — run-5 J4), so wait for the first record before the read. */
 async function recordIds(page: Page): Promise<string[]> {
-  return page
-    .locator('[data-records-list] [data-record-id]')
-    .evaluateAll(nodes => nodes.map(n => n.getAttribute('data-record-id') ?? ''))
+  const recs = page.locator('[data-records-list] [data-record-id]')
+  await expect(recs.first()).toBeVisible({ timeout: 30_000 })
+  return recs.evaluateAll(nodes => nodes.map(n => n.getAttribute('data-record-id') ?? ''))
 }
 
 /**
@@ -655,10 +765,15 @@ test('J1 Create — Create Project → Topic → Workstream → Plan', async ({ 
   await ensureSessionOpen(page, SESSION_J1, CREATE_WS!)
   await researchTab(page).click()
 
-  // The UNREGISTERED onboarding card (the workspace has no tree yet).
-  const card = page.locator('[data-onboarding-card]')
-  await expect(card).toBeVisible({ timeout: 60_000 })
+  // The UNREGISTERED onboarding card (the workspace has no tree yet) —
+  // L-5 tolerant (the run-3 plane-load failure face; helper above).
+  const card = await waitForOnboardingCard(page)
   await expect(page.locator('[data-onboarding-variant="unregistered"]')).toBeVisible()
+
+  // Defensive: this session's fixture (LIVE-WINDOW §1 — hub + create-ws
+  // only) lists the PRJ-1 entry as a LIVE missing diagnostic; the modal
+  // pops on the first ready render (t68.3 idiom — 推后, no mutation).
+  await dismissMissingTreeModals(page)
 
   /* -- Create Project: the frozen B spec 5-step Create wizard (t68.1) -- */
   await card.getByRole('button', { name: '新建研究项目' }).click()
@@ -720,7 +835,12 @@ test('J1 Create — Create Project → Topic → Workstream → Plan', async ({ 
   }
 
   /* -- Workstream: the per-topic `Create workstream` entry. -- */
-  await topicRow.locator('[data-tree-create-workstream]').click()
+  // The `+ Create workstream` button is a SIBLING of the topic toggle
+  // button (both sit inside the `.treeTopicRow` div of
+  // `data-tree-topic-item`) — NOT a descendant of `[data-tree-topic]` —
+  // so it must be addressed page-level (J1 has exactly one topic at this
+  // point: the count was 0 before the create above, asserted at L784).
+  await page.locator('[data-tree-create-workstream]').first().click()
   const wsDialog = page.locator('[data-create-workstream-dialog]')
   await expect(wsDialog).toBeVisible({ timeout: 15_000 })
   await expect(wsDialog.getByRole('heading', { name: 'Create Workstream' })).toBeVisible()
@@ -778,22 +898,28 @@ test('J2 Bind — Existing repo → Bind → Project Overview', async ({ page })
   await gotoApp(page, BASE_URL)
   await ensureSessionOpen(page, SESSION_J2, BIND_WS!)
   await researchTab(page).click()
+
+  // A complete unregistered tree boots STANDALONE-active (t68.2 — the
+  // frozen role resolution renders the STANDALONE console, not the
+  // onboarding card, for a tree at a registered ws with no hub entry).
+  await waitForConsoleFrame(page, 'STANDALONE', 'J2 pre-bind console')
+  await expect(page.getByText(BIND_TREE_TITLE).first()).toBeVisible({ timeout: 60_000 })
+
   // Defensive: the plane-level 研究树缺失 modal overlays ANY branch when
   // the registry carries entries whose workspaces are absent from this
-  // run's fixture — 推后 each (t68.3 idiom).
+  // session's fixture (PRJ-1 → tree-ws, PRJ-2 → create-ws — both
+  // missing-listed) — 推后 each (t68.3 idiom; the modal pops on the
+  // first ready render).
   await dismissMissingTreeModals(page)
-
-  // The UNREGISTERED onboarding card (the tree exists but is unbound).
-  const card = page.locator('[data-onboarding-card]')
-  await expect(card).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator('[data-onboarding-variant="unregistered"]')).toBeVisible()
 
   // 设置 → STANDALONE console actions → 接入研究管理系统 (the B bind
   // confirm dialog — no scaffold, the host probes the existing tree and
   // registers it under the hub).
   await page
     .locator('nav[aria-label="研究控制台一级入口"]')
-    .getByRole('button', { name: '设置' })
+    // ADJ-1 (frozen LOCALE='en'): the first-level IA names are the EN
+    // frozen values (D §9.1 / B §2.1 verbatim — 'Settings', not '设置').
+    .getByRole('button', { name: 'Settings' })
     .click()
   await expect(page.locator('[data-settings-page][data-settings-role="STANDALONE"]')).toBeVisible()
   await page
@@ -1037,12 +1163,24 @@ test('J4 Plan — Task/Gate/Milestone → reorder → dependency → remove', as
   await expect(milestoneRow).toContainText('里程碑')
   await expect(milestoneRow).toContainText(J4_MILESTONE_TITLE)
   order = await stripOrder(page1)
-  expect(order).toHaveLength(12)
-  expect(order[order.length - 1], 'the new milestone lands after T-6 (the tail)').toBe(milestoneId)
+  expect(order).toHaveLength(13)
+  // The post-J3 baseline is 10 rows and its TAIL is J3's T-7 (the
+  // pristine-9 tail was T-6), so the milestone (added after T-6) is
+  // relative-pinned, not tail-pinned.
+  expect(order.indexOf(milestoneId), 'the new milestone lands directly after T-6').toBe(
+    order.indexOf('T-6') + 1,
+  )
 
   /* ④ Reorder — the per-row → button (the task one step down; B §17.3:
    *    the canonical order changes, and only it). */
   await page1.locator(`[data-strip-move-right="${taskId}"]`).click()
+  // The reorder is non-optimistic (host RPC + refetch — the 排序保存中…
+  // note shows while in flight), so pin the settled head row
+  // (web-first) before the one-shot order read.
+  await expect(
+    page1.locator('[data-strip-item]').first(),
+    'the reordered head is the previous first row',
+  ).toHaveAttribute('data-strip-item', baseline[0], { timeout: 30_000 })
   order = await stripOrder(page1)
   expect(order[0]).toBe(baseline[0])
   expect(order[1]).toBe(taskId)
@@ -1090,7 +1228,7 @@ test('J4 Plan — Task/Gate/Milestone → reorder → dependency → remove', as
   ).toBe(false)
   await expect(page1.locator(`[data-strip-item="${milestoneId}"]`)).toHaveCount(0)
   order = await stripOrder(page1)
-  expect(order).toHaveLength(11)
+  expect(order).toHaveLength(12)
   expect(order).not.toContain(milestoneId)
   // The dependency edge survived the item remove (the one-shot remove is
   // the edge's own ×, not an item remove).
@@ -1109,6 +1247,10 @@ test('J4 Plan — Task/Gate/Milestone → reorder → dependency → remove', as
   await expect(page2.locator(`[data-strip-item="${taskId}"]`)).toContainText(J4_TASK_TITLE)
   await expect(page2.locator(`[data-strip-item="${gateId}"]`)).toContainText(J4_GATE_TITLE)
   await expect(page2.locator(`[data-strip-item="${milestoneId}"]`)).toHaveCount(0)
+  // The dep face renders only for the selected strip row (selection does
+  // not survive the reload) — re-open T-8's face. The relation itself is
+  // persisted (the plan graph face independently renders the edge).
+  await page2.locator(`[data-strip-item="${taskId}"]`).click()
   await expect(page2.locator(`[data-dep-edge="${relId}"]`)).toBeVisible()
   await expect(page2.locator('[data-strip-item][data-plan-focus]')).toHaveAttribute(
     'data-strip-item',
@@ -1255,7 +1397,27 @@ test('J5 Topology — fork → planned merge → contract', async ({ page }) => 
 
   /* 5. Contract EDIT — open the baseline TE-2 via a VERIFIED edge-midpoint
    *    click (the overlap-safe idiom), edit the bytes, save (full
-   *    replacement). */
+   *    replacement).
+   *
+   *    BRACKETED content-load waits (deviation (i), the async load race
+   *    class): the view's load effect resolves the baseline bytes into the
+   *    draft only AFTER the open, and the isolated repro passes while the
+   *    full-sequence run once saved the STALE baseline (MA byte count ==
+   *    baseline length — the client-side draft held the baseline at the
+   *    save click). The pre-fill bracket blocks until the load has SETTLED
+   *    on the exact baseline bytes; the post-fill bracket proves the filled
+   *    bytes STICK until the save click — any interleaving that replays the
+   *    load (dialog re-open / effect re-run) now fails LOUD here, with the
+   *    dialog DOM in the error context, instead of a silent old-bytes save.
+   *    The getMergeContract counter below is the double-load fingerprint
+   *    (one request per load-effect run — the only client caller). */
+  const te2Loads: string[] = []
+  page.on('request', (req) => {
+    if (req.url().includes('/api/researchControl/getMergeContract')) {
+      const body = req.postData()
+      if (body !== null && body.includes(TE_MERGE)) te2Loads.push(body)
+    }
+  })
   await clickEdgeMidpoint(page, g2, TE_MERGE)
   const contractDialog = g2.locator('[data-topology-dialog="contract"]')
   await expect(contractDialog).toBeVisible({ timeout: 10_000 })
@@ -1263,13 +1425,35 @@ test('J5 Topology — fork → planned merge → contract', async ({ page }) => 
     'data-contract-edge',
     TE_MERGE,
   )
-  await contractDialog.locator('[data-contract-text]').fill(TE2_CONTRACT_EDITED)
+  const contractText = contractDialog.locator('[data-contract-text]')
+  // PRE-FILL: the textarea renders only after the load settles — wait for
+  // the EXACT baseline value (the loaded bytes) before touching the field.
+  await expect(contractText, 'the TE-2 load must settle on the baseline').toHaveValue(
+    TE2_CONTRACT_BASELINE,
+    { timeout: 30_000 },
+  )
+  await contractText.fill(TE2_CONTRACT_EDITED)
+  // POST-FILL: the filled bytes must still be the field value at the save
+  // click (a reset to the loaded baseline would fail here, loud).
+  await expect(contractText, 'the filled TE-2 bytes must stick until the save click').toHaveValue(
+    TE2_CONTRACT_EDITED,
+  )
+  await expect(contractDialog.locator('[data-contract-edge]')).toHaveAttribute(
+    'data-contract-edge',
+    TE_MERGE,
+  )
   await uiMutationValue(
     page,
     '/api/researchControl/saveMergeContract',
     'saveMergeContract (TE-2 edit)',
     () => contractDialog.locator('[data-contract-save]').click(),
   )
+  // Exactly ONE load for the TE-2 edit — a second getMergeContract is the
+  // effect-re-run fingerprint (the load effect is the only client caller).
+  expect(
+    te2Loads.length,
+    'exactly one getMergeContract for the TE-2 edit (double load = load-effect re-run)',
+  ).toBe(1)
 
   // Wire agreement + the host-persisted bytes (direct reads).
   const after = await wireTopic()
@@ -1561,16 +1745,22 @@ test('T74-P persistence subset (restart gate, read-only; requires a prior full t
   await ensureSessionOpen(page, SESSION_P, HUB_WS_TITLE)
   await researchTab(page).click()
   await waitForConsoleFrame(page, 'HUB', 'T74-P phase A HUB frame')
-  // J1: the created project's registry entry survives the restart.
+  // J1/J2: the created/bound projects' registry entries survive the
+  // restart. In this session's fixture (LIVE-WINDOW §5b — hub + tree-ws)
+  // their workspaces are absent, so the plane lists the entries as
+  // MISSING and the first ready render pops the 研究树缺失 modal naming
+  // them by displayName (the registry persistence is the pin — t68
+  // idiom; a hub card renders only for ACTIVE projects).
+  const missingModal = page.getByRole('dialog', { name: '研究树缺失处置' })
   await expect(
-    page.locator('[data-project-card]').filter({ hasText: CREATE_TITLE }),
-    'J1 created project survives the restart',
+    missingModal.getByText(CREATE_TITLE),
+    'J1 created project entry survives the restart (missing-listed)',
   ).toBeVisible({ timeout: 30_000 })
-  // J2: the bound project's registry entry survives the restart.
   await expect(
-    page.locator('[data-project-card]').filter({ hasText: BIND_TREE_TITLE }),
-    'J2 bound project survives the restart',
+    missingModal.getByText(BIND_TREE_TITLE),
+    'J2 bound project entry survives the restart (missing-listed)',
   ).toBeVisible({ timeout: 30_000 })
+  await dismissMissingTreeModals(page)
   // J3/J4: drill to WS-1 and assert the workstream state.
   await drillToWorkstream(page)
   const wsPage = page.locator('[data-project-console-page="ws"]')
@@ -1590,7 +1780,13 @@ test('T74-P persistence subset (restart gate, read-only; requires a prior full t
     wsPage.locator('[data-strip-item]', { hasText: J4_MILESTONE_TITLE }),
     'the J4 milestone was removed (and stays removed)',
   ).toHaveCount(0)
-  expect(await stripOrder(wsPage), '11 items: 9 pristine + J3 task + J4 task + J4 gate - J4 milestone').toHaveLength(11)
+  expect(
+    await stripOrder(wsPage),
+    '12 items: 9 pristine + J3 task (T-7) + J4 task + J4 gate (J4 milestone nets out: added then removed)',
+  ).toHaveLength(12)
+  // The dep face renders only for the selected row — open the J4 task's
+  // face (selection does not survive the restart either).
+  await j4Task.click()
   await expect(wsPage.locator('[data-dep-edge]'), 'the J4 dependency edge survives').toBeVisible()
   await expect(wsPage.locator('[data-strip-item][data-plan-focus]')).toHaveAttribute(
     'data-strip-item',
@@ -1627,11 +1823,17 @@ test('T74-P persistence subset (restart gate, read-only; requires a prior full t
   await openRecordsTab(page)
   const ids = await recordIds(page)
   expect(ids, 'the three J6 records survive the restart').toHaveLength(3)
-  await expect(
-    page.locator('[data-records-list]', { hasText: '→ SUPPORTED_BY' }).or(
-      page.locator('[data-records-detail] [data-records-edge]'),
-    ),
-  ).toHaveCount(1)
+  // The relation edge renders on the SELECTED record's detail face only —
+  // the list rows never carry relation text (RecordsSection: the list li
+  // renders badge/id/status/statement), and the selection does not survive
+  // the restart (same as the plan strip face above). Re-select the J6
+  // claim (the relation's source) and assert the edge in its detail.
+  await page
+    .locator('[data-records-item]', { hasText: J6_CLAIM_STMT })
+    .locator('[data-record-select]')
+    .click()
+  await expect(page.locator('[data-records-detail] [data-records-edge]')).toHaveCount(1)
+  await expect(page.locator('[data-records-detail] [data-records-edge]')).toContainText('→ SUPPORTED_BY')
 
   /* Phase D — the J7 attention state (the CLOSED IV-1 fold + the live
    *    derived card). */

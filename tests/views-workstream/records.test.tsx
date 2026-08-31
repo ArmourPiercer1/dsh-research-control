@@ -32,9 +32,13 @@
 import '../graph/xyflow-mock.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import type { QueryRecordsResult } from '../../src/shared/rpc-contracts.js'
+import type { PlaneIntegrityDto, QueryRecordsResult } from '../../src/shared/rpc-contracts.js'
 import { QueryRecordsResultSchema } from '../../src/shared/rpc-contracts.js'
 import { createResearchStore, type ResearchStore } from '../../src/client/stores/index.js'
+import {
+  INTEGRITY_CODE_TREE_PARTIAL,
+  ProjectReadonlyProvider,
+} from '../../src/client/components/readonly-context.js'
 import { WorkstreamView } from '../../src/client/views/workstream/index.js'
 import { makeStubRpc, type StubRpc } from '../stores/stub-rpc.js'
 import { makeSnapshot } from './view-fixtures.js'
@@ -117,15 +121,23 @@ interface Page {
 /** Cold-mount the page (the production shape — no preload): the page's
  *  lazy hooks fire on mount; the test settles until every slice the
  *  workspace tab needs is ready. `records` configures the queryRecords
- *  outcome (default stub: an empty list). */
-async function mountPage(records?: unknown): Promise<Page> {
+ *  outcome (default stub: an empty list). `integrity` wraps the view in
+ *  a `ProjectReadonlyProvider` (ADJ-11 readonly gating — the review F1
+ *  pin); default `undefined` = no provider = the writable bench. */
+async function mountPage(records?: unknown, integrity?: PlaneIntegrityDto): Promise<Page> {
   const stub = makeStubRpc()
   stub.set('getWorkstream', { ok: true, value: makeSnapshot() })
   if (records !== undefined) {
     stub.set('queryRecords', records)
   }
   const store = createResearchStore({ rpc: stub.rpc })
-  const { container } = render(<WorkstreamView store={store} workstreamId="WS-1" />)
+  const view = <WorkstreamView store={store} workstreamId="WS-1" />
+  const { container } =
+    integrity === undefined
+      ? render(view)
+      : render(
+          <ProjectReadonlyProvider integrity={integrity}>{view}</ProjectReadonlyProvider>,
+        )
   await waitFor(() => {
     expect(store.getState().workstreams.get('WS-1')?.status).toBe('ready')
     expect(store.getState().current.get('WS-1')?.status).toBe('ready')
@@ -627,5 +639,78 @@ describe('UI-7 Records face — B §26 deep link (the related pre-filter from th
     const calls = page.stub.callsTo('queryRecords')
     expect(calls.length).toBeGreaterThanOrEqual(1)
     expect(calls[0].args).toEqual({ workstreamId: 'WS-1' })
+  })
+})
+
+/**
+ * ADJ-11 (UI-9, review F1 pin): the Records face readonly gating. The
+ * D4 empty-face suite above pins the FROZEN face (writable bench); this
+ * suite pins the gating itself — under a `ProjectReadonlyProvider`
+ * with a readonly integrity (TREE_PARTIAL), every mutation entry point
+ * is disabled with the composed reason title while browsing (filter
+ * row + row selection → detail) stays fully enabled.
+ */
+describe('ADJ-11 readonly gating (review F1 pin — Records face)', () => {
+  const REASON = 'the research tree is partially broken'
+  const READONLY: PlaneIntegrityDto = {
+    readOnly: true,
+    checkCodes: [INTEGRITY_CODE_TREE_PARTIAL],
+  }
+
+  it('readonly: the add trigger is disabled with the reason title; filters and selection stay enabled', async () => {
+    const page = await mountPage({ ok: true, value: RECORDS }, READONLY)
+    await openRecords(page)
+    const trigger = query(page, '[data-records-add]') as HTMLButtonElement
+    expect(trigger.disabled).toBe(true)
+    expect(trigger.title).toBe(REASON)
+    // the browse row is NOT gated (ADJ-11: browsing remains available)
+    for (const sel of ['[data-records-search]', '[data-records-filter-type]', '[data-records-filter-status]']) {
+      expect((query(page, sel) as HTMLInputElement).disabled).toBe(false)
+    }
+    // selection stays enabled: clicking a row populates the detail zone
+    expect(page.container.querySelector('[data-records-add-form]')).toBeNull()
+    fireEvent.click(query(page, '[data-record-select="F-1"]'))
+    expect(query(page, '[data-records-detail] [data-records-statement]').textContent).toBe(
+      'Alpha: model converged at epoch 12',
+    )
+    expect(page.container.querySelector('[data-records-detail-empty]')).toBeNull()
+  })
+
+  it('readonly: the frozen empty-face CTAs are disabled with the reason title (the form is unreachable)', async () => {
+    const page = await mountPage(undefined, READONLY)
+    await openRecords(page)
+    expect(query(page, '[data-records-empty]')).not.toBeNull()
+    for (const sel of ['[data-records-add-fact]', '[data-records-add-claim]', '[data-records-add-artifact]']) {
+      const cta = query(page, sel) as HTMLButtonElement
+      expect(cta.disabled).toBe(true)
+      expect(cta.title).toBe(REASON)
+    }
+    // every mutation entry point is gated → the add form cannot open
+    expect(page.container.querySelector('[data-records-add-form]')).toBeNull()
+  })
+
+  it('writable default (no provider): trigger, kind selects, statement and save are enabled without titles', async () => {
+    const page = await mountPage({ ok: true, value: RECORDS })
+    await openRecords(page)
+    const trigger = query(page, '[data-records-add]') as HTMLButtonElement
+    expect(trigger.disabled).toBe(false)
+    expect(trigger.hasAttribute('title')).toBe(false)
+    fireEvent.click(trigger)
+    expect(query(page, '[data-records-add-form][data-records-add-kind="FACT"]')).not.toBeNull()
+    for (const sel of [
+      '[data-records-add-select="FACT"]',
+      '[data-records-add-select="CLAIM"]',
+      '[data-records-add-select="ARTIFACT"]',
+    ]) {
+      const btn = query(page, sel) as HTMLButtonElement
+      expect(btn.disabled).toBe(false)
+      expect(btn.hasAttribute('title')).toBe(false)
+    }
+    const statement = query(page, '[data-records-add-form] [data-records-statement]') as HTMLTextAreaElement
+    expect(statement.disabled).toBe(false)
+    expect(statement.hasAttribute('title')).toBe(false)
+    const save = query(page, '[data-records-add-save]') as HTMLButtonElement
+    expect(save.disabled).toBe(false)
+    expect(save.hasAttribute('title')).toBe(false)
   })
 })

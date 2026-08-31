@@ -605,13 +605,31 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                  rows is a filtered empty state and keeps the old line. */
               <div className={styles.recordsEmpty} data-records-empty>
                 <p>{t('records.empty')}</p>
-                <button type="button" data-records-add-fact onClick={() => openAdd('FACT')}>
+                <button
+                  type="button"
+                  data-records-add-fact
+                  disabled={readOnly}
+                  title={readOnly ? roTitle : undefined}
+                  onClick={() => openAdd('FACT')}
+                >
                   {t('records.addFact')}
                 </button>
-                <button type="button" data-records-add-claim onClick={() => openAdd('CLAIM')}>
+                <button
+                  type="button"
+                  data-records-add-claim
+                  disabled={readOnly}
+                  title={readOnly ? roTitle : undefined}
+                  onClick={() => openAdd('CLAIM')}
+                >
                   {t('records.addClaim')}
                 </button>
-                <button type="button" data-records-add-artifact onClick={() => openAdd('ARTIFACT')}>
+                <button
+                  type="button"
+                  data-records-add-artifact
+                  disabled={readOnly}
+                  title={readOnly ? roTitle : undefined}
+                  onClick={() => openAdd('ARTIFACT')}
+                >
                   {t('records.addArtifact')}
                 </button>
               </div>

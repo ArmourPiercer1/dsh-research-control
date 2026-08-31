@@ -560,7 +560,7 @@ test('T72 ④ D §13.8 Retract claim GUI (C-3) + 负向 wire retractClaim(C-2) �
     '[research-control] WRONG_STATE',
   )
   const wire = await wireRecords()
-  expect(wire.total, 'the refused write burned no id and changed no state').toBe(8)
+  expect(wire.total, 'burned H-19 (reserve burns, §1.1) but created no event and changed no record state').toBe(8)
 })
 
 /* ================================================================== */
@@ -612,7 +612,7 @@ test('T72 ⑥ 负向 wire addRelation TASK→SUPPORTED_BY→FACT ⇒ RELATION_CO
     '[research-control] RELATION_COMBINATION',
   )
   const wire = await wireRecords()
-  expect(wire.total, 'the refused write burned no id and changed no state').toBe(8)
+  expect(wire.total, 'burned REL-7+H-21 (reserve burns, §1.1) but created no record and changed no record state').toBe(8)
 })
 
 /* ================================================================== */

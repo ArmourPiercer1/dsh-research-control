@@ -32,7 +32,9 @@
  *          OPEN+PENDING, grouped time-desc; CLOSED folded, not rendered);
  *        - the seeded OPEN card: title 标定管线阻塞 + the HUB-only 项目标签
  *          (机器人视觉定位系统, a button) + origin badge 自动洪泛检测 +
- *          WS-1/WS-2 chips + the full OPEN action row
+ *          WS chip (singular since UI-8 D3 — the DTO chip = workstream_ids[0];
+ *          the original dual-chip surface is superseded, ADJ-5 / deviation D-19)
+ *          + the full OPEN action row
  *          (一键调查 / 标记处理中 / 关闭 + note input);
  *  6. 标记处理中 on the OPEN card runs the mutation on the REAL host
  *     (`updateInterventionState` PENDING) and the page RE-FETCHES (the
@@ -116,8 +118,12 @@ test('T5.2: HUB 重要事件 — segments + grouped cards + OPEN→PENDING live 
   await expect(openCard.locator('[data-iv-title]')).toHaveText(OPEN_TITLE)
   await expect(openCard.locator('[data-iv-project-label]')).toHaveText(PROJECT_TITLE)
   await expect(openCard.locator('[data-iv-origin-badge]')).toHaveText(ORIGIN_BADGE)
+  // ADJ-5 (deviation D-19): the evolved DTO renders the SINGULAR ws chip
+  // (workstream_ids[0] = WS-1) — the pre-D3 dual-chip assertion (WS-1 ∧
+  // WS-2 visible) is superseded. The selector family [data-iv-ws-chip]
+  // survives; the window's t73 G group re-pins the evolved surface.
+  await expect(openCard.locator('[data-iv-ws-chip]')).toHaveCount(1)
   await expect(openCard.locator('[data-iv-ws-chip="WS-1"]')).toBeVisible()
-  await expect(openCard.locator('[data-iv-ws-chip="WS-2"]')).toBeVisible()
   // OPEN 动作行（§13 状态机 + §7.2 枚举）: 一键调查 / 标记处理中 / 关闭 + 备注输入。
   await expect(openCard.locator('[data-iv-action="investigate"]')).toBeVisible()
   await expect(openCard.locator('[data-iv-action="pending"]')).toBeVisible()

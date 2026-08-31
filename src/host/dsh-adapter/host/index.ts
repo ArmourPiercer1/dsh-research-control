@@ -184,6 +184,7 @@ import {
   InspectProjectDirectoryArgsSchema,
   MarkArtifactMissingArgsSchema,
   PromoteNextActionArgsSchema,
+  QueryAttentionArgsSchema,
   QueryHistoryArgsSchema,
   QueryRecordsArgsSchema,
   RecordClaimArgsSchema,
@@ -271,6 +272,8 @@ import {
   type PromoteNextActionResult,
   type QueryHistoryArgs,
   type QueryHistoryResult,
+  type QueryAttentionArgs,
+  type QueryAttentionResult,
   type QueryRecordsArgs,
   type QueryRecordsResult,
   type RecordClaimArgs,
@@ -792,6 +795,18 @@ export class ResearchControlService extends TypertRemoteService {
       dirNames: () => getResearchDirNames(this.ctx),
       sessions: adapter,
       declarativeDir: join(schemaRoot, 'declarative'),
+      // UI-8 (D2, ADJ-4/ADJ-13): the plane queryAttention leg reads the
+      // SAME per-project production sources as the mgmt leg — via the
+      // per-project RPC services' collectAttention hook (the live
+      // projectRpcs map; undefined before init, the fail-loud path).
+      getAttentionSources: () => {
+        const rpcs = this.projectRpcs
+        if (rpcs === undefined) return undefined
+        return (projectId: string, now: number) => {
+          const svc = rpcs.get(projectId)
+          return svc?.collectAttention ? svc.collectAttention(now) : undefined
+        }
+      },
     })
     // V2-T3.2b (design §12 rows 4-6/8/9): the PLANE-LEVEL MUTATION port —
     // the mutation sibling of the read port above: one instance for the
@@ -1411,6 +1426,32 @@ export class ResearchControlService extends TypertRemoteService {
   async queryRecords(args: unknown): Promise<QueryRecordsResult> {
     const decoded = QueryRecordsArgsSchema.parse(args) satisfies QueryRecordsArgs
     return this.requireRpc(decoded.projectId).queryRecords!(decoded)
+  }
+
+  /**
+   * UI-8 (D2, D §14 + ADJ-4) — the unified Needs-Attention read face
+   * (5-kind merge + one `rankAttention` total order + host-computed
+   * allowedActions / priority band).
+   *
+   * ADJ-4 dual-path routing — the DOCUMENTED DEVIATION from the plain
+   * mgmt `requireRpc` convention (recorded in DEVIATIONS): with
+   * `projectId` the body follows the mgmt convention (the 36th mgmt
+   * method's shape, identical to the 35 above); WITHOUT it the call has
+   * the cross-project hub semantics, so it takes the PLANE-read leg —
+   * the precedent is `getPortfolioInterventions` (a plane-level body
+   * looping the active projects). Both legs read the SAME per-project
+   * production sources (the mgmt leg through `queryAttention`, the
+   * plane leg through `collectAttention`), so the two legs agree by
+   * construction; the pure core is shared (`queryUnifiedAttention` /
+   * `queryCollections`).
+   */
+  @Remote('queryAttention')
+  async queryAttention(args: unknown): Promise<QueryAttentionResult> {
+    const decoded = QueryAttentionArgsSchema.parse(args) satisfies QueryAttentionArgs
+    if (decoded.projectId !== undefined) {
+      return this.requireRpc(decoded.projectId).queryAttention!(decoded)
+    }
+    return this.requirePlaneServices().queryAttention!(decoded)
   }
 
   /* ------------------------------------------------------------------ *

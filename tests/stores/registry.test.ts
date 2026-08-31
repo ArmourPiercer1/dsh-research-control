@@ -444,23 +444,23 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
     expect(keys).toEqual(['workstreams:WS-1', 'current:WS-1'])
   })
 
-  it('selectPlanFork → workstream + the owning topic (topicId from the CACHED ws slice)', () => {
+  it('selectPlanFork → workstream + the owning topic (topicId from the CACHED ws slice) + the CF slice (UI-8 C-10)', () => {
     const keys = INVALIDATE_REGISTRY.selectPlanFork(SELECT, populatedState())
-    expect(new Set(keys)).toEqual(new Set(['workstreams:WS-1', 'topics:TPC-1']))
+    expect(new Set(keys)).toEqual(new Set(['workstreams:WS-1', 'currentFocus:WS-1', 'topics:TPC-1']))
   })
 
-  it('selectPlanFork without a cached workstream → workstream slice only (topic unresolvable)', () => {
+  it('selectPlanFork without a cached workstream → workstream + CF slice (topic unresolvable; the CF key is unconditional)', () => {
     const state = initialResearchStoreState()
     const keys = INVALIDATE_REGISTRY.selectPlanFork(SELECT, state)
-    expect(keys).toEqual(['workstreams:WS-1'])
+    expect(keys).toEqual(['workstreams:WS-1', 'currentFocus:WS-1'])
   })
 
-  it('dismissPlanFork → workstream + the owning topic (same rule as select)', () => {
+  it('dismissPlanFork → workstream + the owning topic (same rule as select) + the CF slice (UI-8 C-10 same-shape gap)', () => {
     const keys = INVALIDATE_REGISTRY.dismissPlanFork(DISMISS, populatedState())
-    expect(new Set(keys)).toEqual(new Set(['workstreams:WS-1', 'topics:TPC-1']))
+    expect(new Set(keys)).toEqual(new Set(['workstreams:WS-1', 'currentFocus:WS-1', 'topics:TPC-1']))
   })
 
-  it('dismissPlanFork with an ERROR-state ws slice → topic still unresolvable (no data)', () => {
+  it('dismissPlanFork with an ERROR-state ws slice → topic still unresolvable (no data); the CF key still refetches', () => {
     const state = {
       ...initialResearchStoreState(),
       workstreams: new Map([
@@ -468,7 +468,14 @@ describe('INVALIDATE_REGISTRY — per-mutation key sets', () => {
       ]),
     }
     const keys = INVALIDATE_REGISTRY.dismissPlanFork(DISMISS, state)
-    expect(keys).toEqual(['workstreams:WS-1'])
+    expect(keys).toEqual(['workstreams:WS-1', 'currentFocus:WS-1'])
+  })
+
+  it('select/dismissPlanFork → the RESULT workstream currentFocus slice ALWAYS (UI-8 C-10, ADJ-14 precedent — the CF refetch is independent of the topic/WS cache state; both rules pinned by one seam)', () => {
+    const selectKeys = INVALIDATE_REGISTRY.selectPlanFork(SELECT, initialResearchStoreState())
+    expect(selectKeys).toContain('currentFocus:WS-1')
+    const dismissKeys = INVALIDATE_REGISTRY.dismissPlanFork(DISMISS, initialResearchStoreState())
+    expect(dismissKeys).toContain('currentFocus:WS-1')
   })
 
   it('updateInterventionState → dashboard + every CACHED current:<ws> (UI-4: the zone intervention group; result carries no workstreamIds)', () => {

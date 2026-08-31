@@ -132,6 +132,8 @@ import type {
   RemoveRelationResult,
   QueryRecordsArgs,
   QueryRecordsResult,
+  QueryAttentionArgs,
+  QueryAttentionResult,
   GetTopicArgs,
   GetWorkstreamArgs,
   QueryHistoryArgs,
@@ -561,6 +563,8 @@ const DEFAULTS: Record<string, () => unknown> = {
   }),
   removeRelation: () => ({ ok: true, value: { relationId: 'REL-1', status: 'REMOVED', eventId: 'H-7' } }),
   queryRecords: () => ({ ok: true, value: { records: [], total: 0 } }),
+  // D §14 UI-8: wire-valid minimal default for the unified attention face.
+  queryAttention: () => ({ ok: true, value: { items: [], total: 0 } }),
 }
 
 /**
@@ -717,6 +721,8 @@ export function makeStubRpc(): StubRpc {
       deliverArgs<RemoteResult<RemoveRelationResult>>('removeRelation', args),
     queryRecords: async (args: QueryRecordsArgs) =>
       deliverArgs<RemoteResult<QueryRecordsResult>>('queryRecords', args),
+    queryAttention: async (args: QueryAttentionArgs) =>
+      deliverArgs<RemoteResult<QueryAttentionResult>>('queryAttention', args),
   }
 
   return {

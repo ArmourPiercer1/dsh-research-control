@@ -1637,5 +1637,93 @@ interface QueryRecordsResult {
   /** The filtered total (before pagination). */
   readonly total: number;
 }
+/** The five unified-list kinds (RECON §5.2; SEVERE/SEV does NOT produce a
+ *  card — SCHEDULED_EVENT is V1 dashboard-domain, outside D §14.1). */
+type AttentionItemDtoKind = 'INTERVENTION' | 'EXPLICIT_BLOCKER' | 'DERIVED_BLOCKER' | 'NEXT_ACTION' | 'MISSING_NEXT_ACTION';
+/** The host-computed action tokens (RECON §7 — every token maps to an
+ *  EXISTING RPC or pure client navigation; there is NO attentionDone). */
+type AttentionAllowedAction = 'markPending' | 'closeIntervention' | 'reopenIntervention' | 'clearBlocker' | 'promoteNextAction' | 'dismissNextAction' | 'createNextAction' | 'openWorkstream' | 'openCause' | 'openTask';
+/** The three-band priority (ADJ-2 frozen point): mechanically derived
+ *  from the score — HIGH ≥ 90 / MEDIUM 50–89 / LOW < 50. */
+type AttentionPriority = 'HIGH' | 'MEDIUM' | 'LOW';
+interface AttentionItemDto {
+  readonly kind: AttentionItemDtoKind;
+  /** The source object id (IV-/NA-/BLK-/DERIVED-…); for the synthetic
+   *  MISSING_NEXT_ACTION item = the syntheticKey (RECON §5.2). */
+  readonly sourceId: string;
+  /** ONLY for MISSING_NEXT_ACTION: `MISSING-NA-<workstreamId>`. */
+  readonly syntheticKey?: string;
+  /** C §15.1 increment (ADJ-8 / R-11): the provenance ref. */
+  readonly sourceRef: {
+    readonly kind: string;
+    readonly id: string;
+  };
+  readonly projectId: string;
+  readonly workstreamId: string | null;
+  readonly title: string;
+  /** "Why shown here" — the scorer's first reason or the mechanical copy. */
+  readonly reason: string;
+  /** The source object's status word (the 8-value wire union; derived =
+   *  const 'ACTIVE', missing = const 'OPEN' — ADJ-3 mechanical). */
+  readonly status: string;
+  readonly priority: AttentionPriority;
+  /** The mechanical score (rankAttention output; terminal items = 0). */
+  readonly score: number;
+  /** The full-order position (1-based) — terminal items = null (RECON
+   *  §6.4: rank is only meaningful for scoreable items). */
+  readonly rank: number | null;
+  /** The source object created_at (derived = 0 mechanical — it is a
+   *  recomputed projection with no creation stamp; missing = detectedAt). */
+  readonly createdAt: number;
+  /** Non-synthetic = createdAt; synthetic (MISSING_NEXT_ACTION) = the
+   *  query-time clock (RECON §6.3). */
+  readonly detectedAt: number;
+  readonly allowedActions: readonly AttentionAllowedAction[];
+  /** Per-kind payload (narrow fields — the list never ships whole DTOs). */
+  readonly context: {
+    readonly intervention?: {
+      readonly origin: string;
+    };
+    readonly derivedBlocker?: {
+      readonly primaryAction: {
+        readonly label: string;
+        readonly targetKind: string;
+        readonly targetId: string;
+      };
+    };
+    readonly nextAction?: {
+      readonly promotedToTaskId: string | null;
+    };
+    readonly missingNextAction?: {
+      readonly objectiveId: string;
+    };
+  };
+}
+/** All args optional — the empty args = the full-combination cross-project
+ *  hub semantics (ADJ-4). `workstreamId` REQUIRES `projectId` (the WS
+ *  belongs to a project). */
+interface QueryAttentionArgs {
+  /** Absent = cross-project (hub semantics); given = single project. */
+  readonly projectId?: string;
+  /** Requires projectId (the WS belongs to a project). */
+  readonly workstreamId?: string;
+  readonly kind?: AttentionItemDtoKind;
+  /** Exact match over the DTO status (the 8-value wire union — ADJ-9:
+   *  no semantic normalization). */
+  readonly status?: string;
+  readonly priority?: AttentionPriority;
+  /** Default 50, hard cap 200. */
+  readonly limit?: number;
+  /** Default 0. */
+  readonly offset?: number;
+}
+interface QueryAttentionResult {
+  /** The FULL order (the rankAttention total order; offset/limit only
+   *  truncate, never break the order — scoreable first, then the
+   *  terminal group createdAt-desc). */
+  readonly items: readonly AttentionItemDto[];
+  /** The filtered total (before offset/limit). */
+  readonly total: number;
+}
 //#endregion
-export { InspectProjectDirectoryResult as $, UpdatePlanItemResult as $t, DismissPlanForkArgs as A, RestoreProjectArgs as At, GetHubOverviewArgs as B, SetCurrentFocusArgs as Bt, CreateWorkstreamArgs as C, RemoveRelationResult as Ct, DashboardSnapshot as D, RescanResult as Dt, CreateWorkstreamResult as E, RescanArgs as Et, DropWorkstreamResult as F, SaveMergeContractResult as Ft, GetResearchPlaneStateArgs as G, TypertContributionMirror as Gt, GetMergeContractResult as H, SetHubArgs as Ht, GetCurrentFocusArgs as I, SaveResearchCheckpointArgs as It, GetWorkstreamArgs as J, UpdateInterventionStateArgs as Jt, GetResearchPlaneStateResult as K, UnbindProjectArgs as Kt, GetCurrentFocusResult as L, SaveResearchCheckpointResult as Lt, DropTopologyEdgeArgs as M, RetractClaimArgs as Mt, DropTopologyEdgeResult as N, RetractClaimResult as Nt, DismissNextActionArgs as O, RestoreDeclarativeFileArgs as Ot, DropWorkstreamArgs as P, SaveMergeContractArgs as Pt, InspectProjectDirectoryArgs as Q, UpdatePlanItemArgs as Qt, GetGitHistoryArgs as R, SelectPlanForkArgs as Rt, CreateTopicResult as S, RemoveRelationArgs as St, CreateWorkstreamForkResult as T, ReorderPlanResult as Tt, GetPortfolioInterventionsArgs as U, SetHubResult as Ut, GetMergeContractArgs as V, SetCurrentFocusResult as Vt, GetPortfolioInterventionsResult as W, TopicSnapshot as Wt, GetWorkstreamCurrentResult as X, UpdateObjectiveArgs as Xt, GetWorkstreamCurrentArgs as Y, UpdateInterventionStateResult as Yt, HubOverviewResult as Z, UpdateObjectiveResult as Zt, CreatePlanItemArgs as _, RegisterInteractionResult as _t, AddRelationArgs as a, UpdateWorkstreamResult as an, PromoteNextActionResult as at, CreatePlannedMergeResult as b, RemovePlanItemArgs as bt, BindProjectResult as c, QueryRecordsArgs as ct, CreateBlockerArgs as d, RecordClaimResult as dt, UpdateProjectMetadataArgs as en, MarkArtifactMissingArgs as et, CreateBlockerResult as f, RecordFactArgs as ft, CreateNextActionResult as g, RegisterInteractionArgs as gt, CreateNextActionArgs as h, RegisterArtifactResult as ht, AddDependencyResult as i, UpdateWorkstreamArgs as in, PromoteNextActionArgs as it, DismissPlanForkResult as j, RestoreProjectResult as jt, DismissNextActionResult as k, RestoreDeclarativeFileResult as kt, ClearBlockerArgs as l, QueryRecordsResult as lt, CreateLocalResearchProjectResult as m, RegisterArtifactArgs as mt, AckMissingReminderResult as n, UpdateTopicArgs as nn, PingResult as nt, AddRelationResult as o, WorkstreamSnapshot as on, QueryHistoryArgs as ot, CreateLocalResearchProjectArgs as p, RecordFactResult as pt, GetTopicArgs as q, UnbindProjectResult as qt, AddDependencyArgs as r, UpdateTopicResult as rn, ProjectSnapshot as rt, BindProjectArgs as s, QueryHistoryResult as st, AckMissingReminderArgs as t, UpdateProjectMetadataResult as tn, MarkArtifactMissingResult as tt, ClearBlockerResult as u, RecordClaimArgs as ut, CreatePlanItemResult as v, RemoveDependencyArgs as vt, CreateWorkstreamForkArgs as w, ReorderPlanArgs as wt, CreateTopicArgs as x, RemovePlanItemResult as xt, CreatePlannedMergeArgs as y, RemoveDependencyResult as yt, GetGitHistoryResult as z, SelectPlanForkResult as zt };
+export { InspectProjectDirectoryArgs as $, UpdateObjectiveArgs as $t, DismissNextActionResult as A, RescanResult as At, GetGitHistoryResult as B, SaveResearchCheckpointResult as Bt, CreateTopicResult as C, RemovePlanItemArgs as Ct, CreateWorkstreamResult as D, ReorderPlanArgs as Dt, CreateWorkstreamForkResult as E, RemoveRelationResult as Et, DropWorkstreamArgs as F, RetractClaimArgs as Ft, GetPortfolioInterventionsResult as G, SetHubArgs as Gt, GetMergeContractArgs as H, SelectPlanForkResult as Ht, DropWorkstreamResult as I, RetractClaimResult as It, GetTopicArgs as J, TypertContributionMirror as Jt, GetResearchPlaneStateArgs as K, SetHubResult as Kt, GetCurrentFocusArgs as L, SaveMergeContractArgs as Lt, DismissPlanForkResult as M, RestoreDeclarativeFileResult as Mt, DropTopologyEdgeArgs as N, RestoreProjectArgs as Nt, DashboardSnapshot as O, ReorderPlanResult as Ot, DropTopologyEdgeResult as P, RestoreProjectResult as Pt, HubOverviewResult as Q, UpdateInterventionStateResult as Qt, GetCurrentFocusResult as R, SaveMergeContractResult as Rt, CreateTopicArgs as S, RemoveDependencyResult as St, CreateWorkstreamForkArgs as T, RemoveRelationArgs as Tt, GetMergeContractResult as U, SetCurrentFocusArgs as Ut, GetHubOverviewArgs as V, SelectPlanForkArgs as Vt, GetPortfolioInterventionsArgs as W, SetCurrentFocusResult as Wt, GetWorkstreamCurrentArgs as X, UnbindProjectResult as Xt, GetWorkstreamArgs as Y, UnbindProjectArgs as Yt, GetWorkstreamCurrentResult as Z, UpdateInterventionStateArgs as Zt, CreateNextActionResult as _, RegisterArtifactArgs as _t, AddRelationArgs as a, UpdateTopicArgs as an, PromoteNextActionArgs as at, CreatePlannedMergeArgs as b, RegisterInteractionResult as bt, BindProjectArgs as c, UpdateWorkstreamResult as cn, QueryAttentionResult as ct, ClearBlockerResult as d, QueryRecordsArgs as dt, UpdateObjectiveResult as en, InspectProjectDirectoryResult as et, CreateBlockerArgs as f, QueryRecordsResult as ft, CreateNextActionArgs as g, RecordFactResult as gt, CreateLocalResearchProjectResult as h, RecordFactArgs as ht, AddDependencyResult as i, UpdateProjectMetadataResult as in, ProjectSnapshot as it, DismissPlanForkArgs as j, RestoreDeclarativeFileArgs as jt, DismissNextActionArgs as k, RescanArgs as kt, BindProjectResult as l, WorkstreamSnapshot as ln, QueryHistoryArgs as lt, CreateLocalResearchProjectArgs as m, RecordClaimResult as mt, AckMissingReminderResult as n, UpdatePlanItemResult as nn, MarkArtifactMissingResult as nt, AddRelationResult as o, UpdateTopicResult as on, PromoteNextActionResult as ot, CreateBlockerResult as p, RecordClaimArgs as pt, GetResearchPlaneStateResult as q, TopicSnapshot as qt, AddDependencyArgs as r, UpdateProjectMetadataArgs as rn, PingResult as rt, AttentionItemDto as s, UpdateWorkstreamArgs as sn, QueryAttentionArgs as st, AckMissingReminderArgs as t, UpdatePlanItemArgs as tn, MarkArtifactMissingArgs as tt, ClearBlockerArgs as u, QueryHistoryResult as ut, CreatePlanItemArgs as v, RegisterArtifactResult as vt, CreateWorkstreamArgs as w, RemovePlanItemResult as wt, CreatePlannedMergeResult as x, RemoveDependencyArgs as xt, CreatePlanItemResult as y, RegisterInteractionArgs as yt, GetGitHistoryArgs as z, SaveResearchCheckpointArgs as zt };

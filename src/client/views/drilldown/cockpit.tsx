@@ -61,7 +61,6 @@ import { createCommandAnalysisDataProvider } from '../../dsh-adapter/remote/anal
 import { investigateIntervention } from '../../dsh-adapter/remote/investigate.js'
 import { HomeDashboard } from '../home/HomeDashboard.js'
 import { HistoryTimelineView } from '../history/HistoryTimelineView.js'
-import { PlanGraphContainer } from '../../graph/PlanGraphContainer.js'
 import { ProjectPage } from '../project/ProjectPage.js'
 import { WorkstreamView } from '../workstream/WorkstreamView.js'
 import { buildDrilldownModel } from './drilldown-model.js'
@@ -214,10 +213,6 @@ export function WorkstreamPage({
       <div className={styles.wsPageGrid}>
         <div className={styles.wsPageMain}>
           <WorkstreamView store={store} workstreamId={workstreamId} onOpenHistory={onOpenHistory} initialRecordsRelated={initialRecordsRelated} />
-          <h2 className={styles.sectionTitle}>计划图（正典 + PlanFork overlay）</h2>
-          <div className={styles.graphBox} data-ws-id={workstreamId}>
-            <PlanGraphContainer store={store} workstreamId={workstreamId} />
-          </div>
           <DrilldownSection
             store={store}
             workstreamId={workstreamId}

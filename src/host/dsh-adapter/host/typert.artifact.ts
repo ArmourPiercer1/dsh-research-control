@@ -99,6 +99,8 @@ import {
   PromoteNextActionResultSchema,
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
+  QueryAttentionArgsSchema,
+  QueryAttentionResultSchema,
   QueryRecordsArgsSchema,
   QueryRecordsResultSchema,
   RecordClaimArgsSchema,
@@ -310,6 +312,8 @@ const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
   { name: 'RemoveRelationResult', schema: RemoveRelationResultSchema },
   { name: 'QueryRecordsArgs', schema: QueryRecordsArgsSchema },
   { name: 'QueryRecordsResult', schema: QueryRecordsResultSchema },
+  { name: 'QueryAttentionArgs', schema: QueryAttentionArgsSchema },
+  { name: 'QueryAttentionResult', schema: QueryAttentionResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {
@@ -693,6 +697,12 @@ export const TYPERT: TypertHostManifest = {
             kind: 'method',
             summary: 'Records (V2-UI-0.4 UI-7, brief §3): query FACT/CLAIM/ARTIFACT records in-memory over the derived semantic state (no file read, zero queryHistory dependency); keyword / type / status / related-object filters + time range + limit/offset pagination; the mechanical PENDING_REVIEW conflict flag rides claims that carry a CONTRADICTED_BY edge.',
           },
+          {
+            name: 'queryAttention',
+            signature: 'queryAttention(args: QueryAttentionArgs): Promise<QueryAttentionResult>',
+            kind: 'method',
+            summary: 'Needs Attention (D §14, UI-8): the unified 5-kind attention read (intervention / explicit blocker / next action / derived blocker / missing-NextAction synthetic) — one rankAttention total order (cross-project when projectId is omitted, the ADJ-4 dual path), host-computed allowedActions + priority band; kind/status/priority exact filters + workstreamId equality + limit/offset (default 50, cap 200).',
+          },
         ],
         types: [
           {
@@ -985,6 +995,11 @@ export const TYPERT: TypertHostManifest = {
             name: 'QueryRecordsResult',
             declaration:
               'interface QueryRecordsResult { readonly records: SemanticRecordDto[]; readonly total: number }',
+          },
+          {
+            name: 'QueryAttentionResult',
+            declaration:
+              'interface QueryAttentionResult { readonly items: AttentionItemDto[]; readonly total: number }',
           },
         ],
       },

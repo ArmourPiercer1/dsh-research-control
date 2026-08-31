@@ -2,8 +2,9 @@
  * V2-T5.1 — 总览（中枢模式）= 聚合条 + 项目卡墙 (design §7.1, C 案).
  * V2-UI-0.4 UI-3 (D2) — restructured into the FROZEN B §4 Portfolio view:
  * header `Portfolio [Create Project] [Bind Existing Project]` + subtitle,
- * the Needs Attention SUMMARY (the top-6 cross-project interventions from
- * `getPortfolioInterventions`, View all → the 重要事件 stream page), the
+ * the Needs Attention SUMMARY (the top-6 cross-project NON-TERMINAL items
+ * from the unified `queryAttention` face, View all → the Needs Attention
+ * unified page), the
  * 聚合条, the per-project 需关注 row, the Projects card wall (B §4.5 field
  * set, description 有则显) and the B §4.6 VERBATIM empty state (its dual
  * buttons open the SAME shared journey dialogs as the header).
@@ -23,21 +24,23 @@
  *    stale data + a fault row; a failed FIRST LOAD is the failure face);
  *  - 聚合条: 「N 个项目 · 未决干预 N · 收件箱 N」 (the `totals` projection,
  *    a single text node);
- *  - Needs Attention summary (B §4.4): the cross-project intervention
- *    stream (the injected `loadPortfolioInterventions` face — the SAME
- *    wire call as the 重要事件 page, default status view) collapsed to the
- *    TOP 6 items (host order — no client re-sort: the DTO carries no
- *    priority field); each item is a whole-item button → `onOpenAttention`
- *    (the stream page); the header's [View all] does the same. The
- *    section renders NOTHING when the face is omitted, the fetch failed
- *    (the fault line responds with the carrier-decoded detail) or the
- *    item list is empty (no placeholder, the §7.1 无则整行不渲染
- *    convention). One fetch per mount — [刷新] does NOT re-run it (the
- *    back-from-drill remount does; the stream page has its own lifecycle);
- *  - 「需关注」 row (the T5.1 per-project aggregate): ONLY the projects
- *    with open interventions — the host returns the array empty when none
- *    applies, and the row is then NOT RENDERED AT ALL (无则整行不渲染，
- *    不占位 — no placeholder element);
+ *  - Needs Attention summary (B §4.4, UI-8 D §14.2): the unified
+ *    `queryAttention` fetch (the SAME wire call as the Needs Attention
+ *    unified page — the injected `loadAttention` face, zero args = the
+ *    cross-project hub view) filtered to NON-TERMINAL items, collapsed to
+ *    the TOP 6 (host order — never client re-sorted: INV-ATTN-1); each
+ *    item is a whole-item button → `onOpenAttention` (the unified page);
+ *    the header's [View all] does the same. The section renders NOTHING
+ *    when the face is omitted, the fetch failed (the fault line responds
+ *    with the carrier-decoded detail) or no non-terminal item remains (no
+ *    placeholder, the §7.1 无则整行不渲染 convention). One fetch per
+ *    mount — [刷新] does NOT re-run it (the back-from-drill remount does;
+ *    the unified page has its own lifecycle);
+ *  - 「需关注」 row (the T5.1 per-project aggregate — UI-8: recomputed
+ *    from the SAME `queryAttention` fetch; per-project NON-TERMINAL count
+ *    + oldest detected age, first-appearance order): ONLY when at least
+ *    one project has non-terminal items — otherwise the row is NOT
+ *    RENDERED AT ALL (无则整行不渲染，不占位 — no placeholder element);
  *  - Projects card wall: heading + one WHOLE-CARD-CLICKABLE card per
  *    `cards[]` entry (the 钻取链 root — the click fires
  *    `onDrill(projectId)` and the 总览 content switches to the project
@@ -57,20 +60,21 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 
 import type {
+  AttentionItemDto,
   BindProjectArgs,
   BindProjectResult,
   CreateLocalResearchProjectArgs,
   CreateLocalResearchProjectResult,
-  GetPortfolioInterventionsResult,
   HubOverviewResult,
   InspectProjectDirectoryArgs,
   InspectProjectDirectoryResult,
-  PortfolioInterventionItemDto,
+  QueryAttentionResult,
   SetHubArgs,
   SetHubResult,
 } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
 import { extractResearchErrorCarrier } from '../../util/error-carrier.js'
+import { KIND_LABEL, PRIORITY_LABEL, attentionGroupOf } from './intervention-stream.js'
 import { OnboardingCard } from './onboarding-card.js'
 import { BindProjectDialog, CreateProjectDialog } from './project-journeys.js'
 import styles from './hub-overview.module.css'
@@ -125,8 +129,9 @@ export function formatOldestAge(hours: number): string {
  *    header [Create Project] / [Bind Existing Project] + the B §4.6 empty
  *    state's dual buttons (all four open the SAME shared journey dialogs,
  *    project-journeys.tsx);
- *  - `loadPortfolioInterventions` feeds the Needs Attention summary (the
- *    default status view — zero args; the shell adapts the stream face);
+ *  - `loadAttention` feeds the Needs Attention summary (the unified
+ *    face — zero args = the cross-project hub view; the shell adapts the
+ *    stream face);
  *  - `onOpenAttention` is the summary item / [View all] target (the shell
  *    jumps the frame to the 重要事件 stream page).
  */
@@ -145,7 +150,7 @@ export interface HubOverviewPageProps {
   readonly inspectProjectDirectory?: (
     args: InspectProjectDirectoryArgs,
   ) => Promise<InspectProjectDirectoryResult>
-  readonly loadPortfolioInterventions?: () => Promise<GetPortfolioInterventionsResult>
+  readonly loadAttention?: () => Promise<QueryAttentionResult>
   readonly onOpenAttention?: () => void
 }
 
@@ -175,7 +180,7 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
     onApplied,
     createLocalResearchProject,
     inspectProjectDirectory,
-    loadPortfolioInterventions,
+    loadAttention,
     onOpenAttention,
   } = props
   const [data, setData] = useState<HubOverviewResult | null>(null)
@@ -195,13 +200,13 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
   // ── V2-UI-0.4 UI-3 (D2) — the Needs Attention summary (B §4.4). ──
 
   // null = not loaded (face omitted or the fetch is still in flight).
-  const [attentionItems, setAttentionItems] = useState<readonly PortfolioInterventionItemDto[] | null>(null)
+  const [attentionItems, setAttentionItems] = useState<readonly AttentionItemDto[] | null>(null)
   // The summary fetch failure (carrier-decoded detail; the stream page has
   // its own full failure face — this line only says the summary is dark).
   const [attentionError, setAttentionError] = useState<string | null>(null)
-  const attentionInflight = useRef<Promise<GetPortfolioInterventionsResult> | null>(null)
-  const attentionLoadRef = useRef(props.loadPortfolioInterventions)
-  attentionLoadRef.current = props.loadPortfolioInterventions
+  const attentionInflight = useRef<Promise<QueryAttentionResult> | null>(null)
+  const attentionLoadRef = useRef(props.loadAttention)
+  attentionLoadRef.current = props.loadAttention
   // true = the Create journey dialog is open (the shared dialog mounts).
   const [createOpen, setCreateOpen] = useState(false)
   // true = the Bind journey dialog is open.
@@ -304,16 +309,40 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
     )
   }
 
-  const { totals, attention, cards } = data
+  const { totals, cards } = data
   const emptyHub = cards.length === 0
-  const attentionItemsText = attention.map(
-    (a) => `${a.projectId} ${a.displayName}（干预 ×${String(a.openCount)}，${formatOldestAge(a.oldestHours)}）`,
-  )
-  // The B §4.4 summary projection (host order, top 6): rendered ONLY when
-  // the face is wired AND the fetch settled with a non-empty list.
+  // UI-8 (D §14.2): the 需关注 row + the B §4.4 summary BOTH derive from
+  // the SAME unified `queryAttention` fetch (the T5.1 host-side `attention`
+  // projection is no longer consumed by this view). NON-TERMINAL items
+  // only — terminals need no human action; first-appearance (host) order
+  // is kept (INV-ATTN-1: never re-sorted client-side).
+  const nonTerminalItems = (attentionItems ?? []).filter((item) => attentionGroupOf(item) !== 'CLOSED')
+  const attentionItemsText = (() => {
+    const order: string[] = []
+    const byProject = new Map<string, { count: number; oldestMs: number }>()
+    for (const item of nonTerminalItems) {
+      const seen = byProject.get(item.projectId)
+      if (seen === undefined) {
+        order.push(item.projectId)
+        byProject.set(item.projectId, { count: 1, oldestMs: item.detectedAt })
+      } else {
+        seen.count += 1
+        seen.oldestMs = Math.min(seen.oldestMs, item.detectedAt)
+      }
+    }
+    return order.map((pid) => {
+      const displayName = cards.find((c) => c.projectId === pid)?.displayName ?? pid
+      const entry = byProject.get(pid)
+      const hours = (Date.now() - (entry?.oldestMs ?? 0)) / 3_600_000
+      return `${pid} ${displayName}（需关注 ×${String(entry?.count ?? 0)}，${formatOldestAge(hours)}）`
+    })
+  })()
+  // The B §4.4 summary projection (host order, non-terminal, top 6):
+  // rendered ONLY when the face is wired AND the fetch settled with a
+  // non-empty non-terminal list.
   const summaryVisible =
-    loadPortfolioInterventions !== undefined && attentionItems !== null && attentionItems.length > 0
-  const summaryItems = (attentionItems ?? []).slice(0, ATTENTION_SUMMARY_CAP)
+    loadAttention !== undefined && attentionItems !== null && nonTerminalItems.length > 0
+  const summaryItems = nonTerminalItems.slice(0, ATTENTION_SUMMARY_CAP)
 
   return (
     <div className={styles.overview} data-hub-overview data-phase="ready">
@@ -387,27 +416,30 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
             )}
           </div>
           <ul className={styles.attentionList}>
-            {summaryItems.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={styles.attentionItem}
-                  data-portfolio-attention-item
-                  data-attention-item-id={item.id}
-                  aria-label={`${item.title} — ${item.displayName} (${item.projectId})`}
-                  onClick={() => {
-                    onOpenAttention?.()
-                  }}
-                >
-                  <span className={styles.attentionItemTitle} data-attention-item-title>
-                    {item.title}
-                  </span>
-                  <span className={styles.attentionItemMeta} data-attention-item-meta>
-                    {`${item.displayName} (${item.projectId})${item.workstreamIds.length > 0 ? ` · ${item.workstreamIds.join(', ')}` : ''} · ${item.origin} · ${item.status}`}
-                  </span>
-                </button>
-              </li>
-            ))}
+            {summaryItems.map((item) => {
+              const displayName = cards.find((c) => c.projectId === item.projectId)?.displayName ?? item.projectId
+              return (
+                <li key={item.syntheticKey ?? item.sourceId}>
+                  <button
+                    type="button"
+                    className={styles.attentionItem}
+                    data-portfolio-attention-item
+                    data-attention-item-id={item.sourceId}
+                    aria-label={`${item.title} — ${displayName} (${item.projectId})`}
+                    onClick={() => {
+                      onOpenAttention?.()
+                    }}
+                  >
+                    <span className={styles.attentionItemTitle} data-attention-item-title>
+                      {item.title}
+                    </span>
+                    <span className={styles.attentionItemMeta} data-attention-item-meta>
+                      {`${displayName} (${item.projectId})${item.workstreamId !== null ? ` · ${item.workstreamId}` : ''} · ${KIND_LABEL[item.kind]} · ${PRIORITY_LABEL[item.priority]} · ${item.status}`}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </section>
       ) : attentionError !== null ? (
@@ -418,7 +450,7 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
       {/* 「需关注」 row — ONLY when at least one project has open
           interventions (the host returns [] otherwise; 无则整行不渲染，
           不占位 — no element in the DOM at all). */}
-      {attention.length > 0 && (
+      {attentionItemsText.length > 0 && (
         <p className={styles.attention} data-hub-overview-attention>
           {`⚠ 需关注：${attentionItemsText.join('；')}`}
         </p>

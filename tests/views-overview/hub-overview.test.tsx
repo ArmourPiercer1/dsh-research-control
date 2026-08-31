@@ -12,9 +12,11 @@
  * Gate coverage (plan P5 T5.1):
  *  - the 聚合条 renders the totals (single text node: 「N 个项目 · 未决干预
  *    N · 收件箱 N」);
- *  - the 需关注 row SHOWS with the attention data (⚠ line — per-project
- *    open count + 最旧 N 天/小时) and HIDES when the attention is empty
- *    (no placeholder element, no text in the DOM at all);
+ *  - the 需关注 row SHOWS from the `queryAttention` face (UI-8 D3: the
+ *    ⚠ line — per-project NON-TERMINAL count + 最旧 N 天/小时 computed
+ *    client-side from the items' detectedAt) and HIDES when the face is
+ *    omitted, the list is empty, or every item is a terminal (no
+ *    placeholder element, no text in the DOM at all);
  *  - the card wall: attention-mode badge (FOCUS/NORMAL/BACKGROUND),
  *    name + PRJ-id, the count row (data-open-interventions), the target
  *    line ONLY when present;
@@ -39,19 +41,23 @@ import type {
   BindProjectResult,
   CreateLocalResearchProjectArgs,
   CreateLocalResearchProjectResult,
-  GetPortfolioInterventionsResult,
   HubOverviewResult,
   InspectProjectDirectoryArgs,
   InspectProjectDirectoryResult,
+  QueryAttentionResult,
   SetHubArgs,
   SetHubResult,
 } from '../../src/shared/rpc-contracts.js'
 import {
+  ATTN_EMPTY_RESULT,
+  ATTN_NOW,
+  ATTN_ROW_RESULT,
+  ATTN_SUMMARY_RESULT,
+  ATTN_TERMINALS_ONLY_RESULT,
   HUB_OVERVIEW_ATTENTION_RESULT,
   HUB_OVERVIEW_CARD_MAPPING_RESULT,
   HUB_OVERVIEW_EMPTY_RESULT,
   HUB_OVERVIEW_RESULT,
-  PORTFOLIO_ATTENTION_RESULT,
 } from './fixtures.js'
 
 /** The non-fetch props (the 空中枢 onboarding-card faces — inert in
@@ -81,6 +87,7 @@ function renderOverview(
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
 })
 
 describe('HubOverviewPage — 聚合条', () => {
@@ -96,18 +103,40 @@ describe('HubOverviewPage — 聚合条', () => {
   })
 })
 
-describe('HubOverviewPage — 需关注 row', () => {
-  it('renders the row with per-project open counts + oldest age when attention is non-empty', async () => {
-    renderOverview(vi.fn().mockResolvedValue(HUB_OVERVIEW_ATTENTION_RESULT))
+describe('HubOverviewPage — 需关注 row (UI-8 D3: the queryAttention face)', () => {
+  it('renders the row with per-project non-terminal counts + oldest age when attention is non-empty', async () => {
+    // The oldest age is computed CLIENT-SIDE from Date.now() − min
+    // detectedAt — pin the clock so the assertion is deterministic.
+    vi.setSystemTime(ATTN_NOW)
+    const { faces } = makeWiredFaces(() => Promise.resolve(ATTN_ROW_RESULT))
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_ATTENTION_RESULT), faces)
 
     const row = await screen.findByText(
-      '⚠ 需关注：PRJ-1 机器人视觉定位（干预 ×2，最旧 2 天）；PRJ-2 独立拓扑项目（干预 ×1，最旧 5 小时）',
+      '⚠ 需关注：PRJ-1 机器人视觉定位（需关注 ×2，最旧 2 天）；PRJ-2 独立拓扑项目（需关注 ×1，最旧 5 小时）',
     )
     expect(row.closest('[data-hub-overview-attention]')).toBeTruthy()
   })
 
-  it('HIDES the row when the attention is empty (no placeholder element, no text in the DOM)', async () => {
+  it('HIDES the row when the face is omitted (no placeholder element, no text in the DOM)', async () => {
     renderOverview(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT))
+
+    await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
+    expect(document.querySelector('[data-hub-overview-attention]')).toBeNull()
+    expect(document.body.textContent).not.toContain('需关注')
+  })
+
+  it('HIDES the row when the fetch settles empty (no placeholder element)', async () => {
+    const { faces } = makeWiredFaces(() => Promise.resolve(ATTN_EMPTY_RESULT))
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), faces)
+
+    await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
+    expect(document.querySelector('[data-hub-overview-attention]')).toBeNull()
+    expect(document.body.textContent).not.toContain('需关注')
+  })
+
+  it('HIDES the row when every item is a terminal (the non-terminal filter)', async () => {
+    const { faces } = makeWiredFaces(() => Promise.resolve(ATTN_TERMINALS_ONLY_RESULT))
+    renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), faces)
 
     await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
     expect(document.querySelector('[data-hub-overview-attention]')).toBeNull()
@@ -222,9 +251,11 @@ describe('formatters', () => {
  * ───────────────────────────────────────────────────────────────────── */
 
 /** The wired D2 faces: the Create/Bind journeys + the attention
- *  summary face + its navigation target (the 重要事件 stream jump). */
-function makeWiredFaces(attention: () => Promise<GetPortfolioInterventionsResult> =
-  () => Promise.resolve(PORTFOLIO_ATTENTION_RESULT)) {
+ *  summary face (UI-8 D3: `loadAttention` — the unified `queryAttention`
+ *  fetch, zero args = the cross-project hub view) + its navigation
+ *  target (the 重要事件 stream jump). */
+function makeWiredFaces(attention: () => Promise<QueryAttentionResult> =
+  () => Promise.resolve(ATTN_SUMMARY_RESULT)) {
   const onOpenAttention = vi.fn()
   const faces = {
     createLocalResearchProject: async (_args: CreateLocalResearchProjectArgs): Promise<CreateLocalResearchProjectResult> => ({
@@ -244,7 +275,7 @@ function makeWiredFaces(attention: () => Promise<GetPortfolioInterventionsResult
       treeValid: true,
       alreadyManaged: false,
     }),
-    loadPortfolioInterventions: attention,
+    loadAttention: attention,
     onOpenAttention,
   }
   return { faces, onOpenAttention }
@@ -305,10 +336,11 @@ describe('Needs Attention summary (B §4.4)', () => {
     expect(document.querySelector('[data-attention-item-id="IV-6"]')).not.toBeNull()
     expect(document.querySelector('[data-attention-item-id="IV-7"]')).toBeNull()
 
-    // the item face: title + the meta line (displayName (projectId) · WS · origin · status)
-    // — the fixture items share one meta line, so it repeats exactly once per rendered item
+    // the item face: title + the meta line (displayName (projectId) · WS ·
+    // kind · priority · status — UI-8 D3) — the fixture items share one
+    // meta line, so it repeats exactly once per rendered item
     expect(screen.getByText('干预事项 1')).toBeDefined()
-    expect(screen.getAllByText('机器人视觉定位 (PRJ-1) · WS-1 · USER · OPEN')).toHaveLength(6)
+    expect(screen.getAllByText('机器人视觉定位 (PRJ-1) · WS-1 · Intervention · High · OPEN')).toHaveLength(6)
 
     // item click + [View all] both jump to the 重要事件 stream page
     fireEvent.click(document.querySelector('[data-attention-item-id="IV-1"]') as Element)
@@ -318,7 +350,7 @@ describe('Needs Attention summary (B §4.4)', () => {
   })
 
   it('renders NOTHING when the list is empty (无则不渲染，不占位)', async () => {
-    const { faces } = makeWiredFaces(() => Promise.resolve({ items: [] }))
+    const { faces } = makeWiredFaces(() => Promise.resolve(ATTN_EMPTY_RESULT))
     renderWired(vi.fn().mockResolvedValue(HUB_OVERVIEW_RESULT), faces)
     await screen.findByText('1 个项目 · 未决干预 0 · 收件箱 0')
     expect(document.querySelector('[data-portfolio-attention]')).toBeNull()

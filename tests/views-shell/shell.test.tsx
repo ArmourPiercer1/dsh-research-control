@@ -56,6 +56,7 @@ import type {
   AckMissingReminderArgs,
   AckMissingReminderResult,
   GetPortfolioInterventionsResult,
+  QueryAttentionResult,
   GetResearchPlaneStateResult,
   HubOverviewResult,
   UpdateInterventionStateResult,
@@ -99,6 +100,9 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
   // keeps these cases focused on the frame wiring (the empty-state face
   // shows).
   const loadPortfolioInterventions = vi.fn(async (): Promise<GetPortfolioInterventionsResult> => ({ items: [] }))
+  // D §14 UI-8: the unified attention read face (inert here — these cases
+  // never navigate to the Needs Attention page).
+  const loadAttention = vi.fn(async (): Promise<QueryAttentionResult> => ({ items: [], total: 0 }))
   const updateInterventionState = vi.fn(async (): Promise<UpdateInterventionStateResult> => ({
     interventionId: 'IV-1',
     statusFrom: 'OPEN',
@@ -136,6 +140,7 @@ function renderShell(loadPlaneState: ResearchShellProps['loadPlaneState'], sessi
         loadPlaneState={loadPlaneState}
         loadHubOverview={loadHubOverview}
         loadPortfolioInterventions={loadPortfolioInterventions}
+        loadAttention={loadAttention}
         updateInterventionState={updateInterventionState}
         onInvestigate={onInvestigate}
         readInvestigatorTransient={readInvestigatorTransient}

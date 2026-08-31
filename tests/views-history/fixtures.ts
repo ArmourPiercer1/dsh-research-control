@@ -281,6 +281,9 @@ export function makeHistoryFacade(
             recordCalls.push(args)
             return { ok: true, value: { records: [...records], total: records.length } }
           },
+      // D §14 UI-8: the unified attention read face joins the facade
+      // surface (same must-not-be-called contract).
+      queryAttention: notUsed('queryAttention'),
     } as ResearchRpcFacade,
     calls,
     recordCalls,
@@ -374,6 +377,9 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     addRelation: notUsed('addRelation'),
     removeRelation: notUsed('removeRelation'),
     queryRecords: notUsed('queryRecords'),
+    // D §14 UI-8: the unified attention read face joins the facade
+    // surface (same must-not-be-called contract).
+    queryAttention: notUsed('queryAttention'),
   } as ResearchRpcFacade
 }
 

@@ -311,15 +311,24 @@ export const INVALIDATE_REGISTRY: {
     sliceKey('current', result.workstreamId),
   ],
 
+  // UI-8 (C-10, ADJ-14 precedent): the RESULT workstream's current-focus
+  // pointer slice refetches with the PF mutation — the same CF-key
+  // legitimacy as the setCurrentFocus rule below (without it the CF panel
+  // could keep a stale pointer until a full reload — the NO-REFRESH drift
+  // class F-9 forbids).
   selectPlanFork: (result, state) => {
     const keys: SliceKey[] = [sliceKey('workstreams', result.workstreamId)]
+    keys.push(sliceKey('currentFocus', result.workstreamId))
     const topicId = cachedTopicId(state, result.workstreamId)
     if (topicId !== null) keys.push(sliceKey('topics', topicId))
     return keys
   },
 
+  // UI-8 (C-10): identical same-shape gap as selectPlanFork (verified
+  // line-by-line) — the same one-line CF-key extension applies.
   dismissPlanFork: (result, state) => {
     const keys: SliceKey[] = [sliceKey('workstreams', result.workstreamId)]
+    keys.push(sliceKey('currentFocus', result.workstreamId))
     const topicId = cachedTopicId(state, result.workstreamId)
     if (topicId !== null) keys.push(sliceKey('topics', topicId))
     return keys

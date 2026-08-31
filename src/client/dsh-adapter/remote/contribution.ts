@@ -102,6 +102,8 @@ import {
   PromoteNextActionResult,
   QueryHistoryArgs,
   QueryHistoryResult,
+  QueryAttentionArgs,
+  QueryAttentionResult,
   QueryRecordsArgs,
   QueryRecordsResult,
   RESEARCH_CONTROL_PACKAGE,
@@ -325,6 +327,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'researchControl/queryRecords': (
       args: QueryRecordsArgs,
     ) => Promise<RemoteResult<QueryRecordsResult>>
+    // D §14 (UI-8): the unified Needs-Attention read face (the host's
+    // @Remote body takes the ADJ-4 dual path — mgmt leg with projectId,
+    // plane leg without).
+    'researchControl/queryAttention': (
+      args: QueryAttentionArgs,
+    ) => Promise<RemoteResult<QueryAttentionResult>>
   }
 
   interface TypertRemoteNamespaceMap {
@@ -493,6 +501,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     queryRecords: (
       args: QueryRecordsArgs,
     ) => Promise<RemoteResult<QueryRecordsResult>>
+    queryAttention: (
+      args: QueryAttentionArgs,
+    ) => Promise<RemoteResult<QueryAttentionResult>>
   }
 }
 

@@ -46,10 +46,12 @@
  *    commit and is a no-op once settled (loadQuery in-flight dedupe
  *    makes double-issues safe).
  */
-import { useEffect, useState, useSyncExternalStore, type ReactElement } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
 
 import { historyKey, type ResearchStore } from '../../stores'
 
+import { researchRpc, type RemoteResult } from '../../dsh-adapter/remote/mount.js'
+import type { AttentionItemDto, QueryAttentionResult } from '../../../shared/rpc-contracts.js'
 import { ProjectPageView, type RecentHistoryEntry } from './ProjectPageView'
 import { CreateTopicDialog, CreateWorkstreamDialog, TopicEditDialog } from './topic-dialogs'
 
@@ -71,6 +73,9 @@ export interface ProjectPageProps {
   /** Back to the home dashboard. V2-T5.1 root-mode (project as overview
    * root, e.g. MANAGED/STANDALONE 总览) omits it — no back affordance. */
   readonly onBack?: () => void
+  /** D §14 (UI-8) — workstream navigation (the ws-card click + the
+   *  attention rows; the console's page navigation). */
+  readonly onOpenWorkstream?: (workstreamId: string, topicId: string) => void
 }
 
 /**
@@ -80,7 +85,12 @@ export interface ProjectPageProps {
  * @param props - store handle + navigation callbacks.
  * @returns the project page element.
  */
-export function ProjectPage({ store, onOpenTopic, onBack }: ProjectPageProps): ReactElement {
+export function ProjectPage({
+  store,
+  onOpenTopic,
+  onBack,
+  onOpenWorkstream,
+}: ProjectPageProps): ReactElement {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const slice = snapshot.project
 
@@ -198,6 +208,44 @@ export function ProjectPage({ store, onOpenTopic, onBack }: ProjectPageProps): R
 
   const projectId = slice.data?.project.id
 
+  // D §14 (UI-8) — the Project Attention block (the UI-3 placeholder
+  // retired): ONE single-project `queryAttention` projection per mount
+  // (limit 6 — the ranked non-terminal head; the host order is kept,
+  // terminals are filtered view-side). The container is the ONE file
+  // that touches the adapter (the cockpit precedent — same two-layer
+  // rule as the store binding above). A failed fetch records the fault
+  // row; the page itself is unaffected (the attention block is a
+  // section, not the page).
+  const [attentionItems, setAttentionItems] = useState<readonly AttentionItemDto[] | null>(null)
+  const [attentionError, setAttentionError] = useState<string | null>(null)
+  const attentionInflight = useRef<Promise<RemoteResult<QueryAttentionResult>> | null>(null)
+  const attentionFetchedFor = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (projectId === undefined) return
+    if (attentionFetchedFor.current === projectId) return
+    if (attentionInflight.current !== null) return
+    attentionFetchedFor.current = projectId
+    const pending = researchRpc.queryAttention({ projectId, limit: 6 })
+    attentionInflight.current = pending
+    pending
+      .then((result) => {
+        if (attentionInflight.current !== pending) return
+        if (result.ok) {
+          setAttentionItems(result.value.items)
+        } else {
+          setAttentionError(`${result.error.code}: ${result.error.message}`)
+        }
+      })
+      .catch((err: unknown) => {
+        if (attentionInflight.current !== pending) return
+        setAttentionError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (attentionInflight.current === pending) attentionInflight.current = null
+      })
+  }, [projectId])
+
   const editTopicSlice = editTopicId !== null ? snapshot.topics.get(editTopicId) : undefined
   const editTopicCard =
     slice.data !== null && editTopicId !== null
@@ -235,6 +283,9 @@ export function ProjectPage({ store, onOpenTopic, onBack }: ProjectPageProps): R
           loading: recentHistoryExpanded && recentHistoryEntries === null,
           truncated: recentHistoryTruncated,
         }}
+        attentionItems={attentionItems}
+        attentionError={attentionError}
+        onOpenWorkstream={onOpenWorkstream}
       />
 
       {/* UI-3 — the Overview-side Topic dialogs (the shared components;

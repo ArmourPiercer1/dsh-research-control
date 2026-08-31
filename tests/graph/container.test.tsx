@@ -250,9 +250,10 @@ describe('PlanGraphContainer (UI-5 extended face): the slice join', () => {
   it('is PF-downgraded by default in the extended face (ADJ-9)', async () => {
     const { container } = renderExtended()
     await screen.findByText('PF-1')
-    // the downgrade flag rides the VIEW's root (the inner [data-role=
-    // plan-graph]) and the PF toolbar — the container wrapper does not:
-    const viewRoot = container.querySelectorAll('[data-role="plan-graph"]')[1] as HTMLElement
+    // the downgrade flag rides the VIEW's root ([data-role=plan-graph] —
+    // the container wrapper no longer stamps the role after the C-7 stamp
+    // cleanup, so the view root is the SOLE carrier) and the PF toolbar:
+    const viewRoot = container.querySelector('[data-role="plan-graph"]') as HTMLElement
     expect(viewRoot.getAttribute('data-pf-downgraded')).toBe('true')
     expect(container.querySelectorAll('[data-pf-downgraded="true"]')).toHaveLength(2)
   })

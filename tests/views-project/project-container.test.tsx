@@ -38,17 +38,25 @@
  *    the other topics merge normally and the topic is not refetched;
  *  - the empty-state face (no usable workstreams at all; workstreams
  *    whose every window is empty).
+ *
+ * V2-UI-8 D3 (D §14.3) — the Project Attention CONTAINER contract is
+ * pinned here: ONE `queryAttention({projectId, limit: 6})` per mount
+ * (the module `researchRpc` facade — mounted through the same seam as
+ * the cockpit tests), the row renders from the projection, a failed
+ * fetch renders the fault row with the page intact.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createResearchStore } from '../../src/client/stores'
+import { mountResearchRemotes, type RemoteContext } from '../../src/client/dsh-adapter/remote/mount.js'
 import { ProjectPage, formatEpochDate } from '../../src/client/views/project'
 import { makeStubRpc, type StubRpc } from '../stores/stub-rpc.js'
 import { PROJECT_PAGE_FIXTURE } from './fixtures'
 import {
   ProjectSnapshotSchema,
+  QueryAttentionResultSchema,
   QueryHistoryResultSchema,
   TopicSnapshotSchema,
   type HistoryEventDto,
@@ -88,6 +96,48 @@ function renderContainer(options: RenderContainerOptions = {}) {
   )
   return { store, rpc: stub, ...utils }
 }
+
+/**
+ * Mount the stub facade as the production `researchRpc` (the container's
+ * D §14 attention fetch goes through the module facade — the mount seam
+ * is the only production injection point; the cockpit-flow precedent).
+ */
+async function mountStub(stub: StubRpc): Promise<void> {
+  const fakeCtx = {
+    remote: {
+      $mount: async (): Promise<() => void> => () => undefined,
+      researchControl: stub.rpc,
+    },
+  } as unknown as RemoteContext
+  await mountResearchRemotes(fakeCtx)
+}
+
+/**
+ * The D §14 container fixture: the single-project attention projection
+ * (wire-valid — re-parsed through the strict schema, file discipline).
+ */
+const CONTAINER_ATTN_RESULT = QueryAttentionResultSchema.parse({
+  items: [
+    {
+      kind: 'INTERVENTION',
+      sourceId: 'IV-1',
+      sourceRef: { kind: 'intervention', id: 'IV-1' },
+      projectId: 'PRJ-1',
+      workstreamId: 'WS-1',
+      title: '标定管线阻塞',
+      reason: 'component-test item',
+      status: 'OPEN',
+      priority: 'HIGH',
+      score: 90,
+      rank: 1,
+      createdAt: 1_750_000_000_000,
+      detectedAt: 1_750_000_000_000,
+      allowedActions: ['markPending', 'closeIntervention'],
+      context: {},
+    },
+  ],
+  total: 1,
+})
 
 describe('ProjectPage container — mount + lazy load', () => {
   it('issues exactly ONE lazy getProject on mount and renders the §27.2 face', async () => {
@@ -684,5 +734,45 @@ describe('ProjectPage container — Recent History (judgment #9, FR7)', () => {
     expect(document.querySelector('[data-history-entry]')).toBeNull()
     expect(document.querySelector('[data-history-note]')).toBeNull()
     expect(rpc.countOf('queryHistory')).toBe(2)
+  })
+})
+
+describe('ProjectPage container — Project Attention (UI-8 D3)', () => {
+  it('issues exactly ONE queryAttention({projectId, limit: 6}) per mount; the row renders from the projection', async () => {
+    const stub = makeStubRpc()
+    stub.set('queryAttention', { ok: true, value: CONTAINER_ATTN_RESULT })
+    await mountStub(stub)
+    renderContainer({ rpc: stub })
+
+    await waitFor(() => {
+      expect(stub.countOf('queryAttention')).toBe(1)
+    })
+    expect(stub.callsTo('queryAttention')[0].args).toEqual({ projectId: 'PRJ-1', limit: 6 })
+
+    // the row renders end to end (title + status through the container)
+    const row = document.querySelector('[data-project-attention-item]') as Element
+    expect(row.getAttribute('data-project-attention-item-id')).toBe('IV-1')
+    expect(row.getAttribute('data-project-attention-item-status')).toBe('OPEN')
+    expect(screen.getByText('标定管线阻塞')).toBeDefined()
+
+    // The row only appears AFTER the fetch resolved — the StrictMode
+    // double-effect (mount phase) is already over: still exactly one.
+    expect(stub.countOf('queryAttention')).toBe(1)
+  })
+
+  it('a failed attention fetch renders the fault row; the page itself is unaffected', async () => {
+    const stub = makeStubRpc()
+    stub.set('queryAttention', {
+      ok: false,
+      error: { code: 'PLANE_DB_MISSING', message: 'hub db missing' },
+    })
+    await mountStub(stub)
+    renderContainer({ rpc: stub })
+
+    const fault = await screen.findByText('PLANE_DB_MISSING: hub db missing', {}, { timeout: 2000 })
+    expect(fault.closest('[data-project-attention-error]')).toBeTruthy()
+    // the §27.2 face is intact (the attention block is a section, not the page)
+    expect(screen.getByRole('heading', { level: 1, name: /PRJ-1 · 凝聚态方向综述/ })).toBeDefined()
+    expect(stub.countOf('queryAttention')).toBe(1)
   })
 })

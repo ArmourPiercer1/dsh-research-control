@@ -210,17 +210,17 @@ export function PlanGraphContainer({
   /* -- render states (the slice state machine, §WP-4.1b) -- */
   if (slice.data === null) {
     if (slice.status === 'error') {
-      return <div className={styles.root} data-role="plan-graph"><div className={styles.errorBanner}>加载失败：{slice.error}</div></div>
+      return <div className={styles.root}><div className={styles.errorBanner}>加载失败：{slice.error}</div></div>
     }
     return (
-      <div className={styles.root} data-role="plan-graph">
+      <div className={styles.root}>
         <div className={styles.loading}>加载中…</div>
       </div>
     )
   }
 
   return (
-    <div className={styles.root} data-role="plan-graph">
+    <div className={styles.root}>
       {slice.status === 'error' && <div className={styles.errorBanner}>刷新失败：{slice.error}（显示上一次数据）</div>}
       {actionError !== null && <div className={styles.errorBanner}>操作失败：{actionError}</div>}
 

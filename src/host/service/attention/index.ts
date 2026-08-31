@@ -8,7 +8,10 @@
  *     trigger）+ 行映射;
  *   - store.ts   — `AwarenessStore`（状态缓存表 upsert/get/list; 无 delete）;
  *   - service.ts — `AttentionService`（awareness 用户门 + `getAttentionRanking`
- *     组装面）+ `openAttentionDatabase`（双连接打开面, 宿主接线用）。
+ *     组装面）+ `openAttentionDatabase`（双连接打开面, 宿主接线用）;
+ *   - unified.ts — UI-8（D §14）统一 Needs-Attention 收集/组装/query 纯核心
+ *     （5-kind 合并 + 单一 rankAttention 全序 + missing-NA 合成; ADJ-4 双路
+ *     共享的无 I/O 模块 — 生产 sources 在 dsh-adapter 宿主侧注入）。
  */
 
 export {
@@ -69,3 +72,21 @@ export {
   type AttentionDatabase,
   type AttentionServiceOptions,
 } from './service.js'
+
+export {
+  MISSING_NA_TITLE,
+  assembleProjectAttention,
+  assembleUnified,
+  collectProjectAttention,
+  filterAndPage,
+  queryCollections,
+  queryUnifiedAttention,
+  unifiedAttentionContext,
+  type AttentionEventView,
+  type AttentionItemDtoPartial,
+  type AttentionWorkstreamNode,
+  type ProjectAttentionCollection,
+  type ProjectAttentionSources,
+  type ScoreableCandidate,
+  type TerminalCandidate,
+} from './unified.js'

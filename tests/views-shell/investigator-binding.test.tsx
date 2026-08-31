@@ -25,8 +25,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnalysisRecordDto, InvestigatorTransientDto } from '../../src/shared/analysis-command.js'
 import { INVESTIGATION_SUCCESS_TEXT } from '../../src/shared/investigation-command.js'
 import type {
+  AckMissingReminderResult,
+  AttentionItemDto,
   GetPortfolioInterventionsResult,
   PortfolioInterventionItemDto,
+  QueryAttentionResult,
   UpdateInterventionStateResult,
 } from '../../src/shared/rpc-contracts.js'
 import { ResearchShell } from '../../src/client/views/shell/index.js'
@@ -46,8 +49,31 @@ const ITEM: PortfolioInterventionItemDto = {
   createdAt: 1_700_000_000_000,
 }
 
-/** Mount the HUB shell with an OPEN intervention in the 重要事件 stream. */
-function renderHubShell(onInvestigate: (item: PortfolioInterventionItemDto, question: string) => Promise<string>): void {
+/** UI-8 — the SAME intervention as the unified `queryAttention` item. */
+const ATTN_ITEM: AttentionItemDto = {
+  kind: 'INTERVENTION',
+  sourceId: 'IV-1',
+  sourceRef: { kind: 'INTERVENTION', id: 'IV-1' },
+  projectId: 'PRJ-1',
+  workstreamId: 'WS-1',
+  title: '标定管线阻塞',
+  reason: '自动洪泛检测',
+  status: 'OPEN',
+  priority: 'HIGH',
+  score: 80,
+  rank: 1,
+  createdAt: 1_700_000_000_000,
+  detectedAt: 1_700_000_000_000,
+  allowedActions: ['markPending', 'closeIntervention', 'openWorkstream'],
+  context: { intervention: { origin: 'AUTO_FLOODING' } },
+}
+
+/** Mount the HUB shell with an OPEN intervention in the Needs Attention
+ *  unified stream (UI-8: the stream fetch switched to `queryAttention` —
+ *  the unified item below; the legacy `loadPortfolioInterventions` face
+ *  is kept REQUIRED-but-dormant in the shell props, stubbed for the
+ *  byte-stable fixture contract). */
+function renderHubShell(onInvestigate: (item: { readonly id: string; readonly title: string }, question: string) => Promise<string>): void {
   render(
     <StrictMode>
       <ResearchShell
@@ -55,6 +81,7 @@ function renderHubShell(onInvestigate: (item: PortfolioInterventionItemDto, ques
         loadPlaneState={vi.fn(async () => HUB_RESULT)}
         loadHubOverview={vi.fn(async () => HUB_OVERVIEW_RESULT)}
         loadPortfolioInterventions={vi.fn(async (): Promise<GetPortfolioInterventionsResult> => ({ items: [ITEM] }))}
+        loadAttention={vi.fn(async (): Promise<QueryAttentionResult> => ({ items: [ATTN_ITEM], total: 1 }))}
         updateInterventionState={vi.fn(
           async (): Promise<UpdateInterventionStateResult> => ({
             interventionId: 'IV-1',
@@ -89,7 +116,9 @@ function renderHubShell(onInvestigate: (item: PortfolioInterventionItemDto, ques
         rescan={vi.fn(async () => ({ hub: null, dirNames: { treeDir: '.research', hubDir: '.research-control' }, projects: [], missing: [], registry: [] }))}
         unbindProject={vi.fn(async () => ({ projectId: 'PRJ-9', archivedDir: '/workspace/.research-control/archived/PRJ-9' }))}
         restoreProject={vi.fn(async () => ({ wsPath: '/workspace/PRJ-9' }))}
-        ackMissingReminder={vi.fn(async () => ({ acknowledged: true }))}
+        ackMissingReminder={vi.fn(
+          async (): Promise<AckMissingReminderResult> => ({ acknowledged: true }),
+        )}
       />
     </StrictMode>,
   )
@@ -122,7 +151,10 @@ describe('T5.3 — 一键调查 → 调查员 binding (shell-level)', () => {
       fireEvent.click(within(row).getByRole('button', { name: '一键调查' }))
     })
     expect(onInvestigate).toHaveBeenCalledTimes(1)
-    expect(onInvestigate).toHaveBeenCalledWith(ITEM, '标定漂移的根因是什么？')
+    expect(onInvestigate).toHaveBeenCalledWith(
+      { id: 'IV-1', title: '标定管线阻塞' },
+      '标定漂移的根因是什么？',
+    )
 
     // The frame JUMPED to 调查员 (the V1 auto-navigation, repositioned)
     // and the binding row carries the launched session id. UI-3 D1: the

@@ -376,13 +376,6 @@
   flex-shrink: 0;
 }
 
-.graphBox {
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 6px;
-  padding: 6px;
-  min-height: 220px;
-}
-
 .topologyBox {
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;

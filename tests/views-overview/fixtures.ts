@@ -1,17 +1,21 @@
 /**
  * V2-T5.1 — overview test fixtures: WIRE-VALID `HubOverviewResult` values
- * (the `getHubOverview` wire contract — design §12 row 2, §7.1 总览).
+ * (the `getHubOverview` wire contract — design §12 row 2, §7.1 总览) and,
+ * since V2-UI-8 D3, WIRE-VALID `QueryAttentionResult` values (the unified
+ * `queryAttention` face — D §14, which now feeds BOTH the 需关注 row and
+ * the B §4.4 summary section; the hub result's own `attention` array is a
+ * wire pin only — the view no longer consumes it).
  *
  * The discipline mirrors tests/views-shell/fixtures.ts: every fixture is
- * re-parsed through the strict `HubOverviewResultSchema` — a fixture that
- * drifts from the wire contract fails the suite, not the wire.
+ * re-parsed through its strict wire schema — a fixture that drifts from
+ * the wire contract fails the suite, not the wire.
  */
 
 import {
-  GetPortfolioInterventionsResultSchema,
   HubOverviewResultSchema,
-  type GetPortfolioInterventionsResult,
+  QueryAttentionResultSchema,
   type HubOverviewResult,
+  type QueryAttentionResult,
 } from '../../src/shared/rpc-contracts.js'
 
 /** Re-parse a fixture through the strict wire schema (wire-validity pin). */
@@ -19,15 +23,46 @@ function wireResult(result: unknown): HubOverviewResult {
   return HubOverviewResultSchema.parse(result)
 }
 
-/** Re-parse a portfolio-interventions fixture (same discipline). */
-function wirePortfolioInterventions(result: unknown): GetPortfolioInterventionsResult {
-  return GetPortfolioInterventionsResultSchema.parse(result)
+/** Re-parse a queryAttention fixture (same discipline — UI-8 D3). */
+function wireAttention(result: unknown): QueryAttentionResult {
+  return QueryAttentionResultSchema.parse(result)
+}
+
+/** The pinned "now" for the 需关注 row oldest-age fixtures (2025-06-15). */
+export const ATTN_NOW = 1_750_000_000_000
+const HOUR_MS = 60 * 60 * 1000
+
+/** A minimal non-terminal INTERVENTION item (the shared row/summary base). */
+function attnItem(overrides: {
+  readonly sourceId: string
+  readonly projectId: string
+  readonly workstreamId: string | null
+  readonly detectedAt: number
+}): Record<string, unknown> {
+  return {
+    kind: 'INTERVENTION',
+    sourceId: overrides.sourceId,
+    sourceRef: { kind: 'intervention', id: overrides.sourceId },
+    projectId: overrides.projectId,
+    workstreamId: overrides.workstreamId,
+    title: `干预事项 ${overrides.sourceId}`,
+    reason: 'component-test item',
+    status: 'OPEN',
+    priority: 'HIGH',
+    score: 50,
+    rank: null,
+    createdAt: overrides.detectedAt,
+    detectedAt: overrides.detectedAt,
+    allowedActions: ['markPending', 'closeIntervention'],
+    context: {},
+  }
 }
 
 /**
  * The single-project hub (the .acceptance/v2-t51 smoke fixture twin): 0
- * open interventions, EMPTY attention (no 需关注 row), no target date
- * (no 目标 line on the card).
+ * open interventions, EMPTY attention (no 需关注 row — UI-8 D3: the row
+ * now derives from the `queryAttention` face, the `attention` array is a
+ * wire pin only), no target date (no 目标 line on the card).
  */
 export const HUB_OVERVIEW_RESULT: HubOverviewResult = wireResult({
   totals: { projects: 1, openInterventions: 0, inbox: 0 },
@@ -49,10 +84,11 @@ export const HUB_OVERVIEW_RESULT: HubOverviewResult = wireResult({
 })
 
 /**
- * The attention case: the 需关注 row renders (two projects with open
- * interventions — oldest-age display 「最旧 2 天」 (70h, floor) + 「最旧
- * 5 小时」); PRJ-1 carries a target date (the 目标 line renders), PRJ-2
- * does not (no line at all).
+ * The two-project hub (the 需关注 row test's hub side): PRJ-1 carries a
+ * target date (the 目标 line renders), PRJ-2 does not (no line at all).
+ * The `attention` array is a WIRE PIN ONLY since UI-8 D3 — the 需关注
+ * row derives from the `queryAttention` face (see ATTN_ROW_RESULT), not
+ * from this projection.
  */
 export const HUB_OVERVIEW_ATTENTION_RESULT: HubOverviewResult = wireResult({
   totals: { projects: 2, openInterventions: 3, inbox: 5 },
@@ -132,20 +168,69 @@ export const HUB_OVERVIEW_CARD_MAPPING_RESULT: HubOverviewResult = wireResult({
 })
 
 /**
- * V2-UI-0.4 UI-3 — the B §4.4 cap case: SEVEN cross-project
- * interventions (the summary must render the first 6 in host order;
- * item 7 must not appear).
+ * V2-UI-8 D3 — the B §4.4 cap case: SEVEN non-terminal interventions in
+ * host order (the summary must render the first 6; item 7 must not
+ * appear). All items share one meta line: `机器人视觉定位 (PRJ-1) ·
+ * WS-1 · Intervention · High · OPEN`.
  */
-export const PORTFOLIO_ATTENTION_RESULT: GetPortfolioInterventionsResult =
-  wirePortfolioInterventions({
-    items: Array.from({ length: 7 }, (_, i) => ({
+export const ATTN_SUMMARY_RESULT: QueryAttentionResult = wireAttention({
+  items: Array.from({ length: 7 }, (_, i) => ({
+    kind: 'INTERVENTION',
+    sourceId: `IV-${String(i + 1)}`,
+    sourceRef: { kind: 'intervention', id: `IV-${String(i + 1)}` },
+    projectId: 'PRJ-1',
+    workstreamId: 'WS-1',
+    title: `干预事项 ${String(i + 1)}`,
+    reason: 'component-test item',
+    status: 'OPEN',
+    priority: 'HIGH',
+    score: 100 - i,
+    rank: i + 1,
+    createdAt: ATTN_NOW - (7 - i) * HOUR_MS,
+    detectedAt: ATTN_NOW - (7 - i) * HOUR_MS,
+    allowedActions: ['markPending', 'closeIntervention'],
+    context: {},
+  })),
+  total: 7,
+})
+
+/**
+ * V2-UI-8 D3 — the 需关注 row case: two projects' non-terminal items in
+ * host order. PRJ-1 ×2 (oldest = ATTN_NOW − 70h → 「最旧 2 天」 floor),
+ * PRJ-2 ×1 (ATTN_NOW − 5h → 「最旧 5 小时」).
+ */
+export const ATTN_ROW_RESULT: QueryAttentionResult = wireAttention({
+  items: [
+    attnItem({ sourceId: 'IV-1', projectId: 'PRJ-1', workstreamId: 'WS-1', detectedAt: ATTN_NOW - 70 * HOUR_MS }),
+    attnItem({ sourceId: 'IV-2', projectId: 'PRJ-1', workstreamId: 'WS-2', detectedAt: ATTN_NOW - 5 * HOUR_MS }),
+    attnItem({ sourceId: 'IV-9', projectId: 'PRJ-2', workstreamId: null, detectedAt: ATTN_NOW - 5 * HOUR_MS }),
+  ],
+  total: 3,
+})
+
+/** V2-UI-8 D3 — the empty list: no 需关注 row, no summary section. */
+export const ATTN_EMPTY_RESULT: QueryAttentionResult = wireAttention({ items: [], total: 0 })
+
+/** V2-UI-8 D3 — terminals only: the non-terminal filter empties the list. */
+export const ATTN_TERMINALS_ONLY_RESULT: QueryAttentionResult = wireAttention({
+  items: [
+    {
+      kind: 'INTERVENTION',
+      sourceId: 'IV-8',
+      sourceRef: { kind: 'intervention', id: 'IV-8' },
       projectId: 'PRJ-1',
-      displayName: '机器人视觉定位',
-      id: `IV-${String(i + 1)}`,
-      title: `干预事项 ${String(i + 1)}`,
-      origin: 'USER',
-      status: 'OPEN',
-      workstreamIds: ['WS-1'],
-      createdAt: 1755000000000 + i * 60_000,
-    })),
-  })
+      workstreamId: 'WS-1',
+      title: '已关闭事项',
+      reason: 'terminal fixture item',
+      status: 'CLOSED',
+      priority: 'LOW',
+      score: 0,
+      rank: null,
+      createdAt: ATTN_NOW - 40 * 24 * HOUR_MS,
+      detectedAt: ATTN_NOW - 40 * 24 * HOUR_MS,
+      allowedActions: [],
+      context: {},
+    },
+  ],
+  total: 1,
+})

@@ -421,3 +421,46 @@
   color: var(--dsw-alias-label-caption);
   font-size: 11px;
 }
+
+/* ── V2-UI-0.4 UI-8 (D §14.3) — the Project Attention rows ── */
+
+.attentionRowList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attentionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 12px;
+}
+
+.attentionRowKind {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.attentionRowTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attentionRowStatus {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}

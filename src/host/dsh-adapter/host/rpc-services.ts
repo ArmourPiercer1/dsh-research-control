@@ -124,6 +124,8 @@ import {
   type HistoryEventDto,
   type QueryHistoryArgs,
   type QueryHistoryResult,
+  type QueryAttentionArgs,
+  type QueryAttentionResult,
   type QueryRecordsArgs,
   type QueryRecordsResult,
   type RecordClaimArgs,
@@ -183,6 +185,13 @@ import {
   type DerivedBlocker,
   type NextActionRecord,
 } from '../../service/actions/index.js'
+import {
+  collectProjectAttention,
+  queryCollections,
+  type AttentionWorkstreamNode,
+  type ProjectAttentionCollection,
+  type ProjectAttentionSources,
+} from '../../service/attention/index.js'
 import {
   DependencyService,
   mapDependencyError,
@@ -510,6 +519,27 @@ export interface ResearchRpcServices {
    * createWorkstreamFork).
    */
   queryRecords?(args: QueryRecordsArgs): Promise<QueryRecordsResult>
+  /**
+   * UI-8 (D2, D §14 + ADJ-4): the unified Needs-Attention read face —
+   * the 5-kind attention item merge (intervention / explicit blocker /
+   * next action / derived blocker / missing-NA synthetic), ONE
+   * `rankAttention` total order, host-computed `allowedActions` +
+   * priority band. The @Remote body routes by projectId (ADJ-4 dual
+   * path); here the single-project projection: collect this project's
+   * sources → assemble → filter/page. Port-optional (see the note on
+   * createWorkstreamFork).
+   */
+  queryAttention?(args: QueryAttentionArgs): Promise<QueryAttentionResult>
+  /**
+   * UI-8 (D2, ADJ-4/ADJ-13): the NON-RPC composition hook the plane
+   * merge reads — collect this project's attention candidates (the
+   * scoreable + terminal split, pre-assembly) from the production
+   * sources. It is NOT part of any descriptor/face list (the face
+   * count stays governed by the invocation registries); the dsh-
+   * adapter wires it into the plane port's `getAttentionSources`.
+   * Port-optional (see the note on createWorkstreamFork).
+   */
+  collectAttention?(now: number): ProjectAttentionCollection
   /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
@@ -1727,6 +1757,60 @@ export class ProductionResearchRpcServices implements ResearchRpcServices {
     } catch (e) {
       throw this.#mapSemanticsError(e)
     }
+  }
+
+  /**
+   * UI-8 (D2, ADJ-13): the single-project attention collection — the
+   * `ProjectAttentionSources` production adapter over the wiring's
+   * SAME-ORIGIN read faces (the store owner-scope fold / the ActionsService
+   * operational face / the objectives.yaml face — the very sources the
+   * per-project RPC reads serve, so the mgmt and plane paths agree by
+   * construction). `awarenessState` is always null: NO awareness RPC
+   * write face exists in the frozen 13 + mgmt lists, so no awareness
+   * record can exist yet — null is the honest "no record" (UNSEEN)
+   * semantics, and it keeps this face free of the AwarenessStore
+   * constructor's DDL. The real read wires in when the first
+   * awareness face lands.
+   */
+  collectAttention(now: number): ProjectAttentionCollection {
+    const tree = this.#loadTree('collectAttention')
+    const wsNodes: AttentionWorkstreamNode[] = []
+    for (const topic of tree.topics) {
+      for (const ws of topic.workstreams) {
+        wsNodes.push({
+          id: ws.id,
+          taskIds: ws.tasks.map((t) => t.id),
+          canonicalOrder: ws.plan?.ordered_items ?? [],
+        })
+      }
+    }
+    const sources: ProjectAttentionSources = {
+      projectId: this.#wiring.projectId,
+      listInterventions: () => this.#wiring.interventions.listInterventions(),
+      listBlockers: () => this.#actions.listBlockers(),
+      listNextActions: () => this.#actions.listNextActions(),
+      listObjectives: () => this.#actions.listObjectives(),
+      listWorkstreamNodes: () => wsNodes,
+      listEvents: (wsId) =>
+        this.#wiring.store
+          .listRange(wsId, 1)
+          .map((ev) => ({ eventSeq: ev.eventSeq, eventType: ev.eventType, payload: ev.payload })),
+      currentFocusPlanItem: (wsId) => this.#wiring.currentFocus.get(wsId)?.planItemId ?? null,
+      awarenessState: () => null,
+    }
+    return collectProjectAttention(sources, now)
+  }
+
+  /**
+   * UI-8 (D2, D §14 + ADJ-4): the unified Needs-Attention read face —
+   * the mgmt single-project path (the dsh-adapter's @Remote body routes
+   * here when `projectId` is given; the plane port serves the empty-
+   * projectId cross-project merge over the SAME pure core,
+   * `queryCollections`).
+   */
+  async queryAttention(args: QueryAttentionArgs): Promise<QueryAttentionResult> {
+    const now = this.#now()
+    return queryCollections([this.collectAttention(now)], args, now)
   }
 
   /**

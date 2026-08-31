@@ -27,15 +27,24 @@ import type {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  ClearBlockerArgs,
+  ClearBlockerResult,
   CreateLocalResearchProjectArgs,
   CreateLocalResearchProjectResult,
+  CreateNextActionArgs,
+  CreateNextActionResult,
+  DismissNextActionArgs,
+  DismissNextActionResult,
   GetPortfolioInterventionsArgs,
   GetPortfolioInterventionsResult,
   GetResearchPlaneStateResult,
   HubOverviewResult,
   InspectProjectDirectoryArgs,
   InspectProjectDirectoryResult,
-  PortfolioInterventionItemDto,
+  PromoteNextActionArgs,
+  PromoteNextActionResult,
+  QueryAttentionArgs,
+  QueryAttentionResult,
   RescanArgs,
   RescanResult,
   RestoreProjectArgs,
@@ -179,7 +188,12 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
           | 'loadPlaneState'
           | 'loadHubOverview'
           | 'loadPortfolioInterventions'
+          | 'loadAttention'
           | 'updateInterventionState'
+          | 'clearBlocker'
+          | 'promoteNextAction'
+          | 'dismissNextAction'
+          | 'createNextAction'
           | 'onInvestigate'
           | 'setHub'
           | 'bindProject'
@@ -347,6 +361,21 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
             }
             return result.value
           },
+          // D §14 (UI-8): the unified Needs-Attention fetch — the 5-kind
+          // merge under one rankAttention total order (the host's @Remote
+          // takes the ADJ-4 dual path: projectId → mgmt leg, omitted →
+          // cross-project plane leg). ONE fetch per mount; the caller
+          // filters/groups client-side (INV-ATTN-1: the host's total is
+          // never re-sorted).
+          loadAttention: async (args: QueryAttentionArgs): Promise<QueryAttentionResult> => {
+            const result = await researchRpc.queryAttention(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: queryAttention failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
           // V2-T5.2 (design §7.2 动作行, the frozen §13 machine): the 状态
           // 迁移 mutation. `projectId` always rides the item's own project
           // (design §12.1 explicit multi-project routing, both roles).
@@ -361,6 +390,47 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
             }
             return result.value
           },
+          // D §14 (UI-8) — the four NON-IV action faces (frozen §13
+          // machine siblings, pre-existing RPCs — zero new wire): the
+          // unified page's kind-card action row. Same fold as
+          // updateInterventionState — the card's fault line responds on
+          // rejection; the page re-fetches on success (no local patch).
+          clearBlocker: async (args: ClearBlockerArgs): Promise<ClearBlockerResult> => {
+            const result = await researchRpc.clearBlocker(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: clearBlocker failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          promoteNextAction: async (args: PromoteNextActionArgs): Promise<PromoteNextActionResult> => {
+            const result = await researchRpc.promoteNextAction(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: promoteNextAction failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          dismissNextAction: async (args: DismissNextActionArgs): Promise<DismissNextActionResult> => {
+            const result = await researchRpc.dismissNextAction(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: dismissNextAction failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
+          createNextAction: async (args: CreateNextActionArgs): Promise<CreateNextActionResult> => {
+            const result = await researchRpc.createNextAction(args)
+            if (!result.ok) {
+              throw new Error(
+                `research shell: createNextAction failed — ${result.error.code}: ${result.error.message}`,
+              )
+            }
+            return result.value
+          },
           // V2-T5.2 (design §7.2 动作行): the 一键调查 channel (the V1
           // investigation channel, OPEN cards only — NOT a §13 transition).
           // The channel resolves its outcome {ok, message, sessionId?};
@@ -369,7 +439,7 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
           // same text; ok:true resolves the success text (it carries the
           // launched investigator session id — the transient 输出口径 the
           // row shows). The view never sees the outcome shape.
-          onInvestigate: async (item: PortfolioInterventionItemDto, question: string): Promise<string> => {
+          onInvestigate: async (item: { readonly id: string; readonly title: string }, question: string): Promise<string> => {
             const outcome = await investigateIntervention({ sessionId, interventionId: item.id, question })
             if (!outcome.ok) {
               throw new Error(outcome.message)

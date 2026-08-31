@@ -156,6 +156,12 @@
   border-bottom: 1px solid var(--rc-border);
 }
 
+/* UI-8 (C-12): the last strip row carries no separator — the visible
+   micro-gap the C-x package closes (1 line, zero behavior risk). */
+.planItem:last-child {
+  border-bottom: none;
+}
+
 .planRow {
   display: flex;
   flex-wrap: wrap;

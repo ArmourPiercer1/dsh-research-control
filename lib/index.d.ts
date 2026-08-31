@@ -1,12 +1,127 @@
-import { $ as InspectProjectDirectoryResult, $t as UpdatePlanItemResult, A as DismissPlanForkArgs, At as RestoreProjectArgs, B as GetHubOverviewArgs, Bt as SetCurrentFocusArgs, C as CreateWorkstreamArgs, Ct as RemoveRelationResult, D as DashboardSnapshot, Dt as RescanResult, E as CreateWorkstreamResult, Et as RescanArgs, F as DropWorkstreamResult, Ft as SaveMergeContractResult, G as GetResearchPlaneStateArgs, H as GetMergeContractResult, Ht as SetHubArgs, I as GetCurrentFocusArgs, It as SaveResearchCheckpointArgs, J as GetWorkstreamArgs, Jt as UpdateInterventionStateArgs, K as GetResearchPlaneStateResult, Kt as UnbindProjectArgs, L as GetCurrentFocusResult, Lt as SaveResearchCheckpointResult, M as DropTopologyEdgeArgs, Mt as RetractClaimArgs, N as DropTopologyEdgeResult, Nt as RetractClaimResult, O as DismissNextActionArgs, Ot as RestoreDeclarativeFileArgs, P as DropWorkstreamArgs, Pt as SaveMergeContractArgs, Qt as UpdatePlanItemArgs, R as GetGitHistoryArgs, Rt as SelectPlanForkArgs, S as CreateTopicResult, St as RemoveRelationArgs, T as CreateWorkstreamForkResult, Tt as ReorderPlanResult, U as GetPortfolioInterventionsArgs, Ut as SetHubResult, V as GetMergeContractArgs, Vt as SetCurrentFocusResult, W as GetPortfolioInterventionsResult, Wt as TopicSnapshot, X as GetWorkstreamCurrentResult, Xt as UpdateObjectiveArgs, Y as GetWorkstreamCurrentArgs, Yt as UpdateInterventionStateResult, Z as HubOverviewResult, Zt as UpdateObjectiveResult, _ as CreatePlanItemArgs, _t as RegisterInteractionResult, a as AddRelationArgs, an as UpdateWorkstreamResult, at as PromoteNextActionResult, b as CreatePlannedMergeResult, bt as RemovePlanItemArgs, c as BindProjectResult, ct as QueryRecordsArgs, d as CreateBlockerArgs, dt as RecordClaimResult, en as UpdateProjectMetadataArgs, et as MarkArtifactMissingArgs, f as CreateBlockerResult, ft as RecordFactArgs, g as CreateNextActionResult, gt as RegisterInteractionArgs, h as CreateNextActionArgs, ht as RegisterArtifactResult, i as AddDependencyResult, in as UpdateWorkstreamArgs, it as PromoteNextActionArgs, j as DismissPlanForkResult, jt as RestoreProjectResult, k as DismissNextActionResult, kt as RestoreDeclarativeFileResult, l as ClearBlockerArgs, lt as QueryRecordsResult, m as CreateLocalResearchProjectResult, mt as RegisterArtifactArgs, n as AckMissingReminderResult, nn as UpdateTopicArgs, nt as PingResult, o as AddRelationResult, on as WorkstreamSnapshot, ot as QueryHistoryArgs, pt as RecordFactResult, q as GetTopicArgs, qt as UnbindProjectResult, r as AddDependencyArgs, rn as UpdateTopicResult, rt as ProjectSnapshot, s as BindProjectArgs, st as QueryHistoryResult, t as AckMissingReminderArgs, tn as UpdateProjectMetadataResult, tt as MarkArtifactMissingResult, u as ClearBlockerResult, ut as RecordClaimArgs, v as CreatePlanItemResult, vt as RemoveDependencyArgs, w as CreateWorkstreamForkArgs, wt as ReorderPlanArgs, x as CreateTopicArgs, xt as RemovePlanItemResult, y as CreatePlannedMergeArgs, yt as RemoveDependencyResult, z as GetGitHistoryResult, zt as SelectPlanForkResult } from "./rpc-contracts-2FQsZJVd.js";
+import { $t as UpdateObjectiveArgs, A as DismissNextActionResult, At as RescanResult, B as GetGitHistoryResult, Bt as SaveResearchCheckpointResult, C as CreateTopicResult, Ct as RemovePlanItemArgs, D as CreateWorkstreamResult, Dt as ReorderPlanArgs, E as CreateWorkstreamForkResult, Et as RemoveRelationResult, F as DropWorkstreamArgs, Ft as RetractClaimArgs, G as GetPortfolioInterventionsResult, Gt as SetHubArgs, H as GetMergeContractArgs, Ht as SelectPlanForkResult, I as DropWorkstreamResult, It as RetractClaimResult, J as GetTopicArgs, K as GetResearchPlaneStateArgs, Kt as SetHubResult, L as GetCurrentFocusArgs, Lt as SaveMergeContractArgs, M as DismissPlanForkResult, Mt as RestoreDeclarativeFileResult, N as DropTopologyEdgeArgs, Nt as RestoreProjectArgs, O as DashboardSnapshot, Ot as ReorderPlanResult, P as DropTopologyEdgeResult, Pt as RestoreProjectResult, Q as HubOverviewResult, Qt as UpdateInterventionStateResult, R as GetCurrentFocusResult, Rt as SaveMergeContractResult, S as CreateTopicArgs, St as RemoveDependencyResult, T as CreateWorkstreamForkArgs, Tt as RemoveRelationArgs, U as GetMergeContractResult, Ut as SetCurrentFocusArgs, V as GetHubOverviewArgs, Vt as SelectPlanForkArgs, W as GetPortfolioInterventionsArgs, Wt as SetCurrentFocusResult, X as GetWorkstreamCurrentArgs, Xt as UnbindProjectResult, Y as GetWorkstreamArgs, Yt as UnbindProjectArgs, Z as GetWorkstreamCurrentResult, Zt as UpdateInterventionStateArgs, _ as CreateNextActionResult, _t as RegisterArtifactArgs, a as AddRelationArgs, an as UpdateTopicArgs, at as PromoteNextActionArgs, b as CreatePlannedMergeArgs, bt as RegisterInteractionResult, c as BindProjectArgs, cn as UpdateWorkstreamResult, ct as QueryAttentionResult, d as ClearBlockerResult, dt as QueryRecordsArgs, en as UpdateObjectiveResult, et as InspectProjectDirectoryResult, f as CreateBlockerArgs, ft as QueryRecordsResult, g as CreateNextActionArgs, gt as RecordFactResult, h as CreateLocalResearchProjectResult, ht as RecordFactArgs, i as AddDependencyResult, in as UpdateProjectMetadataResult, it as ProjectSnapshot, j as DismissPlanForkArgs, jt as RestoreDeclarativeFileArgs, k as DismissNextActionArgs, kt as RescanArgs, l as BindProjectResult, ln as WorkstreamSnapshot, lt as QueryHistoryArgs, mt as RecordClaimResult, n as AckMissingReminderResult, nn as UpdatePlanItemResult, nt as MarkArtifactMissingResult, o as AddRelationResult, on as UpdateTopicResult, ot as PromoteNextActionResult, p as CreateBlockerResult, pt as RecordClaimArgs, q as GetResearchPlaneStateResult, qt as TopicSnapshot, r as AddDependencyArgs, rn as UpdateProjectMetadataArgs, rt as PingResult, s as AttentionItemDto, sn as UpdateWorkstreamArgs, st as QueryAttentionArgs, t as AckMissingReminderArgs, tn as UpdatePlanItemArgs, tt as MarkArtifactMissingArgs, u as ClearBlockerArgs, ut as QueryHistoryResult, v as CreatePlanItemArgs, vt as RegisterArtifactResult, w as CreateWorkstreamArgs, wt as RemovePlanItemResult, x as CreatePlannedMergeResult, xt as RemoveDependencyArgs, y as CreatePlanItemResult, yt as RegisterInteractionArgs, z as GetGitHistoryArgs, zt as SaveResearchCheckpointArgs } from "./rpc-contracts-0udiSh_9.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import s from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import { z } from "zod";
 import { DatabaseSync } from "node:sqlite";
 import "ajv";
+//#region src/host/service/attention/scorer.d.ts
+/**
+ * WP-5.4 — Attention Manager BASELINE scorer（纯函数: 零 I/O、零 import）。
+ *
+ * 冻结契约依据（逐条）:
+ *  - ARCHITECTURE §5.10 INV-ATTN-1: OPEN/PENDING Intervention 始终完整展示;
+ *    Attention Manager **只排序、不隐藏** —— `rankAttention` 的输出是输入
+ *    全集的一个**排序**（双射, 按 kind+id）; 本函数没有任何 filter/limit
+ *    路径, 分数再低的项（如 7 天外的 ScheduledEvent, urgency 衰减到 0）
+ *    也恒在输出里;
+ *  - ARCHITECTURE §5.10 INV-ATTN-2（R 级, 评分器约束）: 预计耗时只作为
+ *    标签, 不得用于让短任务压过高重要度任务 —— 输入类型携带
+ *    `estimatedDurationMs`（供视图渲染标签）, 但评分函数**从不读取**该
+ *    字段; 权重表把 `estimatedDuration` 显式钉为 0（R 级测试断言
+ *    含/不含耗时输入产出同序）;
+ *  - 计划书 §20（Attention Manager）: 「Manager 不是过滤器, 只做推荐排序
+ *    和 why-now explanation. 算法: 1. hard policy constraints;
+ *    2. 可解释 baseline score; 3. 有限 LLM semantic adjustment;
+ *    4. human override.」本文件实现第 2 步（baseline, 可解释, 全加性）,
+ *    第 3/4 步为后续 WP 预留（权重表里以 0 权重占位声明, 见
+ *    `ATTENTION_WEIGHTS` 注释）;
+ *  - 计划书 §20 输入特征清单: Intervention state（权重实现）/
+ *    deadline·ScheduledEvent（时间近度, 权重实现）/ blocker（权重实现）/
+ *    human awareness gap（权重实现, INV-ATTN-4 高价值对象才有记录）/
+ *    Project·Topic importance + attention_mode + dependency fanout +
+ *    reporting urgency + context switching cost（**baseline 零权重占位** —
+ *    未标定的权重会破坏 INV-ATTN-1/2 的可解释性, 留第 3/4 步激活）;
+ *  - 计划书 §19.1（Human Awareness 四态）: UNSEEN/SEEN/REVIEWED/ASSESSED
+ *    作为「awareness gap」特征参与评分（UNSEEN = 用户尚未知悉, 小幅加权;
+ *    已见/已评 = 不加权）。
+ *
+ * 为什么本文件零 import:
+ *  - 宿主侧 `AttentionService`（service.ts）与 client 侧 store 切片
+ *    （src/client/stores/attention-slices.ts）**共用同一个评分器** —
+ *    算法单一真源, host/client 排序必然一致（baseline 的零权重 context
+ *    特征使两侧 context 取值不同也不产生分歧, 见 service.ts 头注）;
+ *  - client bundle（tsdown clientConfig）会把本文件的 import 图内联进
+ *    `lib/client.js` — 零 import 保证内联的只有本文件自身（无 node:sqlite
+ *    等宿主依赖泄漏进浏览器 bundle）。
+ */
+/** `Awareness.state`（schema/operational/attention.schema.json $defs/Awareness; 计划书 §19.1）。 */
+declare const AWARENESS_STATES: readonly ['UNSEEN', 'SEEN', 'REVIEWED', 'ASSESSED'];
+type AwarenessState = (typeof AWARENESS_STATES)[number];
+/** 进入评分器的对象类型（计划书 §20 特征清单的 V1 四类）。 */
+declare const ATTENTION_ITEM_KINDS: readonly ['INTERVENTION', 'NEXT_ACTION', 'BLOCKER', 'SCHEDULED_EVENT'];
+type AttentionItemKind = (typeof ATTENTION_ITEM_KINDS)[number];
+/**
+ * 评分输入基类。
+ *
+ * `estimatedDurationMs` — INV-ATTN-2: **标签字段**。视图渲染「预计耗时」
+ * 展示用; 评分函数从不读取（零权重, 权重表 `estimatedDuration: 0`）。
+ * `awarenessState` — 仅高价值对象携带（INV-ATTN-4: awareness kind 白名单
+ * = 冻结 schema）; `undefined` = 无 awareness 记录, 按默认 UNSEEN 语义
+ * 评分（DOMAIN_SCHEMA §9.5: 默认 UNSEEN）。
+ */
+interface AttentionItemBase {
+  readonly kind: AttentionItemKind;
+  readonly id: string;
+  /** 展示标题（NextAction/Blocker 为 statement 单行）。 */
+  readonly title: string;
+  /** epoch ms（§1.2 / A-3）。 */
+  readonly createdAt: number;
+  /** 关联 WS（无则 null — INV-ATTN-1 不因无 WS 关联而隐藏）。 */
+  readonly workstreamId: string | null;
+  /** INV-ATTN-2: 预计耗时标签（评分零权重）。 */
+  readonly estimatedDurationMs?: number | null;
+  /** INV-ATTN-4: awareness 状态（undefined = 无记录 = 默认 UNSEEN）。 */
+  readonly awarenessState?: AwarenessState | null;
+}
+/** Intervention 评分输入（状态契约: 只有 OPEN/PENDING 进入 — CLOSED 是终态,
+ *  不占注意力; 输入契约由组装方保证, service 再防御性过滤）。 */
+interface AttentionInterventionItem extends AttentionItemBase {
+  readonly kind: 'INTERVENTION';
+  readonly status: 'OPEN' | 'PENDING';
+  readonly origin: 'USER' | 'AGENT_REPORT' | 'AUTO_FLOODING' | 'AUTO_AUDIT';
+}
+/** NextAction 评分输入（状态契约: 只有 PROPOSED — PROMOTED 已转 Task 离开队列,
+ *  DISMISSED 用户已弃）。 */
+interface AttentionNextActionItem extends AttentionItemBase {
+  readonly kind: 'NEXT_ACTION';
+  readonly status: 'PROPOSED';
+}
+/** Blocker 评分输入（状态契约: 只有 ACTIVE — CLEARED 阻碍已解除）。 */
+interface AttentionBlockerItem extends AttentionItemBase {
+  readonly kind: 'BLOCKER';
+  readonly status: 'ACTIVE';
+}
+/** ScheduledEvent 评分输入（时间近度特征的唯一载体; 过期的事件 urgency=1
+ *  封顶, 不产生负分 — 只排序不隐藏）。 */
+interface AttentionScheduledEventItem extends AttentionItemBase {
+  readonly kind: 'SCHEDULED_EVENT';
+  /** 事件时刻 epoch ms。 */
+  readonly at: number;
+}
+type AttentionItem = AttentionInterventionItem | AttentionNextActionItem | AttentionBlockerItem | AttentionScheduledEventItem;
+//#endregion
 //#region src/host/domain/loader/types.d.ts
 type AttentionMode = 'FOCUS' | 'NORMAL' | 'BACKGROUND';
+//#endregion
+//#region src/host/service/attention/unified.d.ts
+/** DTO 减去组装期字段（score/rank 来自 rankAttention; priority 由 score 机械导出）。 */
+type AttentionItemDtoPartial = Omit<AttentionItemDto, 'score' | 'rank' | 'priority'>;
+/** 可评分候选: scorer 输入 + 同 id 的 DTO 骨架（组装期按 id 对齐回填）。 */
+interface ScoreableCandidate {
+  readonly scorer: AttentionItem;
+  readonly dto: AttentionItemDtoPartial;
+}
+/** 终态候选（无 scorer 输入 — 不参与 rankAttention）。 */
+interface TerminalCandidate {
+  readonly dto: AttentionItemDtoPartial;
+}
+/** 单项目收集结果。 */
+interface ProjectAttentionCollection {
+  readonly projectId: string;
+  readonly scoreables: readonly ScoreableCandidate[];
+  readonly terminals: readonly TerminalCandidate[];
+}
 //#endregion
 //#region src/host/dsh-adapter/host/rpc-services.d.ts
 /**
@@ -269,6 +384,27 @@ interface ResearchRpcServices {
    */
   queryRecords?(args: QueryRecordsArgs): Promise<QueryRecordsResult>;
   /**
+   * UI-8 (D2, D §14 + ADJ-4): the unified Needs-Attention read face —
+   * the 5-kind attention item merge (intervention / explicit blocker /
+   * next action / derived blocker / missing-NA synthetic), ONE
+   * `rankAttention` total order, host-computed `allowedActions` +
+   * priority band. The @Remote body routes by projectId (ADJ-4 dual
+   * path); here the single-project projection: collect this project's
+   * sources → assemble → filter/page. Port-optional (see the note on
+   * createWorkstreamFork).
+   */
+  queryAttention?(args: QueryAttentionArgs): Promise<QueryAttentionResult>;
+  /**
+   * UI-8 (D2, ADJ-4/ADJ-13): the NON-RPC composition hook the plane
+   * merge reads — collect this project's attention candidates (the
+   * scoreable + terminal split, pre-assembly) from the production
+   * sources. It is NOT part of any descriptor/face list (the face
+   * count stays governed by the invocation registries); the dsh-
+   * adapter wires it into the plane port's `getAttentionSources`.
+   * Port-optional (see the note on createWorkstreamFork).
+   */
+  collectAttention?(now: number): ProjectAttentionCollection;
+  /**
    * Optional resource teardown (the production implementation owns one
    * second SQLite connection; the dsh-adapter registers it with
    * `ctx.effect`). Stub implementations may omit it.
@@ -289,6 +425,16 @@ interface ResearchPlaneServices {
   getHubOverview(args: GetHubOverviewArgs): Promise<HubOverviewResult>;
   /** Design §7.2/§12 row 3 — the cross-project intervention list (带 projectId 标签, 状态过滤). */
   getPortfolioInterventions(args: GetPortfolioInterventionsArgs): GetPortfolioInterventionsResult;
+  /**
+   * UI-8 (D2, D §14 + ADJ-4) — the cross-project unified Needs-Attention
+   * read (the empty-`projectId` leg of the dual path: every project's
+   * production sources merged under ONE rankAttention, then the shared
+   * filter/page). Port-optional: present ONLY when the dsh-adapter
+   * supplies the `getAttentionSources` option (production always does);
+   * in a composition without it the @Remote plane leg fails LOUD —
+   * the body asserts the member's presence, no silent degrade.
+   */
+  queryAttention?(args: QueryAttentionArgs): QueryAttentionResult;
 }
 //#endregion
 //#region src/host/dsh-adapter/host/plane-mutation-services.d.ts
@@ -630,6 +776,24 @@ declare class ResearchControlService extends TypertRemoteService {
   addRelation(args: unknown): Promise<AddRelationResult>;
   removeRelation(args: unknown): Promise<RemoveRelationResult>;
   queryRecords(args: unknown): Promise<QueryRecordsResult>;
+  /**
+   * UI-8 (D2, D §14 + ADJ-4) — the unified Needs-Attention read face
+   * (5-kind merge + one `rankAttention` total order + host-computed
+   * allowedActions / priority band).
+   *
+   * ADJ-4 dual-path routing — the DOCUMENTED DEVIATION from the plain
+   * mgmt `requireRpc` convention (recorded in DEVIATIONS): with
+   * `projectId` the body follows the mgmt convention (the 36th mgmt
+   * method's shape, identical to the 35 above); WITHOUT it the call has
+   * the cross-project hub semantics, so it takes the PLANE-read leg —
+   * the precedent is `getPortfolioInterventions` (a plane-level body
+   * looping the active projects). Both legs read the SAME per-project
+   * production sources (the mgmt leg through `queryAttention`, the
+   * plane leg through `collectAttention`), so the two legs agree by
+   * construction; the pure core is shared (`queryUnifiedAttention` /
+   * `queryCollections`).
+   */
+  queryAttention(args: unknown): Promise<QueryAttentionResult>;
   inspectProjectDirectory(args: unknown): Promise<InspectProjectDirectoryResult>;
   createLocalResearchProject(args: unknown): Promise<CreateLocalResearchProjectResult>;
   /**

@@ -103,8 +103,14 @@ import type {
   AckMissingReminderResult,
   BindProjectArgs,
   BindProjectResult,
+  ClearBlockerArgs,
+  ClearBlockerResult,
   CreateLocalResearchProjectArgs,
   CreateLocalResearchProjectResult,
+  CreateNextActionArgs,
+  CreateNextActionResult,
+  DismissNextActionArgs,
+  DismissNextActionResult,
   GetPortfolioInterventionsArgs,
   GetPortfolioInterventionsResult,
   GetResearchPlaneStateResult,
@@ -112,7 +118,10 @@ import type {
   InspectProjectDirectoryArgs,
   InspectProjectDirectoryResult,
   PlaneSessionDto,
-  PortfolioInterventionItemDto,
+  PromoteNextActionArgs,
+  PromoteNextActionResult,
+  QueryAttentionArgs,
+  QueryAttentionResult,
   RescanArgs,
   RescanResult,
   RestoreProjectArgs,
@@ -177,6 +186,27 @@ export interface ResearchShellProps {
     args: GetPortfolioInterventionsArgs,
   ) => Promise<GetPortfolioInterventionsResult>
   /**
+   * D §14 (UI-8) — the injected unified Needs-Attention fetch
+   * (`queryAttention`, the 59th registered invocation): the 5-kind
+   * attention merge (intervention / explicit blocker / next action /
+   * derived blocker / missing-NextAction synthetic) under ONE
+   * rankAttention total order, host-computed allowedActions + priority
+   * band. `args.projectId` omitted = the cross-project hub merge (the
+   * ADJ-4 plane leg); given = the single-project projection (the mgmt
+   * leg). ONE fetch per mount (the Needs-Attention unified page + the
+   * hub 需关注 summary + the project-page attention block all read it);
+   * the terminal group expands client-side from the same DTO list.
+   * Resolves the wire result; rejects on any failure (the page's
+   * failure face responds). OPTIONAL (the `inspectProjectDirectory?`
+   * precedent): the Needs-Attention faces predate some routing fixtures,
+   * so keeping it optional keeps the tsc baseline byte-stable for the
+   * fixtures that render other pages; the shell guards the absence and
+   * the unified page only mounts where the prop is wired.
+   */
+  readonly loadAttention?: (
+    args: QueryAttentionArgs,
+  ) => Promise<QueryAttentionResult>
+  /**
    * The injected 状态迁移 mutation (the frozen §13 machine —
    * `updateInterventionState`): the 重要事件 action row (标记处理中 /
    * 关闭 / 确认关闭 / 重开). `projectId` routes the call to the item's
@@ -188,13 +218,35 @@ export interface ResearchShellProps {
     args: UpdateInterventionStateArgs,
   ) => Promise<UpdateInterventionStateResult>
   /**
+   * D §14 (UI-8) — the four NON-IV action faces (frozen §13 machine
+   * siblings — pre-existing RPCs, zero new wire): the unified page's
+   * kind-card action row renders each button ONLY when the matching
+   * face is wired (omitted face → button absent, no disabled form —
+   * the `loadAttention?` optionality rule). `clearBlocker` clears an
+   * explicit blocker; `promoteNextAction` / `dismissNextAction` are
+   * the proposed-NA 处置 pair; `createNextAction` is the missing-NA
+   * synthetic card's inline create form. Each resolves the wire
+   * result; rejects on any failure (the card's fault line responds).
+   */
+  readonly clearBlocker?: (args: ClearBlockerArgs) => Promise<ClearBlockerResult>
+  readonly promoteNextAction?: (
+    args: PromoteNextActionArgs,
+  ) => Promise<PromoteNextActionResult>
+  readonly dismissNextAction?: (
+    args: DismissNextActionArgs,
+  ) => Promise<DismissNextActionResult>
+  readonly createNextAction?: (args: CreateNextActionArgs) => Promise<CreateNextActionResult>
+  /**
    * The injected 一键调查 channel (the V1 investigation channel — OPEN
    * cards only, NOT a §13 state transition): resolves the channel's
    * success text (it carries the launched investigator session id — the
    * transient 输出口径 shown on the row), rejects on any failure (the
    * row's fault line responds).
    */
-  readonly onInvestigate: (item: PortfolioInterventionItemDto, question: string) => Promise<string>
+  readonly onInvestigate: (
+    item: { readonly id: string; readonly title: string },
+    question: string,
+  ) => Promise<string>
   /**
    * The injected 设为中枢 mutation (design §8 设为中枢 → `setHub`, §12 row
    * 4). The UNREGISTERED card's confirm flow calls it with the session's
@@ -384,7 +436,19 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
   // frame to the 调查员 entry (the V1 cockpit's auto-navigation after a
   // launch, repositioned). The face STILL resolves the success text
   // unchanged — the 重要事件 row renders exactly as before.
-  const investigateWithBinding = (item: PortfolioInterventionItemDto, question: string): Promise<string> =>
+  // D §14 (UI-8) — the unified fetch with the fail-loud guard: the
+  // unified page REQUIRES the face (an unwired carrier is a state
+  // fault — the page's failure face answers with the carrier message,
+  // the same 研究平面状态异常 convention as the null-cwd fault lines
+  // above). The HUB hub-overview summary gets the RAW optional face
+  // (omitted → the summary section is simply not rendered, the
+  // `loadAttention?` optionality rule).
+  const loadAttentionOrFault = (args: QueryAttentionArgs): Promise<QueryAttentionResult> =>
+    props.loadAttention?.(args) ?? Promise.reject(new Error('研究平面状态异常：queryAttention 未接线'))
+  const investigateWithBinding = (
+    item: { readonly id: string; readonly title: string },
+    question: string,
+  ): Promise<string> =>
     props
       .onInvestigate(item, question)
       .then((text) => {
@@ -536,6 +600,12 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
       // defined by a resolvable hub cwd — the null case is unreachable by
       // the host's role resolution, rendered as a fault instead of
       // guessing a value (fail-loud).
+      // The hub-overview summary face adapts the optional unified face
+      // to its zero-arg shape (omitted → the summary section is simply
+      // not rendered, the `loadAttention?` optionality rule).
+      const loadAttentionFace = props.loadAttention
+      const hubLoadAttention =
+        loadAttentionFace !== undefined ? () => loadAttentionFace({}) : undefined
       const overview =
         effective.cwd === null || plane.hub === null ? (
           <p className={styles.faultLine} role="alert">
@@ -553,7 +623,7 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
             onApplied={refresh}
             createLocalResearchProject={props.createLocalResearchProject}
             inspectProjectDirectory={props.inspectProjectDirectory}
-            loadPortfolioInterventions={() => props.loadPortfolioInterventions({})}
+            loadAttention={hubLoadAttention}
             onOpenAttention={() => setNavEntry('attention')}
           />
         ) : (
@@ -568,8 +638,13 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
         <InterventionStreamPage
           role="HUB"
           scopeProjectId={null}
-          loadPortfolioInterventions={props.loadPortfolioInterventions}
+          loadAttention={loadAttentionOrFault}
+          projects={plane.projects.map((p) => ({ projectId: p.projectId, displayName: p.displayName }))}
           updateInterventionState={props.updateInterventionState}
+          clearBlocker={props.clearBlocker}
+          promoteNextAction={props.promoteNextAction}
+          dismissNextAction={props.dismissNextAction}
+          createNextAction={props.createNextAction}
           onInvestigate={investigateWithBinding}
           onOpenProject={(projectId) => {
             setHubDrillProjectId(projectId)
@@ -655,8 +730,13 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           <InterventionStreamPage
             role={effective.role}
             scopeProjectId={scopeProject.projectId}
-            loadPortfolioInterventions={props.loadPortfolioInterventions}
+            loadAttention={loadAttentionOrFault}
+            projects={plane.projects.map((p) => ({ projectId: p.projectId, displayName: p.displayName }))}
             updateInterventionState={props.updateInterventionState}
+            clearBlocker={props.clearBlocker}
+            promoteNextAction={props.promoteNextAction}
+            dismissNextAction={props.dismissNextAction}
+            createNextAction={props.createNextAction}
             onInvestigate={investigateWithBinding}
             onGoToWorkstreams={() => setNavEntry('overview')}
           />

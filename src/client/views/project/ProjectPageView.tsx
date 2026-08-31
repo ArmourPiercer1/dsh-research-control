@@ -14,8 +14,10 @@
  * expanded body shows the topic description / objective summary / WS
  * cards / the Topology `View topology` shortcut (judgment #10: opens the
  * existing topic page — topology preview/open only in this slice). The
- * page gains the two B §7.2 bottom sections: Project Attention (a
- * visible placeholder — real data lands in UI-8) and Recent History
+ * page gains the two B §7.2 bottom sections: Project Attention (UI-8:
+ * the top-6 non-terminal items of the single-project `queryAttention`
+ * projection — the UI-3 placeholder retired, real data) and Recent
+ * History
  * (judgment #9: lazy on first expand, per-WS latest-3, merged
  * occurredAt-desc, the `showing first 20 workstreams` note when >20).
  *
@@ -38,12 +40,14 @@
 import { useId, useState, type ReactElement } from 'react'
 
 import type {
+  AttentionItemDto,
   HistoryEventDto,
   ProjectSnapshot,
   TopicCardDto,
   TopicSnapshot,
 } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
+import { KIND_LABEL, attentionGroupOf } from '../shell/intervention-stream.js'
 
 import styles from './project.module.css'
 
@@ -119,6 +123,21 @@ export interface ProjectPageViewProps {
    *  per-WS window loads; collapse is view-local). */
   readonly onExpandRecentHistory: () => void
   readonly recentHistory: RecentHistoryFace
+  /**
+   * D §14 (UI-8) — the Project Attention block rows: the NON-TERMINAL
+   * items of the single-project `queryAttention` projection (the
+   * container's one-shot mount fetch, limit 6). `null` = not loaded yet
+   * (the heading renders alone — no placeholder text); a fetch failure
+   * surfaces as `attentionError` (the fault row).
+   */
+  readonly attentionItems?: readonly AttentionItemDto[] | null
+  /** The attention fetch failure (the fault row, role=alert). */
+  readonly attentionError?: string | null
+  /** Workstream navigation (the carry-over #21 ws-card click + the
+   *  attention rows): BOTH ids arrive from the view (the topic id is
+   *  derived from the already-loaded topic faces — fail-soft: an
+   *  unknown topic renders the row NOT clickable, never guessed). */
+  readonly onOpenWorkstream?: (workstreamId: string, topicId: string) => void
 }
 
 /** Attention mode → Chinese product copy (DSH_ADAPTER §6: 产品文案中文). */
@@ -160,6 +179,25 @@ export function formatEpochDate(ms: number): string {
  * objective summary / WS cards / Topology shortcut). Pure — all data and
  * callbacks arrive as props.
  */
+/** D §14 (UI-8) — workstream → owning topic id (derived from the
+ *  already-loaded topic faces; `null` = not loaded yet → the row is
+ *  rendered NOT clickable, never guessed — zero new wire). */
+function findTopicIdOfWorkstream(
+  topicSections: ReadonlyMap<string, TopicSectionFace>,
+  workstreamId: string,
+): string | null {
+  for (const face of topicSections.values()) {
+    if (
+      face !== undefined &&
+      face.data !== null &&
+      face.data.workstreams.some((ws) => ws.id === workstreamId)
+    ) {
+      return face.data.topic.id
+    }
+  }
+  return null
+}
+
 function TopicSection({
   card,
   face,
@@ -169,6 +207,7 @@ function TopicSection({
   onEdit,
   onAddWorkstream,
   onOpenTopic,
+  onOpenWorkstream,
 }: {
   readonly card: TopicCardDto
   readonly face: TopicSectionFace | undefined
@@ -178,6 +217,8 @@ function TopicSection({
   readonly onEdit: () => void
   readonly onAddWorkstream: () => void
   readonly onOpenTopic: () => void
+  /** Carry-over #21 — the ws-card click (the console's page navigation). */
+  readonly onOpenWorkstream?: (workstreamId: string) => void
 }): ReactElement {
   const bodyId = useId()
   const failed = face !== undefined && face.data === null && face.status === 'error'
@@ -253,7 +294,13 @@ function TopicSection({
               ) : (
                 <ul className={styles.wsCardList}>
                   {face.data.workstreams.map((ws) => (
-                    <li key={ws.id} className={styles.wsCard} data-ws-card data-ws-id={ws.id}>
+                    <li
+                      key={ws.id}
+                      className={styles.wsCard}
+                      data-ws-card
+                      data-ws-id={ws.id}
+                      onClick={onOpenWorkstream !== undefined ? () => onOpenWorkstream(ws.id) : undefined}
+                    >
                       <div className={styles.wsCardHead}>
                         <span className={styles.topicTitle}>{ws.title}</span>
                         <span
@@ -308,6 +355,9 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
     onCreateTopic,
     onExpandRecentHistory,
     recentHistory,
+    attentionItems,
+    attentionError,
+    onOpenWorkstream,
   } = props
   // View-local UI state: which Topic sections are open + whether the
   // Recent History section is open. Both are pure presentation — the
@@ -464,22 +514,69 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
                 onEdit={() => onEditTopic(card.id)}
                 onAddWorkstream={() => onAddWorkstream(card.id)}
                 onOpenTopic={() => onOpenTopic(card.id)}
+                onOpenWorkstream={
+                  onOpenWorkstream !== undefined
+                    ? (wsId) => onOpenWorkstream(wsId, card.id)
+                    : undefined
+                }
               />
             ))}
           </ul>
         )}
       </section>
 
-      {/* UI-3 (B §7.2) — Project Attention: a visible placeholder (no
-          fabricated data — real project-level attention lands in UI-8). */}
+      {/* UI-8 (D §14.3) — Project Attention: the NON-TERMINAL items of
+          the single-project `queryAttention` projection (the container's
+          one-shot mount fetch, limit 6 — the UI-3 placeholder retired,
+          real data; the host order is kept — INV-ATTN-1). Rows carrying
+          a workstream are clickable (the console's workstream page — the
+          topic id derives from the already-loaded topic faces; unknown →
+          the row is NOT clickable, never guessed). */}
       <section className={styles.phase} data-project-attention>
         <h3 className={styles.sectionTitle}>{t('project.attentionTitle')}</h3>
-        <p className={styles.phaseText}>{t('project.attentionPlaceholder')}</p>
+        {attentionError !== null && attentionError !== undefined ? (
+          <p className={styles.phaseText} role="alert" data-project-attention-error>
+            {attentionError}
+          </p>
+        ) : attentionItems === null || attentionItems === undefined ? null : attentionItems.length === 0 ? (
+          <p className={styles.phaseText} data-project-attention-empty>
+            {t('attention.empty')}
+          </p>
+        ) : (
+          <ul className={styles.attentionRowList} data-project-attention-items>
+            {attentionItems
+              .filter((item) => attentionGroupOf(item) !== 'CLOSED')
+              .map((item) => {
+                const wsId = item.workstreamId
+                const topicId = wsId !== null ? findTopicIdOfWorkstream(topicSections, wsId) : null
+                const clickable =
+                  onOpenWorkstream !== undefined && wsId !== null && topicId !== null
+                return (
+                  <li
+                    key={item.syntheticKey ?? item.sourceId}
+                    className={styles.attentionRow}
+                    data-project-attention-item
+                    data-project-attention-item-id={item.sourceId}
+                    data-project-attention-item-status={item.status}
+                    onClick={clickable ? () => onOpenWorkstream(wsId, topicId) : undefined}
+                  >
+                    <span className={styles.attentionRowKind}>{KIND_LABEL[item.kind]}</span>
+                    <span className={styles.attentionRowTitle}>{item.title}</span>
+                    <span className={styles.attentionRowStatus}>{item.status}</span>
+                  </li>
+                )
+              })}
+          </ul>
+        )}
       </section>
 
       {/* UI-3 (judgment #9) — Recent History: collapsed by default; the
           first expand triggers the lazy per-WS window loads (plan §24 —
-          zero fetches on initial render). */}
+          zero fetches on initial render).
+          UI-8 (ADJ-11 #3) — this slice does NOT take over Recent
+          History: the UI-3 lazy-window contract is preserved verbatim
+          (the unified `queryAttention` projection feeds ONLY the
+          Project Attention block above). */}
       <section className={styles.phase} data-recent-history>
         <h3 className={styles.sectionTitle}>
           <button

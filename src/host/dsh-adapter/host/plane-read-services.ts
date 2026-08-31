@@ -55,6 +55,8 @@ import {
   type PlaneSessionDto,
   type PlaneStateSummary,
   type PortfolioInterventionItemDto,
+  type QueryAttentionArgs,
+  type QueryAttentionResult,
   type RegistryEntryDto,
 } from '../../../shared/rpc-contracts.js'
 import type { DshSessionAdapter } from '../../../shared/host-adapter-ports.js'
@@ -62,6 +64,10 @@ import type { PlaneProject, PlaneState } from './discovery.js'
 import type { ResearchDirNames } from './settings.js'
 import type { HostWiring } from '../../service/wiring/index.js'
 import type { StructuredLogger } from '../../service/checkpoint/index.js'
+import {
+  queryCollections,
+  type ProjectAttentionCollection,
+} from '../../service/attention/index.js'
 import {
   loadResearchTreeOrThrow,
   runProjectRefreshSidecar,
@@ -79,6 +85,16 @@ export interface ResearchPlaneServices {
   getHubOverview(args: GetHubOverviewArgs): Promise<HubOverviewResult>
   /** Design §7.2/§12 row 3 — the cross-project intervention list (带 projectId 标签, 状态过滤). */
   getPortfolioInterventions(args: GetPortfolioInterventionsArgs): GetPortfolioInterventionsResult
+  /**
+   * UI-8 (D2, D §14 + ADJ-4) — the cross-project unified Needs-Attention
+   * read (the empty-`projectId` leg of the dual path: every project's
+   * production sources merged under ONE rankAttention, then the shared
+   * filter/page). Port-optional: present ONLY when the dsh-adapter
+   * supplies the `getAttentionSources` option (production always does);
+   * in a composition without it the @Remote plane leg fails LOUD —
+   * the body asserts the member's presence, no silent degrade.
+   */
+  queryAttention?(args: QueryAttentionArgs): QueryAttentionResult
 }
 
 /* ------------------------------------------------------------------ *
@@ -280,6 +296,15 @@ export interface ProductionResearchPlaneServicesOptions {
   readonly sessions: DshSessionAdapter
   /** The frozen declarative schema dir (the tree loader's contract root). */
   readonly declarativeDir: string
+  /**
+   * UI-8 (D2, ADJ-4/ADJ-13): the per-project attention source
+   * collector — the dsh-adapter wires it to the per-project production
+   * RPC services' `collectAttention` hook (the SAME sources the mgmt
+   * single-project leg reads, so both legs agree). Absent ⇒ the
+   * `queryAttention` port member is not exposed (fail-loud, see the
+   * port note).
+   */
+  readonly getAttentionSources?: () => ((projectId: string, now: number) => ProjectAttentionCollection | undefined) | undefined
   /** Clock (A-3 epoch ms; default `Date.now`). */
   readonly now?: () => number
 }
@@ -446,6 +471,51 @@ export class ProductionResearchPlaneServices implements ResearchPlaneServices {
       items.push(...group)
     }
     return { items }
+  }
+
+  /**
+   * UI-8 (D2, D §14 + ADJ-4) — the cross-project unified Needs-Attention
+   * read (the empty-`projectId` leg of the @Remote dual path).
+   *
+   * Loop over the plane's active projects → the per-project production
+   * collector (`getAttentionSources` — the SAME sources the mgmt
+   * single-project leg reads) → ONE `queryCollections` tail (validation
+   * + a single `rankAttention` total order across projects + the shared
+   * filter/page). A project whose collector is missing fails loud — the
+   * dsh-adapter wires the option for every production project, so a
+   * miss is a composition bug, never a silent skip (INV-ATTN-1: no
+   * hidden items). The getPortfolioInterventions loop is the precedent
+   * (per-project wiring fetch inside the plane loop).
+   */
+  queryAttention(args: QueryAttentionArgs): QueryAttentionResult {
+    const plane = this.#requirePlane()
+    const sources = this.#options.getAttentionSources
+    if (sources === undefined) {
+      throw new Error(
+        'queryAttention (plane leg): the getAttentionSources option is not wired — ' +
+          'the production composition supplies it for every project (ADJ-4)',
+      )
+    }
+    const collector = sources()
+    if (collector === undefined) {
+      throw new Error(
+        'queryAttention (plane leg): the per-project collector is not composed — ' +
+          'the plane requires every active project to expose collectAttention (ADJ-4)',
+      )
+    }
+    const now = this.#now()
+    const collections: ProjectAttentionCollection[] = []
+    for (const project of plane.projects) {
+      const collection = collector(project.projectId, now)
+      if (collection === undefined) {
+        throw new Error(
+          `queryAttention (plane leg): project ${project.projectId} has no attention collector — ` +
+            'every active plane project exposes collectAttention (ADJ-4)',
+        )
+      }
+      collections.push(collection)
+    }
+    return queryCollections(collections, args, now)
   }
 
   /* ---------------------------------------------------------------- *

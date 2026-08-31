@@ -92,6 +92,8 @@ import type {
   PromoteNextActionResult,
   QueryHistoryArgs,
   QueryHistoryResult,
+  QueryAttentionArgs,
+  QueryAttentionResult,
   QueryRecordsArgs,
   QueryRecordsResult,
   RecordClaimArgs,
@@ -158,6 +160,15 @@ import { researchRemotes } from './contribution.js'
  * this type.
  */
 export type RemoteContext = Context & { remote: TypertClientRemote }
+
+/**
+ * Type-only re-export of the carrier result — so view CONTAINER files
+ * (e.g. `views/project/ProjectPage.tsx`, the cockpit precedent) can type
+ * a `researchRpc` promise without importing `@deepseek-ai/*` directly
+ * (INV-PERM-5 — views may address the adapter relatively, never the
+ * DSH packages by name).
+ */
+export type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 
 /**
  * The mounted namespace service, captured directly from the cordis reflect
@@ -500,5 +511,10 @@ export const researchRpc = {
     args: QueryRecordsArgs,
   ): Promise<RemoteResult<QueryRecordsResult>> {
     return requireNamespace().queryRecords(args)
+  },
+  async queryAttention(
+    args: QueryAttentionArgs,
+  ): Promise<RemoteResult<QueryAttentionResult>> {
+    return requireNamespace().queryAttention(args)
   },
 }

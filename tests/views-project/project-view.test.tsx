@@ -18,7 +18,11 @@
  *  - the Topic sections (collapsed by default, [Edit] / [+ Workstream]
  *    actions, lazy expanded body with description / objective summary /
  *    WS cards / the Topology shortcut);
- *  - the Project Attention placeholder (no fabricated data);
+ *  - the Project Attention section (UI-8 D3: the non-terminal rows of the
+ *    single-project `queryAttention` projection — the UI-3 placeholder is
+ *    retired; null state = heading only, no fabricated data, no loading
+ *    line; workstream rows are clickable only when the topic id derives
+ *    from the already-loaded topic faces);
  *  - the Recent History section (lazy, merged occurredAt-desc, the
  *    >20-workstream note, the empty state).
  *
@@ -39,7 +43,9 @@ import {
   PROJECT_PAGE_FIXTURE,
 } from './fixtures'
 import {
+  attentionItemDtoSchema,
   TopicSnapshotSchema,
+  type AttentionItemDto,
   type HistoryEventDto,
   type TopicSnapshot,
 } from '../../src/shared/rpc-contracts.js'
@@ -103,6 +109,56 @@ const FAILED_TOPIC_SECTIONS: ReadonlyMap<string, TopicSectionFace> = new Map([
 
 const IDLE_RECENT_HISTORY: RecentHistoryFace = { entries: null, loading: false, truncated: false }
 
+/**
+ * UI-8 D3 — the Project Attention row fixtures (wire-valid: re-parsed
+ * through the strict `attentionItemDtoSchema`, same discipline as the
+ * file). WS-1/WS-2 live in TOPIC_SECTION_FIXTURE (TPC-1); WS-9 is
+ * unknown to every loaded topic face (the never-guessed case).
+ */
+function attnItem(overrides: {
+  readonly sourceId: string
+  readonly workstreamId: string | null
+  readonly status: AttentionItemDto['status']
+  readonly title: string
+}): AttentionItemDto {
+  return attentionItemDtoSchema.parse({
+    kind: 'INTERVENTION',
+    sourceId: overrides.sourceId,
+    sourceRef: { kind: 'intervention', id: overrides.sourceId },
+    projectId: 'PRJ-1',
+    workstreamId: overrides.workstreamId,
+    title: overrides.title,
+    reason: 'component-test item',
+    status: overrides.status,
+    priority: 'HIGH',
+    score: 50,
+    rank: null,
+    createdAt: 1_750_000_000_000,
+    detectedAt: 1_750_000_000_000,
+    allowedActions: ['markPending', 'closeIntervention'],
+    context: {},
+  })
+}
+
+const ATTN_OPEN_WS1_ITEM = attnItem({
+  sourceId: 'IV-1',
+  workstreamId: 'WS-1',
+  status: 'OPEN',
+  title: '标定管线阻塞',
+})
+const ATTN_OPEN_UNKNOWN_WS_ITEM = attnItem({
+  sourceId: 'IV-2',
+  workstreamId: 'WS-9',
+  status: 'OPEN',
+  title: '未知工作流事项',
+})
+const ATTN_CLOSED_ITEM = attnItem({
+  sourceId: 'IV-3',
+  workstreamId: 'WS-1',
+  status: 'CLOSED',
+  title: '已关闭事项',
+})
+
 function makeHistoryEvent(eventId: string, wsId: string, occurredAt: number): HistoryEventDto {
   return {
     eventId,
@@ -124,6 +180,9 @@ function renderView(
   options?: {
     readonly topicSections?: ReadonlyMap<string, TopicSectionFace>
     readonly recentHistory?: RecentHistoryFace
+    readonly attentionItems?: readonly AttentionItemDto[] | null
+    readonly attentionError?: string | null
+    readonly onOpenWorkstream?: (workstreamId: string, topicId: string) => void
   },
 ) {
   const onRetry = vi.fn()
@@ -151,6 +210,9 @@ function renderView(
       onCreateTopic={onCreateTopic}
       onExpandRecentHistory={onExpandRecentHistory}
       recentHistory={options?.recentHistory ?? IDLE_RECENT_HISTORY}
+      attentionItems={options?.attentionItems}
+      attentionError={options?.attentionError}
+      onOpenWorkstream={options?.onOpenWorkstream}
     />,
   )
   return {
@@ -307,13 +369,75 @@ describe('UI-3 — Topic sections (B §7.2 / §9.1)', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ Topic' }))
     expect(onCreateTopic).toHaveBeenCalledTimes(1)
   })
+
+  it('the ws-card click fires onOpenWorkstream(wsId, topicId) (carry-over #21 — B §8.1 navigation)', () => {
+    const onOpenWorkstream = vi.fn()
+    const { container } = renderView(PROJECT_PAGE_FIXTURE, {
+      topicSections: READY_TOPIC_SECTIONS,
+      onOpenWorkstream,
+    })
+    const section = container.querySelector('[data-topic-id="TPC-1"]') as Element
+    fireEvent.click(section.querySelector('[data-topic-toggle]') as Element)
+    fireEvent.click(section.querySelector('[data-ws-card][data-ws-id="WS-2"]') as Element)
+    expect(onOpenWorkstream).toHaveBeenCalledTimes(1)
+    expect(onOpenWorkstream).toHaveBeenCalledWith('WS-2', 'TPC-1')
+  })
 })
 
-describe('UI-3 — Project Attention placeholder (B §7.2)', () => {
-  it('renders the placeholder section with no fabricated data', () => {
-    renderView()
+describe('UI-8 — Project Attention (B §7.2, D §14.3 real data)', () => {
+  it('renders ONLY the heading before the fetch settles (no rows, no empty line, no loading line)', () => {
+    const { container } = renderView()
     expect(screen.getByRole('heading', { level: 3, name: 'Project Attention' })).toBeDefined()
-    expect(screen.getByText('Project attention is summarized here.')).toBeDefined()
+    expect(container.querySelector('[data-project-attention-items]')).toBeNull()
+    expect(container.querySelector('[data-project-attention-empty]')).toBeNull()
+    expect(container.querySelector('[data-project-attention-error]')).toBeNull()
+  })
+
+  it('renders the empty line when the projection settled with zero items', () => {
+    renderView(PROJECT_PAGE_FIXTURE, { attentionItems: [] })
+    expect(screen.getByText('Nothing needs attention right now.')).toBeDefined()
+  })
+
+  it('renders ONLY the non-terminal rows (kind · title · status — host order kept)', () => {
+    const { container } = renderView(PROJECT_PAGE_FIXTURE, {
+      attentionItems: [ATTN_OPEN_WS1_ITEM, ATTN_CLOSED_ITEM],
+    })
+    const rows = container.querySelectorAll('[data-project-attention-item]')
+    expect(rows).toHaveLength(1)
+    const row = rows[0] as Element
+    expect(row.getAttribute('data-project-attention-item-id')).toBe('IV-1')
+    expect(row.getAttribute('data-project-attention-item-status')).toBe('OPEN')
+    expect(row.textContent).toBe('Intervention标定管线阻塞OPEN')
+  })
+
+  it('a workstream row whose topic derives from a loaded face fires onOpenWorkstream(wsId, topicId)', () => {
+    const onOpenWorkstream = vi.fn()
+    const { container } = renderView(PROJECT_PAGE_FIXTURE, {
+      attentionItems: [ATTN_OPEN_WS1_ITEM],
+      topicSections: READY_TOPIC_SECTIONS,
+      onOpenWorkstream,
+    })
+    fireEvent.click(container.querySelector('[data-project-attention-item]') as Element)
+    expect(onOpenWorkstream).toHaveBeenCalledTimes(1)
+    expect(onOpenWorkstream).toHaveBeenCalledWith('WS-1', 'TPC-1')
+  })
+
+  it('a workstream row NOT present in any loaded topic face is NOT clickable (never guessed)', () => {
+    const onOpenWorkstream = vi.fn()
+    const { container } = renderView(PROJECT_PAGE_FIXTURE, {
+      attentionItems: [ATTN_OPEN_UNKNOWN_WS_ITEM],
+      topicSections: READY_TOPIC_SECTIONS,
+      onOpenWorkstream,
+    })
+    fireEvent.click(container.querySelector('[data-project-attention-item]') as Element)
+    expect(onOpenWorkstream).not.toHaveBeenCalled()
+  })
+
+  it('the fault line renders on fetch failure (role=alert, the carrier-decoded detail)', () => {
+    renderView(PROJECT_PAGE_FIXTURE, { attentionError: 'hub db missing' })
+    const fault = screen.getByRole('alert')
+    expect(fault.getAttribute('data-project-attention-error')).not.toBeNull()
+    expect(fault.textContent).toBe('hub db missing')
   })
 })
 

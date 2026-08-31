@@ -413,6 +413,7 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
             store={store}
             onOpenTopic={goToTopic}
             onBack={onBackToWall}
+            onOpenWorkstream={goToWorkstream}
           />
           {/* V2-UI-0.4 UI-2 — the 编辑项目元数据 affordance (visible only
               once the project slice has data — the dialog prefills from

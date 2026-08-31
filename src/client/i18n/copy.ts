@@ -44,6 +44,52 @@ const COPY = {
   'portfolio.emptyExplainCreate': 'Create = 创建新的本地 Project + Git + research structure',
   'portfolio.emptyExplainBind': 'Bind = 接管已有目录 / Git repo',
 
+  // --- Needs Attention (UI-8, B §27-§31 / D §14) --------------------------
+  // ADJ-19: the unified Needs-Attention page is a first-level hub page —
+  // its namespace `attention.*` sits alongside `portfolio.*`. The B §31
+  // three lines are FROZEN VERBATIM (English); the group headings are the
+  // B §27 wireframe words. The kind/priority keys carry the B §27.2
+  // display labels (canonical English, never a translation); the 8 status
+  // wire words render directly (copy rule: domain enums have no keys).
+  'attention.pageTitle': 'Needs Attention', // B §27.1 page h1
+  'attention.filter.project': 'Project', // B §27.1 filter row
+  'attention.filter.all': 'All', // the unfiltered option
+  'attention.filter.workstream': 'Workstream',
+  'attention.filter.type': 'Type',
+  'attention.filter.status': 'Status',
+  'attention.filter.priority': 'Priority',
+  'attention.group.openActive': 'OPEN / ACTIVE', // B §27.1 group heading
+  'attention.group.pending': 'PENDING',
+  'attention.group.closed': 'CLOSED / CLEARED / DISMISSED',
+  'attention.kind.intervention': 'Intervention', // B §27.2 Type badge
+  'attention.kind.blocker': 'Blocker',
+  'attention.kind.derivedBlocker': 'Derived Blocker',
+  'attention.kind.nextAction': 'Next Action',
+  'attention.kind.missingNextAction': 'Missing Next Action',
+  'attention.priority.high': 'High', // B §4.4 紧迫性 / priority
+  'attention.priority.medium': 'Medium',
+  'attention.priority.low': 'Low',
+  'attention.action.markPending': 'Mark Pending', // B §28
+  'attention.action.closeIntervention': 'Close', // B §28
+  'attention.action.reopenIntervention': 'Reopen', // B §28
+  'attention.action.clearBlocker': 'Clear', // B §29
+  'attention.action.promoteNextAction': 'Promote', // B §30
+  'attention.action.dismissNextAction': 'Dismiss', // B §30
+  'attention.action.createNextAction': 'Create Next Action', // B §30/§31
+  'attention.action.openWorkstream': 'Open Workstream', // B §28/§29/§30
+  'attention.action.openCause': 'Open Cause', // B §29 derived primary action
+  'attention.action.openTask': 'Open Task', // B §30 post-PROMOTE
+  'attention.whyShown': 'Why shown here', // B §27.2 card field label
+  'attention.detectedAt': 'Created / detected', // B §27.2 card field label
+  'attention.empty': 'Nothing needs attention right now.', // empty state (implementer-chosen)
+  'attention.loadError': 'Failed to load the attention list.', // error face
+  'attention.closeNotePrompt': 'Record the human-handling decision that closes this item (not a claim that the research question itself is resolved).', // B §28 关闭人工责任 wording
+  'attention.create.statement': 'Statement', // the missing-NA create form
+  'attention.create.submit': 'Create', // the missing-NA create form
+  'attention.missing.title': 'Missing Next Action', // B §31 FROZEN VERBATIM
+  'attention.missing.body': 'This Workstream has an active objective but no promoted Next Action.', // B §31 FROZEN VERBATIM
+  'attention.missing.cta': 'Create Next Action', // B §31 FROZEN VERBATIM
+
   // --- Project Overview (D3, B §7 / §9) -----------------------------------
   'project.topicsHeading': 'Topics / Workstreams', // B §7.2 section
   'project.topicEdit': 'Edit', // B §9.1 [Edit]
@@ -52,7 +98,6 @@ const COPY = {
   'project.topicTopology': 'Topology', // B §9.1 'Topology:'
   'project.viewTopology': 'View topology', // #10: opens the existing topology view
   'project.attentionTitle': 'Project Attention', // B §7.2 section
-  'project.attentionPlaceholder': 'Project attention is summarized here.', // placeholder body (implementer-chosen; UI-8 replaces)
   'project.historyTitle': 'Recent History', // D §9.4 frozen section name
   'project.historyNoteFirst20': 'showing first 20 workstreams', // #9 note for >20 WS
   'project.historyEmpty': 'No history recorded yet.', // implementer-chosen empty state

@@ -25,7 +25,12 @@
    * 基线 + Add Fact/Claim/Artifact + Add relation + Retract claim +
    * Mark artifact missing 全 GUI NO-REFRESH + 双负向 wire 载体 +
    * 过滤维度 + B §26 时间线 Related 入口 + 两阶段 restart/stopped
-   * gate，DB-seeded 窗口，UI-7）。
+   * gate，DB-seeded 窗口，UI-7）+
+ * t73 D §14 统一 Needs Attention 页浏览器端真实用户路径（queryAttention
+ * 读面 59-face + A 初态/B 过滤矩阵/G t52 选择器族/C 旅程（IV
+ * OPEN→PENDING→CLOSED 必填备注 + Clear BLK + Promote NA + missing-NA
+ * create→ADJ-3 并存→promote→消除）+ F 重启稳定 + D 停服红线 DB 读，
+ * 三阶段 main/restart/stopped gate，seeded 窗口，UI-8）。
  */
 import { defineConfig } from '@playwright/test'
 
@@ -33,7 +38,7 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3180'
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /(?:t42-onboarding-hub\.spec|t51-overview-drill\.spec|t52-attention-migration\.spec|t53-investigator\.spec|t54-settings-unbind\.spec|t61-settings-card\.spec|t63-clean-probe\.spec|t64-current-focus-rpc\.spec|t65-hierarchy-create\.spec|t66-current-focus-store\.spec|t67-local-project-rpc\.spec|t68-create-bind-ui\.spec|t69-gate-four-flows\.spec|t70-plan-editor-gates\.spec|t71-topology-fork-merge\.spec|t72-research-records\.spec)\.ts$/,
+  testMatch: /(?:t42-onboarding-hub\.spec|t51-overview-drill\.spec|t52-attention-migration\.spec|t53-investigator\.spec|t54-settings-unbind\.spec|t61-settings-card\.spec|t63-clean-probe\.spec|t64-current-focus-rpc\.spec|t65-hierarchy-create\.spec|t66-current-focus-store\.spec|t67-local-project-rpc\.spec|t68-create-bind-ui\.spec|t69-gate-four-flows\.spec|t70-plan-editor-gates\.spec|t71-topology-fork-merge\.spec|t72-research-records\.spec|t73-unified-attention\.spec)\.ts$/,
   // Archived V1 specs never run from either config, no matter how testMatch
   // evolves: the archive directory is excluded outright.
   testIgnore: /v1-archived\//,

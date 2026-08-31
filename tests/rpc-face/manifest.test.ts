@@ -83,6 +83,8 @@ import {
   PromoteNextActionResultSchema,
   QueryHistoryArgsSchema,
   QueryHistoryResultSchema,
+  QueryAttentionArgsSchema,
+  QueryAttentionResultSchema,
   QueryRecordsArgsSchema,
   QueryRecordsResultSchema,
   RecordClaimArgsSchema,
@@ -97,6 +99,7 @@ import {
   RemoveRelationResultSchema,
   RESEARCH_CONTROL_PACKAGE,
   RESEARCH_MANAGEMENT_INVOCATIONS,
+  RESEARCH_MANAGEMENT_RPC_METHODS,
   RESEARCH_RPC_INVOCATIONS,
   RESEARCH_RPC_METHODS,
   pingInvocation,
@@ -409,7 +412,30 @@ const queryRecordsFixture = {
   total: 1,
 }
 
-/** The 58 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
+const queryAttentionFixture = {
+  items: [
+    {
+      kind: 'INTERVENTION',
+      sourceId: 'IV-1',
+      sourceRef: { kind: 'WORKSTREAM', id: 'WS-1' },
+      projectId: 'PRJ-1',
+      workstreamId: 'WS-1',
+      title: 'Review accumulated agent plan forks [WS-1]',
+      reason: 'OPEN intervention (IV-open)',
+      status: 'OPEN',
+      priority: 'HIGH',
+      score: 110,
+      rank: 1,
+      createdAt: 1755000000000,
+      detectedAt: 1755000000000,
+      allowedActions: ['markPending', 'closeIntervention', 'openWorkstream'],
+      context: { intervention: { origin: 'AUTO_FLOODING' } },
+    },
+  ],
+  total: 1,
+}
+
+/** The 59 endpoints in wire order (V2-T3.2a: the 3 read-only plane RPCs +
  *  V2-T3.2b: the 6 change-family plane RPCs + UI-0.4: the 4 GUI
  *  management RPCs (the 2 current-focus + the 2 hierarchy-create) +
  *  V2-UI-0.4 UI-2: the 6 GUI management RPCs (the 4 hierarchy
@@ -422,7 +448,8 @@ const queryRecordsFixture = {
  *  + V2-UI-6 (D3, BRIEF §3): the 1 edge-drop RPC (dropTopologyEdge)
  *  + V2-UI-7 (D §13): the 8 records RPCs (recordFact, recordClaim,
  *  retractClaim, registerArtifact, markArtifactMissing, addRelation,
- *  removeRelation, queryRecords),
+ *  removeRelation, queryRecords)
+ *  + D §14 (UI-8): the 1 unified attention RPC (queryAttention),
  *  appended after the frozen 14), each with its
  *  wire-valid result fixture. */
 const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = [
@@ -484,6 +511,7 @@ const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = 
   { method: 'addRelation', resultFixture: addRelationFixture },
   { method: 'removeRelation', resultFixture: removeRelationFixture },
   { method: 'queryRecords', resultFixture: queryRecordsFixture },
+  { method: 'queryAttention', resultFixture: queryAttentionFixture },
 ]
 
 /** The args-schema identity table (55 parameterized RPCs: the frozen 11
@@ -491,7 +519,8 @@ const endpointFixtures: readonly { method: string; resultFixture: unknown }[] = 
  *  RPCs + the 5 plan-editor RPCs (V2-UI-0.4 UI-5) + the 1 topology-fork
  *  RPC (V2-UI-6 D1) + the 3 planned-merge / merge-contract RPCs
  *  (V2-UI-6 D2) + the 1 edge-drop RPC (V2-UI-6 D3) + the 8 records
- *  RPCs (V2-UI-7 D5) — every one carries a
+ *  RPCs (V2-UI-7 D5) + the 1 unified attention RPC (D §14, UI-8 —
+ *  queryAttention) — every one carries a
  *  strict args object). */
 const argsSchemaTable: Readonly<Record<string, unknown>> = {
   getTopic: GetTopicArgsSchema,
@@ -549,6 +578,7 @@ const argsSchemaTable: Readonly<Record<string, unknown>> = {
   addRelation: AddRelationArgsSchema,
   removeRelation: RemoveRelationArgsSchema,
   queryRecords: QueryRecordsArgsSchema,
+  queryAttention: QueryAttentionArgsSchema,
 }
 
 /** Narrow a descriptor codec to its strict arm. */
@@ -557,13 +587,13 @@ function strictCodec(codec: TypertCodec): Extract<TypertCodec, { mode: 'strict' 
   return codec
 }
 
-describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2 + UI-4 + V2-UI-0.4 UI-5 + V2-UI-6 D1 + V2-UI-6 D2 + V2-UI-6 D3 + V2-UI-7 D5)', () => {
+describe('WP-4.1a manifest — the full 59-endpoint registered face (V2-T3.2a + V2-T3.2b + UI-0.4 + V2-UI-0.4 UI-2 + UI-4 + V2-UI-0.4 UI-5 + V2-UI-6 D1 + V2-UI-6 D2 + V2-UI-6 D3 + V2-UI-7 D5 + D §14 UI-8)', () => {
   it('TYPERT passes the mirrored loader validation (validateTypertManifest semantics)', () => {
     expect(() => validateTypertManifest(RESEARCH_CONTROL_PACKAGE, TYPERT)).not.toThrow()
   })
 
-  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 15 GUI management RPCs (incl. the 5 V2-UI-6 topology/contract RPCs) + the 7 attention RPCs + the 5 plan-editor RPCs + the 8 V2-UI-7 records RPCs, in order', () => {
-    expect(TYPERT.invocations).toHaveLength(58)
+  it('TYPERT.invocations is exactly the frozen 14 + the 9 plane RPCs + the 15 GUI management RPCs (incl. the 5 V2-UI-6 topology/contract RPCs) + the 7 attention RPCs + the 5 plan-editor RPCs + the 8 V2-UI-7 records RPCs + the 1 unified attention RPC (D §14 UI-8), in order', () => {
+    expect(TYPERT.invocations).toHaveLength(59)
     expect(TYPERT.invocations.map((i) => i.method)).toEqual([
       'ping',
       ...RESEARCH_RPC_METHODS,
@@ -611,10 +641,11 @@ describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + 
       'addRelation',
       'removeRelation',
       'queryRecords',
+      'queryAttention',
     ])
     // The host manifest re-exports the SHARED descriptors (identity):
     // index 0 is the shared ping descriptor, indices 1..13 are the shared
-    // RESEARCH_RPC_INVOCATIONS in order, indices 23..57 are the shared
+    // RESEARCH_RPC_INVOCATIONS in order, indices 23..58 are the shared
     // RESEARCH_MANAGEMENT_INVOCATIONS in order.
     expect(TYPERT.invocations[0]).toBe(pingInvocation)
     expect(TYPERT.invocations[1]).toBe(RESEARCH_RPC_INVOCATIONS[0])
@@ -654,6 +685,12 @@ describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + 
     expect(TYPERT.invocations[55]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[32])
     expect(TYPERT.invocations[56]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[33])
     expect(TYPERT.invocations[57]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[34])
+    expect(TYPERT.invocations[58]).toBe(RESEARCH_MANAGEMENT_INVOCATIONS[35])
+  })
+
+  it('no attentionDone face exists (red line: the C-x fix package adds NO face — RECON §8.3-E)', () => {
+    expect((RESEARCH_MANAGEMENT_RPC_METHODS as readonly string[]).includes('attentionDone')).toBe(false)
+    expect(TYPERT.invocations.some((i) => i.method === 'attentionDone')).toBe(false)
   })
 
   it('every invocation carries the id grammar + direct receiver + strict codecs', () => {
@@ -744,6 +781,7 @@ describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + 
       addRelation: AddRelationResultSchema,
       removeRelation: RemoveRelationResultSchema,
       queryRecords: QueryRecordsResultSchema,
+      queryAttention: QueryAttentionResultSchema,
     }
     for (const { method, resultFixture } of endpointFixtures) {
       const invocation = (TYPERT.invocations as readonly InvocationDescriptorMirror[]).find(
@@ -762,10 +800,10 @@ describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + 
     }
   })
 
-  it('TYPERT.schemas covers the full contract: ping + 55 args + 57 results, live zod instances, unique names', () => {
+  it('TYPERT.schemas covers the full contract: ping + 56 args + 58 results, live zod instances, unique names', () => {
     const names = TYPERT.schemas.map((s) => s.name)
-    expect(names).toHaveLength(113)
-    expect(new Set(names).size).toBe(113)
+    expect(names).toHaveLength(115)
+    expect(new Set(names).size).toBe(115)
     for (const s of TYPERT.schemas) {
       expect('_zod' in (s.schema as object), `${s.name} must be a live zod v4 instance`).toBe(true)
     }
@@ -820,12 +858,13 @@ describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + 
       'AddRelationArgs', 'AddRelationResult',
       'RemoveRelationArgs', 'RemoveRelationResult',
       'QueryRecordsArgs', 'QueryRecordsResult',
+      'QueryAttentionArgs', 'QueryAttentionResult',
     ]) {
       expect(names, `missing schema entry ${expected}`).toContain(expected)
     }
   })
 
-  it('the model carries the full 58-member service face', () => {
+  it('the model carries the full 59-member service face', () => {
     const [service] = TYPERT.model.services
     expect(TYPERT.model.events).toEqual([])
     expect(TYPERT.model.objects).toEqual([])
@@ -878,6 +917,7 @@ describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + 
       'addRelation',
       'removeRelation',
       'queryRecords',
+      'queryAttention',
     ])
     for (const member of service.members) {
       expect(member.kind).toBe('method')
@@ -926,10 +966,10 @@ describe('WP-4.1a manifest — the full 58-endpoint registered face (V2-T3.2a + 
     expect(service.types.map((t) => t.name)).toContain('QueryRecordsResult')
   })
 
-  it('③ the client contribution exports the SAME 58 strict descriptor objects (no drift)', () => {
+  it('③ the client contribution exports the SAME 59 strict descriptor objects (no drift)', () => {
     expect(researchRemotes.package).toBe(RESEARCH_CONTROL_PACKAGE)
-    expect(researchRemotes.descriptors).toHaveLength(58)
-    for (let i = 0; i < 58; i += 1) {
+    expect(researchRemotes.descriptors).toHaveLength(59)
+    for (let i = 0; i < 59; i += 1) {
       expect(researchRemotes.descriptors[i], `descriptor ${i} identity`).toBe(TYPERT.invocations[i])
     }
     // And the first (ping) remains the WP-0.3 shared object.

@@ -134,20 +134,20 @@ export function TopologyGraphContainer({ store, topicId }: TopologyGraphContaine
   if (slice.data === null) {
     if (slice.status === 'error') {
       return (
-        <div className={styles.root} data-role="topology-graph">
+        <div className={styles.root}>
           <div className={styles.errorBanner}>加载失败：{slice.error}</div>
         </div>
       )
     }
     return (
-      <div className={styles.root} data-role="topology-graph">
+      <div className={styles.root}>
         <div className={styles.loading}>加载中…</div>
       </div>
     )
   }
 
   return (
-    <div className={styles.root} data-role="topology-graph">
+    <div className={styles.root}>
       {slice.status === 'error' && (
         <div className={styles.errorBanner}>刷新失败：{slice.error}（显示上一次数据）</div>
       )}

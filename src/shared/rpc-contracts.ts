@@ -2303,6 +2303,7 @@ export const RESEARCH_MANAGEMENT_RPC_METHODS = [
   'addRelation',
   'removeRelation',
   'queryRecords',
+  'queryAttention',
 ] as const
 
 export type ResearchManagementRpcMethod = (typeof RESEARCH_MANAGEMENT_RPC_METHODS)[number]
@@ -4505,6 +4506,202 @@ export const queryRecordsInvocation: InvocationDescriptorMirror = descriptor(
   QueryRecordsResultSchema,
 )
 
+/* --------------------------------------------------------------------- *
+ * V2-UI-0.4 UI-8 — the unified Needs Attention read face (D §14).
+ *
+ * `queryAttention` is the ONE new read of the slice (ADJ-15: +1 read /
+ * 0 new mutation — every card action lands on an EXISTING face). The
+ * DTO (RECON §5.2, frozen = BRIEF §3) carries the host-computed
+ * `allowedActions` (RECON §7 mapping) + the per-kind `context` payload;
+ * the five `kind` values are a NEW DTO type (the scorer's 4-kind union
+ * stays frozen — ADJ-1). `MISSING_NEXT_ACTION` items are synthetic
+ * (query-time only — §14.3 red line: zero INSERT into any table); their
+ * `syntheticKey` is the ONLY field the DTO reserves for that case, and
+ * `detectedAt` = the query-time clock (injected, deterministic).
+ * --------------------------------------------------------------------- */
+
+/** The five unified-list kinds (RECON §5.2; SEVERE/SEV does NOT produce a
+ *  card — SCHEDULED_EVENT is V1 dashboard-domain, outside D §14.1). */
+export type AttentionItemDtoKind =
+  | 'INTERVENTION'
+  | 'EXPLICIT_BLOCKER'
+  | 'DERIVED_BLOCKER'
+  | 'NEXT_ACTION'
+  | 'MISSING_NEXT_ACTION'
+
+/** The host-computed action tokens (RECON §7 — every token maps to an
+ *  EXISTING RPC or pure client navigation; there is NO attentionDone). */
+export type AttentionAllowedAction =
+  | 'markPending'
+  | 'closeIntervention'
+  | 'reopenIntervention'
+  | 'clearBlocker'
+  | 'promoteNextAction'
+  | 'dismissNextAction'
+  | 'createNextAction'
+  | 'openWorkstream'
+  | 'openCause'
+  | 'openTask'
+
+/** The three-band priority (ADJ-2 frozen point): mechanically derived
+ *  from the score — HIGH ≥ 90 / MEDIUM 50–89 / LOW < 50. */
+export type AttentionPriority = 'HIGH' | 'MEDIUM' | 'LOW'
+
+export interface AttentionItemDto {
+  readonly kind: AttentionItemDtoKind
+  /** The source object id (IV-/NA-/BLK-/DERIVED-…); for the synthetic
+   *  MISSING_NEXT_ACTION item = the syntheticKey (RECON §5.2). */
+  readonly sourceId: string
+  /** ONLY for MISSING_NEXT_ACTION: `MISSING-NA-<workstreamId>`. */
+  readonly syntheticKey?: string
+  /** C §15.1 increment (ADJ-8 / R-11): the provenance ref. */
+  readonly sourceRef: { readonly kind: string; readonly id: string }
+  readonly projectId: string
+  readonly workstreamId: string | null
+  readonly title: string
+  /** "Why shown here" — the scorer's first reason or the mechanical copy. */
+  readonly reason: string
+  /** The source object's status word (the 8-value wire union; derived =
+   *  const 'ACTIVE', missing = const 'OPEN' — ADJ-3 mechanical). */
+  readonly status: string
+  readonly priority: AttentionPriority
+  /** The mechanical score (rankAttention output; terminal items = 0). */
+  readonly score: number
+  /** The full-order position (1-based) — terminal items = null (RECON
+   *  §6.4: rank is only meaningful for scoreable items). */
+  readonly rank: number | null
+  /** The source object created_at (derived = 0 mechanical — it is a
+   *  recomputed projection with no creation stamp; missing = detectedAt). */
+  readonly createdAt: number
+  /** Non-synthetic = createdAt; synthetic (MISSING_NEXT_ACTION) = the
+   *  query-time clock (RECON §6.3). */
+  readonly detectedAt: number
+  readonly allowedActions: readonly AttentionAllowedAction[]
+  /** Per-kind payload (narrow fields — the list never ships whole DTOs). */
+  readonly context: {
+    readonly intervention?: { readonly origin: string }
+    readonly derivedBlocker?: {
+      readonly primaryAction: {
+        readonly label: string
+        readonly targetKind: string
+        readonly targetId: string
+      }
+    }
+    readonly nextAction?: { readonly promotedToTaskId: string | null }
+    readonly missingNextAction?: { readonly objectiveId: string }
+  }
+}
+
+export const attentionItemDtoSchema = z
+  .object({
+    kind: z.enum(['INTERVENTION', 'EXPLICIT_BLOCKER', 'DERIVED_BLOCKER', 'NEXT_ACTION', 'MISSING_NEXT_ACTION']),
+    sourceId: z.string().min(1),
+    syntheticKey: z.string().min(1).optional(),
+    sourceRef: z.object({ kind: z.string().min(1), id: z.string().min(1) }).strict(),
+    projectId: idProject,
+    workstreamId: idWorkstream.nullable(),
+    title: z.string().min(1),
+    reason: z.string(),
+    status: z.string().min(1),
+    priority: z.enum(['HIGH', 'MEDIUM', 'LOW']),
+    score: z.number(),
+    rank: z.number().int().positive().nullable(),
+    createdAt: epochMs,
+    detectedAt: epochMs,
+    allowedActions: z.array(
+      z.enum([
+        'markPending',
+        'closeIntervention',
+        'reopenIntervention',
+        'clearBlocker',
+        'promoteNextAction',
+        'dismissNextAction',
+        'createNextAction',
+        'openWorkstream',
+        'openCause',
+        'openTask',
+      ]),
+    ),
+    context: z
+      .object({
+        intervention: z.object({ origin: z.string().min(1) }).strict().optional(),
+        derivedBlocker: z
+          .object({
+            primaryAction: z
+              .object({
+                label: z.string().min(1),
+                targetKind: z.string().min(1),
+                targetId: z.string().min(1),
+              })
+              .strict(),
+          })
+          .strict()
+          .optional(),
+        nextAction: z.object({ promotedToTaskId: z.string().min(1).nullable() }).strict().optional(),
+        missingNextAction: z.object({ objectiveId: z.string().min(1) }).strict().optional(),
+      })
+      .strict(),
+  })
+  .strict()
+
+export type AttentionItemDtoParsed = z.infer<typeof attentionItemDtoSchema>
+
+/** All args optional — the empty args = the full-combination cross-project
+ *  hub semantics (ADJ-4). `workstreamId` REQUIRES `projectId` (the WS
+ *  belongs to a project). */
+export interface QueryAttentionArgs {
+  /** Absent = cross-project (hub semantics); given = single project. */
+  readonly projectId?: string
+  /** Requires projectId (the WS belongs to a project). */
+  readonly workstreamId?: string
+  readonly kind?: AttentionItemDtoKind
+  /** Exact match over the DTO status (the 8-value wire union — ADJ-9:
+   *  no semantic normalization). */
+  readonly status?: string
+  readonly priority?: AttentionPriority
+  /** Default 50, hard cap 200. */
+  readonly limit?: number
+  /** Default 0. */
+  readonly offset?: number
+}
+
+export const QueryAttentionArgsSchema = z
+  .object({
+    projectId: idProject.optional(),
+    workstreamId: idWorkstream.optional(),
+    kind: z
+      .enum(['INTERVENTION', 'EXPLICIT_BLOCKER', 'DERIVED_BLOCKER', 'NEXT_ACTION', 'MISSING_NEXT_ACTION'])
+      .optional(),
+    status: z.string().min(1).optional(),
+    priority: z.enum(['HIGH', 'MEDIUM', 'LOW']).optional(),
+    limit: z.number().int().positive().max(200).optional(),
+    offset: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+
+export interface QueryAttentionResult {
+  /** The FULL order (the rankAttention total order; offset/limit only
+   *  truncate, never break the order — scoreable first, then the
+   *  terminal group createdAt-desc). */
+  readonly items: readonly AttentionItemDto[]
+  /** The filtered total (before offset/limit). */
+  readonly total: number
+}
+
+export const QueryAttentionResultSchema = z
+  .object({
+    items: z.array(attentionItemDtoSchema),
+    total: z.number().int().nonnegative(),
+  })
+  .strict()
+
+export const queryAttentionInvocation: InvocationDescriptorMirror = descriptor(
+  'queryAttention',
+  [argsParameter('QueryAttentionArgs', QueryAttentionArgsSchema)],
+  'QueryAttentionResult',
+  QueryAttentionResultSchema,
+)
+
 /** The GUI management invocation descriptors (appended to the registered
  *  face at the end — the frozen 14 + plane 9 entries stay untouched). */
 export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirror[] = [
@@ -4543,6 +4740,7 @@ export const RESEARCH_MANAGEMENT_INVOCATIONS: readonly InvocationDescriptorMirro
   addRelationInvocation,
   removeRelationInvocation,
   queryRecordsInvocation,
+  queryAttentionInvocation,
 ]
 
 /**

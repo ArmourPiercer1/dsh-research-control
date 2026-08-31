@@ -295,12 +295,12 @@ describe('WorkstreamView 容器（三区同屏）', () => {
     await store.loadWorkstream('WS-1')
 
     const html = renderPage(store, 'WS-1')
-    expect(html).toContain('No active tasks')
-    expect(html).toContain('No pending validations')
-    expect(html).toContain('No runs')
-    expect(html).toContain('No planned items')
+    // UI-9 D4 (B §33.2): the fully empty Current zone renders the frozen
+    // zone-head line instead of the per-group low-noise lines.
+    expect(html).toContain('No active execution.')
+    expect(html).toContain('No future plan items yet.')
     expect(html).not.toContain('未决 PlanFork')
-    expect(html).toContain('暂无历史事件')
+    expect(html).toContain('No recorded history yet.')
   })
 
   it('历史入口回调经容器传递（onOpenHistory prop）', async () => {

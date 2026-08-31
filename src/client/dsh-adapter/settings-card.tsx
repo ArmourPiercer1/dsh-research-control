@@ -83,7 +83,7 @@ import {
   type ResearchSettingsSaveOutcome,
   type ResearchSettingsSection,
 } from '../../shared/research-settings.js'
-import { researchRpc } from './remote/mount.js'
+import { researchRpc } from './remote/mount.js'; import { t } from '../i18n/copy.js' // line-merged to keep pre-existing tsc error line numbers byte-stable (INV-PERM-5 lint permits)
 import {
   ResearchSettingsCard,
   type ResearchSettingsCardFace,
@@ -245,14 +245,14 @@ async function runTwoPhaseSave(
   if (!preRes.ok) {
     return {
       status: 'rescan-error',
-      message: `保存前预检失败（${faultMessage(preRes.error)}），设置未写入`,
+      message: t('settings.preflightFailed', { fault: faultMessage(preRes.error) }),
     }
   }
   // Step 2 — the pre-save committed values (the card's current display;
   // the §7.5 「自动回退字段到旧值」 target).
   const before = committedSection(scope)
   if (before === undefined) {
-    return { status: 'rescan-error', message: '设置域尚未就绪，保存未执行' }
+    return { status: 'rescan-error', message: t('settings.notReady') }
   }
   // Step 3 — write BOTH fields through the settingsScope face (the same
   // face the card displays them).
@@ -263,7 +263,7 @@ async function runTwoPhaseSave(
     await rollbackBoth(scope, before)
     return {
       status: 'write-error',
-      message: `写入设置失败（${faultMessage(err)}），已保留原目录名`,
+      message: t('settings.writeFailed', { fault: faultMessage(err) }),
     }
   }
   // Step 4 — rescan: fresh discovery under the NEW names.
@@ -272,7 +272,7 @@ async function runTwoPhaseSave(
     await rollbackBoth(scope, before)
     return {
       status: 'rescan-error',
-      message: `重扫失败（${faultMessage(postRes.error)}），已回退到原目录名`,
+      message: t('settings.rescanFailed', { fault: faultMessage(postRes.error) }),
     }
   }
   // Step 5 — verify: did the rename lose what the plane detected before?

@@ -141,6 +141,11 @@ export interface HostWiringOptions {
    * re-enforcing the owner-only mode on the dir it creates).
    */
   readonly dataDir: string
+  /** ADJ-11 (UI-9): `true` when this wiring was composed by the host's
+   *  plane re-init (mid-session rebuild) rather than the initial boot —
+   *  threaded to the startup integrity gate, which echoes it on the
+   *  report surface (`wiring.integrity.reinitialized`). */
+  readonly reinitialized?: boolean
   /** The session adapter port (WP-0.4 `DshSessionAdapter` — the host
    *  `HostSessionAdapter` in production; a fake in tests). */
   readonly adapter: DshSessionAdapter

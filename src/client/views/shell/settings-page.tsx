@@ -77,6 +77,7 @@ import type {
   UnbindProjectArgs,
   UnbindProjectResult,
 } from '../../../shared/rpc-contracts.js'
+import { t } from '../../i18n/copy.js'
 import { formatEpochDate } from './hub-overview.js'
 import styles from './settings-page.module.css'
 
@@ -140,16 +141,16 @@ function folderNameOf(wsPath: string | null): string {
 }
 
 const ROLE_LABEL: Record<SettingsPageProps['role'], string> = {
-  HUB: '中枢',
-  MANAGED: '受管项目',
-  STANDALONE: '独立项目',
+  HUB: t('settings.roleHub'),
+  MANAGED: t('settings.roleManaged'),
+  STANDALONE: t('settings.roleStandalone'),
 }
 
 /** The ③ status chip copy (design §7.4 ③ — 正常 / ⚠树缺失 / 已归档). */
 const STATUS_LABEL: Record<BookRowStatus, string> = {
-  normal: '正常',
-  missing: '⚠树缺失',
-  archived: '已归档',
+  normal: t('status.normal'),
+  missing: t('status.treeMissing'),
+  archived: t('status.archived'),
 }
 
 export function SettingsPage(props: SettingsPageProps): ReactElement {
@@ -324,7 +325,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     const archived = rows.filter((r) => r.status === 'archived').length
     const missing = rows.filter((r) => r.status === 'missing').length
     const normal = total - archived - missing
-    return `共 ${total} 条 · 正常 ${normal} · 树缺失 ${missing} · 已归档 ${archived}`
+    return t('settings.summary', { total, normal, missing, archived })
   })()
 
   /** The own project id (the MANAGED/STANDALONE ④ row) — the shell already
@@ -336,7 +337,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   /** The ④ rows (the §3.3 layout, client-derived — read-only 透明化). */
   const locationRows: { readonly label: string; readonly path: string }[] = []
   if (role === 'HUB' && hub !== null) {
-    locationRows.push({ label: '中枢注册表', path: `${hub.path}/${dirNames.hubDir}/registry.yaml` })
+    locationRows.push({ label: t('settings.registry'), path: `${hub.path}/${dirNames.hubDir}/registry.yaml` })
     for (const entry of plane.registry) {
       // Managed / missing / archived: the db never leaves the hub (§3.3 —
       // the 库留中枢 of the 解除绑定 三件事; the missing entry's db stays
@@ -369,42 +370,42 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
 
   const stateFault =
     role !== 'HUB' && (cwd === null || ownProject === undefined)
-      ? '研究平面状态异常：当前项目未解析'
+      ? t('shell.planeErrorProject')
       : null
 
   return (
     <div className={styles.settings} data-settings-page data-settings-role={role}>
       {/* ① 当前状态 (design §7.4): 角色 / 中枢路径 / 登记概况. */}
-      <section className={styles.section} data-settings-section="status" aria-label="当前状态">
-        <h2 className={styles.sectionTitle}>① 当前状态</h2>
+      <section className={styles.section} data-settings-section="status" aria-label={t('settings.statusTitle')}>
+        <h2 className={styles.sectionTitle}>{t('settings.section1')}</h2>
         <dl className={styles.stateList}>
           <div className={styles.stateRow}>
-            <dt className={styles.stateLabel}>本工作区角色</dt>
+            <dt className={styles.stateLabel}>{t('settings.workspaceRole')}</dt>
             <dd className={styles.stateValue}>{ROLE_LABEL[role]}</dd>
           </div>
           <div className={styles.stateRow}>
-            <dt className={styles.stateLabel}>中枢</dt>
+            <dt className={styles.stateLabel}>{t('settings.roleHub')}</dt>
             <dd className={styles.stateValue}>
-              {hub !== null ? <code className={styles.pathValue}>{hub.path}</code> : '（无管理中枢）'}
+              {hub !== null ? <code className={styles.pathValue}>{hub.path}</code> : t('settings.noHub')}
             </dd>
           </div>
           <div className={styles.stateRow}>
-            <dt className={styles.stateLabel}>登记概况</dt>
+            <dt className={styles.stateLabel}>{t('settings.registration')}</dt>
             <dd className={styles.stateValue}>{overview}</dd>
           </div>
         </dl>
       </section>
 
       {/* ② 操作 (design §7.4 — the per-role 显隐 状态表). */}
-      <section className={styles.section} data-settings-section="actions" aria-label="操作">
-        <h2 className={styles.sectionTitle}>② 操作</h2>
+      <section className={styles.section} data-settings-section="actions" aria-label={t('settings.ops')}>
+        <h2 className={styles.sectionTitle}>{t('settings.section2')}</h2>
         <div className={styles.actionList}>
           {role === 'HUB' && (
-            <p className={styles.stateNote}>本工作区已是研究管理中枢（设为中枢已满足）。</p>
+            <p className={styles.stateNote}>{t('settings.alreadyHub')}</p>
           )}
           {role === 'STANDALONE' && hub === null && (
             <button type="button" className={styles.actionButton} onClick={openSetHubDialog} disabled={busy}>
-              {busy ? '处理中…' : '设为中枢'}
+              {busy ? t('common.processing') : t('settings.setHub')}
             </button>
           )}
           {stateFault !== null && (
@@ -413,11 +414,11 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
             </p>
           )}
           <button type="button" className={styles.actionButton} onClick={onRescan} disabled={busy}>
-            {busy ? '处理中…' : '重扫并连接'}
+            {busy ? t('common.processing') : t('settings.rescanConnect')}
           </button>
           {emptyHub && (
             <button type="button" className={styles.actionButton} onClick={openBindDialog} disabled={busy}>
-              {busy ? '处理中…' : '接入'}
+              {busy ? t('common.processing') : t('settings.connect')}
             </button>
           )}
           {role === 'MANAGED' && (
@@ -427,12 +428,12 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
               onClick={openUnbindDialog}
               disabled={busy}
             >
-              {busy ? '处理中…' : '解除绑定'}
+              {busy ? t('common.processing') : t('settings.unbind')}
             </button>
           )}
           {role === 'STANDALONE' && hub !== null && (
             <button type="button" className={styles.actionButton} onClick={openBindDialog} disabled={busy}>
-              {busy ? '处理中…' : '接入研究管理系统'}
+              {busy ? t('common.processing') : t('settings.connectSystem')}
             </button>
           )}
           {error !== null && error.source === 'actions' && (
@@ -446,10 +447,10 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
       {/* ③ 项目登记册 (HUB only — design §7.4 ③; the project-workspace
           sessions see the 收窄版 ①②④ without this section). */}
       {role === 'HUB' && (
-        <section className={styles.section} data-settings-section="book" aria-label="项目登记册">
-          <h2 className={styles.sectionTitle}>③ 项目登记册</h2>
+        <section className={styles.section} data-settings-section="book" aria-label={t('settings.registryBook')}>
+          <h2 className={styles.sectionTitle}>{t('settings.section3')}</h2>
           {plane.registry.length === 0 ? (
-            <p className={styles.stateNote}>登记册为空（尚无登记项目）。</p>
+            <p className={styles.stateNote}>{t('settings.registryEmpty')}</p>
           ) : (
             <ul className={styles.bookList}>
               {rows.map(({ entry, status }) => (
@@ -465,8 +466,8 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                   <code className={styles.bookPath}>{entry.path}</code>
                   <span className={`${styles.statusChip} ${styles[`status_${status}`]}`}>{STATUS_LABEL[status]}</span>
                   <span className={styles.bookMeta}>
-                    登记于 {formatEpochDate(entry.boundAt)}
-                    {status === 'archived' && entry.archivedAt !== null && <> · 归档于 {formatEpochDate(entry.archivedAt)}</>}
+                    {t('settings.boundAt', { date: formatEpochDate(entry.boundAt) })}
+                    {status === 'archived' && entry.archivedAt !== null && <> {t('settings.archivedAt', { date: formatEpochDate(entry.archivedAt) })}</>}
                   </span>
                   <span className={styles.bookActions}>
                     {status === 'normal' && (
@@ -477,7 +478,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                         disabled={busy}
                         data-book-action="rescan"
                       >
-                        {busy ? '处理中…' : '重验'}
+                        {busy ? t('common.processing') : t('settings.revalidate')}
                       </button>
                     )}
                     {status === 'missing' && (
@@ -489,7 +490,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                           disabled={busy}
                           data-book-action="guide"
                         >
-                          恢复指引
+                          {t('settings.restoreGuide')}
                         </button>
                         <button
                           type="button"
@@ -498,7 +499,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                           disabled={busy}
                           data-book-action="remove"
                         >
-                          {busy ? '处理中…' : '移除登记'}
+                          {busy ? t('common.processing') : t('settings.removeEntry')}
                         </button>
                       </>
                     )}
@@ -510,14 +511,13 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                         disabled={busy}
                         data-book-action="restore"
                       >
-                        {busy ? '处理中…' : '恢复登记'}
+                        {busy ? t('common.processing') : t('settings.restoreEntry')}
                       </button>
                     )}
                   </span>
                   {status === 'missing' && guideOpenId === entry.id && (
                     <p className={styles.guideText} data-book-guide>
-                      恢复指引：将研究树目录放回 <code>{entry.path}/{dirNames.treeDir}</code> 后点「重验」
-                      （或「移除登记」放弃该项目，再重新接入）。
+                      {t('settings.restoreGuideText', { path: `${entry.path}/${dirNames.treeDir}` })}
                     </p>
                   )}
                 </li>
@@ -534,10 +534,10 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
 
       {/* ④ 数据位置 (design §7.4 ④ — 只读透明化; the §3.3 layout derived
           client-side, a mirror of the host's resolveDbPath). */}
-      <section className={styles.section} data-settings-section="locations" aria-label="数据位置">
-        <h2 className={styles.sectionTitle}>④ 数据位置</h2>
+      <section className={styles.section} data-settings-section="locations" aria-label={t('settings.dataLocation')}>
+        <h2 className={styles.sectionTitle}>{t('settings.section4')}</h2>
         {locationRows.length === 0 ? (
-          <p className={styles.stateNote}>无可展示的数据位置。</p>
+          <p className={styles.stateNote}>{t('settings.dataLocationEmpty')}</p>
         ) : (
           <ul className={styles.locationList}>
             {locationRows.map((row) => (
@@ -559,25 +559,23 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
           className={styles.dialogOverlay}
           role="dialog"
           aria-modal="true"
-          aria-label={role === 'HUB' ? '接入' : '接入研究管理系统'}
+          aria-label={role === 'HUB' ? t('settings.connect') : t('settings.connectSystem')}
         >
           <div className={styles.dialogPanel}>
-            <h3 className={styles.dialogTitle}>{role === 'HUB' ? '接入' : '接入研究管理系统'}</h3>
+            <h3 className={styles.dialogTitle}>{role === 'HUB' ? t('settings.connect') : t('settings.connectSystem')}</h3>
             {role === 'HUB' ? (
               // The HUB empty-hub case (the 引导卡 copy — the confirm fails
               // loud on the host's hub-workspace refusal, the T5.1 pin).
-              <p className={styles.dialogCopy}>将以该显示名登记本工作区为研究项目。</p>
+              <p className={styles.dialogCopy}>{t('settings.registerAs')}</p>
             ) : (
               // STANDALONE (the tree IS present — the host probes it and
               // migrates the standalone db into the hub, design §8 接入（有中枢）).
               <p className={styles.dialogCopy}>
-                本工作区已有 <code>{dirNames.treeDir}/</code> 研究树。确认后将登记为中枢的 active
-                项目，既有独立事件库迁入中枢（<code>{dirNames.treeDir}/state/</code> →
-                中枢项目库）。
+                {t('settings.connectHasTree', { tree: `${dirNames.treeDir}/`, hubDb: `${dirNames.treeDir}/state/ → ` })}
               </p>
             )}
             <label className={styles.dialogField} htmlFor="settings-display-name">
-              项目显示名
+              {t('settings.displayName')}
             </label>
             <input
               id="settings-display-name"
@@ -588,7 +586,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
             />
             <div className={styles.dialogActions}>
               <button type="button" className={styles.dialogCancel} onClick={() => setBindDialog(false)}>
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -596,7 +594,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 disabled={busy || displayName.trim() === ''}
                 onClick={() => void confirmBind()}
               >
-                {busy ? '处理中…' : role === 'HUB' ? '接入' : '接入研究管理系统'}
+                {busy ? t('common.processing') : role === 'HUB' ? t('settings.connect') : t('settings.connectSystem')}
               </button>
             </div>
           </div>
@@ -606,23 +604,26 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
       {/* The 解除绑定 confirm dialog (design §7.4: 明写三件事; the confirm
           button reads 解除绑定 verbatim). */}
       {unbindDialog && (
-        <div className={styles.dialogOverlay} role="dialog" aria-modal="true" aria-label="解除绑定">
+        <div className={styles.dialogOverlay} role="dialog" aria-modal="true" aria-label={t('settings.unbindTitle')}>
           <div className={styles.dialogPanel}>
-            <h3 className={styles.dialogTitle}>解除绑定</h3>
-            <p className={styles.dialogCopy}>确认解除绑定后，将发生以下三件事：</p>
+            <h3 className={styles.dialogTitle}>{t('settings.unbindTitle')}</h3>
+            <p className={styles.dialogCopy}>{t('settings.unbindConsequenceIntro')}</p>
             <ol className={styles.dialogThreeItems}>
               <li className={styles.dialogThreeItem}>
-                登记册条目转归档（不删除——日后可在「中枢 设置 → 项目登记册」点「恢复登记」还原）。
+                {t('settings.unbindConsequence1')}
               </li>
               <li className={styles.dialogThreeItem}>
-                研究树目录 <code>{dirNames.treeDir}/</code> 改名为{' '}
-                <code>{dirNames.treeDir}.archived-〈时间戳〉/</code>（留在本工作区内）。
+                {t('settings.unbindConsequence2a')}
+                <code>{dirNames.treeDir}/</code>
+                {t('settings.unbindConsequence2b')}
+                <code>{t('settings.unbindConsequence2c', { treeDir: dirNames.treeDir })}</code>
+                {t('settings.unbindConsequence2d')}
               </li>
-              <li className={styles.dialogThreeItem}>事件库保留在中枢（不移动、不删除，历史完整保留）。</li>
+              <li className={styles.dialogThreeItem}>{t('settings.unbindConsequence3')}</li>
             </ol>
             <div className={styles.dialogActions}>
               <button type="button" className={styles.dialogCancel} onClick={() => setUnbindDialog(false)}>
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -630,7 +631,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 disabled={busy}
                 onClick={() => void confirmUnbind()}
               >
-                {busy ? '处理中…' : '解除绑定'}
+                {busy ? t('common.processing') : t('settings.unbind')}
               </button>
             </div>
           </div>
@@ -642,20 +643,18 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
           EMPTY registry; the own tree stays STANDALONE, the db never
           moves — the §3.1 物理形状, stated so the user is not surprised). */}
       {setHubDialog && (
-        <div className={styles.dialogOverlay} role="dialog" aria-modal="true" aria-label="设为研究管理中枢">
+        <div className={styles.dialogOverlay} role="dialog" aria-modal="true" aria-label={t('settings.setHubTitle')}>
           <div className={styles.dialogPanel}>
-            <h3 className={styles.dialogTitle}>设为研究管理中枢</h3>
+            <h3 className={styles.dialogTitle}>{t('settings.setHubTitle')}</h3>
             <p className={styles.dialogCopy}>
-              将在本工作区创建 <code>{dirNames.hubDir}/</code> 标记目录与空的{' '}
-              <code>registry.yaml</code>，此后本工作区即全局研究管理中枢。
+              {t('settings.setHubCreates', { marker: `${dirNames.hubDir}/`, db: 'registry.yaml' })}
             </p>
             <p className={styles.dialogCopy}>
-              本工作区已有的 <code>{dirNames.treeDir}/</code> 研究树保持独立模式：其事件库仍在{' '}
-              <code>{dirNames.treeDir}/state/</code> 下（不迁移、不删除），登记项目时再选择接入。
+              {t('settings.setHubExistingTree', { tree: `${dirNames.treeDir}/`, db: `${dirNames.treeDir}/state/` })}
             </p>
             <div className={styles.dialogActions}>
               <button type="button" className={styles.dialogCancel} onClick={() => setSetHubDialog(false)}>
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -663,7 +662,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 disabled={busy}
                 onClick={() => void confirmSetHub()}
               >
-                {busy ? '处理中…' : '设为中枢'}
+                {busy ? t('common.processing') : t('settings.setHub')}
               </button>
             </div>
           </div>

@@ -77,6 +77,8 @@ import type {
   WorkstreamSnapshot,
 } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
+import { ErrorStateBlock } from '../../components/error-state-block.js'
+import { useProjectReadonly } from '../../components/readonly-context.js'
 import { PlanGraphContainer } from '../../graph/PlanGraphContainer.js'
 import type { ResearchStore } from '../../stores/index.js'
 import { CurrentZone, type CurrentFocusView } from './CurrentZone.js'
@@ -118,9 +120,9 @@ export interface WorkstreamViewProps {
 
 /** 产品文案（中文）— workstream lifecycle. */
 const LIFECYCLE_LABEL: Record<WorkstreamLifecycle, string> = {
-  PLANNED: '规划中',
-  REALIZED: '已实现',
-  DROPPED: '已放弃',
+  PLANNED: t('status.planned'),
+  REALIZED: t('status.implemented'),
+  DROPPED: t('status.abandoned'),
 }
 
 /** The reorder in-flight/failure face (local UI state only — the data
@@ -168,8 +170,10 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory, initialReco
    *  receipt — a local presentation state; the promoted task itself
    *  lands via the refetched slices). */
   const [promotedTaskId, setPromotedTaskId] = useState<string | null>(null)
-  /** The last failed UI-4 mutation (the shared low-noise fault note). */
-  const [actionFault, setActionFault] = useState<string | null>(null)
+  /** The last failed UI-4 mutation (the shared low-noise fault note).
+   *  UI-9 D3: keeps the rejected VALUE (the structured carrier feeds
+   *  the error-state mapping; the detail line renders its message). */
+  const [actionFault, setActionFault] = useState<unknown | null>(null)
   /** UI-7 (B §13.2): the page-body workspace toggle (view state — the
    *  deep link IS the state; no URL routing). Default: the three-zone
    *  Workspace face. */
@@ -193,6 +197,12 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory, initialReco
   const [createFace, setCreateFace] = useState<MutationFace>(MUTATION_IDLE)
   const [editFace, setEditFace] = useState<MutationFace>(MUTATION_IDLE)
   const [removeFace, setRemoveFace] = useState<MutationFace>(MUTATION_IDLE)
+  /** UI-9 D4 (ADJ-11): the project read-only surface (the shell wraps
+   *  the console in the provider; outside one the default context is
+   *  NO_PROJECT_READONLY — the pair degrades to the writable surface).
+   *  Passed down as props: the zones are hook-free by the view-test
+   *  purity contract (tests/views-workstream/harness.ts). */
+  const { readonly: readOnly, reasonText } = useProjectReadonly()
   const [depAddFault, setDepAddFault] = useState<string | null>(null)
   const [depRemoveFault, setDepRemoveFault] = useState<string | null>(null)
 
@@ -261,9 +271,11 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory, initialReco
     })
   }, [selectedItemId, data])
 
-  /** Surface a mutation fault in the shared low-noise note. */
+  /** Surface a mutation fault in the shared low-noise note.
+   *  UI-9 D3: keep the rejected value (not just its message) so the
+   *  error-state mapping can read the structured carrier code. */
   function fail(err: unknown): void {
-    setActionFault(err instanceof Error ? err.message : String(err))
+    setActionFault(err)
   }
 
   /** Clear an explicit blocker (the store refetches per the UI-4
@@ -544,21 +556,21 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory, initialReco
     if (slice.status === 'error') {
       return (
         <div className={styles.page}>
-          <p className={styles.loadFault}>加载失败：{slice.error ?? '未知错误'}</p>
+          <p className={styles.loadFault}>{t('common.loadFailedDetail', { detail: slice.error ?? t('common.unknownError') })}</p>
           <button
             type="button"
             className={styles.retryButton}
-            aria-label="重试加载"
+            aria-label={t('common.retryLoad')}
             onClick={() => void store.loadWorkstream(workstreamId)}
           >
-            重试
+            {t('common.retry')}
           </button>
         </div>
       )
     }
     return (
       <div className={styles.page}>
-        <p className={styles.loadingNote}>正在加载 Workstream…</p>
+        <p className={styles.loadingNote}>{t('ws.pageLoading')}</p>
       </div>
     )
   }
@@ -585,12 +597,17 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory, initialReco
       </header>
 
       {slice.status === 'error' && (
-        <p className={styles.staleBanner}>刷新失败，显示最近数据：{slice.error ?? '未知错误'}</p>
+        <p className={styles.staleBanner}>{t('common.refreshFailedStale', { detail: slice.error ?? t('common.unknownError') })}</p>
       )}
       {actionFault !== null && (
-        <p className={styles.actionFault} data-action-fault>
-          {t('ws.current.actionFault')}: {actionFault}
-        </p>
+        // UI-9 D3: the B §33.3 four-field error state (groups 5/6 — the
+        // pre-application validation faults of the current-zone actions).
+        // The original action control stays enabled and IS the
+        // user-initiated re-send (no duplicate button). The legacy
+        // `data-action-fault` hook is preserved on the wrapper.
+        <div data-action-fault>
+          <ErrorStateBlock error={actionFault} />
+        </div>
       )}
 
       {/* UI-7 (B §13.2): the page-body [Workspace] / [Records] toggle —
@@ -639,6 +656,8 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory, initialReco
           onClearBlocker={handleClearBlocker}
           onPromoteNextAction={handlePromoteNextAction}
           onDismissNextAction={handleDismissNextAction}
+          readonly={readOnly}
+          reasonText={reasonText}
         />
         <div className={styles.futureColumn}>
           <FutureZone
@@ -677,6 +696,8 @@ export function WorkstreamView({ store, workstreamId, onOpenHistory, initialReco
             addDependencyFault={depAddFault}
             onRemoveDependency={handleRemoveDependency}
             removeDependencyFault={depRemoveFault}
+            readonly={readOnly}
+            reasonText={reasonText}
           />
           {/* B §16: the graph face — strip top + graph bottom. The
               extended container subscribes the current/currentFocus

@@ -158,7 +158,7 @@ describe('T5.3 — 一键调查 → 调查员 binding (shell-level)', () => {
 
     // The frame JUMPED to 调查员 (the V1 auto-navigation, repositioned)
     // and the binding row carries the launched session id. UI-3 D1: the
-    // 调查员 entry is hidden from the first-level nav (VISIBLE_HUB_ENTRIES
+    // 调查员 entry is hidden from the first-level nav (VISIBLE_HUB_ENTRY_IDS
     // filter), so the jump is asserted on the page section switch.
     await waitFor(() => expect(document.querySelector('[data-page="investigator"]')).not.toBeNull())
     const body = document.querySelector('[data-page="investigator"]') as HTMLElement
@@ -200,7 +200,7 @@ describe('T5.3 — 一键调查 → 调查员 binding (shell-level)', () => {
     expect(document.querySelector('[data-page="investigator"]')).toBeNull()
     expect(document.querySelector('[data-investigator-binding]')).toBeNull()
     // UI-3 D1: the 调查员 entry is hidden from the first-level nav
-    // (VISIBLE_HUB_ENTRIES filter) — there is no manual-nav path to it
+    // (VISIBLE_HUB_ENTRY_IDS filter) — there is no manual-nav path to it
     // anymore, only the programmatic jump on a successful launch.
     expect(screen.queryByRole('button', { name: '调查员' })).toBeNull()
   })

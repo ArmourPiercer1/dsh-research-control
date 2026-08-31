@@ -18,7 +18,14 @@
  *  - the success + rejection paths of the method itself:
  *    omitted `sessionId` → `session: null`; unknown `sessionId` →
  *    `PlaneError('PLANE_SESSION_UNKNOWN')`; a malformed args object →
- *    rejected at the strict schema boundary (before anything runs).
+ *    rejected at the strict schema boundary (before anything runs);
+ *  - ADJ-11 (UI-9 D4): the MANAGED entries carry the gate's machine
+ *    projection (`integrity` — machine codes ONLY, 只传机器码); the
+ *    STANDALONE entry (no wiring of its own) keeps the field undefined.
+ *    The `projectPlaneIntegrity` projection (per-code emission + the
+ *    locked vocabulary) and the attach matrix (wirings map undefined /
+ *    MANAGED missing from the map / wired MANAGED vs. STANDALONE skip)
+ *    are unit-tested at the bottom of this file.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -26,10 +33,19 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import {
+  projectPlaneIntegrity,
   projectPlaneSummary,
   planeProjectDisplayName,
   resolveSessionRole,
+  INTEGRITY_CODE_WIRING_REINITIALIZED,
+  INTEGRITY_CODE_TREE_PARTIAL,
+  INTEGRITY_CODE_CONSISTENCY_MISMATCH,
+  INTEGRITY_CODE_GIT_REPO_ERROR,
+  ProductionResearchPlaneServices,
 } from '../../src/host/dsh-adapter/host/plane-read-services.js'
+import type { GitCheckResult } from '../../src/host/persistence/hardening/index.js'
+import type { HostWiring, StartupIntegrityGate } from '../../src/host/service/wiring/index.js'
+import type { DshSessionAdapter } from '../../src/shared/host-adapter-ports.js'
 import type { PlaneProject, PlaneState } from '../../src/host/dsh-adapter/host/discovery.js'
 import { serializeRegistry } from '../../src/host/domain/registry/index.js'
 import type { RegistryEntry } from '../../src/host/domain/registry/index.js'
@@ -102,8 +118,17 @@ describe('getResearchPlaneState — the §5 role segment (REAL init + fake sessi
       const hubState = wire(await h.svc.getResearchPlaneState({ sessionId: 'sess-hub' }))
       expect(hubState.hub).toEqual({ path: p.hub })
       expect(hubState.dirNames).toEqual({ treeDir: '.research', hubDir: '.research-control' })
+      // ADJ-11 (UI-9 D4): the MANAGED entry carries the gate's machine
+      // projection (init plane = CLEAN gate → writable surface, no codes);
+      // the STANDALONE entry has no wiring of its own → integrity omitted.
       expect(hubState.projects).toEqual([
-        { projectId: 'PRJ-1', displayName: '机器人视觉定位系统', kind: 'MANAGED', wsPath: p.wsA },
+        {
+          projectId: 'PRJ-1',
+          displayName: '机器人视觉定位系统',
+          kind: 'MANAGED',
+          wsPath: p.wsA,
+          integrity: { readOnly: false, checkCodes: [] },
+        },
         { projectId: 'PRJ-2', displayName: '机器人视觉定位系统', kind: 'STANDALONE', wsPath: p.wsB },
       ])
       expect(hubState.missing).toEqual([
@@ -376,5 +401,176 @@ describe('projectPlaneSummary + planeProjectDisplayName (pure)', () => {
     expect(
       planeProjectDisplayName(planeProject('PRJ-2', 'STANDALONE', { treeTitle: null })),
     ).toBe('PRJ-2')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * ADJ-11 (UI-9 D4) — the plane integrity projection
+ * ------------------------------------------------------------------ */
+
+/** A synthetic gate. The projection reads exactly: reinitialized /
+ *  tree.status / consistency.status / readSurface — the remainder of the
+ *  report surface is cast away (the whitebox-cast precedent of this
+ *  suite's helpers). */
+function gate(
+  over: {
+    reinitialized?: boolean
+    tree?: 'pass' | 'recoverable'
+    consistency?: 'pass' | 'recoverable' | 'unrecoverable' | 'skipped'
+    readSurface?: 'ok' | 'readonly'
+  } = {},
+): StartupIntegrityGate {
+  return {
+    reinitialized: over.reinitialized ?? false,
+    tree: { status: over.tree ?? 'pass' },
+    consistency: { status: over.consistency ?? 'pass' },
+    readSurface: over.readSurface ?? 'ok',
+  } as unknown as StartupIntegrityGate
+}
+
+/** A synthetic git-boundary result (the classification fields the
+ *  projection's sibling surface carries; `message` is diagnostics). */
+function gitStatus(status: GitCheckResult['status'] = 'pass'): GitCheckResult {
+  return {
+    status,
+    managedMode: 'ok',
+    checkpointAllowed: true,
+    message: 'synthetic',
+  } as unknown as GitCheckResult
+}
+
+/** A synthetic wiring whose `integrity` is the given gate (the attach
+ *  reads `wiring.integrity` + awaits `wiring.integrity.git`). */
+function wiringWith(
+  over: Parameters<typeof gate>[0] = {},
+  git: GitCheckResult = gitStatus(),
+): HostWiring {
+  return { integrity: { ...gate(over), git: Promise.resolve(git) } } as unknown as HostWiring
+}
+
+describe('projectPlaneIntegrity — the ADJ-11 machine-code projection (pure)', () => {
+  it('pins the LOCKED vocabulary (the client keys on exactly these strings)', () => {
+    expect(INTEGRITY_CODE_WIRING_REINITIALIZED).toBe('WIRING_REINITIALIZED')
+    expect(INTEGRITY_CODE_TREE_PARTIAL).toBe('TREE_PARTIAL')
+    expect(INTEGRITY_CODE_CONSISTENCY_MISMATCH).toBe('CONSISTENCY_MISMATCH')
+    expect(INTEGRITY_CODE_GIT_REPO_ERROR).toBe('GIT_REPO_ERROR')
+  })
+
+  it('clean gate + clean git → writable surface, no codes', () => {
+    expect(projectPlaneIntegrity(gate(), gitStatus())).toEqual({ readOnly: false, checkCodes: [] })
+  })
+
+  it('gate.reinitialized ⇔ WIRING_REINITIALIZED (the gate-internal re-init echo)', () => {
+    expect(projectPlaneIntegrity(gate({ reinitialized: true }), gitStatus()).checkCodes).toEqual([
+      INTEGRITY_CODE_WIRING_REINITIALIZED,
+    ])
+  })
+
+  it('tree recoverable ⇔ TREE_PARTIAL (partial breakage → degraded surface)', () => {
+    expect(projectPlaneIntegrity(gate({ tree: 'recoverable' }), gitStatus()).checkCodes).toEqual([
+      INTEGRITY_CODE_TREE_PARTIAL,
+    ])
+  })
+
+  it('consistency non-pass ⇔ CONSISTENCY_MISMATCH (any non-pass status)', () => {
+    for (const status of ['recoverable', 'unrecoverable', 'skipped'] as const) {
+      expect(projectPlaneIntegrity(gate({ consistency: status }), gitStatus()).checkCodes).toEqual([
+        INTEGRITY_CODE_CONSISTENCY_MISMATCH,
+      ])
+    }
+  })
+
+  it('git non-pass ⇔ GIT_REPO_ERROR (any non-pass status)', () => {
+    // CheckStatus has no 'conflict' literal — the host's git check
+    // classifies a conflict as `status: 'recoverable'` +
+    // `conflictInProgress: true` (git-check.ts), so the projection
+    // fires on the status alone.
+    for (const status of ['recoverable', 'unrecoverable', 'skipped'] as const) {
+      expect(projectPlaneIntegrity(gate(), gitStatus(status)).checkCodes).toEqual([
+        INTEGRITY_CODE_GIT_REPO_ERROR,
+      ])
+    }
+  })
+
+  it('readSurface readonly ⇔ readOnly true (the read surface stays available)', () => {
+    expect(projectPlaneIntegrity(gate({ readSurface: 'readonly' }), gitStatus()).readOnly).toBe(true)
+    expect(projectPlaneIntegrity(gate({ readSurface: 'ok' }), gitStatus()).readOnly).toBe(false)
+  })
+
+  it('all four + readonly → all codes in the LOCKED order + readOnly', () => {
+    expect(
+      projectPlaneIntegrity(
+        gate({
+          reinitialized: true,
+          tree: 'recoverable',
+          consistency: 'recoverable',
+          readSurface: 'readonly',
+        }),
+        gitStatus('unrecoverable'),
+      ),
+    ).toEqual({
+      readOnly: true,
+      checkCodes: [
+        INTEGRITY_CODE_WIRING_REINITIALIZED,
+        INTEGRITY_CODE_TREE_PARTIAL,
+        INTEGRITY_CODE_CONSISTENCY_MISMATCH,
+        INTEGRITY_CODE_GIT_REPO_ERROR,
+      ],
+    })
+  })
+})
+
+describe('getResearchPlaneState — the ADJ-11 integrity attach (stubbed composition)', () => {
+  /** The production port over a stubbed plane (no host, no disk):
+   *  MANAGED PRJ-1 + STANDALONE PRJ-2, the wirings map injectable — the
+   *  three attach branches (map undefined / MANAGED missing from the
+   *  map / wired) without a REAL init. */
+  function attachSvc(wirings: Map<string, HostWiring> | undefined): ProductionResearchPlaneServices {
+    return new ProductionResearchPlaneServices({
+      getPlane: () =>
+        planeState({
+          hub: { path: '/workspaces/hub' },
+          projects: [planeProject('PRJ-1', 'MANAGED'), planeProject('PRJ-2', 'STANDALONE')],
+        }),
+      getWirings: () => wirings,
+      dirNames: () => ({ treeDir: '.research', hubDir: '.research-control' }),
+      sessions: { listSessions: () => [] } as unknown as DshSessionAdapter,
+      declarativeDir: '/workspaces/hub/.research-control/declarative',
+    })
+  }
+
+  it('a composition without the wirings map keeps the field undefined (every entry)', async () => {
+    const state = await attachSvc(undefined).getResearchPlaneState({})
+    expect(state.projects).toEqual([
+      { projectId: 'PRJ-1', displayName: 'PRJ-1 entry name', kind: 'MANAGED', wsPath: '/workspaces/PRJ-1' },
+      { projectId: 'PRJ-2', displayName: 'PRJ-2 tree title', kind: 'STANDALONE', wsPath: '/workspaces/PRJ-2' },
+    ])
+  })
+
+  it('a MANAGED project missing from the wirings map keeps the field undefined', async () => {
+    const state = await attachSvc(new Map([['PRJ-9', wiringWith()]]))
+      .getResearchPlaneState({})
+    expect(state.projects[0]).not.toHaveProperty('integrity')
+    expect(state.projects[1]).not.toHaveProperty('integrity')
+  })
+
+  it('a wired MANAGED project carries the gate projection; STANDALONE skips even when wired', async () => {
+    const state = await attachSvc(
+      new Map<string, HostWiring>([
+        ['PRJ-1', wiringWith({ reinitialized: true, tree: 'recoverable', readSurface: 'readonly' })],
+        ['PRJ-2', wiringWith({ reinitialized: true })],
+      ]),
+    ).getResearchPlaneState({})
+    expect(state.projects[0]).toEqual({
+      projectId: 'PRJ-1',
+      displayName: 'PRJ-1 entry name',
+      kind: 'MANAGED',
+      wsPath: '/workspaces/PRJ-1',
+      integrity: {
+        readOnly: true,
+        checkCodes: [INTEGRITY_CODE_WIRING_REINITIALIZED, INTEGRITY_CODE_TREE_PARTIAL],
+      },
+    })
+    expect(state.projects[1]).not.toHaveProperty('integrity')
   })
 })

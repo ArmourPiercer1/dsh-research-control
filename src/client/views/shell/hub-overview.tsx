@@ -73,6 +73,9 @@ import type {
   SetHubResult,
 } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
+import { lookupErrorState } from '../../i18n/error-mapping.js'
+import { formatEpochDate, formatOldestAge } from '../../i18n/datetime.js'
+import { ErrorStateBlock } from '../../components/error-state-block.js'
 import { extractResearchErrorCarrier } from '../../util/error-carrier.js'
 import { KIND_LABEL, PRIORITY_LABEL, attentionGroupOf } from './intervention-stream.js'
 import { OnboardingCard } from './onboarding-card.js'
@@ -83,32 +86,13 @@ import styles from './hub-overview.module.css'
 type OverviewPhase = 'loading' | 'failed' | 'ready'
 
 /**
- * epoch ms → `YYYY-MM-DD` (local time, TZ-stable shape — the same
- * convention the project/topic views use for 目标日期).
+ * epoch ms → `YYYY-MM-DD` / 「最旧 N 天/小时」 carriers. UI-9 ADJ-1:
+ * the implementations moved to `src/client/i18n/datetime.ts`
+ * (locale-aware, catalog-driven labels); re-exported here for import
+ * stability (settings-page / project / topic views import from this
+ * module). Default-locale output is byte-invariant.
  */
-export function formatEpochDate(epochMs: number): string {
-  const d = new Date(epochMs)
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${month}-${day}`
-}
-
-/**
- * 「最旧 N 天/小时」 display carrier for the 需关注 row (the contract's
- * `oldestHours` is hours since the project's OLDEST open intervention, as a
- * FLOAT): ≥ 24h → whole days (floor — 「最旧 3 天」); ≥ 1h → whole hours
- * (floor — 「最旧 5 小时」); < 1h → 「最旧 <1 小时」. The raw float never
- * reaches the UI (acceptance T6.2 discovery).
- */
-export function formatOldestAge(hours: number): string {
-  if (hours >= 24) {
-    return `最旧 ${String(Math.floor(hours / 24))} 天`
-  }
-  if (hours < 1) {
-    return '最旧 <1 小时'
-  }
-  return `最旧 ${String(Math.floor(hours))} 小时`
-}
+export { formatEpochDate, formatOldestAge }
 
 /**
  * Props of the 总览（中枢模式）page.
@@ -162,7 +146,7 @@ export interface HubOverviewPageProps {
  * 接入 button stays wired to the T4.2 flow (it fails loud there).
  */
 const EMPTY_HUB_COPY =
-  '当前中枢还没有登记任何研究项目。请在一个未登记项目工作区的会话中打开研究标签，用「接入」登记第一个项目（中枢工作区本身不能登记为项目）。'
+  t('hub.emptyExplain')
 
 /** B §4.4: the summary shows at most 6 items (the host order is kept —
  *  the DTO carries no priority field to client-side re-sort on). */
@@ -203,7 +187,7 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
   const [attentionItems, setAttentionItems] = useState<readonly AttentionItemDto[] | null>(null)
   // The summary fetch failure (carrier-decoded detail; the stream page has
   // its own full failure face — this line only says the summary is dark).
-  const [attentionError, setAttentionError] = useState<string | null>(null)
+  const [attentionError, setAttentionError] = useState<{ readonly code: string | null; readonly detail: string } | null>(null)
   const attentionInflight = useRef<Promise<QueryAttentionResult> | null>(null)
   const attentionLoadRef = useRef(props.loadAttention)
   attentionLoadRef.current = props.loadAttention
@@ -232,8 +216,13 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
       .catch((err: unknown) => {
         if (attentionInflight.current !== pending) return
         const message = err instanceof Error ? err.message : String(err)
+        // UI-9 D3: keep the decoded code alongside the detail so the
+        // error-state hooks can name the group/data-changed from the
+        // mapping (the visible text stays the detail, unchanged).
         const carrier = extractResearchErrorCarrier(message)
-        setAttentionError(carrier !== null ? carrier.detail : message)
+        setAttentionError(
+          carrier !== null ? { code: carrier.code, detail: carrier.detail } : { code: null, detail: message },
+        )
       })
       .finally(() => {
         if (attentionInflight.current === pending) attentionInflight.current = null
@@ -288,7 +277,7 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
     return (
       <div className={styles.overview} data-hub-overview data-phase="loading">
         <p className={styles.statusLine} role="status">
-          正在加载研究总览…
+          {t('hub.loading')}
         </p>
       </div>
     )
@@ -297,12 +286,23 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
   if (phase === 'failed' || data === null) {
     return (
       <div className={styles.overview} data-hub-overview data-phase="failed">
-        <p className={styles.faultLine} role="alert">
-          研究总览加载失败
+        {/* UI-9 D3: B §33.3 error-state hooks. This face is the group-1
+            plane/hub read failure (the adapter folds the rejection to a
+            string, so the code stays 'unknown'); dataChanged is 'none'
+            (a read) and the [刷新] button below IS the user-initiated
+            re-fetch. */}
+        <p
+          className={styles.faultLine}
+          role="alert"
+          data-error-state="project-unavailable"
+          data-error-code="unknown"
+          data-error-data-changed="none"
+        >
+          {t('hub.loadFailed')}
         </p>
         <div className={styles.toolbar}>
           <button type="button" className={styles.refreshButton} onClick={() => runFetch(true)}>
-            刷新
+            {t('common.refresh')}
           </button>
         </div>
       </div>
@@ -334,7 +334,7 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
       const displayName = cards.find((c) => c.projectId === pid)?.displayName ?? pid
       const entry = byProject.get(pid)
       const hours = (Date.now() - (entry?.oldestMs ?? 0)) / 3_600_000
-      return `${pid} ${displayName}（需关注 ×${String(entry?.count ?? 0)}，${formatOldestAge(hours)}）`
+      return t('hub.attentionItem', { id: String(pid), name: String(displayName), count: String(entry?.count ?? 0), age: String(formatOldestAge(hours)) })
     })
   })()
   // The B §4.4 summary projection (host order, non-terminal, top 6):
@@ -384,17 +384,18 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
           data-hub-overview-refresh
           onClick={() => runFetch(false)}
         >
-          刷新
+          {t('common.refresh')}
         </button>
       </div>
       {refreshError !== null && (
-        <p className={styles.refreshError} role="alert">
-          刷新失败：{refreshError}
-        </p>
+        // UI-9 D3: the B §33.3 four-field error state for a FAILED
+        // REFRESH (stale data stays above). The [刷新] toolbar button IS
+        // the user-initiated re-fetch, so no duplicate retry button.
+        <ErrorStateBlock error={refreshError} />
       )}
       {/* 聚合条 (design §7.1): 项目数 / 未决干预合计 / 收件箱合计. */}
       <p className={styles.strip} data-hub-overview-strip>
-        {`${totals.projects} 个项目 · 未决干预 ${totals.openInterventions} · 收件箱 ${totals.inbox}`}
+        {t('hub.totals', { projects: String(totals.projects), interventions: String(totals.openInterventions), inbox: String(totals.inbox) })}
       </p>
       {/* Needs Attention summary (B §4.4): top-6 cross-project items +
           [View all] → the 重要事件 stream page. NOTHING when the face is
@@ -443,8 +444,19 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
           </ul>
         </section>
       ) : attentionError !== null ? (
-        <p className={styles.refreshError} role="alert" data-portfolio-attention-error>
-          {attentionError}
+        // UI-9 D3: the B §33.3 error-state hooks. The visible text stays
+        // the single detail line (the decoded carrier detail — frozen by
+        // the T5.1 tests); the group / data-changed attributes come from
+        // the mapping. The [刷新] toolbar is the retry affordance.
+        <p
+          className={styles.refreshError}
+          role="alert"
+          data-portfolio-attention-error
+          data-error-state={lookupErrorState(attentionError.code).group}
+          data-error-code={attentionError.code ?? 'unknown'}
+          data-error-data-changed={lookupErrorState(attentionError.code).dataChanged}
+        >
+          {attentionError.detail}
         </p>
       ) : null}
       {/* 「需关注」 row — ONLY when at least one project has open
@@ -452,7 +464,7 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
           不占位 — no element in the DOM at all). */}
       {attentionItemsText.length > 0 && (
         <p className={styles.attention} data-hub-overview-attention>
-          {`⚠ 需关注：${attentionItemsText.join('；')}`}
+          {t('hub.attentionLine', { items: attentionItemsText.join(t('hub.itemsSep')) })}
         </p>
       )}
       {emptyHub ? (
@@ -491,11 +503,11 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
             </div>
             {/* B §4.6 必须解释 (Create/Bind semantics, verbatim). */}
             <p className={styles.emptyExplain} data-portfolio-empty-explain>
-              {`${t('portfolio.emptyExplainCreate')}。${t('portfolio.emptyExplainBind')}`}
+              {t('portfolio.emptyExplain')}
             </p>
           </div>
           <OnboardingCard
-            title="登记第一个研究项目"
+            title={t('hub.registerFirst')}
             copy={EMPTY_HUB_COPY}
             wsPath={wsPath}
             hub={hub}
@@ -521,7 +533,7 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
               className={styles.card}
               data-project-card
               data-project-id={card.projectId}
-              aria-label={`查看项目 ${card.projectId} ${card.title}`}
+              aria-label={t('hub.viewProject', { id: String(card.projectId), title: String(card.title) })}
               onClick={() => onDrill(card.projectId)}
             >
               <span
@@ -554,11 +566,11 @@ export function HubOverviewPage(props: HubOverviewPageProps): ReactElement {
                 data-card-counts
                 data-open-interventions={card.openInterventions}
               >
-                {`干预${String(card.openInterventions)} 主题${String(card.topics)} 收${String(card.inboxCount)}`}
+                {t('hub.cardStats', { interventions: String(card.openInterventions), topics: String(card.topics), inbox: String(card.inboxCount) })}
               </span>
               {card.targetDate !== null && (
                 <span className={styles.cardTarget} data-card-target>
-                  {`目标 ${formatEpochDate(card.targetDate)}`}
+                  {t('hub.targetDate', { date: formatEpochDate(card.targetDate) })}
                 </span>
               )}
             </button>

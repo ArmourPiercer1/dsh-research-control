@@ -85,6 +85,8 @@ import type {
   UpdateInterventionStateResult,
 } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
+import { useProjectReadonly } from '../../components/readonly-context.js'
+import { formatRelativeTime } from '../../i18n/datetime.js'
 import styles from './intervention-stream.module.css'
 
 /** The page's fetch lifecycle (the loading / failed / ready faces). */
@@ -183,10 +185,10 @@ type InterventionOrigin = 'USER' | 'AGENT_REPORT' | 'AUTO_FLOODING' | 'AUTO_AUDI
  * views/intervention/InterventionGroupsList.tsx 对照, 零派生表）。
  */
 export const ORIGIN_LABEL: Record<InterventionOrigin, string> = {
-  USER: '用户',
-  AGENT_REPORT: 'Agent 报告',
-  AUTO_FLOODING: '自动洪泛检测',
-  AUTO_AUDIT: '自动审计',
+  USER: t('attention.source.user'),
+  AGENT_REPORT: t('attention.source.agentReport'),
+  AUTO_FLOODING: t('attention.source.autoFlood'),
+  AUTO_AUDIT: t('attention.source.autoAudit'),
 }
 
 /** B §27.2 Type badge labels (the attention.kind.* t() keys — display
@@ -207,27 +209,13 @@ export const PRIORITY_LABEL: Record<AttentionPriority, string> = {
 }
 
 /**
- * epoch ms → 相对时间（design §7.2 卡片字段「2 小时前」; the V1 views are
- * absolute-date only, so this page owns the relative carrier — a pure
- * function, `now` injectable for the tests):
- *   < 1 分钟 → 刚刚; < 1 小时 → N 分钟前; < 24 小时 → N 小时前;
- *   < 30 天 → N 天前; 更远 → YYYY-MM-DD (the absolute fallback — a
- *   relative label past a month is noise).
+ * epoch ms → 相对时间（design §7.2 卡片字段「2 小时前」). UI-9 ADJ-1:
+ * the implementation moved to `src/client/i18n/datetime.ts` (catalog
+ * labels via attention.relTime.*, locale-aware); re-exported here for
+ * import stability (the stream tests import it from this module).
+ * Default-locale output is byte-invariant.
  */
-export function formatRelativeTime(epochMs: number, now: number = Date.now()): string {
-  const delta = now - epochMs
-  const minute = 60 * 1000
-  const hour = 60 * minute
-  const day = 24 * hour
-  if (delta < minute) return '刚刚'
-  if (delta < hour) return `${String(Math.floor(delta / minute))} 分钟前`
-  if (delta < day) return `${String(Math.floor(delta / hour))} 小时前`
-  if (delta < 30 * day) return `${String(Math.floor(delta / day))} 天前`
-  const d = new Date(epochMs)
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const dayPart = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${month}-${dayPart}`
-}
+export { formatRelativeTime }
 
 /**
  * The unified Needs Attention page (ADJ-5: the InterventionStreamPage
@@ -325,6 +313,13 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
     onOpenProject,
     onGoToWorkstreams,
   } = props
+  // UI-9 D4 (ADJ-11): the read-only surface — every state-transition /
+  // blocker / next-action mutation control disables with the composed
+  // reason as tooltip; browsing (filters / segments / navigation) stays.
+  // In the HUB portfolio view (no provider in the tree) the default
+  // context keeps this a no-op.
+  const { readonly: readOnly, reasonText } = useProjectReadonly()
+  const roTitle = reasonText ?? undefined
   const [data, setData] = useState<QueryAttentionResult | null>(null)
   const [phase, setPhase] = useState<StreamPhase>('loading')
   // A refresh failure (stale data stays rendered — stale-while-revalidate,
@@ -466,7 +461,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
     if (status === 'CLOSED') {
       const note = row.note.trim()
       if (note === '') {
-        setRow(item.sourceId, { fault: '关闭时请填写处理备注' })
+        setRow(item.sourceId, { fault: t('attention.closeNoteRequired') })
         return
       }
       setRow(item.sourceId, { busy: true, fault: null })
@@ -506,7 +501,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
     if (row.busy || row.investigating) return
     const question = row.question.trim()
     if (question === '') {
-      setRow(item.sourceId, { fault: '一键调查请填写调查问题' })
+      setRow(item.sourceId, { fault: t('attention.investigatePromptRequired') })
       return
     }
     setRow(item.sourceId, { investigating: true, fault: null, investigated: null })
@@ -602,7 +597,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
               type="button"
               className={styles.projectTag}
               data-iv-project-label
-              title={`进入 ${label}`}
+              title={t('attention.enter', { label })}
               onClick={() => onOpenProject?.(item.projectId)}
             >
               {label}
@@ -615,12 +610,12 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
           </span>
           {item.workstreamId !== null && (
             <>
-              {' · 涉及 '}
+              {t('attention.involves')}
               <button
                 type="button"
                 className={styles.wsChip}
                 data-iv-ws-chip={item.workstreamId}
-                title="查看所属工作流"
+                title={t('attention.viewWorkstream')}
                 onClick={() => handleNav(item)}
               >
                 {item.workstreamId}
@@ -656,7 +651,8 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
                     className={styles.rowInput}
                     data-iv-question={item.sourceId}
                     value={row.question}
-                    placeholder="调查问题（一键调查必填）"
+                    placeholder={t('attention.investigatePromptLabel')}
+                    disabled={readOnly}
                     onChange={(e) => setRow(item.sourceId, { question: e.target.value })}
                   />
                   <button
@@ -664,20 +660,22 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
                     className={styles.button}
                     data-iv-action="investigate"
                     data-iv-id={item.sourceId}
-                    disabled={row.busy || row.investigating}
+                    disabled={readOnly || row.busy || row.investigating}
+                    title={readOnly ? roTitle : undefined}
                     onClick={() => handleInvestigate(item)}
                   >
-                    {row.investigating ? '调查中…' : '一键调查'}
+                    {row.investigating ? t('attention.investigating') : t('attention.oneClickInvestigate')}
                   </button>
                   <button
                     type="button"
                     className={styles.button}
                     data-iv-action="pending"
                     data-iv-id={item.sourceId}
-                    disabled={row.busy}
+                    disabled={readOnly || row.busy}
+                    title={readOnly ? roTitle : undefined}
                     onClick={() => handleTransition(item, 'PENDING')}
                   >
-                    {row.busy ? '处理中…' : '标记处理中'}
+                    {row.busy ? t('common.processing') : t('attention.markInProgress')}
                   </button>
                 </>
               )}
@@ -687,10 +685,11 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
                   className={styles.button}
                   data-iv-action="confirm-close"
                   data-iv-id={item.sourceId}
-                  disabled={row.busy}
+                  disabled={readOnly || row.busy}
+                  title={readOnly ? roTitle : undefined}
                   onClick={() => handleTransition(item, 'CLOSED')}
                 >
-                  {row.busy ? '处理中…' : '确认关闭'}
+                  {row.busy ? t('common.processing') : t('attention.confirmClose')}
                 </button>
               )}
               {item.status === 'PENDING' && (
@@ -699,17 +698,19 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
                   className={styles.button}
                   data-iv-action="reopen"
                   data-iv-id={item.sourceId}
-                  disabled={row.busy}
+                  disabled={readOnly || row.busy}
+                  title={readOnly ? roTitle : undefined}
                   onClick={() => handleTransition(item, 'OPEN')}
                 >
-                  {row.busy ? '处理中…' : '重开'}
+                  {row.busy ? t('common.processing') : t('attention.reopen')}
                 </button>
               )}
               <input
                 className={styles.rowInput}
                 data-iv-note={item.sourceId}
                 value={row.note}
-                placeholder="关闭备注（必填）"
+                placeholder={t('attention.closeNoteLabel')}
+                disabled={readOnly}
                 onChange={(e) => setRow(item.sourceId, { note: e.target.value })}
               />
               {item.status === 'OPEN' && (
@@ -718,10 +719,11 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
                   className={styles.button}
                   data-iv-action="close"
                   data-iv-id={item.sourceId}
-                  disabled={row.busy}
+                  disabled={readOnly || row.busy}
+                  title={readOnly ? roTitle : undefined}
                   onClick={() => handleTransition(item, 'CLOSED')}
                 >
-                  {row.busy ? '处理中…' : '关闭'}
+                  {row.busy ? t('common.processing') : t('attention.close')}
                 </button>
               )}
             </p>
@@ -772,7 +774,8 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
             className={styles.button}
             data-item-action="clearBlocker"
             data-item-id={item.sourceId}
-            disabled={row.busy}
+            disabled={readOnly || row.busy}
+            title={readOnly ? roTitle : undefined}
             onClick={() => handleClearBlocker(item)}
           >
             {t('attention.action.clearBlocker')}
@@ -786,7 +789,8 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
             className={styles.button}
             data-item-action="promoteNextAction"
             data-item-id={item.sourceId}
-            disabled={row.busy}
+            disabled={readOnly || row.busy}
+            title={readOnly ? roTitle : undefined}
             onClick={() => handlePromoteNextAction(item)}
           >
             {t('attention.action.promoteNextAction')}
@@ -800,7 +804,8 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
             className={styles.button}
             data-item-action="dismissNextAction"
             data-item-id={item.sourceId}
-            disabled={row.busy}
+            disabled={readOnly || row.busy}
+            title={readOnly ? roTitle : undefined}
             onClick={() => handleDismissNextAction(item)}
           >
             {t('attention.action.dismissNextAction')}
@@ -847,7 +852,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
               type="button"
               className={styles.projectTag}
               data-item-project-label
-              title={`进入 ${label}`}
+              title={t('attention.enter', { label })}
               onClick={() => onOpenProject?.(item.projectId)}
             >
               {label}
@@ -871,7 +876,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
                 type="button"
                 className={styles.wsChip}
                 data-item-ws-chip={item.workstreamId}
-                title="查看所属工作流"
+                title={t('attention.viewWorkstream')}
                 onClick={() => handleNav(item)}
               >
                 {item.workstreamId}
@@ -888,13 +893,15 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
               data-missing-statement
               value={row.createStatement}
               placeholder={t('attention.create.statement')}
+              disabled={readOnly}
               onChange={(e) => setRow(item.sourceId, { createStatement: e.target.value })}
             />
             <button
               type="button"
               className={styles.button}
               data-missing-create
-              disabled={row.busy || row.createStatement.trim() === ''}
+              disabled={readOnly || row.busy || row.createStatement.trim() === ''}
+              title={readOnly ? roTitle : undefined}
               onClick={() => handleCreateNextAction(item)}
             >
               {t('attention.create.submit')}
@@ -915,7 +922,8 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
                 type="button"
                 className={styles.button}
                 data-missing-cta
-                disabled={row.busy}
+                disabled={readOnly || row.busy}
+                title={readOnly ? roTitle : undefined}
                 onClick={() => setRow(item.sourceId, { createOpen: true })}
               >
                 {t('attention.missing.cta')}
@@ -959,7 +967,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
               type="button"
               className={styles.projectTag}
               data-item-project-label
-              title={`进入 ${label}`}
+              title={t('attention.enter', { label })}
               onClick={() => onOpenProject?.(item.projectId)}
             >
               {label}
@@ -983,7 +991,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
                 type="button"
                 className={styles.wsChip}
                 data-item-ws-chip={item.workstreamId}
-                title="查看所属工作流"
+                title={t('attention.viewWorkstream')}
                 onClick={() => handleNav(item)}
               >
                 {item.workstreamId}
@@ -1051,7 +1059,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
     return (
       <div className={styles.stream} data-attention-stream data-phase="loading">
         <p className={styles.statusLine} role="status">
-          正在加载重要事件…
+          {t('attention.loading')}
         </p>
       </div>
     )
@@ -1060,12 +1068,23 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
   if (phase === 'failed' || data === null) {
     return (
       <div className={styles.stream} data-attention-stream data-phase="failed">
-        <p className={styles.faultLine} role="alert">
+        {/* UI-9 D3: the B §33.3 error-state hooks. The adapter folds the
+            queryAttention rejection to a plain message (no decodable
+            carrier), so the code stays 'unknown'; dataChanged is 'none'
+            BY CONSTRUCTION (this is a read) and the [刷新] button below IS
+            the user-initiated re-fetch. */}
+        <p
+          className={styles.faultLine}
+          role="alert"
+          data-error-state="unknown"
+          data-error-code="unknown"
+          data-error-data-changed="none"
+        >
           {t('attention.loadError')}
         </p>
         <div className={styles.toolbar}>
           <button type="button" className={styles.refreshButton} data-attention-refresh onClick={() => runFetch(true)}>
-            刷新
+            {t('common.refresh')}
           </button>
         </div>
       </div>
@@ -1086,12 +1105,24 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
             runFetch(false)
           }}
         >
-          刷新
+          {t('common.refresh')}
         </button>
       </div>
       {refreshError !== null && (
-        <p className={styles.refreshFault} role="alert">
-          刷新失败：{refreshError}
+        // UI-9 D3: the B §33.3 error-state hooks on the stale-while-
+        // revalidate fault line. The adapter's folded message carries no
+        // decodable carrier (code 'unknown'); dataChanged is 'none' BY
+        // CONSTRUCTION (a refresh is a read) and the [刷新] button above IS
+        // the user-initiated re-fetch. The visible text is frozen by the
+        // t52 tests.
+        <p
+          className={styles.refreshFault}
+          role="alert"
+          data-error-state="unknown"
+          data-error-code="unknown"
+          data-error-data-changed="none"
+        >
+          {t('common.refreshFailed', { detail: refreshError })}
         </p>
       )}
       {/* B §27.1 filter row (ADJ-9: single-select exact match; [Workstream]
@@ -1189,7 +1220,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
           aria-pressed={segment === 'OPEN'}
           onClick={() => setSegment((s) => (s === 'OPEN' ? 'DEFAULT' : 'OPEN'))}
         >
-          待处理 {String(openItems.length)}
+          {t('attention.groupPending', { n: String(openItems.length) })}
         </button>
         <button
           type="button"
@@ -1198,7 +1229,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
           aria-pressed={segment === 'PENDING'}
           onClick={() => setSegment((s) => (s === 'PENDING' ? 'DEFAULT' : 'PENDING'))}
         >
-          待确认 {String(pendingItems.length)}
+          {t('attention.groupPendingConfirm', { n: String(pendingItems.length) })}
         </button>
         <button
           type="button"
@@ -1207,27 +1238,27 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
           aria-pressed={closedExpanded}
           onClick={() => setClosedExpanded((v) => !v)}
         >
-          已关闭 {closedExpanded ? '▴' : '▾'}
+          {t('attention.segment.closed')} {closedExpanded ? '▴' : '▾'}
         </button>
       </div>
       {streamEmpty && segment === 'DEFAULT' ? (
         <div className={styles.emptyState} data-attention-empty>
-          <p className={styles.emptyTitle}>当前没有需要处理的事件</p>
+          <p className={styles.emptyTitle}>{t('attention.emptyPage')}</p>
           <p className={styles.emptyHint} data-attention-investigate-hint>
-            出现「待处理」事件后, 其卡片上会出现「一键调查」入口 — 调查员页的专职调查会话由它启动
+            {t('attention.emptyPageExplain')}
           </p>
           {onGoToWorkstreams !== undefined && (
             <button type="button" className={styles.button} data-attention-go-workstreams onClick={onGoToWorkstreams}>
-              去看工作流进展
+              {t('attention.emptyPageButton')}
             </button>
           )}
         </div>
       ) : (
         <>
           {segment !== 'PENDING' &&
-            renderGroup('OPEN', t('attention.group.openActive'), openItems, '暂无待处理事件')}
+            renderGroup('OPEN', t('attention.group.openActive'), openItems, t('attention.emptyPending'))}
           {segment !== 'OPEN' &&
-            renderGroup('PENDING', t('attention.group.pending'), pendingItems, '暂无待确认事件')}
+            renderGroup('PENDING', t('attention.group.pending'), pendingItems, t('attention.emptyPendingConfirm'))}
         </>
       )}
       {closedExpanded && (
@@ -1239,7 +1270,7 @@ export function InterventionStreamPage(props: InterventionStreamPageProps): Reac
             <ul className={styles.cards}>{closedItems.map(renderCard)}</ul>
           ) : (
             <p className={styles.emptyTitle} data-attention-closed-empty>
-              暂无已关闭事件
+              {t('attention.emptyClosed')}
             </p>
           )}
         </section>

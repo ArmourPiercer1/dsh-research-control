@@ -68,7 +68,7 @@ export function EventRow({ event, order, relatedRef, relatedCount, onShowRelated
 
   return (
     <li className={styles.event} data-event-type={event.eventType} data-actor-kind={event.actor.kind}>
-      <span className={styles.badge} title={`${event.eventType}（${meta.category}）`}>
+      <span className={styles.badge} title={t('history.eventBadgeTitle', { type: event.eventType, category: meta.category })}>
         {meta.label}
       </span>
       <span className={styles.actor} title={label}>
@@ -78,8 +78,8 @@ export function EventRow({ event, order, relatedRef, relatedCount, onShowRelated
         className={styles.time}
         dateTime={new Date(semanticPrimary ? event.occurredAt : event.recordedAt).toISOString()}
       >
-        {semanticPrimary ? `发生 ${occurred}` : `登记 ${recorded}`}
-        <span className={styles.timeSub}> · {semanticPrimary ? `登记 ${recorded}` : `发生 ${occurred}`}</span>
+        {semanticPrimary ? t('history.occurredAt', { time: occurred }) : t('history.recordedAt', { time: recorded })}
+        <span className={styles.timeSub}> · {semanticPrimary ? t('history.recordedAt', { time: recorded }) : t('history.occurredAt', { time: occurred })}</span>
       </time>
       <span className={styles.seq}>
         #{event.eventSeq} · {event.eventId}
@@ -96,7 +96,7 @@ export function EventRow({ event, order, relatedRef, relatedCount, onShowRelated
         </button>
       )}
       <details className={styles.payload}>
-        <summary>事件载荷</summary>
+        <summary>{t('history.payload')}</summary>
         <pre>{JSON.stringify(event.payload, null, 2)}</pre>
       </details>
     </li>

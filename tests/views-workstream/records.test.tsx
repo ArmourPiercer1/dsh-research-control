@@ -208,13 +208,30 @@ describe('UI-7 Records face — the page-body toggle (B §13.2/§24)', () => {
     expect(page.stub.countOf('queryHistory')).toBe(0)
   })
 
-  it('空列表：no-records 空态', async () => {
+  it('空列表：total=0 → 冻结空态（B §33.2）+ 3 个 create CTA', async () => {
     const page = await mountPage({ ok: true, value: { records: [], total: 0 } })
     await openRecords(page)
     expect(query(page, '[data-records-list-panel] h3').textContent).toBe('Records · 0')
+    const empty = query(page, '[data-records-empty]')
+    expect(empty.textContent).toContain('No research records yet.')
+    expect(query(page, '[data-records-add-fact]')).not.toBeNull()
+    expect(query(page, '[data-records-add-claim]')).not.toBeNull()
+    expect(query(page, '[data-records-add-artifact]')).not.toBeNull()
+  })
+
+  it('空列表：total>0 过滤空态保留旧文案（D4 偏差 i）', async () => {
+    const page = await mountPage({ ok: true, value: { records: [], total: 2 } })
+    await openRecords(page)
     expect(query(page, '[data-records-empty]').textContent).toBe(
       'No records match the current filters',
     )
+  })
+
+  it('冻结空态 CTA：点击 Add Fact → add 表单以 FACT 打开', async () => {
+    const page = await mountPage({ ok: true, value: { records: [], total: 0 } })
+    await openRecords(page)
+    fireEvent.click(query(page, '[data-records-add-fact]'))
+    expect(query(page, '[data-records-add-form][data-records-add-kind="FACT"]')).not.toBeNull()
   })
 
   it('load 失败：error 态 + 重试按钮（无列表渲染）', async () => {

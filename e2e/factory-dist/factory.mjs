@@ -21227,7 +21227,8 @@ function runStartupIntegrityGate(input) {
 		readSurface,
 		guidance,
 		treeLoad,
-		git
+		git,
+		reinitialized: input.reinitialized ?? false
 	};
 }
 function runConsistencyCheck(args) {
@@ -22896,7 +22897,8 @@ function createHostWiring(options) {
 			projectId: options.projectId,
 			researchDir,
 			reader,
-			logger
+			logger,
+			reinitialized: options.reinitialized
 		});
 		const rawStore = openDatabase(join(dataDir, DB_FILE));
 		disposers.push(() => {

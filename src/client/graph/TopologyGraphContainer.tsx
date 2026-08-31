@@ -31,6 +31,7 @@ import { topologyToGraph } from './topology-model.js'
 import { TopologyGraphView } from './TopologyGraphView.js'
 import { useStoreSnapshotSelected } from './store-binding.js'
 import { TOPOLOGY_GRAPH_STYLES as styles, ensureGraphStyles } from './graph-styles.js'
+import { t } from '../i18n/copy.js'
 
 /** Reference-stable idle sentinel (a value — NOT a store handle). */
 const IDLE_TOPIC = idleSlice<TopicSnapshot>()
@@ -135,13 +136,13 @@ export function TopologyGraphContainer({ store, topicId }: TopologyGraphContaine
     if (slice.status === 'error') {
       return (
         <div className={styles.root}>
-          <div className={styles.errorBanner}>加载失败：{slice.error}</div>
+          <div className={styles.errorBanner}>{t('common.loadFailedDetail', { detail: slice.error ?? '' })}</div>
         </div>
       )
     }
     return (
       <div className={styles.root}>
-        <div className={styles.loading}>加载中…</div>
+        <div className={styles.loading}>{t('common.loading')}</div>
       </div>
     )
   }
@@ -149,7 +150,7 @@ export function TopologyGraphContainer({ store, topicId }: TopologyGraphContaine
   return (
     <div className={styles.root}>
       {slice.status === 'error' && (
-        <div className={styles.errorBanner}>刷新失败：{slice.error}（显示上一次数据）</div>
+        <div className={styles.errorBanner}>{t('common.refreshFailedShowLast', { detail: slice.error ?? '' })}</div>
       )}
       {graph !== null && (
         <TopologyGraphView

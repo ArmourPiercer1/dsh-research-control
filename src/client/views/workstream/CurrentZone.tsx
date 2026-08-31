@@ -94,6 +94,16 @@ export interface CurrentZoneProps {
   readonly onPromoteNextAction: (nextActionId: string) => void
   /** Dismisses a PROPOSED next action (`store.dismissNextAction`). */
   readonly onDismissNextAction: (nextActionId: string) => void
+  /** UI-9 D4 (ADJ-11): the project read-only surface — the container
+   *  (WorkstreamView) reads `useProjectReadonly` and passes the pair
+   *  down: this zone is hook-free by the view-test purity contract
+   *  (tests/views-workstream/harness.ts — a hook-bearing component
+   *  thrown through that harness is the intended failure mode).
+   *  Defaults = the writable surface. */
+  readonly readonly?: boolean
+  /** The composed read-only reason text (the disabled controls'
+   *  tooltip); null = none. */
+  readonly reasonText?: string | null
 }
 
 /** B §15.7: the CLOSED intervention renders 「Closed」 (never 「Solved」);
@@ -148,7 +158,7 @@ function ActiveTaskRow({ task }: { task: CurrentTaskDto }): ReactElement {
       </span>
       {task.liveRunIds.length > 0 && (
         <span className={styles.liveRuns}>
-          {t('ws.current.liveRuns')}: {task.liveRunIds.join('、')}
+          {t('ws.current.liveRuns')}: {task.liveRunIds.join(t('run.idSep'))}
         </span>
       )}
       {task.acceptanceCriteria.length > 0 && (
@@ -179,10 +189,19 @@ function PendingValidationRow({ task }: { task: CurrentTaskDto }): ReactElement 
 function ExplicitBlockerRow({
   blocker,
   onClearBlocker,
+  readonly: readOnly = false,
+  reasonText = null,
 }: {
   blocker: BlockerDto
   onClearBlocker: (blockerId: string) => void
+  /** UI-9 D4 (ADJ-11): the read-only surface pair (props down — the
+   *  zone is hook-free by the view-test purity contract). */
+  readonly?: boolean
+  reasonText?: string | null
 }): ReactElement {
+  // UI-9 D4 (ADJ-11): the read-only surface — clear disables with the
+  // composed reason as tooltip (browse stays available).
+  const roTitle = reasonText ?? undefined
   return (
     <li className={styles.taskRow} data-blocker-id={blocker.id} data-blocker-source="explicit">
       <span className={styles.badge}>{t('ws.current.blockerExplicit')}</span>
@@ -197,7 +216,9 @@ function ExplicitBlockerRow({
         <button
           type="button"
           className={styles.moveButton}
-          aria-label={`Clear blocker: ${blocker.id}`}
+          aria-label={t('ws.current.clearBlockerAria', { id: blocker.id })}
+          disabled={readOnly}
+          title={readOnly ? roTitle : undefined}
           onClick={() => onClearBlocker(blocker.id)}
         >
           {t('ws.current.clearBlocker')}
@@ -234,11 +255,19 @@ function NextActionRow({
   nextAction,
   onPromoteNextAction,
   onDismissNextAction,
+  readonly: readOnly = false,
+  reasonText = null,
 }: {
   nextAction: NextActionDto
   onPromoteNextAction: (nextActionId: string) => void
   onDismissNextAction: (nextActionId: string) => void
+  /** UI-9 D4 (ADJ-11): the read-only surface pair (props down — the
+   *  zone is hook-free by the view-test purity contract). */
+  readonly?: boolean
+  reasonText?: string | null
 }): ReactElement {
+  // UI-9 D4 (ADJ-11): the read-only surface (promote/dismiss disable).
+  const roTitle = reasonText ?? undefined
   return (
     <li className={styles.taskRow} data-na-id={nextAction.id}>
       <span className={styles.taskTitle}>{nextAction.statement}</span>
@@ -250,7 +279,9 @@ function NextActionRow({
       <button
         type="button"
         className={styles.moveButton}
-        aria-label={`Promote to Task: ${nextAction.id}`}
+        aria-label={t('ws.current.promoteToTaskAria', { id: nextAction.id })}
+        disabled={readOnly}
+        title={readOnly ? roTitle : undefined}
         onClick={() => onPromoteNextAction(nextAction.id)}
       >
         {t('ws.current.promoteToTask')}
@@ -258,7 +289,9 @@ function NextActionRow({
       <button
         type="button"
         className={styles.moveButton}
-        aria-label={`Dismiss: ${nextAction.id}`}
+        aria-label={t('ws.current.dismissAria', { id: nextAction.id })}
+        disabled={readOnly}
+        title={readOnly ? roTitle : undefined}
         onClick={() => onDismissNextAction(nextAction.id)}
       >
         {t('ws.current.dismiss')}
@@ -341,17 +374,37 @@ export function CurrentZone({
   onClearBlocker,
   onPromoteNextAction,
   onDismissNextAction,
+  readonly: readOnly = false,
+  reasonText = null,
 }: CurrentZoneProps): ReactElement {
   const activeTasks = tasks.filter(task => task.execution === 'ACTIVE' || task.execution === 'PAUSED')
   const pendingValidations = tasks.filter(
     task => task.validation === 'PENDING' || task.validation === 'UNDER_REVIEW',
   )
   const noBlockers = explicitBlockers.length === 0 && derivedBlockers.length === 0
+  // UI-9 D4 (B §33.2): the zone is EMPTY only when all eight ADJ-10 groups are
+  // empty — then the frozen zone-head line renders and the groups are skipped.
+  // Partial empties keep rendering the per-group empty lines below.
+  const zoneEmpty =
+    objectives.length === 0 &&
+    focus === null &&
+    activeTasks.length === 0 &&
+    pendingValidations.length === 0 &&
+    noBlockers &&
+    nextActions.length === 0 &&
+    interventions.length === 0 &&
+    runs.length === 0
 
   return (
     <section className={styles.zone} aria-label={t('ws.current.title')}>
       <h2 className={styles.zoneTitle}>{t('ws.current.title')}</h2>
 
+      {zoneEmpty ? (
+        <p className={styles.empty} data-current-empty>
+          {t('ws.current.empty')}
+        </p>
+      ) : (
+        <>
       <h3 className={styles.sectionTitle}>{t('ws.current.objectives')}</h3>
       {objectives.length === 0 ? (
         <p className={styles.empty}>{t('ws.current.emptyObjectives')}</p>
@@ -400,7 +453,13 @@ export function CurrentZone({
       ) : (
         <ul className={styles.list}>
           {explicitBlockers.map(blocker => (
-            <ExplicitBlockerRow key={blocker.id} blocker={blocker} onClearBlocker={onClearBlocker} />
+            <ExplicitBlockerRow
+              key={blocker.id}
+              blocker={blocker}
+              onClearBlocker={onClearBlocker}
+              readonly={readOnly}
+              reasonText={reasonText}
+            />
           ))}
           {derivedBlockers.map(blocker => (
             <DerivedBlockerRow key={blocker.id} blocker={blocker} />
@@ -419,6 +478,8 @@ export function CurrentZone({
               nextAction={nextAction}
               onPromoteNextAction={onPromoteNextAction}
               onDismissNextAction={onDismissNextAction}
+              readonly={readOnly}
+              reasonText={reasonText}
             />
           ))}
         </ul>
@@ -449,6 +510,8 @@ export function CurrentZone({
             <RunRow key={run.id} run={run} />
           ))}
         </ul>
+      )}
+        </>
       )}
     </section>
   )

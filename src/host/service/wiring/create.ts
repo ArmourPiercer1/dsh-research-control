@@ -434,6 +434,7 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       researchDir,
       reader,
       logger,
+      reinitialized: options.reinitialized,
     })
 
     // ---------------------------------------------------------------- *

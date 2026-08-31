@@ -54,6 +54,7 @@ import {
   type ResearchSettingsSaveOutcome,
   type ResearchSettingsSection,
 } from '../../../shared/research-settings.js'
+import { t } from '../../i18n/copy.js'
 import styles from './research-settings-card.module.css'
 
 /* ------------------------------------------------------------------ *
@@ -108,13 +109,13 @@ function dirNameErrorText(value: string): string | null {
   if (code === null) return null
   switch (code) {
     case 'empty':
-      return '目录名不能为空'
+      return t('settingsCard.dirEmpty')
     case 'too-long':
-      return `目录名过长（最多 ${MAX_DIR_NAME_LENGTH} 个字符）`
+      return t('settingsCard.dirTooLong', { max: String(MAX_DIR_NAME_LENGTH) })
     case 'slash':
-      return '必须是单一路径段（不能包含 "/"）'
+      return t('settingsCard.dirSlash')
     case 'dot':
-      return '不能使用 "." 或 ".."'
+      return t('settingsCard.dirDot')
   }
 }
 
@@ -258,20 +259,20 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
   }
 
   return (
-    <section className={styles.card} data-testid="settings-card" aria-label="研究控制中心">
+    <section className={styles.card} data-testid="settings-card" aria-label={t('settingsCard.title')}>
       <h3 className={styles.title} data-testid="settings-card-title">
-        研究控制中心
+        {t('settingsCard.title')}
       </h3>
 
       {snapshot.status === 'loading' && (
         <p className={styles.notice} data-testid="settings-card-loading">
-          正在加载设置…
+          {t('settingsCard.loading')}
         </p>
       )}
 
       {snapshot.status === 'unavailable' && (
         <p className={styles.notice} data-testid="settings-card-unavailable">
-          设置域不可用，卡片暂不可编辑。
+          {t('settingsCard.unavailable')}
         </p>
       )}
 
@@ -279,7 +280,7 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
         <div className={styles.body}>
           <div className={styles.field}>
             <label className={styles.fieldLabel} htmlFor="rc-settings-tree-dir">
-              项目数据目录名
+              {t('settingsCard.treeDirLabel')}
             </label>
             <div className={styles.fieldRow}>
               <input
@@ -300,10 +301,10 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
                 disabled={!editable}
                 data-testid="settings-card-tree-dir-reset"
               >
-                恢复默认
+                {t('settingsCard.reset')}
               </button>
             </div>
-            <p className={styles.hint}>默认 .research</p>
+            <p className={styles.hint}>{t('settingsCard.treeDirHint')}</p>
             {treeError !== null && (
               <p
                 className={styles.fieldError}
@@ -318,7 +319,7 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
 
           <div className={styles.field}>
             <label className={styles.fieldLabel} htmlFor="rc-settings-hub-dir">
-              管理中心目录名
+              {t('settingsCard.hubDirLabel')}
             </label>
             <div className={styles.fieldRow}>
               <input
@@ -339,10 +340,10 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
                 disabled={!editable}
                 data-testid="settings-card-hub-dir-reset"
               >
-                恢复默认
+                {t('settingsCard.reset')}
               </button>
             </div>
-            <p className={styles.hint}>默认 .research-control</p>
+            <p className={styles.hint}>{t('settingsCard.hubDirHint')}</p>
             {hubError !== null && (
               <p
                 className={styles.fieldError}
@@ -364,30 +365,30 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
               aria-busy={saving}
               data-testid="settings-card-save"
             >
-              {saving ? '保存中…' : '保存'}
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
 
           {notice !== null && notice.kind === 'saved' && (
             <p className={styles.savedLine} role="status" data-testid="settings-card-saved">
-              已保存
+              {t('settingsCard.saved')}
             </p>
           )}
 
           {notice !== null && notice.kind === 'missing' && (
             <div className={styles.missingBanner} role="alert" data-testid="settings-card-warning">
-              <p className={styles.missingHeadline}>请先在磁盘上重命名文件夹，再保存</p>
+              <p className={styles.missingHeadline}>{t('settingsCard.missingHeadline')}</p>
               {notice.hubLost && (
                 <p className={styles.missingLine}>
-                  管理中枢已失联：{notice.hubPath ?? '未知路径'}
+                  {t('settingsCard.hubLost', { path: notice.hubPath ?? t('settingsCard.unknownPath') })}
                 </p>
               )}
               {notice.lostTreePaths.map((path) => (
                 <p className={styles.missingLine} key={path}>
-                  项目树已失联：{path}
+                  {t('settingsCard.treeLost', { path })}
                 </p>
               ))}
-              <p className={styles.missingNote}>已自动回退到保存前的目录名。</p>
+              <p className={styles.missingNote}>{t('settingsCard.missingNote')}</p>
             </div>
           )}
 

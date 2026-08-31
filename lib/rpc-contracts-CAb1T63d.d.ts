@@ -592,6 +592,37 @@ interface PlaneProjectDto {
   readonly displayName: string;
   readonly kind: 'MANAGED' | 'STANDALONE';
   readonly wsPath: string;
+  /** ADJ-11 (UI-9): the startup-integrity gate's machine projection
+   *  (see {@link PlaneIntegrityDto}) — populated by
+   *  `getResearchPlaneState` on MANAGED entries ONLY; undefined
+   *  everywhere else (STANDALONE is not gate-wired; the rescan result
+   *  is a pure projection). Optional — the frozen field set is
+   *  unchanged, so the 59-face pin sites are untouched. */
+  readonly integrity?: PlaneIntegrityDto;
+}
+/**
+ * ADJ-11 (UI-9): the per-project READ-ONLY integrity snapshot carried
+ * by {@link PlaneProjectDto}. The machine projection of the project's
+ * startup integrity gate (the host-internal
+ * `StartupIntegrityGate` surface — NOT a new RPC face):
+ *
+ *   - `readOnly` — `true` ⇔ the gate classified the read surface
+ *     `readonly` (the .research tree is partially broken). The client
+ *     renders the B §33.4 banner and disables the mutation controls;
+ *     browsing stays available.
+ *   - `checkCodes` — MACHINE CODES ONLY (ADJ-11: 只传机器码 — the
+ *     gate's Chinese `guidance` free-text never crosses the wire):
+ *     `WIRING_REINITIALIZED` (the wiring was composed by a plane
+ *     re-init — the gate-internal code ADJ-11 sanctions),
+ *     `TREE_PARTIAL` (tree load recoverable but partially broken),
+ *     `CONSISTENCY_MISMATCH` (dual-真源 spot check failed),
+ *     `GIT_REPO_ERROR` (the git boundary did not pass).
+ *
+ * Session-scoped (boot-time) state — v1 per ADJ-11.
+ */
+interface PlaneIntegrityDto {
+  readonly readOnly: boolean;
+  readonly checkCodes: readonly string[];
 }
 /**
  * One MISSING registration on the wire (design §4: active entry whose

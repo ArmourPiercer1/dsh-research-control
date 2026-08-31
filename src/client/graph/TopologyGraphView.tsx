@@ -90,9 +90,9 @@ const EDGE_PLANNED_MERGE = 'var(--dsw-alias-state-success-secondary)'
 const EDGE_DROPPED = 'var(--dsw-alias-border-l3)'
 
 const LIFECYCLE_TAG: Record<TopologyNodeData['lifecycle'], string> = {
-  PLANNED: '规划中',
-  REALIZED: '已实现',
-  DROPPED: '已弃用',
+  PLANNED: t('status.planned'),
+  REALIZED: t('status.implemented'),
+  DROPPED: t('status.deprecated'),
 }
 
 /* -------------------------------------------------------------------- *
@@ -126,11 +126,11 @@ function TopologyWsNode({ data }: TopologyWsNodeProps): ReactElement {
         {data.title}
       </div>
       <div className={styles.wsMeta}>
-        <span>计划 {data.planItemCount} 项</span>
-        {data.openPlanForkCount > 0 && <span data-open-pf>提案 {data.openPlanForkCount}</span>}
-        {data.runningRunCount > 0 && <span data-running-run>运行中 {data.runningRunCount}</span>}
+        <span>{t('ws.topo.planCount', { n: String(data.planItemCount) })}</span>
+        {data.openPlanForkCount > 0 && <span data-open-pf>{t('ws.topo.proposalCount', { n: String(data.openPlanForkCount) })}</span>}
+        {data.runningRunCount > 0 && <span data-running-run>{t('ws.topo.runningCount', { n: String(data.runningRunCount) })}</span>}
       </div>
-      {data.hasMergeContract && <span className={styles.contractBadge}>合并契约</span>}
+      {data.hasMergeContract && <span className={styles.contractBadge}>{t('ws.topo.mergeContract')}</span>}
       <Handle type="source" position={Position.Right} />
     </div>
   )
@@ -261,7 +261,7 @@ function shapeTopologyEdge(edge: TopologyGraphEdge): Edge<TopologyEdgeData> {
   }
   // The merge-contract badge (§27.5): a label at the edge midpoint.
   if (hasContract) {
-    result.label = '合并契约'
+    result.label = t('ws.topo.mergeContract')
     result.labelStyle = { fontSize: 11, fill: 'var(--dsw-alias-label-secondary)' }
     result.labelBgStyle = { fill: 'var(--dsw-alias-bg-layer-2)', stroke: 'var(--dsw-alias-border-l1)' }
     result.labelBgPadding = [4, 2] as [number, number]
@@ -760,9 +760,9 @@ export function TopologyGraphView({
   return (
     <div className={styles.root} data-role="topology-graph">
       <div className={styles.header}>
-        <span className={styles.headerTitle}>拓扑</span>
+        <span className={styles.headerTitle}>{t('ws.topo.title')}</span>
         <span className={styles.headerMeta}>
-          {graph.nodes.length} 个工作流 · {graph.edges.length} 条路线
+          {t('ws.topo.summary', { nodes: String(graph.nodes.length), edges: String(graph.edges.length) })}
         </span>
         <button
           type="button"
@@ -771,7 +771,7 @@ export function TopologyGraphView({
           aria-pressed={showDropped}
           onClick={() => setShowDropped(!showDropped)}
         >
-          {showDropped ? '隐藏已弃用' : '显示已弃用'}
+          {showDropped ? t('ws.topo.hideDeprecated') : t('ws.topo.showDeprecated')}
         </button>
       </div>
 

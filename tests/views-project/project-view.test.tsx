@@ -511,7 +511,7 @@ describe('UI-3 — Recent History (judgment #9)', () => {
       recentHistory: { entries: [], loading: false, truncated: false },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Recent History' }))
-    expect(screen.getByText('No history recorded yet.')).toBeDefined()
+    expect(screen.getByText('No recorded history yet.')).toBeDefined()
     expect(container.querySelector('[data-history-entry]')).toBeNull()
   })
 
@@ -548,9 +548,9 @@ describe('null semantics + empty states', () => {
   it('shows explicit empty states (not hidden sections) for empty objectives / topics', () => {
     renderView(PROJECT_PAGE_EMPTY_FIXTURE)
     expect(screen.getByRole('heading', { level: 2, name: '目标（0）' })).toBeDefined()
-    expect(screen.getByText('暂无目标')).toBeDefined()
+    expect(screen.getByText('No objectives yet.')).toBeDefined()
     expect(screen.getByRole('heading', { level: 2, name: /Topics \/ Workstreams（0）/ })).toBeDefined()
-    expect(screen.getByText('暂无主题')).toBeDefined()
+    expect(screen.getByText('No topics yet.')).toBeDefined()
   })
 })
 

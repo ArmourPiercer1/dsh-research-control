@@ -282,7 +282,7 @@ describe('HistoryTimelineView — empty / loading / error states', () => {
 
   it('shows the empty state for a workstream with no events', async () => {
     render(<HistoryTimelineView store={storeOver(makeHistoryFacade([]).rpc)} workstreamId="WS-1" />)
-    await screen.findByText('暂无历史事件')
+    await screen.findByText('No recorded history yet.')
     expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull()
   })
 
@@ -291,7 +291,7 @@ describe('HistoryTimelineView — empty / loading / error states', () => {
     const banner = await screen.findByRole('alert')
     expect(banner.textContent).toContain('历史时间线加载失败')
     expect(banner.textContent).toContain('workstream log missing')
-    expect(screen.queryByText('暂无历史事件')).toBeNull()
+    expect(screen.queryByText('No recorded history yet.')).toBeNull()
     expect(screen.getByRole('button', { name: '重试加载' })).toBeTruthy()
   })
 })

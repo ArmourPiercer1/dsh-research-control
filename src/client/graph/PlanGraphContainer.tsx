@@ -43,6 +43,7 @@ import { PlanGraphView } from './PlanGraphView.js'
 import { ConfirmDialog } from './ConfirmDialog.js'
 import { useStoreSnapshotSelected } from './store-binding.js'
 import { PLAN_GRAPH_STYLES as styles, ensureGraphStyles } from './graph-styles.js'
+import { t } from '../i18n/copy.js'
 
 /** Reference-stable idle sentinel (a value — NOT a store handle). */
 const IDLE_WS = idleSlice<WorkstreamSnapshot>()
@@ -210,19 +211,19 @@ export function PlanGraphContainer({
   /* -- render states (the slice state machine, §WP-4.1b) -- */
   if (slice.data === null) {
     if (slice.status === 'error') {
-      return <div className={styles.root}><div className={styles.errorBanner}>加载失败：{slice.error}</div></div>
+      return <div className={styles.root}><div className={styles.errorBanner}>{t('common.loadFailedDetail', { detail: slice.error ?? '' })}</div></div>
     }
     return (
       <div className={styles.root}>
-        <div className={styles.loading}>加载中…</div>
+        <div className={styles.loading}>{t('common.loading')}</div>
       </div>
     )
   }
 
   return (
     <div className={styles.root}>
-      {slice.status === 'error' && <div className={styles.errorBanner}>刷新失败：{slice.error}（显示上一次数据）</div>}
-      {actionError !== null && <div className={styles.errorBanner}>操作失败：{actionError}</div>}
+      {slice.status === 'error' && <div className={styles.errorBanner}>{t('common.refreshFailedShowLast', { detail: slice.error ?? '' })}</div>}
+      {actionError !== null && <div className={styles.errorBanner}>{t('common.actionFailed', { detail: actionError })}</div>}
 
       {graph !== null && (
         <PlanGraphView
@@ -238,13 +239,13 @@ export function PlanGraphContainer({
 
       {pending !== null && (
         <ConfirmDialog
-          title={pending.kind === 'select' ? `选择提案 ${pending.planForkId}` : `忽略提案 ${pending.planForkId}`}
+          title={pending.kind === 'select' ? t('ws.plan.selectProposal', { id: pending.planForkId }) : t('ws.plan.ignoreProposal', { id: pending.planForkId })}
           message={
             pending.kind === 'select'
-              ? '此操作不可逆：将按提案物化新条目并重写正典计划（plan.yaml），同一工作流的其他待处理提案将全部标记过期。确认选择此提案？'
-              : '仅将提案状态改为「已忽略」（追加记录，不删除）。确认忽略？'
+              ? t('ws.plan.selectConfirmText')
+              : t('ws.plan.ignoreConfirmText')
           }
-          confirmLabel={pending.kind === 'select' ? '确认选择' : '确认忽略'}
+          confirmLabel={pending.kind === 'select' ? t('ws.plan.selectConfirmTitle') : t('ws.plan.ignoreConfirmTitle')}
           danger={pending.kind === 'select'}
           onConfirm={() => {
             void confirmPending()

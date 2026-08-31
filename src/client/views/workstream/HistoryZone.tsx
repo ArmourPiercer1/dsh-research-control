@@ -14,6 +14,7 @@
 
 import type { ReactElement } from 'react'
 import styles from './workstream.module.css'
+import { t } from '../../i18n/copy.js'
 
 export interface HistoryZoneProps {
   /** The DTO's `history.eventCount` (the log size of this workstream). */
@@ -29,15 +30,15 @@ export interface HistoryZoneProps {
  */
 export function HistoryZone({ eventCount, onOpenHistory }: HistoryZoneProps): ReactElement {
   return (
-    <section className={styles.zone} aria-label="历史">
-      <h2 className={styles.zoneTitle}>历史</h2>
+    <section className={styles.zone} aria-label={t('ws.history.title')}>
+      <h2 className={styles.zoneTitle}>{t('ws.history.title')}</h2>
       {eventCount === 0 ? (
-        <p className={styles.empty}>暂无历史事件</p>
+        <p className={styles.empty}>{t('project.historyEmpty')}</p>
       ) : (
         <>
-          <p className={styles.historyCount}>历史事件：{eventCount} 条</p>
+          <p className={styles.historyCount}>{t('ws.history.count', { n: String(eventCount) })}</p>
           <button type="button" className={styles.historyEntry} onClick={onOpenHistory}>
-            查看事件时间线
+            {t('ws.history.open')}
           </button>
         </>
       )}

@@ -1645,7 +1645,10 @@ export class ResearchControlService extends TypertRemoteService {
    * analysis-commands.ts).
    */
   async #reinitResearchPlane(adapter: HostSessionAdapter, schemaRoot: string): Promise<void> {
-    const fresh = this.#initResearchPlane(adapter, schemaRoot)
+    // ADJ-11 (UI-9): the re-init wirings echo `reinitialized: true`
+    // through the integrity gate → getResearchPlaneState projects the
+    // WIRING_REINITIALIZED machine code onto each MANAGED project.
+    const fresh = this.#initResearchPlane(adapter, schemaRoot, true)
     if (this.projectRpcs !== undefined) {
       for (const service of this.projectRpcs.values()) service.close?.()
     }
@@ -1700,7 +1703,7 @@ export class ResearchControlService extends TypertRemoteService {
    *  `failLoud`) — the already-composed projects are unwound first
    *  (a failed init leaks nothing), then the fiber fails before ACTIVE.
    */
-  #initResearchPlane(adapter: HostSessionAdapter, schemaRoot: string): PlaneInitResult {
+  #initResearchPlane(adapter: HostSessionAdapter, schemaRoot: string, reinitialized = false): PlaneInitResult {
     const registry = (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry
     const workspaces = registry.list()
     // Design §4 step 1: the directory names come exclusively from the
@@ -1861,6 +1864,9 @@ export class ResearchControlService extends TypertRemoteService {
           // point) fails the WIRING_INPUT guard on the next re-init
           // (rescan / restart) even though discovery found the tree.
           researchDir: dirNames.treeDir,
+          // ADJ-11 (UI-9): thread the re-init flag to the integrity gate
+          // (session-scoped boot state; the plane projects the code).
+          reinitialized,
           adapter,
           launcherAdapter,
           workspaceRoots: workspaces.map((w) => w.path),

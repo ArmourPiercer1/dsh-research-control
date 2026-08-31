@@ -30,6 +30,7 @@ import {
 } from '../../host/service/attention/scorer.js'
 import { createStore } from './engine.js'
 import { idleSlice, type SliceState } from './model.js'
+import { t } from '../i18n/copy.js'
 
 /* -------------------------------------------------------------------- *
  * 切片形状（= 主 store 的 SliceState<AttentionRanking> — 形状同族）
@@ -153,10 +154,10 @@ export function createAttentionRankingStore(options?: AttentionRankingStoreOptio
           case 'error':
             if (prev.data === null) {
               if (prev.status === 'error' && prev.error === projection.error) return prev
-              return { status: 'error', data: null, error: projection.error ?? '未知错误', updatedAt: null }
+              return { status: 'error', data: null, error: projection.error ?? t('common.unknownError'), updatedAt: null }
             }
             if (prev.status === 'error' && prev.error === projection.error) return prev
-            return { ...prev, status: 'error', error: projection.error ?? '未知错误' }
+            return { ...prev, status: 'error', error: projection.error ?? t('common.unknownError') }
           case 'ready': {
             if (projection.data === null) return prev // ready 必带 data（契约）
             const ranking = rankingFromDashboard(projection.data, now())

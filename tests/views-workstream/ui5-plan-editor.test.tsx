@@ -149,7 +149,7 @@ describe('UI-5 plan editor — create (per-kind carriers)', () => {
     // F-10: the empty note renders next to the offered head slot —
     // pre-F-10 the empty state had NO create affordance (the ADJ-3
     // dead end, t70 run 4 :877).
-    expect(page.container.textContent).toContain('No planned items')
+    expect(page.container.textContent).toContain('No future plan items yet.')
     expect(page.container.querySelector('[data-strip-item]')).toBeNull()
     fireEvent.click(query(page, '[data-strip-add-head]'))
     const form = query(page, '[data-strip-form]')

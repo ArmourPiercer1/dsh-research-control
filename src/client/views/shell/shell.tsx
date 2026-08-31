@@ -133,6 +133,8 @@ import type {
   UpdateInterventionStateArgs,
   UpdateInterventionStateResult,
 } from '../../../shared/rpc-contracts.js'
+import { ProjectReadonlyProvider } from '../../components/readonly-context.js'
+import { ReadOnlyBanner } from '../../components/readonly-banner.js'
 import { HubOverviewPage } from './hub-overview.js'
 import { InvestigatorPage, type InvestigatorBinding } from './investigator-page.js'
 import { InterventionStreamPage } from './intervention-stream.js'
@@ -365,24 +367,34 @@ type PlanePhase = 'loading' | 'failed' | 'ready'
  * wrapper below still jumps there programmatically — B §2.1 forbids a
  * first-tier ENTRY, not the programmatic deep-link).
  */
-const HUB_ENTRIES = [
-  { id: 'overview', label: t('nav.portfolio') },
-  { id: 'attention', label: t('nav.needsAttention') },
-  { id: 'investigator', label: '调查员' },
-  { id: 'settings', label: t('nav.settings') },
-] as const
+const HUB_ENTRY_IDS = ['overview', 'attention', 'investigator', 'settings'] as const
 
-type HubEntryId = (typeof HUB_ENTRIES)[number]['id']
+type HubEntryId = (typeof HUB_ENTRY_IDS)[number]
+
+type HubEntry = { readonly id: HubEntryId; readonly label: string }
 
 /**
- * The entries the first-tier NAV renders (UI-3 D1: 4 → 3 visible). The
- * `investigator` entry is deliberately excluded from this list but KEPT in
- * `HUB_ENTRIES` (the type source) and in the ConsoleFrame page switch, so
+ * Build the hub entries at RENDER time (ADJ-1 D1: the labels go through
+ * t(); module-load-time evaluation would freeze the locale at import).
+ */
+function hubEntries(): readonly HubEntry[] {
+  return [
+    { id: 'overview', label: t('nav.portfolio') },
+    { id: 'attention', label: t('nav.needsAttention') },
+    { id: 'investigator', label: t('hub.investigator') },
+    { id: 'settings', label: t('nav.settings') },
+  ]
+}
+
+/**
+ * The entry ids the first-tier NAV renders (UI-3 D1: 4 → 3 visible). The
+ * `investigator` id is deliberately excluded from this list but KEPT in
+ * `HUB_ENTRY_IDS` (the type source) and in the ConsoleFrame page switch, so
  * the programmatic deep-link (`setNavEntry('investigator')` after a
  * successful 一键调查) keeps working.
  */
-const VISIBLE_HUB_ENTRIES: readonly (typeof HUB_ENTRIES)[number][] = HUB_ENTRIES.filter(
-  entry => entry.id !== 'investigator'
+const VISIBLE_HUB_ENTRY_IDS: readonly HubEntryId[] = HUB_ENTRY_IDS.filter(
+  id => id !== 'investigator'
 )
 
 export function ResearchShell(props: ResearchShellProps): ReactElement {
@@ -444,7 +456,7 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
   // (omitted → the summary section is simply not rendered, the
   // `loadAttention?` optionality rule).
   const loadAttentionOrFault = (args: QueryAttentionArgs): Promise<QueryAttentionResult> =>
-    props.loadAttention?.(args) ?? Promise.reject(new Error('研究平面状态异常：queryAttention 未接线'))
+    props.loadAttention?.(args) ?? Promise.reject(new Error(t('shell.planeErrorAttention')))
   const investigateWithBinding = (
     item: { readonly id: string; readonly title: string },
     question: string,
@@ -552,7 +564,7 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
     return (
       <div className={styles.shell} data-shell-phase="loading">
         <p className={styles.statusLine} role="status">
-          正在加载研究平面…
+          {t('shell.planeLoading')}
         </p>
       </div>
     )
@@ -561,8 +573,20 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
   if (phase === 'failed' || plane === null) {
     return (
       <div className={styles.shell} data-shell-phase="failed">
-        <p className={styles.faultLine} role="alert">
-          研究平面状态加载失败
+        {/* UI-9 D3: the B §33.3 error-state hooks. This face is BY
+            CONSTRUCTION the group-1 plane-state read failure (the
+            adapter folds the rejection to a string the shell does not
+            store, so the code stays 'unknown'); dataChanged is 'none'
+            (a read) and the [重试] button below IS the user-initiated
+            re-fetch (the mapping marks group 1 retryable). */}
+        <p
+          className={styles.faultLine}
+          role="alert"
+          data-error-state="project-unavailable"
+          data-error-code="unknown"
+          data-error-data-changed="none"
+        >
+          {t('shell.planeLoadFailed')}
         </p>
         <button
           type="button"
@@ -573,7 +597,7 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
             setGeneration((g) => g + 1)
           }}
         >
-          重试
+          {t('common.retry')}
         </button>
       </div>
     )
@@ -609,7 +633,7 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
       const overview =
         effective.cwd === null || plane.hub === null ? (
           <p className={styles.faultLine} role="alert">
-            研究平面状态异常：中枢工作区未解析
+            {t('shell.planeErrorHub')}
           </p>
         ) : hubDrillProjectId === null ? (
           <HubOverviewPage
@@ -627,7 +651,17 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
             onOpenAttention={() => setNavEntry('attention')}
           />
         ) : (
-          <ProjectConsole onBackToWall={() => setHubDrillProjectId(null)} />
+          // UI-9 D4 (ADJ-11): the drilled project console rides the
+          // provider + the B §33.4 banner (the drilled project's
+          // integrity — same lookup as the scoped roles). The HUB
+          // portfolio pages (重要事件 / 调查员 for the hub itself) stay
+          // outside the scope (the v1 disable scope, deviation m).
+          <ProjectReadonlyProvider
+            integrity={plane.projects.find((p) => p.projectId === hubDrillProjectId)?.integrity}
+          >
+            <ReadOnlyBanner onRefresh={refresh} />
+            <ProjectConsole onBackToWall={() => setHubDrillProjectId(null)} />
+          </ProjectReadonlyProvider>
         )
       // V2-T5.2 — 重要事件 = 纯干预流 (design §7.2): the HUB role is the
       // PORTFOLIO view (scopeProjectId null — every card carries its 项目
@@ -724,7 +758,7 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
       const attention =
         scopeProject === undefined ? (
           <p className={styles.faultLine} role="alert">
-            研究平面状态异常：当前项目未解析
+            {t('shell.planeErrorProject')}
           </p>
         ) : (
           <InterventionStreamPage
@@ -777,17 +811,27 @@ export function ResearchShell(props: ResearchShellProps): ReactElement {
           onApplied={refresh}
         />
       )
+      // UI-9 D4 (ADJ-11): the whole scoped frame rides the provider +
+      // the B §33.4 persistent banner (the scoped project's integrity —
+      // the host attaches it to the plane entry, machine codes only).
+      // The banner stays on screen across ALL FOUR first-level entries
+      // (rendered above the frame, not inside one page). ConsoleFrame is
+      // byte-untouched (no new prop — the frame's own pins stay
+      // intact, deviation l).
       branch = (
-        <ConsoleFrame
-          role={effective.role}
-          cwd={effective.cwd ?? undefined}
-          overview={<ProjectConsole />}
-          attention={attention}
-          investigator={investigator}
-          settings={settings}
-          active={navEntry}
-          onActivate={setNavEntry}
-        />
+        <ProjectReadonlyProvider integrity={scopeProject?.integrity}>
+          <ReadOnlyBanner onRefresh={refresh} />
+          <ConsoleFrame
+            role={effective.role}
+            cwd={effective.cwd ?? undefined}
+            overview={<ProjectConsole />}
+            attention={attention}
+            investigator={investigator}
+            settings={settings}
+            active={navEntry}
+            onActivate={setNavEntry}
+          />
+        </ProjectReadonlyProvider>
       )
       break
     case 'UNREGISTERED':
@@ -897,13 +941,15 @@ interface ConsoleFrameProps {
 }
 
 function ConsoleFrame({ role, cwd, overview, attention, investigator, settings, active, onActivate }: ConsoleFrameProps): ReactElement {
-  const activeLabel = HUB_ENTRIES.find((e) => e.id === active)?.label ?? '总览'
+  const entries = hubEntries()
+  const activeLabel = entries.find((e) => e.id === active)?.label ?? t('shell.overviewFallback')
+  const visibleEntries = entries.filter((entry) => VISIBLE_HUB_ENTRY_IDS.includes(entry.id))
   return (
     <div className={styles.shell} data-role={role} data-cwd={cwd}>
       <header className={styles.hubHeader}>
         <h1 className={styles.hubTitle}>{t('app.title')}</h1>
-        <nav className={styles.nav} aria-label="研究控制台一级入口">
-          {VISIBLE_HUB_ENTRIES.map((entry) => (
+        <nav className={styles.nav} aria-label={t('shell.firstTierAria')}>
+          {visibleEntries.map((entry) => (
             <button
               key={entry.id}
               type="button"
@@ -916,7 +962,7 @@ function ConsoleFrame({ role, cwd, overview, attention, investigator, settings, 
           ))}
         </nav>
       </header>
-      <section className={styles.pageBody} data-page={active} aria-label={`${activeLabel}页`}>
+      <section className={styles.pageBody} data-page={active} aria-label={t('shell.pageAria', { label: activeLabel })}>
         {active === 'overview'
           ? overview
           : active === 'attention'

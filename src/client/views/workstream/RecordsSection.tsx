@@ -42,6 +42,7 @@ import type {
   SemanticRecordDto,
 } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
+import { useProjectReadonly } from '../../components/readonly-context.js'
 import type { ResearchStore } from '../../stores/index.js'
 import { splitLines } from './plan-item-utils.js'
 import { useRecordsSlice } from './useWorkstreamSlice.js'
@@ -169,6 +170,12 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
     return buildArgs(workstreamId, { ...EMPTY_FILTERS, related: initialRelated })
   }, [workstreamId, initialRelated])
   const slice = useRecordsSlice(store, workstreamId, initialArgs)
+  // UI-9 D4 (ADJ-11): the read-only surface — every record mutation
+  // control (add / kind select / form fields / save / retract /
+  // mark-missing / relation ops) disables with the composed reason as
+  // tooltip; browsing (filters / selection / expansion) stays.
+  const { readonly: readOnly, reasonText } = useProjectReadonly()
+  const roTitle = reasonText ?? undefined
 
   /* -- filter view state (every change re-issues the same slice key) -- */
   const [filters, setFilters] = useState<FilterState>(() =>
@@ -318,7 +325,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
       return (
         <section className={styles.recordsSection} data-records-section>
           <p className={styles.faultNote} data-records-error>
-            {t('ws.records.list.error')}：{slice.error ?? 'unknown'}
+            {t('ws.records.list.error')}{slice.error ?? 'unknown'}
           </p>
           <button
             type="button"
@@ -326,7 +333,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
             aria-label="retry"
             onClick={() => issue(filters)}
           >
-            重试
+            {t('common.retry')}
           </button>
         </section>
       )
@@ -349,6 +356,8 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
           className={styles.recordsAdd}
           data-records-add
           aria-label={t('ws.records.add')}
+          disabled={readOnly}
+          title={readOnly ? roTitle : undefined}
           onClick={() => openAdd('FACT')}
         >
           {t('ws.records.add')}
@@ -372,6 +381,8 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                 className={styles.addKindButton}
                 data-records-add-select={kind}
                 aria-pressed={addKind === kind}
+                disabled={readOnly}
+                title={readOnly ? roTitle : undefined}
                 onClick={() => openAdd(kind)}
               >
                 {kind === 'FACT'
@@ -390,6 +401,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                 data-records-statement
                 value={addStatement}
                 rows={2}
+                disabled={readOnly}
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setAddStatement(e.target.value)}
               />
             </label>
@@ -401,6 +413,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                   className={styles.addInput}
                   data-records-artifact-title
                   value={addTitle}
+                  disabled={readOnly}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setAddTitle(e.target.value)}
                 />
               </label>
@@ -410,6 +423,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                   className={styles.addInput}
                   data-records-artifact-type
                   value={addArtifactType}
+                  disabled={readOnly}
                   onChange={(e: ChangeEvent<HTMLSelectElement>) => setAddArtifactType(e.target.value)}
                 >
                   {ARTIFACT_TYPES.map((type) => (
@@ -425,6 +439,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                   className={styles.addInput}
                   data-records-artifact-uri
                   value={addUri}
+                  disabled={readOnly}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setAddUri(e.target.value)}
                 />
               </label>
@@ -434,6 +449,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                   className={styles.addInput}
                   data-records-artifact-hash
                   value={addContentHash}
+                  disabled={readOnly}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setAddContentHash(e.target.value)}
                 />
               </label>
@@ -443,6 +459,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                   className={styles.addInput}
                   data-records-artifact-task
                   value={addRelatedTaskId}
+                  disabled={readOnly}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setAddRelatedTaskId(e.target.value)}
                 />
               </label>
@@ -452,6 +469,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                   className={styles.addInput}
                   data-records-artifact-supersedes
                   value={addSupersedes}
+                  disabled={readOnly}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setAddSupersedes(e.target.value)}
                 />
               </label>
@@ -465,13 +483,14 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                 data-records-references
                 value={addReferences}
                 rows={2}
+                disabled={readOnly}
                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setAddReferences(e.target.value)}
               />
             </label>
           )}
           {addFault !== null && (
             <p className={styles.faultNote} data-records-add-fault>
-              {t('ws.records.add.fault')}：{addFault}
+              {t('ws.records.add.fault')}{addFault}
             </p>
           )}
           <div className={styles.addActions}>
@@ -479,7 +498,8 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
               type="button"
               className={styles.addSave}
               data-records-add-save
-              disabled={addPending}
+              disabled={readOnly || addPending}
+              title={readOnly ? roTitle : undefined}
               onClick={handleAddSubmit}
             >
               {t('ws.records.add.save')}
@@ -579,9 +599,27 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
             {t('ws.records.title')} · {slice.data.total}
           </h3>
           {records.length === 0 ? (
-            <p className={styles.recordsEmpty} data-records-empty>
-              {t('ws.records.list.empty')}
-            </p>
+            slice.data.total === 0 ? (
+              /* UI-9 D4 (B §33.2): the frozen Records empty face — the note
+                 plus the three create CTAs. A non-zero total with zero
+                 rows is a filtered empty state and keeps the old line. */
+              <div className={styles.recordsEmpty} data-records-empty>
+                <p>{t('records.empty')}</p>
+                <button type="button" data-records-add-fact onClick={() => openAdd('FACT')}>
+                  {t('records.addFact')}
+                </button>
+                <button type="button" data-records-add-claim onClick={() => openAdd('CLAIM')}>
+                  {t('records.addClaim')}
+                </button>
+                <button type="button" data-records-add-artifact onClick={() => openAdd('ARTIFACT')}>
+                  {t('records.addArtifact')}
+                </button>
+              </div>
+            ) : (
+              <p className={styles.recordsEmpty} data-records-empty>
+                {t('ws.records.list.empty')}
+              </p>
+            )
           ) : (
             <ul className={styles.list} data-records-list>
               {records.map((r) => (
@@ -634,7 +672,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
               )}
               {selected.conflictFlag !== undefined && (
                 <p className={styles.recordConflict} data-records-conflict>
-                  {t('ws.records.conflict')}：{selected.conflictFlag.relationIds.join(', ')}
+                  {t('ws.records.conflict')}{selected.conflictFlag.relationIds.join(', ')}
                 </p>
               )}
               <div className={styles.detailBlock}>
@@ -677,7 +715,8 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                           type="button"
                           className={styles.recordEdgeRemove}
                           data-records-remove-relation={edge.relationId}
-                          disabled={actionPending}
+                          disabled={readOnly || actionPending}
+                          title={readOnly ? roTitle : undefined}
                           onClick={() =>
                             runAction(
                               store.removeRelation({
@@ -707,6 +746,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                       className={styles.addInput}
                       data-records-action-reason
                       value={actionReason}
+                      disabled={readOnly}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => setActionReason(e.target.value)}
                     />
                   </label>
@@ -715,7 +755,8 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                       type="button"
                       className={styles.recordAction}
                       data-records-retract
-                      disabled={actionPending}
+                      disabled={readOnly || actionPending}
+                      title={readOnly ? roTitle : undefined}
                       onClick={() =>
                         runAction(
                           store.retractClaim({
@@ -734,7 +775,8 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                       type="button"
                       className={styles.recordAction}
                       data-records-mark-missing
-                      disabled={actionPending}
+                      disabled={readOnly || actionPending}
+                      title={readOnly ? roTitle : undefined}
                       onClick={() =>
                         runAction(
                           store.markArtifactMissing({
@@ -762,6 +804,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                       className={styles.filterInput}
                       data-records-relation-type
                       value={relType}
+                      disabled={readOnly}
                       onChange={(e: ChangeEvent<HTMLSelectElement>) => setRelType(e.target.value)}
                     >
                       {RELATION_TYPES.map((type) => (
@@ -777,6 +820,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                       className={styles.filterInput}
                       data-records-relation-target-kind
                       value={relTargetKind}
+                      disabled={readOnly}
                       onChange={(e: ChangeEvent<HTMLSelectElement>) => setRelTargetKind(e.target.value)}
                     >
                       {ENDPOINT_KINDS.map((kind) => (
@@ -792,6 +836,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                       className={styles.filterInput}
                       data-records-relation-target-id
                       value={relTargetId}
+                      disabled={readOnly}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => setRelTargetId(e.target.value)}
                     />
                   </label>
@@ -800,7 +845,8 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
                   type="button"
                   className={styles.recordAction}
                   data-records-add-relation-submit
-                  disabled={actionPending || relTargetId.trim() === ''}
+                  disabled={readOnly || actionPending || relTargetId.trim() === ''}
+                  title={readOnly ? roTitle : undefined}
                   onClick={() => {
                     const targetId = relTargetId.trim()
                     if (targetId === '') {
@@ -822,7 +868,7 @@ export function RecordsSection({ store, workstreamId, initialRelated }: RecordsS
               </div>
               {actionFault !== null && (
                 <p className={styles.faultNote} data-records-action-fault>
-                  {t('ws.records.action.fault')}：{actionFault}
+                  {t('ws.records.action.fault')}{actionFault}
                 </p>
               )}
             </>

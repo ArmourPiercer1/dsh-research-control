@@ -29,6 +29,7 @@ import { useEffect, useMemo, useSyncExternalStore, useState, type ReactElement }
 import { createResearchStore, type ResearchStore } from '../../stores/index.js'
 import type { UpdateProjectMetadataArgs } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
+import { useProjectReadonly } from '../../components/readonly-context.js'
 import { extractResearchErrorCarrier } from '../../util/error-carrier.js'
 import { type DrilldownSelection } from '../drilldown/drilldown-view.js'
 import { WorkstreamPage } from '../drilldown/cockpit.js'
@@ -112,6 +113,11 @@ function ProjectMetadataDialog(props: {
   const [targetDate, setTargetDate] = useState(initial.targetDate ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // UI-9 D4 (ADJ-11): the read-only surface — the metadata fields +
+  // save disable with the composed reason as tooltip (cancel stays,
+  // it is a local close).
+  const { readonly: readOnly, reasonText } = useProjectReadonly()
+  const roTitle = reasonText ?? undefined
 
   // A field is "changed" when it differs from the prefill; the changed
   // fields are the ONLY ones sent (the RMW merge keeps the rest).
@@ -151,11 +157,11 @@ function ProjectMetadataDialog(props: {
   }
 
   return (
-    <div className={dialogStyles.dialogOverlay} role="dialog" aria-modal="true" aria-label="编辑项目元数据" data-metadata-dialog>
+    <div className={dialogStyles.dialogOverlay} role="dialog" aria-modal="true" aria-label={t('project.editMeta')} data-metadata-dialog>
       <div className={dialogStyles.dialogPanel}>
-        <h3 className={dialogStyles.dialogTitle}>编辑项目元数据</h3>
+        <h3 className={dialogStyles.dialogTitle}>{t('project.editMeta')}</h3>
         <label className={dialogStyles.dialogField} htmlFor="meta-title">
-          项目标题（必填，1–200 字）
+          {t('project.metaTitleLabel')}
         </label>
         <input
           id="meta-title"
@@ -163,10 +169,11 @@ function ProjectMetadataDialog(props: {
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          disabled={readOnly}
           data-meta-title
         />
         <label className={dialogStyles.dialogField} htmlFor="meta-description">
-          项目简介
+          {t('project.intro')}
         </label>
         <textarea
           id="meta-description"
@@ -174,16 +181,18 @@ function ProjectMetadataDialog(props: {
           rows={3}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          disabled={readOnly}
           data-meta-description
         />
         <label className={dialogStyles.dialogField} htmlFor="meta-importance">
-          重要度（1–5）
+          {t('project.metaImportanceLabel')}
         </label>
         <select
           id="meta-importance"
           className={dialogStyles.dialogInput}
           value={importance}
           onChange={(e) => setImportance(e.target.value)}
+          disabled={readOnly}
           data-meta-importance
         >
           <option value="1">1</option>
@@ -193,21 +202,22 @@ function ProjectMetadataDialog(props: {
           <option value="5">5</option>
         </select>
         <label className={dialogStyles.dialogField} htmlFor="meta-attention">
-          注意力模式
+          {t('project.metaAttentionLabel')}
         </label>
         <select
           id="meta-attention"
           className={dialogStyles.dialogInput}
           value={attentionMode}
           onChange={(e) => setAttentionMode(e.target.value as 'FOCUS' | 'NORMAL' | 'BACKGROUND')}
+          disabled={readOnly}
           data-meta-attention
         >
-          <option value="FOCUS">聚焦</option>
-          <option value="NORMAL">常规</option>
-          <option value="BACKGROUND">后台</option>
+          <option value="FOCUS">{t('status.focusing')}</option>
+          <option value="NORMAL">{t('attention.mode.normal')}</option>
+          <option value="BACKGROUND">{t('status.background')}</option>
         </select>
         <label className={dialogStyles.dialogField} htmlFor="meta-target-date">
-          目标日期（YYYY-MM-DD，暂不支持清空）
+          {t('project.metaTargetDateLabel')}
         </label>
         <input
           id="meta-target-date"
@@ -215,6 +225,7 @@ function ProjectMetadataDialog(props: {
           type="date"
           value={targetDate}
           onChange={(e) => setTargetDate(e.target.value)}
+          disabled={readOnly}
           data-meta-target-date
         />
         {error !== null && (
@@ -224,16 +235,17 @@ function ProjectMetadataDialog(props: {
         )}
         <div className={dialogStyles.dialogActions}>
           <button type="button" className={dialogStyles.dialogCancel} disabled={busy} onClick={onClose}>
-            取消
+            {t('common.cancel')}
           </button>
           <button
             type="button"
             className={dialogStyles.dialogConfirm}
-            disabled={busy || !changed || title.trim() === '' || title.length > 200}
+            disabled={readOnly || busy || !changed || title.trim() === '' || title.length > 200}
+            title={readOnly ? roTitle : undefined}
             onClick={() => void confirm()}
             data-meta-confirm
           >
-            {busy ? '保存中…' : '保存'}
+            {busy ? t('common.saving') : t('common.save')}
           </button>
         </div>
       </div>
@@ -263,6 +275,11 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
   // discipline keeps its reference stable across other slices' commits).
   const [metaOpen, setMetaOpen] = useState(false)
   const projectSlice = useSyncExternalStore(store.subscribe, () => store.getState().project)
+  // UI-9 D4 (ADJ-11): the read-only surface — the metadata-edit opener
+  // disables with the composed reason as tooltip (the dialog gates its
+  // own fields; navigation / structure tree stay available).
+  const { readonly: readOnly, reasonText } = useProjectReadonly()
+  const roTitle = reasonText ?? undefined
 
   /* -- UI-3 D7 — the breadcrumb (B §2.3). The console owns the page
      stack, so the breadcrumb is the console's CHROME (rendered once
@@ -387,11 +404,11 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
       {sessionPointer !== null && (
         <div className={styles.sessionBanner} role="status" data-session-id={sessionPointer.sessionId}>
           <p>
-            宿主会话指针 <code>{sessionPointer.sessionId}</code>（来自 Run {sessionPointer.runId}）—
-            在宿主会话列表中打开（外部跳转 · 占位通道：本插件无宿主会话 UI 权限，指针记录于此）
+            {t('project.hostSessionPointer')} <code>{sessionPointer.sessionId}</code>{t('project.hostSessionFromRun', { id: String(sessionPointer.runId) })}{' '}
+            {t('project.hostSessionNote')}
           </p>
           <button type="button" className={styles.backButton} onClick={() => setSessionPointer(null)}>
-            收起
+            {t('project.collapse')}
           </button>
         </div>
       )}
@@ -423,9 +440,11 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
               type="button"
               className={styles.backButton}
               onClick={() => setMetaOpen(true)}
+              disabled={readOnly}
+              title={readOnly ? roTitle : undefined}
               data-project-edit-metadata
             >
-              编辑项目元数据
+              {t('project.editMeta')}
             </button>
           )}
         </>
@@ -468,16 +487,16 @@ export function ProjectConsole({ onBackToWall }: ProjectConsoleProps): ReactElem
       )}
 
       {page.kind === 'history' && (
-        <section className={styles.page} aria-label="历史时间线页">
+        <section className={styles.page} aria-label={t('history.pageTitle')}>
           <h1 className={styles.pageTitle}>
             <button
               type="button"
               className={styles.backButton}
               onClick={() => goToWorkstream(page.workstreamId, page.topicId)}
             >
-              ← 返回 {page.workstreamId}
+              {t('common.back')} {page.workstreamId}
             </button>{' '}
-            历史时间线 · {page.workstreamId}
+            {t('history.timelineLabel', { id: String(page.workstreamId) })}
           </h1>
           <HistoryTimelineView
             store={store}

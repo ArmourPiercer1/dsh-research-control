@@ -20,13 +20,14 @@ import { EventRow } from './EventRow.js'
 import type { HistoryOrder } from './ordered-events.js'
 import type { HistoryRunGroup, RunGroupStatus } from './run-group.js'
 import styles from './styles.module.css'
+import { t } from '../../i18n/copy.js'
 
 /** Wrapper status → product Chinese label. */
 export const RUN_STATUS_LABEL: Readonly<Record<RunGroupStatus, string>> = {
-  RUNNING: '运行中',
-  FINISHED: '已完成',
-  FAILED: '已失败',
-  CANCELLED: '已取消',
+  RUNNING: t('status.running'),
+  FINISHED: t('status.completed'),
+  FAILED: t('status.failed'),
+  CANCELLED: t('status.cancelled'),
 }
 
 /** Wrapper status → CSS module class (neutral chip, colored text). */
@@ -56,7 +57,7 @@ export function RunGroupCard({ group, order }: RunGroupCardProps): ReactElement 
       <header className={styles.runGroupHeader}>
         <span className={styles.runId}>{group.runId}</span>
         <span className={RUN_STATUS_CLASS[group.status]}>{RUN_STATUS_LABEL[group.status]}</span>
-        <span className={styles.count}>{group.events.length} 条事件</span>
+        <span className={styles.count}>{t('history.eventsCount', { n: String(group.events.length) })}</span>
       </header>
       <ul className={styles.timeline}>
         {group.events.map((event, index) => (

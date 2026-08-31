@@ -14,6 +14,7 @@
  */
 
 import type { AnalysisRecordDto, AnalysisTypedRef, SaveAnalysisRecordArgs, TransientPointerDto, TransientRunDto, TransientSessionDto } from '../../stores/analysis-slice.js'
+import { t } from '../../i18n/copy.js'
 
 /* -------------------------------------------------------------------- *
  * 状态词表（中文 — 单一来源; 组件纪律: 中文文案）
@@ -21,23 +22,23 @@ import type { AnalysisRecordDto, AnalysisTypedRef, SaveAnalysisRecordArgs, Trans
 
 /** Run 状态 → 中文标签（§1.4 RunStatus 4 值; 未知值原样透出）。 */
 export const RUN_STATUS_LABEL: Record<string, string> = {
-  RUNNING: '运行中',
-  FINISHED: '已完成',
-  FAILED: '失败',
-  CANCELLED: '已取消',
+  RUNNING: t('status.running'),
+  FINISHED: t('status.completed'),
+  FAILED: t('status.failedShort'),
+  CANCELLED: t('status.cancelled'),
 }
 
 /** source_ref kind → 中文标签（§12.2 三类来源 + 常见声明式对象; 未知值
  *  原样透出 — 形状面不限制 kind 集合, 语义归调用方）。 */
 export const SOURCE_REF_KIND_LABEL: Record<string, string> = {
-  INTERVENTION: '干预',
-  INBOX_ITEM: 'Audit finding（收件箱条目）',
+  INTERVENTION: t('investigator.kind.intervention'),
+  INBOX_ITEM: t('investigator.kind.inboxItem'),
   TOPIC: 'Topic Brief',
   WORKSTREAM: 'Workstream Brief',
   PROJECT: 'Project Brief',
-  CLAIM: '主张',
-  FACT: '事实',
-  ARTIFACT: '产物',
+  CLAIM: t('investigator.kind.claim'),
+  FACT: t('investigator.kind.fact'),
+  ARTIFACT: t('investigator.kind.artifact'),
   RUN: 'Run',
 }
 

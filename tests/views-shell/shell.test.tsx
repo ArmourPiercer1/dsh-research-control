@@ -286,7 +286,7 @@ describe('ResearchShell — 5 角色分支', () => {
     // behavior is pinned in tests/views-intervention-stream/).
     fireEvent.click(screen.getByRole('button', { name: 'Needs Attention' }))
     expect(document.querySelector('[data-page="attention"]')).toBeTruthy()
-    expect(await screen.findByText('当前没有需要处理的事件')).toBeTruthy()
+    expect(await screen.findByText('No events need attention right now.')).toBeTruthy()
 
     // T5.4: 设置 is the 四段式管理面 (design §7.4). The HUB role sees ALL
     // four sections (①②③④ — the 登记册 included).

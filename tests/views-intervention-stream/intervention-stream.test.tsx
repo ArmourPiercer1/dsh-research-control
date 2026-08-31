@@ -37,7 +37,7 @@
  *  - B §31 missing-NA 卡: frozen three lines + CTA face-gated +
  *    inline form (blank submit disabled, create args, cancel, reject
  *    keeps the form + fault);
- *  - 空态: 当前没有需要处理的事件 + 去看工作流进展;
+ *  - 空态: No events need attention right now. + 去看工作流进展;
  *  - 导航: HUB project labels / chips → onOpenProject(projectId);
  *    scoped roles → no labels, chips → onGoToWorkstreams;
  *  - the pure helpers (`formatRelativeTime`, `attentionGroupOf`,
@@ -468,7 +468,7 @@ describe('InterventionStreamPage — 三段组 + 状态段', () => {
     renderStream(makeLoad(ATTN_FULL_RESULT))
     await awaitReady()
     setSelect('[data-attention-filter="status"]', 'CLOSED')
-    expect(screen.getByText('当前没有需要处理的事件')).toBeDefined()
+    expect(screen.getByText('No events need attention right now.')).toBeDefined()
     expect(document.querySelector('[data-attention-empty]')).not.toBeNull()
     expect(document.querySelector('[data-attention-group="OPEN"]')).toBeNull()
   })
@@ -546,7 +546,7 @@ describe('InterventionStreamPage — B §27.1 过滤器×5', () => {
     ])
     // Picking the other project = empty (the scope filter still applies).
     setSelect('[data-attention-filter="project"]', 'PRJ-2')
-    expect(screen.getByText('当前没有需要处理的事件')).toBeDefined()
+    expect(screen.getByText('No events need attention right now.')).toBeDefined()
   })
 })
 
@@ -898,11 +898,11 @@ describe('InterventionStreamPage — 非 IV 卡 (B §29/§30/§31)', () => {
 // ── the 空态 face ────────────────────────────────────────────────────────
 
 describe('InterventionStreamPage — 空态', () => {
-  it('an empty list → 当前没有需要处理的事件 + 去看工作流进展', async () => {
+  it('an empty list → No events need attention right now. + 去看工作流进展', async () => {
     const props = renderStream(makeLoad(ATTN_EMPTY_RESULT))
     await awaitReady()
     expect(document.querySelector('[data-attention-empty]')).not.toBeNull()
-    expect(screen.getByText('当前没有需要处理的事件')).toBeDefined()
+    expect(screen.getByText('No events need attention right now.')).toBeDefined()
     expect(screen.getByText(/一键调查/)).toBeDefined() // the hint line
     expect(screen.getByRole('button', { name: '待处理 0' })).toBeDefined()
     expect(screen.getByRole('button', { name: '待确认 0' })).toBeDefined()

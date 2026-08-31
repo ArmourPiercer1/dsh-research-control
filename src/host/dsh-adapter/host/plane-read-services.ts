@@ -51,6 +51,7 @@ import {
   type GetResearchPlaneStateArgs,
   type GetResearchPlaneStateResult,
   type HubOverviewResult,
+  type PlaneIntegrityDto,
   type PlaneProjectDto,
   type PlaneSessionDto,
   type PlaneStateSummary,
@@ -62,7 +63,8 @@ import {
 import type { DshSessionAdapter } from '../../../shared/host-adapter-ports.js'
 import type { PlaneProject, PlaneState } from './discovery.js'
 import type { ResearchDirNames } from './settings.js'
-import type { HostWiring } from '../../service/wiring/index.js'
+import type { HostWiring, StartupIntegrityGate } from '../../service/wiring/index.js'
+import type { GitCheckResult } from '../../persistence/hardening/index.js'
 import type { StructuredLogger } from '../../service/checkpoint/index.js'
 import {
   queryCollections,
@@ -79,8 +81,8 @@ import {
  * the plane-level vs per-project split).
  */
 export interface ResearchPlaneServices {
-  /** Design §5/§12 row 1 — the plane state + the caller-session role segment (the tab-body 分流 + the 设置页① 唯一数据源). */
-  getResearchPlaneState(args: GetResearchPlaneStateArgs): GetResearchPlaneStateResult
+  /** Design §5/§12 row 1 — the plane state + the caller-session role segment (the tab-body 分流 + the 设置页① 唯一数据源). ADJ-11 (UI-9): ASYNC — the projection awaits each MANAGED project's integrity-gate git boundary (`wiring.integrity.git`, which never rejects). */
+  getResearchPlaneState(args: GetResearchPlaneStateArgs): Promise<GetResearchPlaneStateResult>
   /** Design §7.1/§12 row 2 — the cross-project aggregation (聚合条 + 需关注行 + 项目卡墙). */
   getHubOverview(args: GetHubOverviewArgs): Promise<HubOverviewResult>
   /** Design §7.2/§12 row 3 — the cross-project intervention list (带 projectId 标签, 状态过滤). */
@@ -266,6 +268,49 @@ export function aggregateProjectOverview(input: ProjectOverviewInput): ProjectOv
 }
 
 /* ------------------------------------------------------------------ *
+ * ADJ-11 (UI-9) — the plane integrity projection (machine codes ONLY)
+ * ------------------------------------------------------------------ */
+
+/** The LOCKED machine-code vocabulary the plane projection emits. The
+ *  client's error-state mapping (UI-9 D3) keys on exactly these — the
+ *  host never crosses the wire with the gate's free-text guidance
+ *  (ADJ-11: 只传机器码). */
+export const INTEGRITY_CODE_WIRING_REINITIALIZED = 'WIRING_REINITIALIZED'
+export const INTEGRITY_CODE_TREE_PARTIAL = 'TREE_PARTIAL'
+export const INTEGRITY_CODE_CONSISTENCY_MISMATCH = 'CONSISTENCY_MISMATCH'
+export const INTEGRITY_CODE_GIT_REPO_ERROR = 'GIT_REPO_ERROR'
+
+/**
+ * ADJ-11 (UI-9): the PURE gate → {@link PlaneIntegrityDto} projection
+ * (unit-tested in isolation):
+ *
+ *   - `readOnly` — `true` ⇔ the gate's read surface is `readonly`
+ *     (the .research tree is partially broken — the client renders the
+ *     B §33.4 banner and disables the mutation controls; browsing
+ *     stays available).
+ *   - `checkCodes` — the machine translation of the gate results, in
+ *     the locked vocabulary: `WIRING_REINITIALIZED` (the gate-internal
+ *     re-init flag echo), `TREE_PARTIAL` (tree load recoverable but
+ *     partially broken), `CONSISTENCY_MISMATCH` (the dual-真源 spot
+ *     check did not pass), `GIT_REPO_ERROR` (the git boundary did not
+ *     pass). An unrecoverable db/tree never reaches this projection
+ *     (the gate throws `WIRING_INTEGRITY` before the wiring is ever
+ *     served), and the consistency `skipped` branches are unreachable
+ *     for the same reason (they fire only on those fatal states).
+ */
+export function projectPlaneIntegrity(
+  gate: StartupIntegrityGate,
+  git: GitCheckResult,
+): PlaneIntegrityDto {
+  const checkCodes: string[] = []
+  if (gate.reinitialized) checkCodes.push(INTEGRITY_CODE_WIRING_REINITIALIZED)
+  if (gate.tree.status === 'recoverable') checkCodes.push(INTEGRITY_CODE_TREE_PARTIAL)
+  if (gate.consistency.status !== 'pass') checkCodes.push(INTEGRITY_CODE_CONSISTENCY_MISMATCH)
+  if (git.status !== 'pass') checkCodes.push(INTEGRITY_CODE_GIT_REPO_ERROR)
+  return { readOnly: gate.readSurface === 'readonly', checkCodes }
+}
+
+/* ------------------------------------------------------------------ *
  * The production implementation (over the discovered plane + the
  * per-project wirings — the composition root's output)
  * ------------------------------------------------------------------ */
@@ -348,15 +393,14 @@ export class ProductionResearchPlaneServices implements ResearchPlaneServices {
    *    (五分支: HUB / MANAGED / STANDALONE / UNREGISTERED / NO_CWD, the
    *    hub-own-tree `hubTreeProjectId` attached for HUB only).
    */
-  getResearchPlaneState(args: GetResearchPlaneStateArgs): GetResearchPlaneStateResult {
+  async getResearchPlaneState(args: GetResearchPlaneStateArgs): Promise<GetResearchPlaneStateResult> {
     const plane = this.#requirePlane()
-    const base: GetResearchPlaneStateResult = {
-      ...projectPlaneSummary(plane, this.#options.dirNames()),
-      session: null,
-    }
+    const summary = projectPlaneSummary(plane, this.#options.dirNames())
+    const projects = await this.#attachIntegrity(summary.projects)
+    const base: GetResearchPlaneStateResult = { ...summary, projects, session: null }
     if (args.sessionId === undefined) return base
-    const summary = this.#options.sessions.listSessions().find((s) => s.id === args.sessionId)
-    if (summary === undefined) {
+    const session = this.#options.sessions.listSessions().find((s) => s.id === args.sessionId)
+    if (session === undefined) {
       throw new PlaneError(
         'PLANE_SESSION_UNKNOWN',
         `session ${args.sessionId} names no known session — the session segment is resolved from ` +
@@ -364,7 +408,28 @@ export class ProductionResearchPlaneServices implements ResearchPlaneServices {
           'foreign to this host',
       )
     }
-    return { ...base, session: resolveSessionRole(plane, summary.cwd ?? null) }
+    return { ...base, session: resolveSessionRole(plane, session.cwd ?? null) }
+  }
+
+  /**
+   * ADJ-11 (UI-9): attach the integrity snapshot to the MANAGED
+   * entries — the gate's machine projection (see
+   * {@link projectPlaneIntegrity}). STANDALONE entries (no wiring of
+   * their own) and compositions without the wirings map keep the
+   * field undefined.
+   */
+  async #attachIntegrity(projects: readonly PlaneProjectDto[]): Promise<readonly PlaneProjectDto[]> {
+    const wirings = this.#options.getWirings()
+    if (wirings === undefined) return projects
+    return Promise.all(
+      projects.map(async (project) => {
+        if (project.kind !== 'MANAGED') return project
+        const wiring = wirings.get(project.projectId)
+        if (wiring === undefined) return project
+        const git = await wiring.integrity.git
+        return { ...project, integrity: projectPlaneIntegrity(wiring.integrity, git) }
+      }),
+    )
   }
 
   /**

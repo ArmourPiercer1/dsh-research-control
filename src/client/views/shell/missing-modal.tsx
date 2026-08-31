@@ -63,6 +63,7 @@ import type {
   UnbindProjectResult,
 } from '../../../shared/rpc-contracts.js'
 import styles from './shell.module.css'
+import { t } from '../../i18n/copy.js'
 
 /** Props of the MISSING 四选一 modal (see the module header). */
 export interface MissingModalProps {
@@ -141,14 +142,14 @@ export function MissingModal(props: MissingModalProps): ReactElement {
     // the overlay is a SIBLING of the branch's .shell div, so the tokens
     // do not inherit; shell.module.css scopes both roots the same way).
     <div className={`${styles.dialogOverlay} ${styles.missingModal}`}>
-      <div className={styles.dialogPanel} role="dialog" aria-modal="true" aria-label="研究树缺失处置" data-missing-modal="open">
-        <h2 className={styles.dialogTitle}>研究树缺失</h2>
-        <p className={styles.dialogCopy}>以下已登记项目的研究树未被发现（挂起，等待用户处置）。请为每个条目选择一种处置方式：</p>
+      <div className={styles.dialogPanel} role="dialog" aria-modal="true" aria-label={t('missing.title')} data-missing-modal="open">
+        <h2 className={styles.dialogTitle}>{t('missing.heading')}</h2>
+        <p className={styles.dialogCopy}>{t('missing.body')}</p>
         {props.entries.map((entry) => (
           <div key={entry.projectId} className={styles.missingEntry}>
             <p className={styles.missingName}>{entry.displayName}</p>
             <p className={styles.missingMeta}>
-              <code>{entry.projectId}</code> · 登记路径 <code>{entry.wsPath}</code>
+              <code>{entry.projectId}</code>{t('missing.pathLabel')} <code>{entry.wsPath}</code>
             </p>
             <div className={styles.missingActions}>
               <button
@@ -159,7 +160,7 @@ export function MissingModal(props: MissingModalProps): ReactElement {
                   void handleAction('rescan', entry)
                 }}
               >
-                恢复
+                {t('missing.restore')}
               </button>
               <button
                 type="button"
@@ -169,7 +170,7 @@ export function MissingModal(props: MissingModalProps): ReactElement {
                   void handleAction('rebind', entry)
                 }}
               >
-                重初始化
+                {t('missing.reinit')}
               </button>
               <button
                 type="button"
@@ -179,7 +180,7 @@ export function MissingModal(props: MissingModalProps): ReactElement {
                   void handleAction('unbind', entry)
                 }}
               >
-                移除登记
+                {t('missing.remove')}
               </button>
               <button
                 type="button"
@@ -189,14 +190,14 @@ export function MissingModal(props: MissingModalProps): ReactElement {
                   void handleAction('ack', entry)
                 }}
               >
-                推后
+                {t('missing.defer')}
               </button>
             </div>
           </div>
         ))}
         {error !== null && (
           <p className={styles.missingError} role="alert">
-            处置失败：{error}
+            {t('missing.failed', { error })}
           </p>
         )}
       </div>

@@ -40,6 +40,7 @@
  */
 
 import type { DependencyEdgeDto, PlanForkDto, PlanItemDto, WorkstreamSnapshot } from '../../shared/rpc-contracts.js'
+import { t } from '../i18n/copy.js'
 
 /* -------------------------------------------------------------------- *
  * Graph data face
@@ -344,7 +345,7 @@ export function planToGraph(snapshot: WorkstreamSnapshot, extras?: PlanGraphExtr
           itemId: `${fork.id}#${k + 1}`,
           kind: 'PROPOSED',
           label: `${fork.id}#${k + 1}`,
-          title: `候选项 ${k + 1}/${fork.proposedItemCount}`,
+          title: t('ws.plan.candidateLabel', { i: String(k + 1), n: String(fork.proposedItemCount) }),
           source: 'planFork',
           planForkId: fork.id,
           changeForm: form,

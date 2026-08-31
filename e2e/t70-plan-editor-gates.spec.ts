@@ -868,7 +868,7 @@ test('T70: D §11.9 十项动作面 + reorder≠dependency 不变式 + 无 plan 
 
   await drillToWorkstream(page, WS_NOPLAN_ID)
   const page2 = wsPage(page)
-  await expect(page2.getByText('No planned items')).toBeVisible()
+  await expect(page2.getByText('No future plan items yet.')).toBeVisible()
   await expect(page2.locator('[data-strip-item]')).toHaveCount(0)
   await expect(graphNodes(futureGraph(page2))).toHaveCount(0)
   // The legend is ALWAYS rendered (even on an empty graph).

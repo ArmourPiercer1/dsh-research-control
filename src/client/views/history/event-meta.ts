@@ -17,6 +17,7 @@
  * `HistoryEventDto`.
  */
 
+import { t } from '../../i18n/copy.js'
 import type { HistoryEventDto } from '../../../shared/rpc-contracts.js'
 
 /** One catalog row's display data (label = the §4「一句话语义」in product
@@ -28,31 +29,31 @@ export interface EventTypeMeta {
 
 /** The 20 frozen V1 event types (catalog §4 table, row order preserved). */
 export const EVENT_TYPE_META: Readonly<Record<string, EventTypeMeta>> = {
-  RUN_STARTED: { label: 'Run 开始', category: 'Run' },
-  RUNS_STARTED: { label: '批量启动 Run', category: 'Run' },
-  RUN_FINISHED: { label: 'Run 正常结束', category: 'Run' },
-  RUN_FAILED: { label: 'Run 失败', category: 'Run' },
-  RUN_CANCELLED: { label: 'Run 已取消', category: 'Run' },
-  TASK_EXECUTION_CHANGED: { label: 'execution 状态迁移', category: 'Task' },
-  TASK_VALIDATION_CHANGED: { label: 'validation 状态迁移', category: 'Task' },
-  ACCEPTANCE_CRITERION_CHANGED: { label: 'AC 定义变化', category: 'Task' },
-  FACT_RECORDED: { label: '记录 Fact', category: '语义标签' },
-  CLAIM_RECORDED: { label: '记录 Claim', category: '语义标签' },
-  CLAIM_RETRACTED: { label: '撤回 Claim', category: '语义标签' },
-  ARTIFACT_REGISTERED: { label: '注册 Artifact', category: 'Artifact' },
-  ARTIFACT_MARKED_MISSING: { label: 'Artifact 缺失', category: 'Artifact' },
-  RELATION_ADDED: { label: '添加关系边', category: 'Relation' },
-  RELATION_REMOVED: { label: '移除关系边', category: 'Relation' },
-  GATE_EVALUATED: { label: 'Gate 评估', category: 'Gate/Milestone' },
-  MILESTONE_ACHIEVED: { label: '里程碑达成', category: 'Gate/Milestone' },
-  INTERVENTION_CREATED: { label: '创建 Intervention', category: '人类注意力' },
-  TOPOLOGY_FORK_REALIZED: { label: 'fork 边实现', category: '拓扑实现' },
-  TOPOLOGY_MERGE_REALIZED: { label: 'merge 边实现', category: '拓扑实现' },
+  RUN_STARTED: { label: t('history.event.runStarted'), category: 'Run' },
+  RUNS_STARTED: { label: t('history.event.runBatchStarted'), category: 'Run' },
+  RUN_FINISHED: { label: t('history.event.runEnded'), category: 'Run' },
+  RUN_FAILED: { label: t('history.event.runFailed'), category: 'Run' },
+  RUN_CANCELLED: { label: t('history.event.runCancelled'), category: 'Run' },
+  TASK_EXECUTION_CHANGED: { label: t('history.event.executionTransition'), category: 'Task' },
+  TASK_VALIDATION_CHANGED: { label: t('history.event.validationTransition'), category: 'Task' },
+  ACCEPTANCE_CRITERION_CHANGED: { label: t('history.event.acChanged'), category: 'Task' },
+  FACT_RECORDED: { label: t('history.event.factRecorded'), category: t('history.event.semanticTag') },
+  CLAIM_RECORDED: { label: t('history.event.claimRecorded'), category: t('history.event.semanticTag') },
+  CLAIM_RETRACTED: { label: t('history.event.claimRetracted'), category: t('history.event.semanticTag') },
+  ARTIFACT_REGISTERED: { label: t('history.event.artifactRegistered'), category: 'Artifact' },
+  ARTIFACT_MARKED_MISSING: { label: t('history.event.artifactMissing'), category: 'Artifact' },
+  RELATION_ADDED: { label: t('history.event.relationAdded'), category: 'Relation' },
+  RELATION_REMOVED: { label: t('history.event.relationRemoved'), category: 'Relation' },
+  GATE_EVALUATED: { label: t('history.event.gateEvaluated'), category: 'Gate/Milestone' },
+  MILESTONE_ACHIEVED: { label: t('history.event.milestoneReached'), category: 'Gate/Milestone' },
+  INTERVENTION_CREATED: { label: t('history.event.interventionCreated'), category: t('history.event.humanAttention') },
+  TOPOLOGY_FORK_REALIZED: { label: t('history.event.forkEdge'), category: t('history.event.topologyRealized') },
+  TOPOLOGY_MERGE_REALIZED: { label: t('history.event.mergeEdge'), category: t('history.event.topologyRealized') },
 }
 
 /** Display meta for one event type (fallback for unknown types). */
 export function eventTypeMeta(eventType: string): EventTypeMeta {
-  return EVENT_TYPE_META[eventType] ?? { label: eventType, category: '其他' }
+  return EVENT_TYPE_META[eventType] ?? { label: eventType, category: t('history.event.other') }
 }
 
 /**
@@ -80,13 +81,13 @@ export function actorLabel(actor: HistoryEventDto['actor']): string {
   const label = actor.label ?? null
   switch (actor.kind) {
     case 'USER':
-      return label ?? (actor.user_id !== undefined ? `用户 ${actor.user_id}` : '用户')
+      return label ?? (actor.user_id !== undefined ? t('history.actor.userWithId', { id: actor.user_id }) : t('history.actor.user'))
     case 'AGENT':
-      return label ?? (actor.run_id !== undefined ? `Agent（Run ${actor.run_id}）` : 'Agent')
+      return label ?? (actor.run_id !== undefined ? t('history.actor.agentWithRun', { runId: actor.run_id }) : 'Agent')
     case 'PLUGIN':
-      return label ?? '插件'
+      return label ?? t('history.actor.plugin')
     case 'SYSTEM':
-      return label ?? '系统'
+      return label ?? t('history.actor.system')
     default:
       return label ?? actor.kind
   }

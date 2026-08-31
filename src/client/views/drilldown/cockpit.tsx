@@ -59,6 +59,8 @@ import { createCommandAnalysisDataProvider } from '../../dsh-adapter/remote/anal
 // WP-7.4 / G7 S1b — 一键调查通道（DSH 内置 commands/execute 网关域 —
 // 零新增 RPC; 生产默认, 测试经 props.onInvestigate 注入替身）。
 import { investigateIntervention } from '../../dsh-adapter/remote/investigate.js'
+import { t } from '../../i18n/copy.js'
+import { formatTime } from '../../i18n/datetime.js'
 import { HomeDashboard } from '../home/HomeDashboard.js'
 import { HistoryTimelineView } from '../history/HistoryTimelineView.js'
 import { ProjectPage } from '../project/ProjectPage.js'
@@ -123,14 +125,12 @@ const COCKPIT_NAV: ReadonlyArray<{ readonly kind: PlainPageKind; readonly label:
   { kind: 'investigator', label: '调查员' },
 ]
 
-/** epoch ms → local display text (deterministic, no timezone surprises
- *  in tests: the views show whatever the host clock produced). */
-export function formatTime(epochMs: number): string {
-  if (epochMs <= 0) return '—'
-  const d = new Date(epochMs)
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+/** epoch ms → local display text. UI-9 ADJ-1: the implementation moved
+ *  to `src/client/i18n/datetime.ts` (locale-aware); re-exported here
+ *  for import stability (the WorkstreamPage passes it to the drilldown
+ *  view as the `formatTime` prop). Default-locale output is
+ *  byte-invariant (incl. the `<= 0 → —` guard). */
+export { formatTime }
 
 /**
  * The drill-down section of the workstream page (container): builds the
@@ -203,10 +203,10 @@ export function WorkstreamPage({
   initialRecordsRelated,
 }: WorkstreamPageProps): ReactElement {
   return (
-    <section className={styles.page} aria-label="工作流域页">
+    <section className={styles.page} aria-label={t('ws.ariaPage')}>
       <h1 className={styles.pageTitle}>
         <button type="button" className={styles.backButton} onClick={onBack}>
-          ← 返回
+          {t('common.back')}
         </button>{' '}
         {workstreamId}
       </h1>

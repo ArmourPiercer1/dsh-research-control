@@ -175,7 +175,7 @@ export function StructureTree({
           </p>
         ) : (
           <p className={styles.treeLoading} role="status" data-structure-tree-loading>
-            加载中…
+            {t('common.loading')}
           </p>
         )
       ) : (
@@ -229,11 +229,11 @@ export function StructureTree({
                     topicSlice.status === 'idle' ||
                     topicSlice.status === 'loading' ? (
                       <li className={styles.treeLoading} role="status" data-tree-topic-loading>
-                        加载中…
+                        {t('common.loading')}
                       </li>
                     ) : topicSlice.data === null ? (
                       <li className={styles.treeError} role="alert" data-tree-topic-error>
-                        加载失败
+                        {t('common.loadFailed')}
                       </li>
                     ) : (
                       topicSlice.data.workstreams.map((ws) => {

@@ -61,6 +61,7 @@ import {
   selectSavedRecordRows,
   type SaveDialogFieldValues,
 } from '../investigator/investigator-model.js'
+import { t } from '../../i18n/copy.js'
 import { SaveAnalysisRecordDialog } from '../investigator/transient-view.js'
 import styles from './investigator-page.module.css'
 
@@ -121,25 +122,25 @@ export interface InvestigatorPageProps {
  *  transcript viewer). */
 function guideCopy(role: InvestigatorPageProps['role']): string {
   return role === 'HUB'
-    ? '中枢工作区的会话是只读观察位。深度调查请用「一键调查」启动专职调查会话（入口在「重要事件」的「待处理」事件卡片上）。'
-    : '调查员页只做调查管理 + 分析记录沉淀（完整转录由宿主会话界面承载）。深度调查请用「一键调查」启动专职调查会话（入口在「重要事件」的「待处理」事件卡片上）。'
+    ? t('investigator.hubReadonlyGuide')
+    : t('investigator.pageGuide')
 }
 
 /** The status-bar run label for a transient snapshot (the §1.4 词表;
  *  null faces stay HONEST — 缺席透出, no invented status). */
 function statusLabel(data: InvestigatorTransientDto): string {
-  if (data.session === null) return '会话已不在 live 列表（可能已 dispose）'
+  if (data.session === null) return t('investigator.sessionNotLive')
   if (data.run !== null) return RUN_STATUS_LABEL[data.run.status] ?? data.run.status
-  return data.session.running ? '会话运行中' : '会话空闲'
+  return data.session.running ? t('investigator.sessionRunning') : t('investigator.sessionIdle')
 }
 
 /** The CSS dot class for a status label (status colors via STATE tokens
  *  — the T1.2 gate: the dot is decorative, the LABEL text carries the
  *  meaning on the label-primary band). */
 function statusDotClass(label: string): string {
-  if (label === '运行中' || label === '会话运行中') return styles.dotRunning
-  if (label === '已完成') return styles.dotFinished
-  if (label === '失败') return styles.dotFailed
+  if (label === t('status.running') || label === t('investigator.sessionRunning')) return styles.dotRunning
+  if (label === t('status.completed')) return styles.dotFinished
+  if (label === t('status.failedShort')) return styles.dotFailed
   return styles.dotIdle
 }
 
@@ -344,7 +345,7 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
           intervention (反链 → 重要事件) + 解绑. */}
       {props.binding !== null ? (
         <div className={styles.bindingRow} data-investigator-binding={props.binding.sessionId}>
-          <span className={styles.bindingLabel}>绑定会话:</span>
+          <span className={styles.bindingLabel}>{t('investigator.boundSession')}</span>
           <span className={styles.bindingSession} data-binding-session={props.binding.sessionId}>
             {props.binding.sessionId}
           </span>
@@ -355,8 +356,8 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
               data-binding-intervention={props.binding.interventionId}
               onClick={() => props.onOpenIntervention(props.binding?.interventionId ?? '')}
             >
-              （来自 {props.binding.interventionId}
-              {props.binding.interventionTitle !== null ? ` ${props.binding.interventionTitle}` : ''}）
+              {t('investigator.fromInterventionPrefix', { id: props.binding.interventionId })}
+              {props.binding.interventionTitle !== null ? ` ${props.binding.interventionTitle}` : ''}{t('investigator.fromInterventionSuffix')}
             </button>
           ) : null}
           <button
@@ -365,12 +366,12 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
             data-binding-unbind
             onClick={props.onUnbind}
           >
-            解绑
+            {t('investigator.unbind')}
           </button>
         </div>
       ) : (
         <p className={styles.unboundLine} data-investigator-unbound>
-          未绑定调查会话 — 在「重要事件」对一张「待处理」事件卡片使用「一键调查」启动专职调查会话（没有待处理事件时入口不出现）。
+          {t('investigator.noBinding')}
         </p>
       )}
 
@@ -381,10 +382,10 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
       {props.binding !== null ? (
         <div className={styles.statusBar} data-investigator-status>
           {transientPhase === 'loading' ? (
-            <span className={styles.statusPending}>调查会话状态加载中…</span>
+            <span className={styles.statusPending}>{t('investigator.statusLoading')}</span>
           ) : transientPhase === 'failed' ? (
             <span className={styles.faultLine} role="alert">
-              调查会话状态读取失败: {transientFault}
+              {t('investigator.statusFailed', { fault: transientFault ?? '' })}
             </span>
           ) : label !== null ? (
             <>
@@ -394,17 +395,17 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
               </span>
               {recordsPhase === 'ready' ? (
                 <span className={styles.producedChip} data-produced-count={producedCount}>
-                  已产出 {producedCount} 条分析
+                  {t('investigator.producedCount', { n: String(producedCount) })}
                 </span>
               ) : null}
-              <span className={styles.transcriptHint}>完整转录由宿主会话界面承载 — 结论沉淀用下方显式保存。</span>
+              <span className={styles.transcriptHint}>{t('investigator.transcriptNote')}</span>
               <button
                 type="button"
                 className={styles.saveButton}
                 data-investigator-save
                 onClick={openDialog}
               >
-                保存为 AnalysisRecord
+                {t('investigator.saveAsRecord')}
               </button>
             </>
           ) : null}
@@ -414,18 +415,18 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
       {/* 保存成功 chip (the V1 container chip, repositioned). */}
       {lastSaved !== null ? (
         <p className={styles.savedChip} role="status" data-saved-chip={lastSaved.id}>
-          已保存 <span className={styles.itemId}>{lastSaved.id}</span>（保存后不可变 — 修正 = 新记录）
+          {t('investigator.saved')} <span className={styles.itemId}>{lastSaved.id}</span>{t('investigator.savedImmutable')}
         </p>
       ) : null}
 
       {/* 记录列表 (design §7.3): 溯源链 per record + 对象类型过滤段. */}
-      <section className={styles.recordsSection} data-records aria-label="已保存分析记录">
+      <section className={styles.recordsSection} data-records aria-label={t('investigator.savedHeading')}>
         <header className={styles.recordsHead}>
           <h2 className={styles.recordsTitle}>
-            已保存记录（{rows.length}）
+            {t('investigator.savedList', { n: String(rows.length) })}
           </h2>
           {segments.length > 1 ? (
-            <div className={styles.filterSegments} role="group" aria-label="按对象类型过滤">
+            <div className={styles.filterSegments} role="group" aria-label={t('investigator.filterByType')}>
               {segments.map((kind) => (
                 <button
                   key={kind}
@@ -434,7 +435,7 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
                   data-record-filter={kind}
                   onClick={() => setKindFilter(kind === 'ALL' ? null : kind)}
                 >
-                  {kind === 'ALL' ? '全部' : (SOURCE_REF_KIND_LABEL[kind] ?? kind)}
+                  {kind === 'ALL' ? t('investigator.all') : (SOURCE_REF_KIND_LABEL[kind] ?? kind)}
                 </button>
               ))}
             </div>
@@ -443,16 +444,16 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
 
         {recordsPhase === 'loading' ? (
           <p className={styles.statusLine} role="status">
-            已保存记录加载中…
+            {t('investigator.recordsLoading')}
           </p>
         ) : recordsPhase === 'failed' ? (
           <p className={styles.faultLine} role="alert">
-            分析数据面不可用: {recordsFault}
+            {t('investigator.recordsUnavailable', { fault: recordsFault ?? '' })}
           </p>
         ) : rows.length === 0 ? (
-          <p className={styles.statusLine}>暂无已保存的分析记录（investigator 分析需用户显式保存才落盘）。</p>
+          <p className={styles.statusLine}>{t('investigator.noRecords')}</p>
         ) : visibleRows.length === 0 ? (
-          <p className={styles.statusLine}>该对象类型下暂无记录。</p>
+          <p className={styles.statusLine}>{t('investigator.noRecordsOfType')}</p>
         ) : (
           <ul className={styles.recordList}>
             {visibleRows.map((row) => (
@@ -490,7 +491,7 @@ export function InvestigatorPage(props: InvestigatorPageProps): ReactElement {
                       ← {row.sessionId}
                     </button>
                   ) : (
-                    <span className={styles.chainText}>← （无会话指针）</span>
+                    <span className={styles.chainText}>{t('investigator.noSessionPointer')}</span>
                   )}
                   <span className={styles.recordTime}>{row.timeText}</span>
                 </span>

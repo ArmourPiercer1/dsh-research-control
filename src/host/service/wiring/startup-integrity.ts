@@ -101,6 +101,13 @@ export interface StartupIntegrityGateInput {
   readonly logger?: HostWiringLogger
   /** Max workstreams the consistency spot check probes (default 16). */
   readonly maxConsistencySample?: number
+  /** ADJ-11 (UI-9): `true` when the host's plane RE-INIT (a mid-session
+   *  rebuild) created this wiring, not the initial boot. Echoed on the
+   *  report surface; the plane projection maps it to the
+   *  `WIRING_REINITIALIZED` machine code (a gate-internal code — ADJ-11
+   *  sanctions this one new machine code inside the gate, NOT on the
+   *  RPC surface). */
+  readonly reinitialized?: boolean
 }
 
 /**
@@ -129,6 +136,9 @@ export interface StartupIntegrityGate {
    *  (every outcome is classified — including an unexpected throw,
    *  which is classed repo-error-shaped and loud). */
   readonly git: Promise<GitCheckResult>
+  /** ADJ-11 (UI-9): echoes `input.reinitialized` (false unless the host
+   *  re-init created this wiring). Session-scoped boot-time state. */
+  readonly reinitialized: boolean
 }
 
 /**
@@ -222,7 +232,7 @@ export function runStartupIntegrityGate(input: StartupIntegrityGateInput): Start
     )
   }
 
-  return { outcome, db, tree, consistency, readSurface, guidance, treeLoad, git }
+  return { outcome, db, tree, consistency, readSurface, guidance, treeLoad, git, reinitialized: input.reinitialized ?? false }
 }
 
 /* ==================================================================== *

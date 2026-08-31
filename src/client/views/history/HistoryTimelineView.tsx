@@ -62,6 +62,7 @@ import { RunGroupCard } from './RunGroupCard.js'
 import { orderEvents, type HistoryOrder } from './ordered-events.js'
 import { runGroups } from './run-group.js'
 import { useResearchStore } from './use-research-store.js'
+import { t } from '../../i18n/copy.js'
 import styles from './styles.module.css'
 
 /** The default page size in rows (plan §29: History 按页面/时间窗口分页;
@@ -203,11 +204,11 @@ export function HistoryTimelineView(props: HistoryTimelineViewProps): ReactEleme
       body = (
         <>
           <p className={styles.error} role="alert">
-            历史时间线加载失败：{errorSlices[0].error}
+            {t('history.loadFailed', { error: errorSlices[0].error ?? '' })}
           </p>
           <footer className={styles.footer}>
             <button className={styles.loadMore} type="button" onClick={handleRetry}>
-              重试加载
+              {t('common.retryLoad')}
             </button>
           </footer>
         </>
@@ -215,22 +216,22 @@ export function HistoryTimelineView(props: HistoryTimelineViewProps): ReactEleme
     } else if (anyLoading) {
       body = (
         <p className={styles.status} role="status">
-          时间线加载中…
+          {t('history.loading')}
         </p>
       )
     } else {
-      body = <p className={styles.status}>暂无历史事件</p>
+      body = <p className={styles.status}>{t('project.historyEmpty')}</p>
     }
   } else {
     body = (
       <>
         {errorSlices.length > 0 && (
           <p className={styles.error} role="alert">
-            部分页面加载失败：{errorSlices[0].error}（显示上次成功加载的数据）
+            {t('history.partialFailed', { error: errorSlices[0].error ?? '' })}
           </p>
         )}
         {mode === 'atomic' ? (
-          <ul className={styles.timeline} aria-label="原子时间线">
+          <ul className={styles.timeline} aria-label={t('history.viewAtomic')}>
             {events.map((event, index) => {
               // UI-7 (B §26): derive the semantic record this event
               // touches (if any) + how many of the workstream's records
@@ -256,29 +257,29 @@ export function HistoryTimelineView(props: HistoryTimelineViewProps): ReactEleme
             })}
           </ul>
         ) : groups.length > 0 ? (
-          <div className={styles.runGroups} aria-label="按 Run 聚合">
+          <div className={styles.runGroups} aria-label={t('history.viewRunGrouped')}>
             {groups.map(group => (
               <RunGroupCard key={group.runId} group={group} order={order} />
             ))}
           </div>
         ) : (
-          <p className={styles.status}>当前页面没有 Run 生命周期事件（原子时间线共 {events.length} 条事件）</p>
+          <p className={styles.status}>{t('history.noRunEvents', { n: String(events.length) })}</p>
         )}
         <footer className={styles.footer}>
           {anyLoading ? (
             <button className={styles.loadMore} type="button" disabled>
-              加载更多中…
+              {t('history.loadingMore')}
             </button>
           ) : lastError ? (
             <button className={styles.loadMore} type="button" onClick={handleRetry}>
-              重试加载
+              {t('common.retryLoad')}
             </button>
           ) : canLoadMore ? (
             <button className={styles.loadMore} type="button" onClick={handleLoadMore}>
-              加载更多
+              {t('history.loadMore')}
             </button>
           ) : (
-            <p className={styles.endLine}>时间线已加载完毕（共 {events.length} 条事件）</p>
+            <p className={styles.endLine}>{t('history.complete', { n: String(events.length) })}</p>
           )}
         </footer>
       </>
@@ -288,17 +289,17 @@ export function HistoryTimelineView(props: HistoryTimelineViewProps): ReactEleme
   return (
     <div className={styles.root} data-order={order} data-mode={mode}>
       <header className={styles.header}>
-        <h2 className={styles.title}>历史时间线</h2>
-        <span className={styles.scope}>工作流 {workstreamId}</span>
+        <h2 className={styles.title}>{t('history.title')}</h2>
+        <span className={styles.scope}>{t('history.workstreamLabel', { id: String(workstreamId) })}</span>
       </header>
-      <nav className={styles.tabs} aria-label="回放顺序">
+      <nav className={styles.tabs} aria-label={t('history.replayOrder')}>
         <button
           type="button"
           className={order === 'semantic' ? styles.tabActive : styles.tab}
           aria-pressed={order === 'semantic'}
           onClick={() => switchOrder('semantic')}
         >
-          语义序（发生时间）
+          {t('history.orderSemantic')}
         </button>
         <button
           type="button"
@@ -306,17 +307,17 @@ export function HistoryTimelineView(props: HistoryTimelineViewProps): ReactEleme
           aria-pressed={order === 'audit'}
           onClick={() => switchOrder('audit')}
         >
-          审计序（登记时间）
+          {t('history.orderAudit')}
         </button>
       </nav>
-      <nav className={styles.tabs} aria-label="视图">
+      <nav className={styles.tabs} aria-label={t('history.viewLabel')}>
         <button
           type="button"
           className={mode === 'atomic' ? styles.tabActive : styles.tab}
           aria-pressed={mode === 'atomic'}
           onClick={() => setMode('atomic')}
         >
-          原子时间线
+          {t('history.viewAtomic')}
         </button>
         <button
           type="button"
@@ -324,7 +325,7 @@ export function HistoryTimelineView(props: HistoryTimelineViewProps): ReactEleme
           aria-pressed={mode === 'runs'}
           onClick={() => setMode('runs')}
         >
-          按 Run 聚合
+          {t('history.viewRunGrouped')}
         </button>
       </nav>
       {body}

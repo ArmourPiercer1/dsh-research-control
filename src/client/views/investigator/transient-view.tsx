@@ -32,6 +32,7 @@ import {
   type SaveDialogFieldValues,
   type TransientPanelRows,
 } from './investigator-model.js'
+import { t } from '../../i18n/copy.js'
 import styles from './investigator.module.css'
 
 /* -------------------------------------------------------------------- *
@@ -232,17 +233,16 @@ export function SaveAnalysisRecordDialog({
 }: SaveAnalysisRecordDialogProps): JSX.Element {
   const confirmable = !busy && canConfirmSave(fieldValues)
   return (
-    <div className={styles.dialogOverlay} role="dialog" aria-modal="true" aria-label={`保存 ${sessionId} 的分析为 AnalysisRecord`}>
+    <div className={styles.dialogOverlay} role="dialog" aria-modal="true" aria-label={t('investigator.dialogAria', { sessionId })}>
       <div className={styles.dialog}>
         <header className={styles.dialogHead}>
-          <h3 className={styles.dialogTitle}>保存为 AnalysisRecord</h3>
+          <h3 className={styles.dialogTitle}>{t('investigator.saveAsRecord')}</h3>
           <button type="button" className={styles.closeBtn} onClick={onCancel} disabled={busy}>
-            取消
+            {t('common.cancel')}
           </button>
         </header>
         <p className={styles.dialogNote}>
-          显式保存: 本次 investigator 分析将以 AnalysisRecord 落 operational DB（AN 号分配, 保存后不可变 — 修正 = 新记录）。
-          transient 面板其余数据不受影响（默认 transient, 不落盘 — INV-PERM-3）。
+          {t('investigator.saveNote')}
         </p>
         <form
           className={styles.fieldForm}
@@ -254,7 +254,7 @@ export function SaveAnalysisRecordDialog({
           <div className={styles.fieldRowPair}>
             <label className={styles.fieldRow}>
               <span className={styles.fieldLabel}>
-                来源对象 kind<span className={styles.requiredMark}> *</span>
+                {t('investigator.fieldKind')}<span className={styles.requiredMark}> *</span>
               </span>
               <select
                 className={styles.fieldInput}
@@ -271,7 +271,7 @@ export function SaveAnalysisRecordDialog({
             </label>
             <label className={styles.fieldRow}>
               <span className={styles.fieldLabel}>
-                来源对象 id<span className={styles.requiredMark}> *</span>
+                {t('investigator.fieldId')}<span className={styles.requiredMark}> *</span>
               </span>
               <input
                 className={styles.fieldInput}
@@ -285,30 +285,30 @@ export function SaveAnalysisRecordDialog({
           </div>
           <label className={styles.fieldRow}>
             <span className={styles.fieldLabel}>
-              分析内容（Markdown）<span className={styles.requiredMark}> *</span>
+              {t('investigator.fieldContent')}<span className={styles.requiredMark}> *</span>
             </span>
             <textarea
               className={`${styles.fieldInput} ${styles.contentArea}`}
               value={fieldValues.content}
-              placeholder="investigator 分析内容（从会话中摘录 / 整理）"
+              placeholder={t('investigator.contentPlaceholder')}
               disabled={busy}
               onChange={(e) => onFieldChange('content', e.target.value)}
             />
           </label>
           <div className={styles.fieldRowPair}>
             <label className={styles.fieldRow}>
-              <span className={styles.fieldLabel}>关联 Run（可选）</span>
+              <span className={styles.fieldLabel}>{t('investigator.fieldRun')}</span>
               <input
                 className={styles.fieldInput}
                 type="text"
                 value={fieldValues.investigatorRunId}
-                placeholder="R-81（留空 = 不携带）"
+                placeholder={t('investigator.runPlaceholder')}
                 disabled={busy}
                 onChange={(e) => onFieldChange('investigatorRunId', e.target.value)}
               />
             </label>
             <label className={styles.fieldRow}>
-              <span className={styles.fieldLabel}>DSH session（可选）</span>
+              <span className={styles.fieldLabel}>{t('investigator.fieldSession')}</span>
               <input
                 className={styles.fieldInput}
                 type="text"
@@ -321,15 +321,15 @@ export function SaveAnalysisRecordDialog({
           </div>
           {error !== null ? (
             <p className={styles.sliceError} role="alert">
-              保存失败：{error}
+              {t('investigator.saveFailed', { error })}
             </p>
           ) : null}
           <footer className={styles.dialogActions}>
             <button type="button" className={styles.actionBtn} onClick={onCancel} disabled={busy}>
-              取消
+              {t('common.cancel')}
             </button>
             <button type="submit" className={`${styles.actionBtn} ${styles.confirmBtn}`} disabled={!confirmable} data-save-confirm={sessionId}>
-              {busy ? '保存中…' : '确认保存'}
+              {busy ? t('common.saving') : t('investigator.dialogConfirm')}
             </button>
           </footer>
         </form>

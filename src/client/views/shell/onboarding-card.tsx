@@ -57,6 +57,7 @@ import type {
 } from '../../../shared/rpc-contracts.js'
 
 import { BindProjectDialog, CreateProjectDialog, folderNameOf } from './project-journeys.js'
+import { t } from '../../i18n/copy.js'
 import styles from './shell.module.css'
 
 type OnboardDialog =
@@ -139,12 +140,12 @@ export function OnboardingCard(
   // 研究项目」 card reuses this card at the card-wall position, design
   // §7.1 空中枢 — the flows below are the SAME T4.2 bind flow).
   const title =
-    props.title ?? (narrowed ? '本会话未关联工作区' : '接入研究管理系统')
+    props.title ?? (narrowed ? t('onboard.noWorkspaceTitle') : t('settings.connectSystem'))
   const copy =
     props.copy ??
     (narrowed
-      ? '当前会话未关联任何工作区，研究功能暂不可用。请在关联了工作区的会话中打开研究标签。'
-      : '本工作区尚未登记进研究管理系统。选择一种接入方式：将其设为全局研究管理中枢，或作为独立项目登记接入。')
+      ? t('onboard.noWorkspaceBody')
+      : t('onboard.unregisteredBody'))
 
   const hubExists = hub !== null
   const actionsEnabled = !narrowed && !busy
@@ -242,13 +243,13 @@ export function OnboardingCard(
 
   const confirmLabel =
     dialog === 'setHub'
-      ? '设为中枢'
+      ? t('onboard.setHub')
       : dialog === 'noHubWarning'
-        ? '继续接入'
-        : '接入'
+        ? t('onboard.continueConnect')
+        : t('onboard.connect')
 
   const dialogTitle =
-    dialog === 'setHub' ? '设为研究管理中枢' : dialog === 'noHubWarning' ? '尚无管理中枢' : '接入研究管理系统'
+    dialog === 'setHub' ? t('settings.setHubTitle') : dialog === 'noHubWarning' ? t('onboard.noHubYet') : t('settings.connectSystem')
 
   return (
     <div
@@ -256,7 +257,7 @@ export function OnboardingCard(
       data-onboarding-card
       data-onboarding-variant={narrowed ? 'no-cwd' : 'unregistered'}
       role="region"
-      aria-label="研究管理系统引导"
+      aria-label={t('onboard.guideTitle')}
     >
       <h2 className={styles.onboardTitle}>{title}</h2>
       <p className={styles.onboardCopy}>{copy}</p>
@@ -268,17 +269,17 @@ export function OnboardingCard(
       <div className={styles.onboardActions}>
         <div className={styles.onboardActionGroup}>
           <button type="button" className={styles.onboardButton} disabled={!setHubEnabled} onClick={onSetHubClick}>
-            将此工作区设为研究管理中枢
+            {t('onboard.setHubBody')}
           </button>
           {/* The §5 状态表 reason copy (有中枢 → 置灰 + 原因文案：已存在中枢). */}
           {!narrowed && hubExists && (
             <p className={styles.onboardReason} data-onboard-sethub-reason>
-              已存在中枢
+              {t('onboard.hubExists')}
             </p>
           )}
         </div>
         <button type="button" className={styles.onboardButton} disabled={!actionsEnabled} onClick={onBindClick}>
-          将此工作区接入研究管理系统
+          {t('onboard.connectBody')}
         </button>
         {/* V2-UI-0.4 UI-2 — the ADDITIVE journeys (the T4.2 buttons above
             stay byte-identical). Offered only when the faces are wired
@@ -294,7 +295,7 @@ export function OnboardingCard(
             onClick={openCreate}
             data-onboard-create
           >
-            新建研究项目
+            {t('onboard.createProject')}
           </button>
         )}
         {inspectProjectDirectory !== undefined && (
@@ -305,7 +306,7 @@ export function OnboardingCard(
             onClick={openBind}
             data-onboard-bind
           >
-            绑定已有目录
+            {t('onboard.bindExisting')}
           </button>
         )}
       </div>
@@ -315,21 +316,20 @@ export function OnboardingCard(
             <h3 className={styles.dialogTitle}>{dialogTitle}</h3>
             {dialog === 'setHub' && (
               <p className={styles.dialogCopy}>
-                将在本工作区创建 <code>{dirNames.hubDir}/</code> 标记目录与空的{' '}
-                <code>registry.yaml</code>，此后本工作区即全局研究管理中枢。
+                {t('onboard.setHubCreatesA')}<code>{dirNames.hubDir}/</code>{t('onboard.setHubCreatesB')}{' '}
+                <code>registry.yaml</code>{t('onboard.setHubCreatesC')}
               </p>
             )}
             {dialog === 'noHubWarning' && (
               <p className={styles.dialogCopy}>
-                当前研究平面尚无管理中枢。继续将以单工作区模式接入：项目数据落在本工作区自身的{' '}
-                <code>{dirNames.treeDir}/state/</code> 下（日后设立中枢时可迁入中枢）。
+                {t('onboard.noHubConnectPreview', { db: `${dirNames.treeDir}/state/` })}
               </p>
             )}
             {dialog === 'displayName' && (
               <>
-                <p className={styles.dialogCopy}>将以该显示名登记本工作区为研究项目。</p>
+                <p className={styles.dialogCopy}>{t('settings.registerAs')}</p>
                 <label className={styles.dialogField} htmlFor="onboard-display-name">
-                  项目显示名
+                  {t('settings.displayName')}
                 </label>
                 <input
                   id="onboard-display-name"
@@ -342,7 +342,7 @@ export function OnboardingCard(
             )}
             <div className={styles.dialogActions}>
               <button type="button" className={styles.dialogCancel} onClick={cancelDialog} disabled={busy}>
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -356,7 +356,7 @@ export function OnboardingCard(
                       : confirmBind())
                 }}
               >
-                {busy ? '处理中…' : confirmLabel}
+                {busy ? t('common.processing') : confirmLabel}
               </button>
             </div>
           </div>

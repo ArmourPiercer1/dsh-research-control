@@ -82,10 +82,10 @@ const EDGE_DEPENDENCY = '#4a7fb5'
 
 /** The user-visible kind tags (Chinese product copy). */
 const KIND_TAG: Record<PlanNodeData['kind'], string> = {
-  GATE: '关卡',
-  TASK: '任务',
-  MILESTONE: '里程碑',
-  PROPOSED: '候选',
+  GATE: t('ws.plan.kindGate'),
+  TASK: t('ws.plan.kindTask'),
+  MILESTONE: t('ws.plan.kindMilestone'),
+  PROPOSED: t('ws.plan.kindCandidate'),
 }
 
 /** The three change-form icons (INSERT/MOVE/DELETE — §27.6 label split). */
@@ -96,9 +96,9 @@ const FORM_ICON: Record<PlanChangeForm, string> = {
 }
 
 const FORM_LABEL: Record<PlanChangeForm, string> = {
-  INSERT: '新增项',
-  MOVE: '重排/替换',
-  DELETE: '删除项',
+  INSERT: t('ws.plan.modeAdd'),
+  MOVE: t('ws.plan.modeReroll'),
+  DELETE: t('ws.plan.modeRemove'),
 }
 
 const KIND_CLASS: Record<PlanNodeData['kind'], string> = {
@@ -516,9 +516,9 @@ export function PlanGraphView({
       data-pf-downgraded={graph.pfDowngraded ? 'true' : undefined}
     >
       <div className={styles.header}>
-        <span className={styles.headerTitle}>未来计划</span>
+        <span className={styles.headerTitle}>{t('ws.plan.title')}</span>
         <span className={styles.headerMeta}>
-          正典 {graph.canonicalCount} 项 · 未决提案 {unresolvedCount} 条
+          {t('ws.plan.summary', { canonical: String(graph.canonicalCount), unresolved: String(unresolvedCount) })}
         </span>
       </div>
 
@@ -555,7 +555,7 @@ export function PlanGraphView({
                 </span>
                 <span className={styles.pfId}>{fork.id}</span>
                 <span className={stale ? `${styles.pfStatus} ${styles.pfStatusStale}` : styles.pfStatus}>
-                  {stale ? '已过期' : '待处理'}
+                  {stale ? t('status.expired') : t('status.pending')}
                 </span>
                 <span className={styles.pfReason} title={`${fork.reason}\n${fork.necessity}`}>
                   {fork.reason}
@@ -567,13 +567,13 @@ export function PlanGraphView({
                     className={styles.selectBtn}
                     data-pf={fork.id}
                     disabled={stale}
-                    title={stale ? '基准已失效：过期的提案不可选择（需 Agent 重新提议），仅可忽略' : undefined}
+                    title={stale ? t('ws.plan.expiredNote') : undefined}
                     onClick={() => onSelectFork(fork.id)}
                   >
-                    选择
+                    {t('ws.plan.select')}
                   </button>
                   <button type="button" className={styles.dismissBtn} data-pf={fork.id} onClick={() => onDismissFork(fork.id)}>
-                    忽略
+                    {t('pf.ignore')}
                   </button>
                 </span>
               </li>

@@ -32,6 +32,7 @@ import type {
   InspectProjectDirectoryResult,
 } from '../../../shared/rpc-contracts.js'
 
+import { t } from '../../i18n/copy.js'
 import { extractResearchErrorCarrier } from '../../util/error-carrier.js'
 import styles from './shell.module.css'
 
@@ -157,7 +158,7 @@ export function CreateProjectDialog(props: {
       className={styles.dialogOverlay}
       role="dialog"
       aria-modal="true"
-      aria-label="新建研究项目"
+      aria-label={t('journey.createTitle')}
       data-onboarding-create
       data-create-step={createStep}
     >
@@ -176,15 +177,14 @@ export function CreateProjectDialog(props: {
 
         {createStep === 1 && (
           <p className={styles.dialogCopy} data-create-location>
-            项目将创建在当前会话工作区 <code>{wsPath}</code> 下（研究目录 <code>{dirNames.treeDir}/</code>，
-            并注册进研究管理系统）。
+            {t('journey.createLocation', { dir: wsPath, tree: `${dirNames.treeDir}/` })}
           </p>
         )}
 
         {createStep === 2 && (
           <>
             <label className={styles.dialogField} htmlFor="create-title">
-              项目标题（必填，1–200 字）
+              {t('journey.titleLabel')}
             </label>
             <input
               id="create-title"
@@ -195,7 +195,7 @@ export function CreateProjectDialog(props: {
               data-create-title
             />
             <label className={styles.dialogField} htmlFor="create-description">
-              项目简介（可选）
+              {t('journey.descriptionLabel')}
             </label>
             <textarea
               id="create-description"
@@ -206,7 +206,7 @@ export function CreateProjectDialog(props: {
               data-create-description
             />
             <label className={styles.dialogField} htmlFor="create-importance">
-              重要度（可选，1–5，留空默认 3）
+              {t('journey.importanceLabel')}
             </label>
             <select
               id="create-importance"
@@ -215,7 +215,7 @@ export function CreateProjectDialog(props: {
               onChange={(e) => setCreateImportance(e.target.value)}
               data-create-importance
             >
-              <option value="">未设置</option>
+              <option value="">{t('journey.unset')}</option>
               <option value="1">1</option>
               <option value="2">2</option>
               <option value="3">3</option>
@@ -223,7 +223,7 @@ export function CreateProjectDialog(props: {
               <option value="5">5</option>
             </select>
             <label className={styles.dialogField} htmlFor="create-attention">
-              注意力模式（可选，留空默认 常规）
+              {t('journey.attentionLabel')}
             </label>
             <select
               id="create-attention"
@@ -232,13 +232,13 @@ export function CreateProjectDialog(props: {
               onChange={(e) => setCreateAttention(e.target.value as '' | 'FOCUS' | 'NORMAL' | 'BACKGROUND')}
               data-create-attention
             >
-              <option value="">未设置</option>
-              <option value="FOCUS">聚焦</option>
-              <option value="NORMAL">常规</option>
-              <option value="BACKGROUND">后台</option>
+              <option value="">{t('journey.unset')}</option>
+              <option value="FOCUS">{t('status.focusing')}</option>
+              <option value="NORMAL">{t('attention.mode.normal')}</option>
+              <option value="BACKGROUND">{t('status.background')}</option>
             </select>
             <label className={styles.dialogField} htmlFor="create-target-date">
-              目标日期（可选，YYYY-MM-DD）
+              {t('journey.targetDateLabel')}
             </label>
             <input
               id="create-target-date"
@@ -254,24 +254,24 @@ export function CreateProjectDialog(props: {
         {createStep === 3 && (
           <>
             <ul className={styles.dialogCopy} data-create-summary>
-              <li>位置：<code>{wsPath}</code></li>
-              <li>标题：{createTitle.trim()}</li>
-              {createDescription.trim() !== '' && <li>简介：{createDescription.trim()}</li>}
-              {createImportance !== '' && <li>重要度：{createImportance}</li>}
+              <li>{t('journey.previewLocation')}<code>{wsPath}</code></li>
+              <li>{t('journey.previewTitle', { value: createTitle.trim() })}</li>
+              {createDescription.trim() !== '' && <li>{t('journey.previewDescription', { value: createDescription.trim() })}</li>}
+              {createImportance !== '' && <li>{t('journey.previewImportance', { value: createImportance })}</li>}
               {createAttention !== '' && (
-                <li>注意力：{createAttention === 'FOCUS' ? '聚焦' : createAttention === 'BACKGROUND' ? '后台' : '常规'}</li>
+                <li>{t('journey.previewAttention')}{createAttention === 'FOCUS' ? t('status.focusing') : createAttention === 'BACKGROUND' ? t('status.background') : t('attention.mode.normal')}</li>
               )}
-              {createTargetDate !== '' && <li>目标日期：{createTargetDate}</li>}
+              {createTargetDate !== '' && <li>{t('journey.previewTargetDate', { value: createTargetDate })}</li>}
             </ul>
             {/* B §5.5: the "将执行" side-effect enumeration (verbatim wireframe copy) */}
             <p className={styles.dialogCopy} data-create-effects-title>
-              将执行
+              {t('journey.willExecute')}
             </p>
             <ul className={styles.dialogCopy} data-create-effects>
-              <li>创建目录</li>
+              <li>{t('journey.stepCreateDir')}</li>
               <li>git init</li>
-              <li>初始化 Research Control</li>
-              <li>注册 Project</li>
+              <li>{t('journey.stepInit')}</li>
+              <li>{t('journey.stepRegister')}</li>
             </ul>
           </>
         )}
@@ -314,7 +314,7 @@ export function CreateProjectDialog(props: {
             )}
             {createFolderShown && (
               <p className={styles.dialogCopy} data-create-folder>
-                目录路径：<code>{wsPath}</code>
+                {t('journey.dirPathLabel')}<code>{wsPath}</code>
               </p>
             )}
           </>
@@ -322,20 +322,20 @@ export function CreateProjectDialog(props: {
 
         {createStep === 5 && (
           <p className={styles.dialogCopy} data-create-done>
-            项目已创建并注册：{createProjectId ?? 'PRJ-?'}。
+            {t('journey.createdMsg', { id: createProjectId ?? 'PRJ-?' })}
           </p>
         )}
 
         <div className={styles.dialogActions}>
           {createStep === 1 && (
             <button type="button" className={styles.dialogConfirm} onClick={() => setCreateStep(2)}>
-              下一步
+              {t('journey.next')}
             </button>
           )}
           {createStep === 2 && (
             <>
               <button type="button" className={styles.dialogCancel} onClick={() => setCreateStep(1)}>
-                上一步
+                {t('journey.back')}
               </button>
               <button
                 type="button"
@@ -343,14 +343,14 @@ export function CreateProjectDialog(props: {
                 disabled={!createTitleValid}
                 onClick={() => setCreateStep(3)}
               >
-                下一步
+                {t('journey.next')}
               </button>
             </>
           )}
           {createStep === 3 && (
             <>
               <button type="button" className={styles.dialogCancel} onClick={() => setCreateStep(2)}>
-                上一步
+                {t('journey.back')}
               </button>
               <button
                 type="button"
@@ -364,7 +364,7 @@ export function CreateProjectDialog(props: {
                   void runCreate()
                 }}
               >
-                下一步
+                {t('journey.next')}
               </button>
             </>
           )}
@@ -373,7 +373,7 @@ export function CreateProjectDialog(props: {
               {createError !== null || createFailure !== null ? (
                 <>
                   <button type="button" className={styles.dialogCancel} onClick={() => setCreateStep(3)}>
-                    取消
+                    {t('common.cancel')}
                   </button>
                   <button
                     type="button"
@@ -381,7 +381,7 @@ export function CreateProjectDialog(props: {
                     onClick={() => setCreateFolderShown(true)}
                     data-create-open-folder
                   >
-                    打开目录
+                    {t('journey.openDir')}
                   </button>
                   <button type="button" className={styles.dialogConfirm} disabled={createBusy} onClick={() => void runCreate()}>
                     Retry
@@ -389,14 +389,14 @@ export function CreateProjectDialog(props: {
                 </>
               ) : (
                 <p className={styles.dialogCopy} role="status">
-                  初始化中…
+                  {t('journey.initializing')}
                 </p>
               )}
             </>
           )}
           {createStep === 5 && (
             <button type="button" className={styles.dialogConfirm} onClick={enterCreatedProject} data-create-enter>
-              进入项目
+              {t('journey.enterProject')}
             </button>
           )}
         </div>
@@ -513,17 +513,17 @@ export function BindProjectDialog(props: {
       className={styles.dialogOverlay}
       role="dialog"
       aria-modal="true"
-      aria-label="绑定已有目录"
+      aria-label={t('journey.bindTitle')}
       data-onboarding-bind
       data-bind-phase={bindPhase}
     >
       <div className={styles.dialogPanel}>
-        <h3 className={styles.dialogTitle}>绑定已有目录</h3>
+        <h3 className={styles.dialogTitle}>{t('journey.bindTitle')}</h3>
 
         {bindPhase === 'select' && (
           <>
             <p className={styles.dialogCopy} data-bind-select>
-              选择目录：当前会话工作区 <code>{wsPath}</code>（点击「检查目录」读取其状态）。
+              {t('journey.selectDir', { dir: wsPath })}
             </p>
             {/* A failed inspect stays on the select phase — the NOTE-4
                 carrier detail (or the raw message) shows HERE. */}
@@ -555,13 +555,13 @@ export function BindProjectDialog(props: {
           <>
             <p className={styles.dialogCopy} data-bind-confirm-copy>
               {inspectResult !== null && inspectResult.state === 'RC_PROJECT'
-                ? '将把该目录登记为研究项目（不改动已有研究目录）。'
+                ? t('journey.bindRegisterPreview')
                 : inspectResult !== null && inspectResult.state === 'GIT_ONLY'
-                  ? '将在该目录初始化研究管理结构，然后登记为研究项目（保留已有 Git 仓库）。'
-                  : '将初始化 Git 仓库与研究管理结构，然后登记为研究项目。'}
+                  ? t('journey.bindTreePreview')
+                  : t('journey.bindGitPreview')}
             </p>
             <label className={styles.dialogField} htmlFor="bind-display-name">
-              项目显示名
+              {t('settings.displayName')}
             </label>
             <input
               id="bind-display-name"
@@ -583,7 +583,7 @@ export function BindProjectDialog(props: {
           {bindPhase === 'select' && (
             <>
               <button type="button" className={styles.dialogCancel} onClick={onClosed}>
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -592,14 +592,14 @@ export function BindProjectDialog(props: {
                 onClick={() => void runInspect()}
                 data-bind-inspect
               >
-                {inspectBusy ? '检查中…' : '检查目录'}
+                {inspectBusy ? t('journey.inspecting') : t('journey.inspectDir')}
               </button>
             </>
           )}
           {bindPhase === 'detected' && (
             <>
               <button type="button" className={styles.dialogCancel} onClick={onClosed}>
-                取消
+                {t('common.cancel')}
               </button>
               {inspectError === null && inspectResult !== null && inspectResult.state !== 'INCOMPATIBLE' && (
                 <button
@@ -613,7 +613,7 @@ export function BindProjectDialog(props: {
               )}
               {inspectResult !== null && inspectResult.state === 'INCOMPATIBLE' && (
                 <p className={styles.dialogCopy} data-bind-incompatible-note>
-                  该目录与本研究平面不兼容。请人工检查后重试（本流程不做自动修复）。
+                  {t('journey.incompatible')}
                 </p>
               )}
             </>
@@ -621,7 +621,7 @@ export function BindProjectDialog(props: {
           {bindPhase === 'confirm' && (
             <>
               <button type="button" className={styles.dialogCancel} disabled={bindBusy} onClick={() => setBindPhase('detected')}>
-                上一步
+                {t('journey.back')}
               </button>
               <button
                 type="button"
@@ -630,7 +630,7 @@ export function BindProjectDialog(props: {
                 onClick={() => void runBind()}
                 data-bind-execute
               >
-                {bindBusy ? '处理中…' : bindActionLabel}
+                {bindBusy ? t('common.processing') : bindActionLabel}
               </button>
             </>
           )}

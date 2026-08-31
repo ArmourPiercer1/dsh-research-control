@@ -47,6 +47,7 @@ import type {
   TopicSnapshot,
 } from '../../../shared/rpc-contracts.js'
 import { t } from '../../i18n/copy.js'
+import { useProjectReadonly } from '../../components/readonly-context.js'
 import { KIND_LABEL, attentionGroupOf } from '../shell/intervention-stream.js'
 
 import styles from './project.module.css'
@@ -142,16 +143,16 @@ export interface ProjectPageViewProps {
 
 /** Attention mode → Chinese product copy (DSH_ADAPTER §6: 产品文案中文). */
 const ATTENTION_MODE_LABEL: Record<ProjectSnapshot['project']['attentionMode'], string> = {
-  FOCUS: '聚焦',
-  NORMAL: '常规',
-  BACKGROUND: '后台',
+  FOCUS: t('status.focusing'),
+  NORMAL: t('attention.mode.normal'),
+  BACKGROUND: t('status.background'),
 }
 
 /** Objective status → Chinese product copy. */
 const OBJECTIVE_STATUS_LABEL: Record<ProjectSnapshot['objectives'][number]['status'], string> = {
-  ACTIVE: '进行中',
-  ACHIEVED: '已达成',
-  DROPPED: '已放弃',
+  ACTIVE: t('status.inProgress'),
+  ACHIEVED: t('status.achieved'),
+  DROPPED: t('status.abandoned'),
 }
 
 /** Workstream lifecycle → Chinese product copy (the same mapping as the
@@ -160,9 +161,9 @@ const LIFECYCLE_LABEL: Record<
   TopicSnapshot['workstreams'][number]['lifecycle'],
   string
 > = {
-  PLANNED: '规划中',
-  REALIZED: '已实现',
-  DROPPED: '已放弃',
+  PLANNED: t('status.planned'),
+  REALIZED: t('status.implemented'),
+  DROPPED: t('status.abandoned'),
 }
 
 /** Format an epoch-ms date as `YYYY-MM-DD` (local time, TZ-stable shape). */
@@ -222,6 +223,10 @@ function TopicSection({
 }): ReactElement {
   const bodyId = useId()
   const failed = face !== undefined && face.data === null && face.status === 'error'
+  // UI-9 D4 (ADJ-11): the read-only surface — mutation controls disable
+  // themselves with the composed reason as tooltip (browse stays).
+  const { readonly: readOnly, reasonText } = useProjectReadonly()
+  const roTitle = reasonText ?? undefined
 
   return (
     <li className={styles.topicSection} data-topic-id={card.id} data-topic-open={open ? 'true' : 'false'}>
@@ -237,15 +242,24 @@ function TopicSection({
           <span aria-hidden="true">{open ? '▾' : '▸'}</span>
           <span className={styles.topicTitle}>{card.title}</span>
         </button>
-        <span className={styles.topicCount}>{card.workstreamCount} 个工作流</span>
+        <span className={styles.topicCount}>{t('project.workstreamsCount', { n: String(card.workstreamCount) })}</span>
         <span className={styles.topicSectionActions}>
-          <button type="button" className={styles.backButton} onClick={onEdit} data-topic-edit>
+          <button
+            type="button"
+            className={styles.backButton}
+            onClick={onEdit}
+            disabled={readOnly}
+            title={readOnly ? roTitle : undefined}
+            data-topic-edit
+          >
             {t('project.topicEdit')}
           </button>
           <button
             type="button"
             className={styles.backButton}
             onClick={onAddWorkstream}
+            disabled={readOnly}
+            title={readOnly ? roTitle : undefined}
             data-topic-add-workstream
           >
             {t('project.topicAddWorkstream')}
@@ -258,15 +272,15 @@ function TopicSection({
             failed ? (
               <div className={styles.failed}>
                 <p className={styles.errorText} role="alert">
-                  加载失败：{face?.error ?? '未知错误'}
+                  {t('common.loadFailedDetail', { detail: face?.error ?? t('common.unknownError') })}
                 </p>
                 <button type="button" className={styles.backButton} onClick={onRetry} data-topic-retry>
-                  重试
+                  {t('common.retry')}
                 </button>
               </div>
             ) : (
               <p className={styles.loading} role="status">
-                加载中…
+                {t('common.loading')}
               </p>
             )
           ) : (
@@ -364,6 +378,9 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
   // fetches they trigger ride the container callbacks.
   const [openTopics, setOpenTopics] = useState<ReadonlySet<string>>(new Set())
   const [historyOpen, setHistoryOpen] = useState(false)
+  // UI-9 D4 (ADJ-11): the read-only surface (same rule as TopicSection).
+  const { readonly: readOnly, reasonText } = useProjectReadonly()
+  const roTitle = reasonText ?? undefined
 
   function toggleTopic(topicId: string): void {
     const opening = !openTopics.has(topicId)
@@ -388,28 +405,28 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
   const back =
     onBack === undefined ? null : (
       <button type="button" className={styles.backButton} onClick={onBack}>
-        ← 返回总览
+        {t('common.backToHub')}
       </button>
     )
 
   if (data === null) {
     return (
-      <section className={styles.page} aria-label="项目页">
+      <section className={styles.page} aria-label={t('project.pageAria')}>
         <h1 className={styles.pageTitle}>
-          {back} 项目（{status === 'error' ? '加载失败' : '加载中…'}）
+          {back} {t('project.headerStatus', { status: status === 'error' ? t('common.loadFailed') : t('common.loading') })}
         </h1>
         {status === 'error' ? (
           <div className={styles.failed}>
             <p className={styles.errorText} role="alert">
-              加载失败：{error ?? '未知错误'}
+              {t('common.loadFailedDetail', { detail: error ?? t('common.unknownError') })}
             </p>
             <button type="button" className={styles.backButton} onClick={onRetry}>
-              重试
+              {t('common.retry')}
             </button>
           </div>
         ) : (
           <p className={styles.loading} role="status">
-            加载中…
+            {t('common.loading')}
           </p>
         )}
       </section>
@@ -420,43 +437,43 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
   const currentRefs = new Set(p.currentObjectiveRefs)
 
   return (
-    <section className={styles.page} aria-label="项目页">
+    <section className={styles.page} aria-label={t('project.pageAria')}>
       <h1 className={styles.pageTitle}>
         {back} {p.id} · {p.title}
       </h1>
 
       {status === 'error' && (
         <p className={styles.errorBanner} role="alert">
-          刷新失败：{error ?? '未知错误'}
+          {t('common.refreshFailed', { detail: error ?? t('common.unknownError') })}
         </p>
       )}
 
       {/* §27.2 Project Brief */}
       {p.description !== null && (
         <>
-          <h2 className={styles.sectionTitle}>项目简介</h2>
+          <h2 className={styles.sectionTitle}>{t('project.intro')}</h2>
           <p className={styles.brief}>{p.description}</p>
         </>
       )}
 
       {/* §27.2 importance / attention mode / meta */}
-      <h2 className={styles.sectionTitle}>项目元数据</h2>
+      <h2 className={styles.sectionTitle}>{t('project.metadata')}</h2>
       <ul className={styles.metaList}>
-        <li className={styles.metaItem}>编号：{p.id}</li>
-        <li className={styles.metaItem}>重要度：{p.importance}</li>
-        <li className={styles.metaItem}>注意力：{ATTENTION_MODE_LABEL[p.attentionMode]}</li>
+        <li className={styles.metaItem}>{t('project.idLine', { id: p.id })}</li>
+        <li className={styles.metaItem}>{t('project.importanceLine', { value: String(p.importance) })}</li>
+        <li className={styles.metaItem}>{t('project.attentionLine', { value: ATTENTION_MODE_LABEL[p.attentionMode] })}</li>
         {p.targetDate !== null && (
-          <li className={styles.metaItem}>目标日期：{formatEpochDate(p.targetDate)}</li>
+          <li className={styles.metaItem}>{t('topic.targetDate', { date: formatEpochDate(p.targetDate) })}</li>
         )}
-        <li className={styles.metaItem}>创建：{formatEpochDate(p.createdAt)}</li>
+        <li className={styles.metaItem}>{t('project.createdAtLine', { date: formatEpochDate(p.createdAt) })}</li>
       </ul>
 
       {/* §27.2 Objective — the objectives list (current ones highlighted) */}
       <h2 className={styles.sectionTitle}>
-        目标（{data.objectives.length}）
+        {t('project.objectivesTitle', { n: String(data.objectives.length) })}
       </h2>
       {data.objectives.length === 0 ? (
-        <p className={styles.empty}>暂无目标</p>
+        <p className={styles.empty}>{t('project.noObjectives')}</p>
       ) : (
         <ul className={styles.objList}>
           {data.objectives.map((o) => {
@@ -479,9 +496,9 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
                     {OBJECTIVE_STATUS_LABEL[o.status]}
                   </span>
                   <span>{o.priority}</span>
-                  {current && <span className={styles.currentTag}>当前目标</span>}
+                  {current && <span className={styles.currentTag}>{t('project.currentObjective')}</span>}
                   {o.targetDate !== null && (
-                    <span>目标日期：{formatEpochDate(o.targetDate)}</span>
+                    <span>{t('topic.targetDate', { date: formatEpochDate(o.targetDate) })}</span>
                   )}
                 </p>
               </li>
@@ -494,13 +511,20 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
           Topic sections (replaces the one-card-per-topic list). */}
       <section className={styles.topicSections} data-topic-sections>
         <h2 className={styles.sectionTitle}>
-          {t('project.topicsHeading')}（{data.topics.length}）
-          <button type="button" className={styles.backButton} onClick={onCreateTopic} data-topic-create-topic>
+          {t('project.topicsHeadingCount', { heading: t('project.topicsHeading'), n: String(data.topics.length) })}
+          <button
+            type="button"
+            className={styles.backButton}
+            onClick={onCreateTopic}
+            disabled={readOnly}
+            title={readOnly ? roTitle : undefined}
+            data-topic-create-topic
+          >
             {t('tree.addTopic')}
           </button>
         </h2>
         {data.topics.length === 0 ? (
-          <p className={styles.empty}>暂无主题</p>
+          <p className={styles.empty}>{t('project.noTopics')}</p>
         ) : (
           <ul className={styles.topicSectionList}>
             {data.topics.map((card) => (
@@ -592,7 +616,7 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
         {historyOpen &&
           (recentHistory.loading || recentHistory.entries === null ? (
             <p className={styles.phaseText} role="status">
-              加载中…
+              {t('common.loading')}
             </p>
           ) : recentHistory.entries.length === 0 ? (
             <p className={styles.phaseText} data-history-empty>
@@ -605,7 +629,7 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
                   <li key={`${entry.event.eventId}-${index}`} className={styles.historyEntry} data-history-entry>
                     <span className={styles.historyDate}>{formatEpochDate(entry.event.occurredAt)}</span>
                     <span className={styles.historyWs}>
-                      {entry.workstreamTitle}（{entry.workstreamId}）
+                      {t('project.wsEntry', { title: entry.workstreamTitle, id: entry.workstreamId })}
                     </span>
                     <span className={styles.historyType} data-history-event-type={entry.event.eventType}>
                       {entry.event.eventType}
@@ -628,12 +652,12 @@ export function ProjectPageView(props: ProjectPageViewProps): ReactElement {
       {/* §27.2 upcoming interactions / reporting — PHASE 5 placeholders
           (shown, never hidden — the frozen-null fields) */}
       <section className={styles.phase}>
-        <h3 className={styles.sectionTitle}>即将到来的交互</h3>
-        <p className={styles.phaseText}>待 Phase 5</p>
+        <h3 className={styles.sectionTitle}>{t('project.upcomingInteractions')}</h3>
+        <p className={styles.phaseText}>{t('project.phase5')}</p>
       </section>
       <section className={styles.phase}>
-        <h3 className={styles.sectionTitle}>即将到来的报告</h3>
-        <p className={styles.phaseText}>待 Phase 5</p>
+        <h3 className={styles.sectionTitle}>{t('project.upcomingReports')}</h3>
+        <p className={styles.phaseText}>{t('project.phase5')}</p>
       </section>
     </section>
   )

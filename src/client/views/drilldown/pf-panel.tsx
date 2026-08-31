@@ -26,11 +26,12 @@ import { useState, type ReactElement } from 'react'
 import type { PlanForkDto, SelectPlanForkResult } from '../../../shared/rpc-contracts.js'
 import type { ResearchStore, SliceState, WorkstreamSnapshot } from '../../stores/index.js'
 import { useWsSlice } from './binding-hooks.js'
+import { t } from '../../i18n/copy.js'
 import styles from './cockpit.module.css'
 
 const PF_STATUS_LABEL: Record<PlanForkDto['status'], string> = {
-  OPEN: '待处理',
-  STALE: '已陈旧',
+  OPEN: t('status.pending'),
+  STALE: t('status.stale'),
 }
 
 /** One PF row with its user actions. */
@@ -53,37 +54,47 @@ function PfRow({
           {PF_STATUS_LABEL[pf.status]}
         </span>
         <span className={styles.pfMeta}>
-          提案 {pf.proposedItemCount} 项 · {pf.forkAnchor} → {pf.mergeAnchor} · 来自 {pf.createdByRun}
+          {t('pf.summary', { count: String(pf.proposedItemCount), fork: pf.forkAnchor, merge: pf.mergeAnchor, origin: pf.createdByRun })}
         </span>
       </span>
       <p className={styles.pfReason}>{pf.reason}</p>
       {pf.staleReason !== null && (
         <p className={styles.staleReason} data-pf-stale-reason={pf.id}>
-          陈旧原因：{pf.staleReason}
+          {t('pf.staleReason', { reason: pf.staleReason })}
         </p>
       )}
+      {/*
+       * ADJ-3 (UI-9 D2, PlanFork 主入口): 隐操作、留展示 — the select/dismiss
+       * operation controls are HIDDEN (`hidden` attribute: invisible,
+       * unfocusable, unclickable in real browsers) while the code and DOM
+       * nodes remain (hide-not-delete). The read-only pending/stale
+       * visibility above is kept, and the PlanGraph overlay stays a
+       * read-only visualization. Re-arming = removing the two attributes.
+       */}
       <p className={styles.pfControls}>
         {pf.status === 'OPEN' && (
           <button
             type="button"
+            hidden
             className={styles.pfButtonSelect}
             data-pf-action="select"
             data-pf-id={pf.id}
             disabled={busy}
             onClick={onSelect}
           >
-            选择（物化到正典）
+            {t('pf.select')}
           </button>
         )}
         <button
           type="button"
+          hidden
           className={styles.pfButtonDismiss}
           data-pf-action="dismiss"
           data-pf-id={pf.id}
           disabled={busy}
           onClick={onDismiss}
         >
-          忽略
+          {t('pf.ignore')}
         </button>
       </p>
     </li>
@@ -142,8 +153,8 @@ export function PfPanel({ store, workstreamId }: PfPanelProps): ReactElement {
   const forks = slice.data?.future.planForks ?? []
 
   return (
-    <section className={styles.pfPanel} aria-label="PlanFork 管理">
-      <h2 className={styles.sectionTitle}>PlanFork（未决 {slice.data?.future.unresolvedPlanForkCount ?? 0}）</h2>
+    <section className={styles.pfPanel} aria-label={t('pf.manageTitle')}>
+      <h2 className={styles.sectionTitle}>{t('pf.manageCount', { n: String(slice.data?.future.unresolvedPlanForkCount ?? 0) })}</h2>
       {checkpointHint !== null && (
         <p className={styles.checkpointHint} role="status" data-role="checkpoint-hint">
           {checkpointHint}
@@ -155,7 +166,7 @@ export function PfPanel({ store, workstreamId }: PfPanelProps): ReactElement {
         </p>
       )}
       {forks.length === 0 ? (
-        <p className={styles.empty}>{slice.data === null ? '加载中…' : '无未决 PlanFork'}</p>
+        <p className={styles.empty}>{slice.data === null ? t('common.loading') : t('pf.noOpen')}</p>
       ) : (
         <ul className={styles.pfList}>
           {forks.map((pf) => (

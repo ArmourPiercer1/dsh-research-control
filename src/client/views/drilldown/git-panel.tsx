@@ -26,7 +26,10 @@ import { useMemo, useState, type ReactElement } from 'react'
 
 import type { GetGitHistoryResult, TopicSnapshot } from '../../../shared/rpc-contracts.js'
 import type { ResearchStore, SliceState, WorkstreamSnapshot } from '../../stores/index.js'
+import { ErrorStateBlock } from '../../components/error-state-block.js'
+import { useProjectReadonly } from '../../components/readonly-context.js'
 import { useGitHistorySlice, useTopicSlice, useWsSlice } from './binding-hooks.js'
+import { t } from '../../i18n/copy.js'
 import styles from './cockpit.module.css'
 
 /**
@@ -59,7 +62,15 @@ function ContractFilePanel({ store, path }: { store: ResearchStore; path: string
   const verdict: SliceState<GetGitHistoryResult> = useGitHistorySlice(store, verdictArgs)
 
   const [busy, setBusy] = useState(false)
-  const [fault, setFault] = useState<string | null>(null)
+  // UI-9 D4 (ADJ-11): the read-only surface — the restore control
+  // disables with the composed reason as tooltip (the browse list /
+  // verdict stay available).
+  const { readonly: readOnly, reasonText } = useProjectReadonly()
+  const roTitle = reasonText ?? undefined
+  // UI-9 D3: the fault keeps the REJECTED VALUE (the store's structured
+  // carrier — its typed `code` feeds the error-state mapping) plus the
+  // failed commit so [Retry] re-sends the same restore.
+  const [fault, setFault] = useState<{ readonly error: unknown; readonly oid: string } | null>(null)
   const [lastResult, setLastResult] = useState<string | null>(null)
 
   const sameAsBaseline = verdict.data?.pathContent?.sameAsBaseline ?? null
@@ -72,17 +83,18 @@ function ContractFilePanel({ store, path }: { store: ResearchStore; path: string
     void store
       .restoreDeclarativeFile({ commitOid, path: repoPath })
       .then((result) => {
-        const problems = result.validationErrors.map((e) => e.summary).join('；')
+        const problems = result.validationErrors.map((e) => e.summary).join(t('git.sep'))
         setLastResult(
-          `已恢复 ${repoPath}（源 ${commitOid.slice(0, 8)}）— 树校验${
-            result.validationOk ? '通过' : '未通过：' + problems
-          }${result.warnings.length > 0 ? ` · 警告：${result.warnings.join('；')}` : ''}`,
+          `${result.validationOk
+            ? t('git.recoveredOk', { path: String(repoPath), oid: String(commitOid.slice(0, 8)) })
+            : t('git.recoveredFail', { path: String(repoPath), oid: String(commitOid.slice(0, 8)) }) + problems
+          }${result.warnings.length > 0 ? t('git.warnings', { warnings: result.warnings.join(t('git.sep')) }) : ''}`,
         )
         setBusy(false)
       })
       .catch((err: unknown) => {
         setBusy(false)
-        setFault(err instanceof Error ? err.message : String(err))
+        setFault({ error: err, oid: commitOid })
       })
   }
 
@@ -91,10 +103,10 @@ function ContractFilePanel({ store, path }: { store: ResearchStore; path: string
       <p className={styles.contractPath}>{repoPath}</p>
       <p className={styles.contractVerdict} data-contract-same={repoPath} data-same={String(sameAsBaseline)}>
         {sameAsBaseline === null
-          ? '基线判定加载中…'
+          ? t('git.baselineLoading')
           : sameAsBaseline
-            ? '工作副本与最新提交一致'
-            : '工作副本与最新提交不一致（可恢复）'}
+            ? t('git.inSync')
+            : t('git.outOfSync')}
       </p>
       {lastResult !== null && (
         <p className={styles.restoreResult} role="status" data-role="restore-result">
@@ -102,14 +114,16 @@ function ContractFilePanel({ store, path }: { store: ResearchStore; path: string
         </p>
       )}
       {fault !== null && (
-        <p className={styles.faultNote} role="alert">
-          {fault}
-        </p>
+        // UI-9 D3: the B §33.3 four-field error state (group 4 — the Git
+        // family). [Retry] = the user-initiated re-send of the SAME
+        // restore (the mapping marks it retryable — GIT_TIMEOUT alone
+        // suppresses the button).
+        <ErrorStateBlock error={fault.error} onRetry={() => handleRestore(fault.oid)} />
       )}
       {base.data === null ? (
-        <p className={styles.empty}>版本列表加载中…</p>
+        <p className={styles.empty}>{t('git.versionsLoading')}</p>
       ) : base.data.versions.length === 0 ? (
-        <p className={styles.empty}>该文件无 Git 版本</p>
+        <p className={styles.empty}>{t('git.noVersions')}</p>
       ) : (
         <ul className={styles.versionList}>
           {base.data.versions.map((v) => (
@@ -122,10 +136,11 @@ function ContractFilePanel({ store, path }: { store: ResearchStore; path: string
                 className={styles.restoreButton}
                 data-restore-path={repoPath}
                 data-restore-oid={v.oid}
-                disabled={busy}
+                disabled={readOnly || busy}
+                title={readOnly ? roTitle : undefined}
                 onClick={() => handleRestore(v.oid)}
               >
-                恢复到该版本
+                {t('git.restoreVersion')}
               </button>
             </li>
           ))}
@@ -155,8 +170,8 @@ export function GitPanel({ store, workstreamId }: GitPanelProps): ReactElement {
   if (topicId === undefined) {
     return (
       <section className={styles.gitPanel} aria-label="Checkpoint / Git">
-        <h2 className={styles.sectionTitle}>Checkpoint / Git（merge contract 恢复）</h2>
-        <p className={styles.empty}>加载中…</p>
+        <h2 className={styles.sectionTitle}>{t('git.title')}</h2>
+        <p className={styles.empty}>{t('common.loading')}</p>
       </section>
     )
   }
@@ -165,10 +180,10 @@ export function GitPanel({ store, workstreamId }: GitPanelProps): ReactElement {
 
   return (
     <section className={styles.gitPanel} aria-label="Checkpoint / Git">
-      <h2 className={styles.sectionTitle}>Checkpoint / Git（merge contract 恢复）</h2>
+      <h2 className={styles.sectionTitle}>{t('git.title')}</h2>
       {contracts.length === 0 ? (
         <p className={styles.empty}>
-          {topic.data === null ? '加载中…' : '该主题无 merge contract 文件'}
+          {topic.data === null ? t('common.loading') : t('git.noMergeContract')}
         </p>
       ) : (
         contracts.map((mc) => <ContractFilePanel key={mc.path} store={store} path={mc.path} />)

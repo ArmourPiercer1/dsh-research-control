@@ -14,6 +14,7 @@
 
 import type { ReactElement } from 'react'
 import { CONFIRM_DIALOG_STYLES as styles, ensureGraphStyles } from './graph-styles.js'
+import { t } from '../i18n/copy.js'
 
 export interface ConfirmDialogProps {
   /** Dialog heading (user-visible). */
@@ -38,7 +39,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel,
-  cancelLabel = '取消',
+  cancelLabel = t('common.cancel'),
   danger = false,
   onConfirm,
   onCancel,

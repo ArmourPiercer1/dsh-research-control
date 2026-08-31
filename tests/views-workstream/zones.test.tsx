@@ -387,7 +387,7 @@ describe('CurrentZone（当前执行 — the eight ADJ-10 groups）', () => {
     expect(html).toContain('Last checkpoint: none')
   })
 
-  it('空态：8 组各显示低噪提示；无 identity 泄漏', () => {
+  it('空态：全空 zone → 冻结 zone-head 句（B §33.2）；无 identity 泄漏', () => {
     const empty: CurrentZoneProps = {
       tasks: [],
       runs: [],
@@ -403,17 +403,37 @@ describe('CurrentZone（当前执行 — the eight ADJ-10 groups）', () => {
       onDismissNextAction: () => undefined,
     }
     const html = render(<CurrentZone {...empty} />)
-    expect(html).toContain('No active objectives')
-    expect(html).toContain('No current focus')
-    expect(html).toContain('No active tasks')
-    expect(html).toContain('No pending validations')
-    expect(html).toContain('No blockers')
-    expect(html).toContain('No proposed next actions')
-    expect(html).toContain('No interventions')
-    expect(html).toContain('No runs')
+    // UI-9 D4 (B §33.2): a FULLY empty Current zone renders the single
+    // frozen zone-head line and skips the per-group low-noise lines
+    // (partial empties keep them — pinned in the D4 describe below).
+    expect(html).toContain('No active execution.')
+    expect(html).toContain('data-current-empty')
+    expect(html).not.toContain('No active objectives')
     // no task/run identity leaked into the empty zone
     expect(html).not.toContain('T-1')
     expect(html).not.toContain('R-1')
+  })
+
+  it('ADJ-11 只读门控（D4）：Clear/Promote/Dismiss 禁用 + reason tooltip', () => {
+    const REASON = 'the research tree is partially broken'
+    const tree = CurrentZone(fullCurrentProps({ readonly: true, reasonText: REASON }))
+    // the three mutation entries of the scoped project (the ACTIVE
+    // explicit blocker + the PROPOSED next action's two buttons)
+    for (const label of ['Clear blocker: BLK-1', 'Promote to Task: NA-1', 'Dismiss: NA-1']) {
+      const el = findByAriaLabel(tree, label)[0]!
+      expect(el, label).toBeDefined()
+      expect(el.props.disabled, label).toBe(true)
+      expect(el.props.title, label).toBe(REASON)
+    }
+  })
+
+  it('ADJ-11 可写默认（D4）：同一批控制启用且无 tooltip（无 props = 可写面）', () => {
+    const tree = CurrentZone(fullCurrentProps())
+    for (const label of ['Clear blocker: BLK-1', 'Promote to Task: NA-1', 'Dismiss: NA-1']) {
+      const el = findByAriaLabel(tree, label)[0]!
+      expect(el.props.disabled, label).toBe(false)
+      expect(el.props.title, label).toBeUndefined()
+    }
   })
 })
 
@@ -563,9 +583,9 @@ describe('FutureZone（未来计划 — the UI-5 ordered strip）', () => {
     expect(none).not.toContain('未决 PlanFork')
   })
 
-  it('空态：计划为空 → No planned items + 头部 `+` 仍提供（F-10）；无 PF 徽章', () => {
+  it('空态：计划为空 → No future plan items yet. + 头部 `+` 仍提供（F-10）；无 PF 徽章', () => {
     const html = render(<FutureZone {...futureProps({ planItems: [] })} />)
-    expect(html).toContain('No planned items')
+    expect(html).toContain('No future plan items yet.')
     // F-10: the head create slot is offered in the EMPTY state too —
     // ADJ-3 approves createPlanItem on a plan-less WS (D §11.9 "Add
     // Task"); the pre-F-10 pin (not.toContain 'Add at start') encoded
@@ -833,6 +853,100 @@ describe('FutureZone（未来计划 — the UI-5 ordered strip）', () => {
     expect(html).toContain('Remove failed：PLAN_REORDERED')
     expect(html).toContain('Dependency change failed：DEPENDENCY_EXISTS')
   })
+
+  it('ADJ-11 只读门控（D4）：strip/head 变异控制禁用 + reason tooltip；行选择（浏览）保持可用', () => {
+    const REASON = 'the research tree is partially broken'
+    const tree = FutureZone(futureProps({ readonly: true, reasonText: REASON }))
+    const byData = (name: string, value: string) =>
+      findHostElements(tree, el => el.props[name] === value)[0]!
+    // the middle row G-1: every per-row mutation control is disabled
+    // with the composed reason as tooltip
+    for (const [name, value] of [
+      ['data-strip-move-left', 'G-1'],
+      ['data-strip-move-right', 'G-1'],
+      ['data-strip-set-focus', 'G-1'],
+      ['data-strip-remove', 'G-1'],
+      ['data-strip-add-after', 'G-1'],
+    ] as const) {
+      const el = byData(name, value)
+      expect(el.props.disabled, `${name}=${value}`).toBe(true)
+      expect(el.props.title, `${name}=${value}`).toBe(REASON)
+    }
+    // the boundary buttons: boundary && readonly still carry the tooltip
+    expect(byData('data-strip-move-left', 'T-9').props.title).toBe(REASON)
+    expect(byData('data-strip-move-right', 'T-3').props.title).toBe(REASON)
+    // the F-10 head slot
+    const head = findHostElements(tree, el => el.props['data-strip-add-head'] === true)[0]!
+    expect(head.props.disabled).toBe(true)
+    expect(head.props.title).toBe(REASON)
+    // browse stays available (the ADJ-11 contract): the identity row
+    // is never disabled and keeps its selection handler
+    const row = findHostElements(tree, el => el.props['data-strip-item'] === 'G-1')[0]!
+    expect(row.props.disabled).toBeUndefined()
+    expect(typeof row.props.onClick).toBe('function')
+  })
+
+  it('ADJ-11 只读门控（D4 空计划面）：[Add Task] CTA + head `+` 禁用 + tooltip（B §33.2）', () => {
+    const REASON = 'the Git workspace is unhealthy'
+    const tree = FutureZone(futureProps({ planItems: [], readonly: true, reasonText: REASON }))
+    const cta = findHostElements(tree, el => el.props['data-future-add-task'] === true)[0]!
+    expect(hostElementText(cta)).toBe('Add Task')
+    expect(cta.props.disabled).toBe(true)
+    expect(cta.props.title).toBe(REASON)
+    const head = findHostElements(tree, el => el.props['data-strip-add-head'] === true)[0]!
+    expect(head.props.disabled).toBe(true)
+    expect(head.props.title).toBe(REASON)
+  })
+
+  it('ADJ-11 只读门控（D4 编辑/依赖面）：Save + dep 控制禁用 + tooltip；cancel 保持可用', () => {
+    const REASON = 'the research tree is partially broken'
+    const editDraft = { ...newPlanItemDraft('TASK'), title: '收尾：整理实验记录' }
+    const dependencyEdges: readonly DependencyEdgeDto[] = [
+      { relationId: 'REL-1', sourceId: 'T-9', targetId: 'G-1' },
+    ]
+    const tree = FutureZone(
+      futureProps({
+        selectedItemId: 'T-9',
+        editDraft,
+        dependencyEdges,
+        readonly: true,
+        reasonText: REASON,
+      }),
+    )
+    const edit = findHostElements(tree, el => el.props['data-strip-edit'] === true)[0]!
+    const save = findHostElements(edit, el => el.props['data-strip-edit-save'] === true)[0]!
+    expect(save.props.disabled).toBe(true)
+    expect(save.props.title).toBe(REASON)
+    // the dep face: target select + Add + the depends-on remove button
+    expect(findHostElements(edit, el => el.props['data-dep-add-target'] === true)[0]!.props.disabled).toBe(true)
+    const depAdd = findHostElements(edit, el => el.props['data-dep-add-button'] === true)[0]!
+    expect(depAdd.props.disabled).toBe(true)
+    expect(depAdd.props.title).toBe(REASON)
+    const depRemove = findHostElements(edit, el => el.props['data-dep-remove'] === 'REL-1')[0]!
+    expect(depRemove.props.disabled).toBe(true)
+    expect(depRemove.props.title).toBe(REASON)
+    // form-escape stays available (local UI op — the form-trap rule):
+    // [Cancel] is deliberately NOT disabled by the read-only surface
+    expect(findHostElements(edit, el => el.props['data-strip-edit-cancel'] === true)[0]!.props.disabled).toBeUndefined()
+  })
+
+  it('ADJ-11 可写默认（D4）：strip 控制启用且无 tooltip（无 props = 可写面）', () => {
+    const tree = FutureZone(futureProps())
+    const byData = (name: string, value: string) =>
+      findHostElements(tree, el => el.props[name] === value)[0]!
+    for (const [name, value] of [
+      ['data-strip-move-left', 'G-1'],
+      ['data-strip-move-right', 'G-1'],
+      ['data-strip-set-focus', 'G-1'],
+      ['data-strip-remove', 'G-1'],
+      ['data-strip-add-after', 'G-1'],
+    ] as const) {
+      const el = byData(name, value)
+      expect(el.props.disabled, `${name}=${value}`).toBe(false)
+      expect(el.props.title, `${name}=${value}`).toBeUndefined()
+    }
+    expect(findHostElements(tree, el => el.props['data-strip-add-head'] === true)[0]!.props.disabled).toBe(false)
+  })
 })
 
 /* ==================================================================== *
@@ -859,7 +973,7 @@ describe('HistoryZone（历史入口）', () => {
 
   it('空态：事件数为 0 时无入口按钮', () => {
     const html = render(<HistoryZone eventCount={0} onOpenHistory={() => undefined} />)
-    expect(html).toContain('暂无历史事件')
+    expect(html).toContain('No recorded history yet.')
     expect(html).not.toContain('查看事件时间线')
   })
 })

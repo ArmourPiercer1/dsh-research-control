@@ -150,19 +150,29 @@ export interface FutureZoneProps {
   readonly onRemoveDependency: (relationId: string) => void
   /** Last removeDependency failure message (business fault text). */
   readonly removeDependencyFault: string | null
+  /** UI-9 D4 (ADJ-11): the project read-only surface — the container
+   *  (WorkstreamView) reads `useProjectReadonly` and passes the pair
+   *  down: this zone is hook-free by the view-test purity contract
+   *  (tests/views-workstream/harness.ts — a hook-bearing component
+   *  thrown through that harness is the intended failure mode).
+   *  Defaults = the writable surface. */
+  readonly readonly?: boolean
+  /** The composed read-only reason text (the disabled controls'
+   *  tooltip); null = none. */
+  readonly reasonText?: string | null
 }
 
 /** 产品文案（中文）— canonical plan item kinds (legacy WP-4.3 copy). */
 const KIND_LABEL: Record<PlanItemDto['kind'], string> = {
-  TASK: '任务',
-  GATE: '门',
-  MILESTONE: '里程碑',
+  TASK: t('ws.plan.kindTask'),
+  GATE: t('ws.future.kindGate'),
+  MILESTONE: t('ws.plan.kindMilestone'),
 }
 
 /** 产品文案（中文）— PlanFork overlay status (legacy WP-4.3 copy). */
 const PF_STATUS_LABEL: Record<PlanForkDto['status'], string> = {
-  OPEN: '待处理',
-  STALE: '已陈旧',
+  OPEN: t('status.pending'),
+  STALE: t('status.stale'),
 }
 
 /**
@@ -175,13 +185,20 @@ function Field({
   value,
   onChange,
   multiline = false,
+  readOnly = false,
 }: {
   field: keyof PlanItemDraft
   label: string
   value: string
   onChange: (field: keyof PlanItemDraft, value: string) => void
   multiline?: boolean
+  /** UI-9 D4 (ADJ-11): the read-only surface (props down — the zone is
+   *  hook-free by the view-test purity contract). */
+  readOnly?: boolean
 }): ReactElement {
+  // UI-9 D4 (ADJ-11): the read-only surface — the form input itself is
+  // blocked (the form can still open from the row selection; save is
+  // disabled alongside).
   return (
     <label className={styles.formLabel}>
       {label}
@@ -191,6 +208,7 @@ function Field({
           data-strip-field={field}
           rows={3}
           value={value}
+          disabled={readOnly}
           onChange={e => onChange(field, e.target.value)}
         />
       ) : (
@@ -198,6 +216,7 @@ function Field({
           className={styles.formField}
           data-strip-field={field}
           value={value}
+          disabled={readOnly}
           onChange={e => onChange(field, e.target.value)}
         />
       )}
@@ -219,6 +238,8 @@ function StripRow({
   onOpenCreate,
   onRemoveItem,
   removePending,
+  readonly: readOnly = false,
+  reasonText = null,
 }: {
   item: PlanItemDto
   index: number
@@ -232,10 +253,18 @@ function StripRow({
   onOpenCreate: FutureZoneProps['onOpenCreate']
   onRemoveItem: FutureZoneProps['onRemoveItem']
   removePending: FutureZoneProps['removePending']
+  /** UI-9 D4 (ADJ-11): the read-only surface pair (props down — the
+   *  zone is hook-free by the view-test purity contract). */
+  readonly?: boolean
+  reasonText?: string | null
 }): ReactElement {
   const execution: TaskExecution | undefined =
     item.kind === 'TASK' ? executionById.get(item.id) : undefined
   const removeLabel = t(REMOVE_STATE_KEY[classifyRemoveState(item, executionById)])
+  // UI-9 D4 (ADJ-11): the read-only surface — every row mutation control
+  // (move / set-focus / remove / add-after) disables with the composed
+  // reason as tooltip. Selection (browse) stays available.
+  const roTitle = reasonText ?? undefined
   /**
    * FR5 (F-8 fix): the clickable strip item is the identity row (div)
    * only — its box contains spans, never buttons. The per-row action
@@ -277,8 +306,9 @@ function StripRow({
             type="button"
             className={styles.moveButton}
             data-strip-move-left={item.id}
-            aria-label={`${t('ws.future.strip.moveLeft')}：${item.id}`}
-            disabled={index === 0}
+            aria-label={`${t('ws.future.strip.moveLeft')}${item.id}`}
+            disabled={readOnly || index === 0}
+            title={readOnly ? roTitle : undefined}
             onClick={e => {
               e.stopPropagation()
               onMoveItem(item.id, 'up')
@@ -290,8 +320,9 @@ function StripRow({
             type="button"
             className={styles.moveButton}
             data-strip-move-right={item.id}
-            aria-label={`${t('ws.future.strip.moveRight')}：${item.id}`}
-            disabled={index === count - 1}
+            aria-label={`${t('ws.future.strip.moveRight')}${item.id}`}
+            disabled={readOnly || index === count - 1}
+            title={readOnly ? roTitle : undefined}
             onClick={e => {
               e.stopPropagation()
               onMoveItem(item.id, 'down')
@@ -303,7 +334,9 @@ function StripRow({
             type="button"
             className={styles.setFocusButton}
             data-strip-set-focus={item.id}
-            aria-label={`Set as Current Focus: ${item.id}`}
+            aria-label={t('ws.current.setFocusAria', { id: item.id })}
+            disabled={readOnly}
+            title={readOnly ? roTitle : undefined}
             onClick={e => {
               e.stopPropagation()
               onSetCurrentFocus(item.id)
@@ -316,7 +349,8 @@ function StripRow({
             className={styles.removeButton}
             data-strip-remove={item.id}
             aria-label={`${removeLabel}: ${item.id}`}
-            disabled={removePending}
+            disabled={readOnly || removePending}
+            title={readOnly ? roTitle : undefined}
             onClick={e => {
               e.stopPropagation()
               onRemoveItem(item.id)
@@ -332,6 +366,8 @@ function StripRow({
           className={styles.addButton}
           data-strip-add-after={item.id}
           aria-label={`${t('ws.future.strip.addRow')}: ${item.id}`}
+          disabled={readOnly}
+          title={readOnly ? roTitle : undefined}
           onClick={() => onOpenCreate(index + 1)}
         >
           +
@@ -351,7 +387,7 @@ function PlanForkRow({ planFork }: { planFork: PlanForkDto }): ReactElement {
         {PF_STATUS_LABEL[planFork.status]}
       </span>
       <span className={styles.planForkMeta}>
-        提案 {planFork.proposedItemCount} 项 · 锚点 {planFork.forkAnchor} → {planFork.mergeAnchor}
+        {t('ws.future.pfSummary', { count: String(planFork.proposedItemCount), fork: planFork.forkAnchor, merge: planFork.mergeAnchor })}
       </span>
       <span className={styles.planForkReason}>{planFork.reason}</span>
     </li>
@@ -401,6 +437,8 @@ export function FutureZone({
   addDependencyFault,
   onRemoveDependency,
   removeDependencyFault,
+  readonly: readOnly = false,
+  reasonText = null,
 }: FutureZoneProps): ReactElement {
   const selectedItem =
     selectedItemId === null ? null : (planItems.find(item => item.id === selectedItemId) ?? null)
@@ -409,6 +447,12 @@ export function FutureZone({
   const dependedBy =
     selectedItem === null ? [] : dependencyEdges.filter(edge => edge.targetId === selectedItem.id)
   const titleOf = (id: string): string => planItems.find(item => item.id === id)?.title ?? ''
+  // UI-9 D4 (ADJ-11): the read-only surface — the create head slot /
+  // [Add Task] CTA / create form / edit form controls all disable with
+  // the composed reason as tooltip (browse stays available). The pair
+  // arrives as props: the zone is hook-free by the view-test purity
+  // contract (tests/views-workstream/harness.ts).
+  const roTitle = reasonText ?? undefined
 
   /**
    * F-3 (t70 live window): kind-aware save gating. The frozen declarative
@@ -429,8 +473,8 @@ export function FutureZone({
     (draft.kind === 'MILESTONE' && draft.statement.trim().length === 0)
 
   return (
-    <section className={styles.zone} data-strip aria-label="未来计划">
-      <h2 className={styles.zoneTitle}>未来计划</h2>
+    <section className={styles.zone} data-strip aria-label={t('ws.plan.title')}>
+      <h2 className={styles.zoneTitle}>{t('ws.plan.title')}</h2>
 
       {/* ADJ-9: the PF count badge — top of the Future column, collapsed
           by default, rendered only while unresolved PFs exist. */}
@@ -453,8 +497,23 @@ export function FutureZone({
           plan-less WS (D §11.9 gates "Add Task"), and without the
           head `+` an empty plan was a UI dead end (t70 run 4, :877).
           The empty note is the list's sibling, not its replacement. */}
+      {/* UI-9 D4 (B §33.2): the frozen empty face — the note plus the
+          [Add Task] CTA (same onOpenCreate(0) as the head slot; the head
+          `+` above stays — the F-10 pin requires 'Add at start'). */}
       {planItems.length === 0 && (
-        <p className={styles.empty}>{t('ws.future.strip.empty')}</p>
+        <p className={styles.empty}>
+          {t('ws.future.strip.empty')}{' '}
+          <button
+            type="button"
+            className={styles.addButton}
+            data-future-add-task
+            disabled={readOnly}
+            title={readOnly ? roTitle : undefined}
+            onClick={() => onOpenCreate(0)}
+          >
+            {t('ws.future.strip.addTask')}
+          </button>
+        </p>
       )}
       <ol className={styles.planList} data-strip-list>
         <li className={styles.addSlot}>
@@ -463,6 +522,8 @@ export function FutureZone({
             className={styles.addButton}
             data-strip-add-head
             aria-label={t('ws.future.strip.addHead')}
+            disabled={readOnly}
+            title={readOnly ? roTitle : undefined}
             onClick={() => onOpenCreate(0)}
           >
             +
@@ -483,6 +544,8 @@ export function FutureZone({
             onOpenCreate={onOpenCreate}
             onRemoveItem={onRemoveItem}
             removePending={removePending}
+            readonly={readOnly}
+            reasonText={reasonText}
           />
         ))}
       </ol>
@@ -495,7 +558,7 @@ export function FutureZone({
       )}
       {removeFault !== null && (
         <p className={styles.faultNote}>
-          {t('ws.future.remove.fault')}：{removeFault}
+          {t('ws.future.remove.fault')}{removeFault}
         </p>
       )}
 
@@ -521,6 +584,7 @@ export function FutureZone({
             label={t('dialog.fieldTitle')}
             value={draft.title}
             onChange={onDraftChange}
+            readOnly={readOnly}
           />
           {draft.kind === 'TASK' && (
             <>
@@ -529,6 +593,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldGoal')}
                 value={draft.goal}
                 onChange={onDraftChange}
+                readOnly={readOnly}
                 multiline
               />
               <Field
@@ -536,6 +601,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldAcceptanceCriteria')}
                 value={draft.acceptanceCriteria}
                 onChange={onDraftChange}
+                readOnly={readOnly}
                 multiline
               />
               <Field
@@ -543,9 +609,10 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldDeliverables')}
                 value={draft.deliverables}
                 onChange={onDraftChange}
+                readOnly={readOnly}
                 multiline
               />
-              <Field field="note" label={t('ws.future.edit.fieldNote')} value={draft.note} onChange={onDraftChange} />
+              <Field field="note" label={t('ws.future.edit.fieldNote')} value={draft.note} onChange={onDraftChange} readOnly={readOnly} />
             </>
           )}
           {draft.kind === 'GATE' && (
@@ -555,6 +622,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldCriteria')}
                 value={draft.criteria}
                 onChange={onDraftChange}
+                readOnly={readOnly}
                 multiline
               />
               <Field
@@ -562,6 +630,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldReferences')}
                 value={draft.references}
                 onChange={onDraftChange}
+                readOnly={readOnly}
                 multiline
               />
             </>
@@ -572,6 +641,7 @@ export function FutureZone({
               label={t('ws.future.edit.fieldStatement')}
               value={draft.statement}
               onChange={onDraftChange}
+              readOnly={readOnly}
               multiline
             />
           )}
@@ -580,7 +650,8 @@ export function FutureZone({
               type="button"
               className={styles.formSave}
               data-strip-form-save
-              disabled={createSaveDisabled}
+              disabled={readOnly || createSaveDisabled}
+              title={readOnly ? roTitle : undefined}
               onClick={onCreateSubmit}
             >
               {t('dialog.save')}
@@ -597,7 +668,7 @@ export function FutureZone({
           {createPending && <p className={styles.reorderNote}>{t('ws.future.create.pending')}</p>}
           {createFault !== null && (
             <p className={styles.faultNote}>
-              {t('ws.future.create.fault')}：{createFault}
+              {t('ws.future.create.fault')}{createFault}
             </p>
           )}
         </div>
@@ -614,6 +685,7 @@ export function FutureZone({
             label={t('dialog.fieldTitle')}
             value={editDraft.title}
             onChange={onEditDraftChange}
+            readOnly={readOnly}
           />
           {editDraft.kind === 'TASK' && (
             <>
@@ -622,6 +694,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldGoal')}
                 value={editDraft.goal}
                 onChange={onEditDraftChange}
+                readOnly={readOnly}
                 multiline
               />
               <Field
@@ -629,6 +702,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldAcceptanceCriteria')}
                 value={editDraft.acceptanceCriteria}
                 onChange={onEditDraftChange}
+                readOnly={readOnly}
                 multiline
               />
               <Field
@@ -636,6 +710,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldDeliverables')}
                 value={editDraft.deliverables}
                 onChange={onEditDraftChange}
+                readOnly={readOnly}
                 multiline
               />
               <Field
@@ -643,6 +718,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldNote')}
                 value={editDraft.note}
                 onChange={onEditDraftChange}
+                readOnly={readOnly}
               />
             </>
           )}
@@ -653,6 +729,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldCriteria')}
                 value={editDraft.criteria}
                 onChange={onEditDraftChange}
+                readOnly={readOnly}
                 multiline
               />
               <Field
@@ -660,6 +737,7 @@ export function FutureZone({
                 label={t('ws.future.edit.fieldReferences')}
                 value={editDraft.references}
                 onChange={onEditDraftChange}
+                readOnly={readOnly}
                 multiline
               />
             </>
@@ -670,6 +748,7 @@ export function FutureZone({
               label={t('ws.future.edit.fieldStatement')}
               value={editDraft.statement}
               onChange={onEditDraftChange}
+              readOnly={readOnly}
               multiline
             />
           )}
@@ -678,7 +757,8 @@ export function FutureZone({
               type="button"
               className={styles.formSave}
               data-strip-edit-save
-              disabled={editDraft.title.trim().length === 0 || updatePending}
+              disabled={readOnly || editDraft.title.trim().length === 0 || updatePending}
+              title={readOnly ? roTitle : undefined}
               onClick={onEditSubmit}
             >
               {t('dialog.save')}
@@ -695,7 +775,7 @@ export function FutureZone({
           {updatePending && <p className={styles.reorderNote}>{t('ws.future.edit.pending')}</p>}
           {updateFault !== null && (
             <p className={styles.faultNote}>
-              {t('ws.future.edit.fault')}：{updateFault}
+              {t('ws.future.edit.fault')}{updateFault}
             </p>
           )}
 
@@ -721,6 +801,8 @@ export function FutureZone({
                           className={styles.depButton}
                           data-dep-remove={edge.relationId}
                           aria-label={`${t('ws.future.dep.remove')}: ${edge.relationId}`}
+                          disabled={readOnly}
+                          title={readOnly ? roTitle : undefined}
                           onClick={() => onRemoveDependency(edge.relationId)}
                         >
                           ×
@@ -752,6 +834,7 @@ export function FutureZone({
               className={styles.formField}
               data-dep-add-target
               value={depTargetId}
+              disabled={readOnly}
               onChange={e => onDepTargetChange(e.target.value)}
             >
               <option value="">{t('ws.future.dep.addTarget')}</option>
@@ -767,7 +850,8 @@ export function FutureZone({
               type="button"
               className={styles.formSave}
               data-dep-add-button
-              disabled={depTargetId === ''}
+              disabled={readOnly || depTargetId === ''}
+              title={readOnly ? roTitle : undefined}
               onClick={onAddDependency}
             >
               {t('ws.future.dep.add')}
@@ -775,12 +859,12 @@ export function FutureZone({
           </div>
           {addDependencyFault !== null && (
             <p className={styles.faultNote}>
-              {t('ws.future.dep.fault')}：{addDependencyFault}
+              {t('ws.future.dep.fault')}{addDependencyFault}
             </p>
           )}
           {removeDependencyFault !== null && (
             <p className={styles.faultNote}>
-              {t('ws.future.dep.fault')}：{removeDependencyFault}
+              {t('ws.future.dep.fault')}{removeDependencyFault}
             </p>
           )}
         </div>

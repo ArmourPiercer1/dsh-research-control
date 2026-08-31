@@ -232,10 +232,20 @@ describe('bindProject (§12 row 5) — the 接入 face', () => {
       expect(existsSync(standaloneDb)).toBe(false)
       expect(existsSync(join(hub, '.research-control', 'projects', 'PRJ-1', 'research.sqlite'))).toBe(true)
       // The NEXT read: MANAGED now (the re-init rewired the project at
-      // its new hub placement; the entry's display name is live):
+      // its new hub placement; the entry's display name is live).
+      // ADJ-11 (UI-9 D4): the post-mutation FULL re-init (reinitialized =
+      // true) stamps the WIRING_REINITIALIZED machine code on the MANAGED
+      // entry — the client renders the sanctioned re-init notice for it
+      // (the gate is otherwise clean: writable surface, no other codes).
       const after = wire(await h.svc.getResearchPlaneState({}))
       expect(after.projects).toEqual([
-        { projectId: 'PRJ-1', displayName: '绑定项目', kind: 'MANAGED', wsPath: wsA },
+        {
+          projectId: 'PRJ-1',
+          displayName: '绑定项目',
+          kind: 'MANAGED',
+          wsPath: wsA,
+          integrity: { readOnly: false, checkCodes: ['WIRING_REINITIALIZED'] },
+        },
       ])
     } finally {
       disposeFiber(h)
@@ -332,10 +342,18 @@ describe('restoreProject (§12 row 7) — the 恢复登记 face', () => {
       // The tree is renamed back (与解绑对称) and the archive is gone:
       expect(existsSync(join(wsA, '.research'))).toBe(true)
       expect(existsSync(un.archivedDir)).toBe(false)
-      // The NEXT read: MANAGED again (the entry re-activated):
+      // The NEXT read: MANAGED again (the entry re-activated). ADJ-11
+      // (UI-9 D4): the post-mutation re-init stamps WIRING_REINITIALIZED
+      // (the same attach rule the bind test above pins).
       const after = wire(await h.svc.getResearchPlaneState({}))
       expect(after.projects).toEqual([
-        { projectId: 'PRJ-1', displayName: '机器人视觉定位系统', kind: 'MANAGED', wsPath: wsA },
+        {
+          projectId: 'PRJ-1',
+          displayName: '机器人视觉定位系统',
+          kind: 'MANAGED',
+          wsPath: wsA,
+          integrity: { readOnly: false, checkCodes: ['WIRING_REINITIALIZED'] },
+        },
       ])
       expect(after.missing).toEqual([])
     } finally {

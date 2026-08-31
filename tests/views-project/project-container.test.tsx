@@ -696,7 +696,7 @@ describe('ProjectPage container — Recent History (judgment #9, FR7)', () => {
 
     await expandRecentHistory()
 
-    expect(screen.getByText('No history recorded yet.')).toBeDefined()
+    expect(screen.getByText('No recorded history yet.')).toBeDefined()
     expect(document.querySelector('[data-history-entry]')).toBeNull()
     expect(document.querySelector('[data-history-note]')).toBeNull()
     expect(rpc.countOf('queryHistory')).toBe(0)
@@ -730,7 +730,7 @@ describe('ProjectPage container — Recent History (judgment #9, FR7)', () => {
 
     await expandRecentHistory()
 
-    expect(screen.getByText('No history recorded yet.')).toBeDefined()
+    expect(screen.getByText('No recorded history yet.')).toBeDefined()
     expect(document.querySelector('[data-history-entry]')).toBeNull()
     expect(document.querySelector('[data-history-note]')).toBeNull()
     expect(rpc.countOf('queryHistory')).toBe(2)

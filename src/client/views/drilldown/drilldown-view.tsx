@@ -20,6 +20,7 @@ import type { ReactElement } from 'react'
 
 import type { DrilldownClaim, DrilldownArtifact, DrilldownModel, DrilldownRun } from './drilldown-model.js'
 import { linkedRunsFor } from './drilldown-model.js'
+import { t } from '../../i18n/copy.js'
 import styles from './cockpit.module.css'
 
 export type DrilldownSelection =
@@ -42,8 +43,8 @@ export interface DrilldownViewProps {
 
 /** The run-link kind → product copy (data path the user can verify). */
 const LINK_KIND_LABEL: Record<DrilldownRun['linkKinds'][number], string> = {
-  CREATED_BY_RUN: 'created_by_run 事件指针',
-  PRODUCED_BY_RELATION: 'PRODUCED_BY 关系',
+  CREATED_BY_RUN: t('run.pointerLabel'),
+  PRODUCED_BY_RELATION: t('run.producedBy'),
 }
 
 /** One Claim card (card click = interaction 1 of the chain). */
@@ -67,13 +68,13 @@ function ClaimCard({
       <span className={styles.cardHead}>
         <span className={styles.cardId}>{claim.id}</span>
         <span className={styles.statusBadge} data-claim-status={claim.status}>
-          {claim.status === 'ACTIVE' ? '有效' : '已撤回'}
+          {claim.status === 'ACTIVE' ? t('status.active') : t('status.retracted')}
         </span>
       </span>
       <p className={styles.cardStatement}>{claim.statement}</p>
       <p className={styles.cardMeta}>
-        来源 Run：{claim.createdByRun ?? '用户登记'}
-        {claim.relationIds.length > 0 && <span> · 关系 {claim.relationIds.length} 条</span>}
+        {t('run.sourceRun', { id: claim.createdByRun ?? t('run.userRegistered') })}
+        {claim.relationIds.length > 0 && <span> {t('run.relationsCount', { n: String(claim.relationIds.length) })}</span>}
       </p>
     </button>
   )
@@ -101,15 +102,15 @@ function ArtifactCard({
         <span className={styles.cardId}>{artifact.id}</span>
         <span className={styles.typeBadge}>{artifact.type}</span>
         <span className={styles.statusBadge} data-artifact-status={artifact.status}>
-          {artifact.status === 'REGISTERED' ? '已注册' : '缺失'}
+          {artifact.status === 'REGISTERED' ? t('status.registered') : t('status.missing')}
         </span>
       </span>
       <p className={styles.cardStatement}>{artifact.title}</p>
       <p className={styles.cardMeta}>
         {artifact.uri}
-        {artifact.relatedTask !== null && <span> · 任务 {artifact.relatedTask}</span>}
+        {artifact.relatedTask !== null && <span> {t('run.relatedTask', { task: String(artifact.relatedTask) })}</span>}
         {artifact.producedByRunIds.length > 0 && (
-          <span> · PRODUCED_BY {artifact.producedByRunIds.join('、')}</span>
+          <span> {t('run.producedByIds', { ids: artifact.producedByRunIds.join(t('run.idSep')) })}</span>
         )}
       </p>
     </button>
@@ -136,12 +137,12 @@ function RunRow({
         <span className={styles.linkKinds}>{run.linkKinds.map((k) => LINK_KIND_LABEL[k]).join(' / ')}</span>
       </span>
       <p className={styles.runMeta}>
-        {run.taskId !== null && <span>任务 {run.taskId} · </span>}
-        {run.intent !== null && <span>意图「{run.intent}」 · </span>}
-        开始 {run.startedAt > 0 ? formatTime(run.startedAt) : '—'}
-        {run.endedAt !== null && <span> · 结束 {formatTime(run.endedAt)}</span>}
+        {run.taskId !== null && <span>{t('run.taskLabel', { taskId: String(run.taskId) })}{' '}</span>}
+        {run.intent !== null && <span>{t('run.intentLabel', { intent: String(run.intent) })}{' '}</span>}
+        {t('run.startedAt', { time: run.startedAt > 0 ? formatTime(run.startedAt) : '—' })}
+        {run.endedAt !== null && <span> {t('run.endedAt', { time: formatTime(run.endedAt) })}</span>}
         {run.evidenceEventIds.length > 0 && (
-          <span> · 事件指针 {run.evidenceEventIds.length} 条</span>
+          <span> {t('run.evidenceCount', { n: String(run.evidenceEventIds.length) })}</span>
         )}
       </p>
       {run.dshSessionId !== null ? (
@@ -150,13 +151,13 @@ function RunRow({
           className={styles.sessionLink}
           data-session-id={run.dshSessionId}
           data-run-id={run.id}
-          title="在宿主会话列表中打开（外部跳转 — 本插件无宿主会话 UI 权限）"
+          title={t('common.openInHostSessions')}
           onClick={() => onOpenSession(run.dshSessionId!, run.id)}
         >
-          会话 {run.dshSessionId} — 在宿主会话列表中打开 ↗
+          {t('run.sessionPointer', { id: String(run.dshSessionId) })}
         </button>
       ) : (
-        <p className={styles.sessionAbsent}>无 DSH 会话指针（非 DSH 会话发起）</p>
+        <p className={styles.sessionAbsent}>{t('run.noSession')}</p>
       )}
     </li>
   )
@@ -188,9 +189,9 @@ export function DrilldownView({ model, selection, onSelect, onOpenSession, forma
 
       <div className={styles.cardGrid}>
         <div>
-          <h3 className={styles.groupTitle}>Claims（{model.claims.length}）</h3>
+          <h3 className={styles.groupTitle}>{t('run.claimsCount', { n: String(model.claims.length) })}</h3>
           {model.claims.length === 0 ? (
-            <p className={styles.empty}>本 Run 窗口无 Claim 事件（CLAIM_RECORDED）</p>
+            <p className={styles.empty}>{t('run.noClaims')}</p>
           ) : (
             model.claims.map((claim) => (
               <ClaimCard
@@ -203,9 +204,9 @@ export function DrilldownView({ model, selection, onSelect, onOpenSession, forma
           )}
         </div>
         <div>
-          <h3 className={styles.groupTitle}>Artifacts（{model.artifacts.length}）</h3>
+          <h3 className={styles.groupTitle}>{t('run.artifactsCount', { n: String(model.artifacts.length) })}</h3>
           {model.artifacts.length === 0 ? (
-            <p className={styles.empty}>本 Run 窗口无 Artifact 事件（ARTIFACT_REGISTERED）</p>
+            <p className={styles.empty}>{t('run.noArtifacts')}</p>
           ) : (
             model.artifacts.map((artifact) => (
               <ArtifactCard
@@ -222,13 +223,13 @@ export function DrilldownView({ model, selection, onSelect, onOpenSession, forma
       </div>
 
       <h3 className={styles.groupTitle}>
-        所属 Run{selection === null ? '（选择上方卡片查看）' : ''}
+        {t('run.windowTitle')}{selection === null ? t('run.windowHint') : ''}
       </h3>
       {selection === null ? (
-        <p className={styles.empty}>未选择对象 — 点击 Claim/Artifact 卡片（第 1 击）</p>
+        <p className={styles.empty}>{t('run.nothingSelected')}</p>
       ) : linkedRuns.length === 0 ? (
         <p className={styles.empty}>
-          该对象无 Run 指针（created_by_run 为空且无 PRODUCED_BY 关系 — 用户手工登记）
+          {t('run.noPointer')}
         </p>
       ) : (
         <ul className={styles.runList}>

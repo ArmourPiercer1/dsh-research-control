@@ -27,6 +27,7 @@ import type { ReactElement } from 'react'
 import type { ResearchStore, SliceState, TopicSnapshot } from '../../stores/index.js'
 import { TopologyGraphContainer } from '../../graph/TopologyGraphContainer.js'
 import { useTopicSlice } from './binding-hooks.js'
+import { t } from '../../i18n/copy.js'
 import styles from './cockpit.module.css'
 
 export interface TopicPageProps {
@@ -39,16 +40,16 @@ export interface TopicPageProps {
 }
 
 const LIFECYCLE_LABEL: Record<TopicSnapshot['workstreams'][number]['lifecycle'], string> = {
-  PLANNED: '规划中',
-  REALIZED: '已实现',
-  DROPPED: '已放弃',
+  PLANNED: t('status.planned'),
+  REALIZED: t('status.implemented'),
+  DROPPED: t('status.abandoned'),
 }
 
 /** Objective status → Chinese product copy (G4 R5: the statement rows). */
 const OBJECTIVE_STATUS_LABEL: Record<TopicSnapshot['objectives'][number]['status'], string> = {
-  ACTIVE: '进行中',
-  ACHIEVED: '已达成',
-  DROPPED: '已放弃',
+  ACTIVE: t('status.inProgress'),
+  ACHIEVED: t('status.achieved'),
+  DROPPED: t('status.abandoned'),
 }
 
 /** Format an epoch-ms date as `YYYY-MM-DD` (local time, TZ-stable shape). */
@@ -69,47 +70,47 @@ export function TopicPage({ store, topicId, onOpenWorkstream, onBack }: TopicPag
 
   if (slice.data === null) {
     return (
-      <section className={styles.page} aria-label="主题页">
+      <section className={styles.page} aria-label={t('topic.pageAria')}>
         <h1 className={styles.pageTitle}>
           <button type="button" className={styles.backButton} onClick={onBack}>
-            ← 返回总览
+            {t('common.backToHub')}
           </button>{' '}
-          {topicId}（加载中…）
+          {t('topic.loadingId', { id: topicId })}
         </h1>
       </section>
     )
   }
 
-  const t = slice.data.topic
+  const topic = slice.data.topic
 
   return (
-    <section className={styles.page} aria-label="主题页">
+    <section className={styles.page} aria-label={t('topic.pageAria')}>
       <h1 className={styles.pageTitle}>
         <button type="button" className={styles.backButton} onClick={onBack}>
-          ← 返回总览
+          {t('common.backToHub')}
         </button>{' '}
-        {t.id} · {t.title}
+        {topic.id} · {topic.title}
       </h1>
-      {t.objectiveRefs.length > 0 && (
-        <p className={styles.pageMeta}>目标：{t.objectiveRefs.join('、')}</p>
+      {topic.objectiveRefs.length > 0 && (
+        <p className={styles.pageMeta}>{t('topic.objectives', { refs: topic.objectiveRefs.join(t('topic.refSep')) })}</p>
       )}
 
       {/* §27.3 Topic Brief (G4 R5: the description, when the snapshot carries one) */}
-      {t.description !== null && (
+      {topic.description !== null && (
         <>
-          <h2 className={styles.sectionTitle}>主题简介</h2>
-          <p className={styles.topicBrief}>{t.description}</p>
+          <h2 className={styles.sectionTitle}>{t('topic.intro')}</h2>
+          <p className={styles.topicBrief}>{topic.description}</p>
         </>
       )}
 
-      <h2 className={styles.sectionTitle}>Workstream 拓扑</h2>
+      <h2 className={styles.sectionTitle}>{t('topic.topologyTitle')}</h2>
       <div className={styles.topologyBox} data-topic-id={topicId}>
         <TopologyGraphContainer store={store} topicId={topicId} />
       </div>
 
-      <h2 className={styles.sectionTitle}>Workstreams（{slice.data.workstreams.length}）</h2>
+      <h2 className={styles.sectionTitle}>{t('topic.wsCount', { n: String(slice.data.workstreams.length) })}</h2>
       {slice.data.workstreams.length === 0 ? (
-        <p className={styles.empty}>该主题下无 Workstream</p>
+        <p className={styles.empty}>{t('topic.noWorkstreams')}</p>
       ) : (
         <div className={styles.wsCardGrid}>
           {slice.data.workstreams.map((ws) => (
@@ -129,11 +130,11 @@ export function TopicPage({ store, topicId, onOpenWorkstream, onBack }: TopicPag
               </span>
               <p className={styles.wsCardTitle}>{ws.title}</p>
               <p className={styles.wsCardMeta}>
-                计划 {ws.planItemCount} 项
+                {t('ws.topo.planCount', { n: String(ws.planItemCount) })}
                 {ws.openPlanForkCount > 0 && (
-                  <span> · 未决 PlanFork {ws.openPlanForkCount}</span>
+                  <span> {t('topic.wsOpenPf', { n: String(ws.openPlanForkCount) })}</span>
                 )}
-                {ws.runningRunCount > 0 && <span> · 运行中 {ws.runningRunCount}</span>}
+                {ws.runningRunCount > 0 && <span> {t('topic.wsRunning', { n: String(ws.runningRunCount) })}</span>}
               </p>
             </button>
           ))}
@@ -142,12 +143,12 @@ export function TopicPage({ store, topicId, onOpenWorkstream, onBack }: TopicPag
 
       {/* §27.3 Topic-level Objective (G4 R5: the STATEMENTS from the
           snapshot's `objectives`, not just the header ref ids) */}
-      <h2 className={styles.sectionTitle}>主题目标</h2>
+      <h2 className={styles.sectionTitle}>{t('topic.objectivesTitle')}</h2>
       {slice.data.objectives.length === 0 ? (
         <p className={styles.empty}>
-          {t.objectiveRefs.length === 0
-            ? '该主题暂无目标'
-            : `引用 ${t.objectiveRefs.join('、')}（本快照未携带该 scope=TOPIC 的语句）`}
+          {topic.objectiveRefs.length === 0
+            ? t('topic.noObjectives')
+            : t('topic.objectiveRefsMissing', { refs: topic.objectiveRefs.join(t('topic.refSep')) })}
         </p>
       ) : (
         <ul className={styles.objList}>
@@ -165,7 +166,7 @@ export function TopicPage({ store, topicId, onOpenWorkstream, onBack }: TopicPag
                   {OBJECTIVE_STATUS_LABEL[o.status]}
                 </span>
                 <span>{o.priority}</span>
-                {o.targetDate !== null && <span>目标日期：{formatEpochDate(o.targetDate)}</span>}
+                {o.targetDate !== null && <span>{t('topic.targetDate', { date: formatEpochDate(o.targetDate) })}</span>}
               </p>
             </li>
           ))}

@@ -22,6 +22,7 @@
 import type { QueryHistoryArgs, QueryHistoryResult, ResearchRpcFacade, ResearchStore } from '../../src/client/stores/index.js'
 import { createResearchStore } from '../../src/client/stores/index.js'
 import type { HistoryEventDto, QueryRecordsArgs, SemanticRecordDto } from '../../src/shared/rpc-contracts.js'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 
 /* -------------------------------------------------------------------- *
  * The scenario log
@@ -311,9 +312,13 @@ export function makeFaultyFacade(): ResearchRpcFacade {
     getProject: notUsed('getProject'),
     getTopic: notUsed('getTopic'),
     getWorkstream: notUsed('getWorkstream'),
-    queryHistory: async (): Promise<{ ok: false; error: { code: string; message: string; details: object } }> => ({
+    queryHistory: async (): Promise<{ ok: false; error: RemoteError<'gateway/internal'> }> => ({
       ok: false,
-      error: { code: 'HIST_NOT_FOUND', message: 'workstream log missing', details: {} },
+      // 0.1.2-alpha.3 train: the error branch is a branded RemoteError
+      // instance. The gateway folds unclassified owner throws to
+      // `gateway/internal` — the test token rides the message fold, which
+      // the banner machine-matches.
+      error: new RemoteError('gateway/internal', 'HIST_NOT_FOUND: workstream log missing', {}),
     }),
     reorderPlan: notUsed('reorderPlan'),
     selectPlanFork: notUsed('selectPlanFork'),

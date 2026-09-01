@@ -776,5 +776,13 @@ describe('V2-T3.1 — the PLANE_* named error family', () => {
     expect(e.code).toBe('PLANE_HUB_EXISTS')
     expect(e.message).toContain('PLANE_HUB_EXISTS')
     expect(e.message).toContain('a hub already exists at /home/u/hub')
+    // 0.1.2-alpha.3 typert train: the structured channel. The structural
+    // marker + string code + JSON details are exactly the typert-protocol
+    // `remoteErrorOf` gate — without them the Host Gateway folds the throw
+    // to `gateway/internal` and the client loses the PLANE_* machine-match
+    // (the bindProject PLANE_TREE_EXISTS as-is retry depends on it).
+    expect(e.isDSHRemoteError).toBe(true)
+    expect(typeof e.code).toBe('string')
+    expect(e.details).toEqual({})
   })
 })

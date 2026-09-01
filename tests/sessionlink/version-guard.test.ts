@@ -3,7 +3,7 @@
  * the strict version comparator (semver pre-release ordering), the
  * fail-loud assert (with an INJECTED fake version source), and the REAL
  * installed-package version source against this repo's own devDependency
- * (`@deepseek-ai/dsh-typert-protocol`, locked `0.1.1-rc.2`).
+ * (`@deepseek-ai/dsh-typert-protocol`, locked `0.1.2-alpha.3`).
  */
 
 import { readFileSync } from 'node:fs'
@@ -107,10 +107,10 @@ describe('createPackageVersionSource — the installed-package channel (REAL)', 
     const source = createPackageVersionSource(DSH_VERSION_PACKAGE, import.meta.url)
     const version = source.getHostVersion()
     // the repo's exact pin (package.json peerDependencies + devDependencies)
-    expect(version).toBe('0.1.1-rc.2')
+    expect(version).toBe('0.1.2-alpha.3')
     // and the guard passes against it
     expect(() => assertMinDshVersion('0.1.0-rc.8', source)).not.toThrow()
-    const e = throws(() => assertMinDshVersion('0.1.1-rc.3', source))
+    const e = throws(() => assertMinDshVersion('0.1.2-alpha.4', source))
     expect(e).toBeInstanceOf(DshVersionError)
     expect((e as DshVersionError).code).toBe('MIN_VERSION_VIOLATION')
   })
@@ -130,8 +130,8 @@ describe('createPackageVersionSource — the installed-package channel (REAL)', 
       peerDependencies: Record<string, string>
       devDependencies: Record<string, string>
     }
-    expect(pluginPkg.peerDependencies[DSH_VERSION_PACKAGE]).toBe('0.1.1-rc.2')
-    expect(pluginPkg.devDependencies[DSH_VERSION_PACKAGE]).toBe('0.1.1-rc.2')
-    expect(createPackageVersionSource(DSH_VERSION_PACKAGE, import.meta.url).getHostVersion()).toBe('0.1.1-rc.2')
+    expect(pluginPkg.peerDependencies[DSH_VERSION_PACKAGE]).toBe('0.1.2-alpha.3')
+    expect(pluginPkg.devDependencies[DSH_VERSION_PACKAGE]).toBe('0.1.2-alpha.3')
+    expect(createPackageVersionSource(DSH_VERSION_PACKAGE, import.meta.url).getHostVersion()).toBe('0.1.2-alpha.3')
   })
 })

@@ -81,12 +81,28 @@ stub 表里的两个 AGENT 可调用写工具转为真实转发（WP-3.3 冻结�
 | GREEN 宿主缺口证明 | host-attention-write（真实 wiring + `tables.listAllRuns()` 校验面 + 真 H 事件 actor + OPEN 行 + 严格注册 schema 投影） | 8 passed（EXIT=0） |
 | tsc | `npx tsc -p tsconfig.json`（EXIT=1 = 已知失败） | 输出正文 40 行，与 `docs/BASELINE_TSC_BASELINE.md` 40 行**逐行 diff = 空**（no-new-errors 判定规则满足；不比较计数） |
 | lint | `node scripts/check-imports.mjs` | EXIT=0（INV-PERM-5 无违规） |
-| build | `pnpm run build` | EXIT=0（lib/SNAPSHOT.md churn 不入库） |
+| build | `pnpm run build`（先 `pnpm install --frozen-lockfile` RC=0） | EXIT=0；**功能性产物随 PR 入库**（本项目 git-install 依赖已跟踪 dist：`lib/index.js` +363/−40 与 `e2e/factory-dist/factory.mjs` +363/−40，均含 G4 符号）；机器特异 churn 逐类甄别后排除——`lib/client.js` 36 行全为 `//#region` 机器路径注释（功能 diff=0，G4 未触 src/client）、`SNAPSHOT.md` 时间戳/源根 2 行；`pack-verify` PASS RC=0（519 entries / 59 descriptors，解包冒烟导入干净） |
 | e2e | — | **NOT_RUN**（本组未授权） |
 
 USER 回归：`createUserIntervention` 车道逐位不变（write-lane 套件钉 INBOX_ITEM/WORKSTREAM
 refs + USER actor 拒绝机械面 + IV_ACTOR_FORBIDDEN 双面），且
 `tests/intervention`/`tests/actions` 全套通过。
+
+产物重建逐行证据（完整原始日志留运行机 `.g4-logs/{artifact-install,build-artifact,pack-verify-artifact}.log`，
+同 BASELINE 文档惯例不入库）：
+
+```
+$ pnpm install --frozen-lockfile            RC=0   (node v24.21.0, pnpm 11.7.0)
+$ pnpm run build                            RC=0
+  ✔ Build complete in 1067ms
+  [snapshot-release] snapshot complete: 31 files (8 docs + 23 schema); read-only; provenance in SNAPSHOT.md
+$ node scripts/pack-verify.mjs              RC=0
+  [pack-verify] PASS: dsh-research-control-0.1.0.tgz — 519 entries, complete published surface,
+  no dev leakage, unpacked main/typert/remote import cleanly under node
+churn 甄别: lib/index.js 363/40 + factory.mjs 363/40 = 功能（含 AGENT_REPORT_REQUIRES_HUMAN/
+attentionValidationState/nextActionCreate 符号）; lib/client.js 18/18 全部匹配
+^[+-]\s*// （rcm-css region 机器路径注释, 功能 diff=0）; SNAPSHOT.md 2/2 = 生成时间+源根。
+```
 
 ## 5. 未跟随的邀请 / 开放项
 

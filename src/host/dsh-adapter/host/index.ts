@@ -2056,7 +2056,13 @@ export class ResearchControlService extends TypertRemoteService {
       return await def.execute(args, { signal: exec.signal, actor })
     } catch (e) {
       if (isToolError(e)) {
-        throw new ResearchToolHostError(`${e.code}: ${e.message}`, e.code, { cause: e })
+        // The ctor is (code, message, options) — the machine code FIRST:
+        // the registry's errorInfo rides `code` to the model side, so a
+        // sentence-valued code breaks routing (and `.message` would
+        // degrade to the bare code). `cause` rides through the standard
+        // ErrorOptions (HarnessError forwards them to Error — verified
+        // against the pinned runtime, no invented interface).
+        throw new ResearchToolHostError(e.code, `${e.code}: ${e.message}`, { cause: e })
       }
       throw toHostError(name, e)
     }
@@ -2078,10 +2084,12 @@ function isUsableSchemaRoot(p: string): boolean {
   )
 }
 
-/** Map an unexpected (non-`ToolError`) throw to the host error contract. */
+/** Map an unexpected (non-`ToolError`) throw to the host error contract
+ *  (ctor is `(code, message, options)` — the machine code `TOOL_INTERNAL`
+ *  FIRST, the sentence in `message`, same shape as the ToolError mapping). */
 function toHostError(name: string, e: unknown): ResearchToolHostError {
   const message = e instanceof Error ? e.message : String(e)
-  return new ResearchToolHostError(`TOOL_INTERNAL: ${name}: unexpected failure: ${message}`, 'TOOL_INTERNAL', { cause: e })
+  return new ResearchToolHostError('TOOL_INTERNAL', `TOOL_INTERNAL: ${name}: unexpected failure: ${message}`, { cause: e })
 }
 
 /**

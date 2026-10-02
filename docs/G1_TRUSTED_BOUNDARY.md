@@ -76,3 +76,15 @@
 - 既有 fixture 更新说明：`tests/tools/run-checkpoint.test.ts` 的正例 actor 原持
   `R-81`（与真实创建的 `R-1` 天然错配，系旧缺口下的历史遗留）——G1 后改为同 run id；
   跨 run 用例新增为负例。这是计划 §2c 明载的契约修正，非回归。
+- **Review #1 窄修（host error code/message 互换）**：`ResearchToolHostError` ctor 为
+  `(code, message, options)`，但 host catch 与 `toHostError` 两处按 message-first 传参
+  （preexisting），机器路由 `error.code` 实为整句、`message` 反成裸码；G1 的 checkpoint
+  拒绝把该形状直接暴露到模型侧。修复 = 两处改为 code-first（message 文本面保持原句式、
+  `cause` 经标准 ErrorOptions 透传——对 pinned 运行时实测确认，非发明接口）；missing-tool /
+  not-initialized / caller-unresolved 三处构造本已正确未动。宿主测试相应升级为**精确
+  `error.code` 等值断言**（跨 run→`TOOL_SERVICE`、内部异常注入→`TOOL_INTERNAL`、
+  run-less→`TOOL_RUN_REQUIRED`，message 只作包含性辅证），并新增一个 live-wiring
+  故障注入用例覆盖 unexpected-throw→`TOOL_INTERNAL` 映射。红→绿证据：
+  `review-fix-red.log`（`code="TOOL_RUN_REQUIRED: …整句"` 精确断言失败）→
+  `review-fix-green.log`（23/23）；tsc 逐行仍与基线 diff 为空（`tsc-reviewfix.log`）。
+

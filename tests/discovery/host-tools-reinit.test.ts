@@ -171,11 +171,22 @@ function execAs(sessionId: string): { signal: AbortSignal; agent: { sessionId: s
   return { signal: new AbortController().signal, agent: { sessionId } }
 }
 
-/** Combine the host error's machine fields into one haystack (the
- *  ResearchToolHostError carries the code + the mapped ToolError text). */
-function errHaystack(e: unknown): string {
+/** Precise host-machine error assertion. `ResearchToolHostError.code` is
+ *  the machine-routable code (WP-3.3 contract — the registry's errorInfo
+ *  extracts `info.code` verbatim), so it must EQUAL the expected code —
+ *  a haystack `includes` would mask the code/message swap (a sentence in
+ *  `code` would pass). `message` is the carried human-readable text. */
+function expectHostError(e: unknown, code: string, messageIncludes?: string): true {
   const err = e as { code?: unknown; message?: unknown }
-  return `${String(err.code ?? '')}\n${String(err.message ?? e)}`
+  if (typeof err.code !== 'string' || err.code !== code) {
+    throw new Error(
+      `expected host error code ${JSON.stringify(code)}, got code=${JSON.stringify(err.code)} message=${JSON.stringify(err.message)}`,
+    )
+  }
+  if (messageIncludes !== undefined && !String(err.message).includes(messageIncludes)) {
+    throw new Error(`expected host error message to include ${JSON.stringify(messageIncludes)}, got ${JSON.stringify(err.message)}`)
+  }
+  return true
 }
 
 /** The frozen §7.2 11-name face (the registration boundary constant). */
@@ -310,28 +321,54 @@ describe('agent tools across a plane-mutation RE-INIT（G1 live-wiring dispatch�
 
       // ① A run-less session pointing its args at a REAL run: the run
       //    attribution comes from the session, so the write gate fires —
-      //    args never manufacture an identity (INV-PERM-1).
+      //    args never manufacture an identity (INV-PERM-1). EXACT machine
+      //    code (a sentence in `code` must not pass).
       await expect(
         checkpoint.execute({ run_id: runA.id }, execAs('sess-no-run')),
-      ).rejects.toSatisfy((e: unknown) => errHaystack(e).includes('TOOL_RUN_REQUIRED'))
+      ).rejects.toSatisfy((e: unknown) => expectHostError(e, 'TOOL_RUN_REQUIRED', 'research_run_checkpoint'))
 
       // ② An unknown session id is likewise unattributed (a forged
       //    session id in the run's row would be needed — not input).
       await expect(
         checkpoint.execute({ run_id: runA.id }, execAs('sess-forged')),
-      ).rejects.toSatisfy((e: unknown) => errHaystack(e).includes('TOOL_RUN_REQUIRED'))
+      ).rejects.toSatisfy((e: unknown) => expectHostError(e, 'TOOL_RUN_REQUIRED'))
 
       // ③ The same-run gate rides through the host lane: AGENT(sess-a →
-      //    run A) checkpointing run B is a structured service rejection,
-      //    and B stays untouched.
+      //    run A) checkpointing run B is a structured service rejection —
+      //    the existing ToolError mapping with the EXACT code
+      //    `TOOL_SERVICE` (not the whole sentence) — and B stays
+      //    untouched.
       await expect(
         checkpoint.execute({ run_id: runB.id, note: '跨 run 伪造' }, execAs('sess-g1-a')),
-      ).rejects.toSatisfy((e: unknown) => errHaystack(e).includes('TOOL_SERVICE'))
+      ).rejects.toSatisfy((e: unknown) => expectHostError(e, 'TOOL_SERVICE', 'recordCheckpoint'))
       expect(wiring.runBinding.getRun(runB.id)?.last_checkpoint_at).toBeUndefined()
 
       // ④ The same-run positive keeps working (no over-tightening).
       const ok = (await checkpoint.execute({ run_id: runA.id, note: 'own' }, execAs('sess-g1-a'))) as { status: string }
       expect(ok.status).toBe('ok')
+
+      // ⑤ An UNEXPECTED (non-ToolError) throw below the boundary maps to
+      //    the EXACT code `TOOL_INTERNAL` (never a raw unstructured leak).
+      //    Fault injection replaces one live definition with an
+      //    always-throwing stand-in (the frozen array is rebuilt per
+      //    wiring — the host resolves it LIVE, so the swap is observed;
+      //    restored in finally).
+      const tools = wiring.tools as unknown as Array<{ name: string; execute: (a: unknown, e: unknown) => Promise<unknown> }>
+      const idx = tools.findIndex((t) => t.name === 'research_plan_get')
+      const original = tools[idx]!
+      tools[idx] = {
+        name: original.name,
+        execute: async (): Promise<unknown> => {
+          throw new Error('injected internal boom')
+        },
+      }
+      try {
+        await expect(
+          tool(h, 'research_plan_get').execute({}, execAs('sess-g1-a')),
+        ).rejects.toSatisfy((e: unknown) => expectHostError(e, 'TOOL_INTERNAL', 'unexpected failure'))
+      } finally {
+        tools[idx] = original
+      }
     } finally {
       disposeFiber(h)
     }
@@ -351,10 +388,8 @@ describe('agent tools across a plane-mutation RE-INIT（G1 live-wiring dispatch�
       expect(unbind.projectId).toBe('PRJ-1')
 
       for (const def of h.tools) {
-        await expect(def.execute({ run_id: runA.id }, execAs('sess-g1-a'))).rejects.toSatisfy((e: unknown) => {
-          const err = e as { code?: unknown; message?: unknown }
-          return err.code === 'TOOL_INTERNAL' && String(err.message).includes('not initialized')
-        })
+        await expect(def.execute({ run_id: runA.id }, execAs('sess-g1-a')))
+          .rejects.toSatisfy((e: unknown) => expectHostError(e, 'TOOL_INTERNAL', 'not initialized'))
       }
     } finally {
       disposeFiber(h)

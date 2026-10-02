@@ -34,8 +34,10 @@ import { NON_AGENT_ACTORS, expectToolErrorAsync, makeExec, makeRecordingDeps } f
 import { openRecord } from '../planfork/fixtures.js'
 
 const deps = makeRecordingDeps()
-// The 5 live tools get fixed success impls so the PERMISSION GATE is the
-// only variable under test (the forwarding fidelity is a separate suite).
+// The 9 live tools get fixed success impls so the PERMISSION GATE is the
+// only variable under test (the forwarding fidelity is a separate suite:
+// G3's semantic lane → tests/tools/semantic-create.test.ts, G2's reads →
+// tests/tools/read-tools.test.ts).
 deps.setPlanForkCreate((params) => ({ ...openRecord(), created_by_run: params.createdByRun }))
 deps.setRecordCheckpoint((runId) => ({
   id: runId,
@@ -78,6 +80,27 @@ deps.setSemanticAgentCreate({
     createdByRun: caller.run_id,
   }),
 })
+deps.setContextGet((sessionId) => ({ session_id: sessionId, bound: false }))
+deps.setPlanGet((workstreamId) => ({
+  workstream: { id: workstreamId, title: null },
+  topic_id: null,
+  present: true,
+  consistent: true,
+  ordered_items: [],
+}))
+deps.setHistoryQuery((query) => ({
+  workstream_id: query.workstreamId,
+  order: query.order ?? 'semantic',
+  limit: query.limit,
+  events: [],
+  next_after_seq: null,
+  exhausted: true,
+}))
+deps.setContractRead((edgeId) => ({
+  edge: { id: edgeId, topic_id: 'TPC-1', operation: 'MERGE', lifecycle: 'PLANNED', inputs: ['WS-1'], outputs: ['WS-2'] },
+  content: null,
+  path: `merges/${edgeId}/contract.md`,
+}))
 const tools = createResearchTools(deps)
 
 /** One accepted minimal argument set per tool (passes the wire face). */
@@ -130,12 +153,12 @@ describe('TC-DOM-013 layer 2: run requirement on the write set (INV-PERM-1)', ()
   }
   it('read tools do NOT require a run (an investigator session may have no formal run)', async () => {
     for (const tool of tools.filter((t) => READ_TOOL_NAMES.includes(t.name))) {
-      // the gate must pass the run check: the refusal (when any) is the
-      // stub's NOT_IMPLEMENTED, never TOOL_RUN_REQUIRED
-      await expectToolErrorAsync(
-        () => tool.execute(VALID_ARGS[tool.name], makeExec({ actor: { kind: 'AGENT', session_id: 's' } })),
-        'TOOL_NOT_IMPLEMENTED',
-      )
+      // the gate passes with a session-only AGENT actor: a runless read
+      // SUCCEEDS (G2 retired the read stubs — the lane is live end to end)
+      const result = (await tool.execute(VALID_ARGS[tool.name], makeExec({ actor: { kind: 'AGENT', session_id: 's' } }))) as {
+        status: string
+      }
+      expect(result.status, tool.name).toBe('ok')
     }
   })
 })
@@ -145,10 +168,10 @@ describe('TC-DOM-013 layer 3: the allowed lane (AGENT + run passes the gate on a
     const tool = tools.find((t) => t.name === name)!
     try {
       const result = (await tool.execute(VALID_ARGS[name], makeExec())) as { status: string }
-      // the live tools (plan-fork, checkpoint, + the G3 semantic trio)
+      // the 9 live tools (plan-fork, checkpoint, the G3 semantic trio, the 4 G2 reads)
       expect(['created', 'ok']).toContain(result.status)
     } catch (e) {
-      // the 6 stubs: the ONLY failure mode past the gate is NOT_IMPLEMENTED
+      // the 2 attention-lane stubs: the ONLY failure mode past the gate is NOT_IMPLEMENTED
       await expectToolErrorAsync(
         () => {
           throw e

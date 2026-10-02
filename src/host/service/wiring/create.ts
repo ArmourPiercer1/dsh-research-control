@@ -91,7 +91,9 @@ import {
 } from '../hierarchy/index.js'
 import {
   FsPlanFileWriter,
+  FsTopologyFileIo,
 } from '../fs/index.js'
+import { makeToolReadServices } from './read-services.js'
 import {
   InterventionService,
   InterventionLifecycleStore,
@@ -1032,6 +1034,21 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       objectiveIds,
     })
 
+    // G2 (§2d) — the four READ services (context / plan / history /
+    // contract), composed from the read faces of the primitives above
+    // (runbinding tables, the QueryStore read surface, the canonical
+    // plan provider, fresh loader trees, the contract READ kernel).
+    // service/wiring/read-services.ts — read-only by construction.
+    const readServices = makeToolReadServices({
+      reader,
+      researchRoot,
+      declarativeDir,
+      tables,
+      store,
+      io: new FsTopologyFileIo(),
+      planProvider,
+    })
+
     // G3 — per-call semantic records service for the tool lane (mirrors
     // the RPC Records face; fresh plan index, wrapped store, run port).
     const makeSemanticToolService = (): SemanticRecordsService => {
@@ -1102,6 +1119,9 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
         recordClaim: (args, caller) => makeSemanticToolService().recordClaimAsAgent(args, caller),
         registerArtifact: (args, caller) => makeSemanticToolService().registerArtifactAsAgent(args, caller),
       },
+      // G2 (§2d) — the four read ports (read-only projections; see
+      // service/wiring/read-services.ts).
+      ...readServices,
     }
     const tools = createResearchTools(toolsDeps)
 

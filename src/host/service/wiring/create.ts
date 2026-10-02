@@ -173,6 +173,7 @@ import {
   type SemanticRebuildResult,
 } from './semantics.js'
 import { initialSemanticState, type SemanticState } from '../../domain/semantics/index.js'
+import { SemanticRecordsService, type SemanticWorkstreamIndex } from '../../service/semantics/index.js'
 import { withRealizeCompensation } from './realize-store.js'
 import { WorkstreamRealizer } from './workstream-flip.js'
 import { HostWiringError, type HostWiringOptions } from './types.js'
@@ -1048,6 +1049,37 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       planProvider,
     })
 
+    // G3 — per-call semantic records service for the tool lane (mirrors
+    // the RPC Records face; fresh plan index, wrapped store, run port).
+    const makeSemanticToolService = (): SemanticRecordsService => {
+      // Partial-tree semantics per the loader contract («其余文件正常加载»):
+      // the plan index is only the plan-view of what loaded; the registry
+      // hook validates against the DERIVED rows (the authoritative layer),
+      // so a broken sibling file cannot smuggle a bad write through here.
+      const tree = loadResearchTree(reader, researchRoot, declarativeDir).tree
+      const workstreams: SemanticWorkstreamIndex[] = []
+      for (const topic of tree.topics) {
+        for (const ws of topic.workstreams) {
+          workstreams.push({
+            id: ws.id,
+            topicId: ws.topicId,
+            taskIds: ws.tasks.map((n) => n.id),
+            gateIds: ws.gates.map((n) => n.id),
+            milestoneIds: ws.milestones.map((n) => n.id),
+          })
+        }
+      }
+      return new SemanticRecordsService({
+        store,
+        registry,
+        allocator,
+        plans: { workstreams },
+        projectId: options.projectId,
+        runs: { getRun: (runId) => runBinding.getRun(runId) },
+        now,
+      })
+    }
+
     const toolsDeps: ResearchToolDeps = {
       // The SYNCHRONOUS tool port: the eight-step domain chain with the
       // content-addressed capture (module: content-hash-capture.ts — the
@@ -1075,6 +1107,20 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
         return record
       },
       recordCheckpoint: (runId, params, actor) => runBinding.recordCheckpoint(runId, params, actor),
+      // G3 — the narrow semantic AGENT create lane (the three research_*
+      // write tools). Per-call construction mirrors the RPC Records face
+      // (rpc-services #makeSemanticRecordsService): a FRESH tree load for
+      // the plan index (the file is the truth), the WRAPPED store (the
+      // RR-011(b) fold seam rides the same tx), and the run-registry port
+      // over the live runBinding (the lane verifies the trusted run:
+      // existence + owner WS — G1's identity chain ends here).
+      semanticAgentCreate: {
+        recordFact: (args, caller) => makeSemanticToolService().recordFactAsAgent(args, caller),
+        recordClaim: (args, caller) => makeSemanticToolService().recordClaimAsAgent(args, caller),
+        registerArtifact: (args, caller) => makeSemanticToolService().registerArtifactAsAgent(args, caller),
+      },
+      // G2 (§2d) — the four read ports (read-only projections; see
+      // service/wiring/read-services.ts).
       ...readServices,
     }
     const tools = createResearchTools(toolsDeps)

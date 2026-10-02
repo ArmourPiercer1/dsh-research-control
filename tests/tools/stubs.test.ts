@@ -2,9 +2,12 @@
  * WP-3.3 — stub tool behavior (task goal 3: 「未落地的服务以 stub 处理器 +
  * 显式 NOT_IMPLEMENTED 结构化错误交付」).
  *
+ * G3 retired the semantic trio (fact_record / claim_record /
+ * artifact_register — live behavior in tests/tools/semantic-create.test.ts);
  * G2 (§2d) retired the four READ stubs (context_get / plan_get /
- * history_query / contract_read now forward live — see
- * tests/tools/read-tools.test.ts); the remaining 5 WRITE stubs must each:
+ * history_query / contract_read — live behavior in
+ * tests/tools/read-tools.test.ts). The remaining 2 WRITE stubs (the G4
+ * attention lane: intervention_create / next_action_create) must each:
  *  1. pass the permission gate first (a forged actor is refused with
  *     TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED — NOT NOT_IMPLEMENTED);
  *  2. validate the frozen wire face (TOOL_INPUT on a bad face — the face
@@ -17,9 +20,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  RESEARCH_ARTIFACT_REGISTER,
-  RESEARCH_CLAIM_RECORD,
-  RESEARCH_FACT_RECORD,
   RESEARCH_INTERVENTION_CREATE,
   RESEARCH_NEXT_ACTION_CREATE,
   READ_TOOL_NAMES,
@@ -28,21 +28,20 @@ import {
 import { expectToolErrorAsync, makeExec, makeRecordingDeps } from './fixtures.js'
 
 const STUBS: { name: string; args: Record<string, unknown> }[] = [
-  { name: RESEARCH_FACT_RECORD, args: { workstream_id: 'WS-1', statement: 's' } },
-  { name: RESEARCH_CLAIM_RECORD, args: { workstream_id: 'WS-1', statement: 's' } },
-  {
-    name: RESEARCH_ARTIFACT_REGISTER,
-    args: { workstream_id: 'WS-1', type: 'CODE', title: 't', uri: 'a/b.py' },
-  },
   { name: RESEARCH_INTERVENTION_CREATE, args: { title: '需要人工判断：误差预算冲突', detail: 'd' } },
   { name: RESEARCH_NEXT_ACTION_CREATE, args: { workstream_id: 'WS-1', statement: 's', rationale: 'r' } },
 ]
 
 describe('stub tools: the NOT_IMPLEMENTED structured error', () => {
-  it('the stub set is exactly the 5 unwritten write tools (G2 retired all four reads)', () => {
+  it('the stub set is exactly the 2 remaining attention-lane write tools (G3 retired the semantic trio, G2 the four reads)', () => {
     const names = new Set(STUBS.map((s) => s.name))
     // no read tool may fall back to a stub (G2 §2d)
     for (const read of READ_TOOL_NAMES) expect(names.has(read)).toBe(false)
+    // the G3 semantic trio is live too (tests/tools/semantic-create.test.ts)
+    for (const retired of ['research_fact_record', 'research_claim_record', 'research_artifact_register']) {
+      expect(names.has(retired), retired).toBe(false)
+    }
+    expect(STUBS).toHaveLength(2)
   })
 
   it.each(STUBS)('$name throws NOT_IMPLEMENTED with a structured detail (and never touches the services)', async (stub) => {

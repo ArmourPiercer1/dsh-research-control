@@ -16,10 +16,11 @@
  *
  * Layer (ARCHITECTURE §2.2): tools are the TOP layer — they forward to
  * SERVICES and never to the domain directly. The only dependencies are
- * the `ResearchToolDeps` service ports below (G1-era: the two write
- * ports; G2 §2d adds the four READ ports); everything else (frozen
- * records, parameter shapes) is data. `domain/` and `service/` are imported
- * for TYPE SURFACES ONLY (no service instantiation in this layer).
+ * the `ResearchToolDeps` service ports below (the G1-era write ports +
+ * the G3 semantic create lane + the G2 §2d READ ports); everything else
+ * (frozen records, parameter shapes) is data. `domain/` and `service/`
+ * are imported for TYPE SURFACES ONLY (no service instantiation in this
+ * layer).
  *
  * Permission matrix (ARCHITECTURE §6) is BUILT IN:
  *  - every tool declares `allowedActorKinds` — all 11 agent tools admit
@@ -34,9 +35,11 @@
  *    forbidden-operation list (INV-PERM-2) against the name set;
  *  - the Agent has NO canonical-plan write path (INV-PLAN-3): the deps
  *    face carries NO plan writer (proven at the type surface in
- *    `tests/tools/inv-plan-3.test.ts` — the write lane is still exactly
- *    the two original ports, the G2 additions are pure READ ports) and
- *    no tool parameter can express a plan mutation.
+ *    `tests/tools/inv-plan-3.test.ts` — the write surface is exactly the
+ *    planForkCreate chain, the recordCheckpoint backing and the G3
+ *    semantic create lane (semantic CREATE, never plan mutation), the
+ *    G2 additions are pure READ ports) and no tool parameter can express
+ *    a plan mutation.
  *
  * Error contract: handlers THROW `ToolError` (never return an error value)
  * — the host registry materializes a thrown body as a failed tool result,
@@ -46,6 +49,15 @@
 
 import type { CreatePlanForkParams, PlanForkRecord } from '../domain/planfork/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../service/runbinding/index.js'
+import type {
+  RecordClaimArgs,
+  RecordClaimResult,
+  RecordFactArgs,
+  RecordFactResult,
+  RegisterArtifactArgs,
+  RegisterArtifactResult,
+  SemanticAgentActor,
+} from '../service/semantics/index.js'
 import type {
   ToolHistoryPage,
   ToolHistoryQuery,
@@ -342,24 +354,70 @@ export function isToolError(error: unknown): error is ToolError {
   return error instanceof ToolError
 }
 
+/**
+ * G3 — build the trusted lane caller from the exec context ONLY (the
+ * host resolved actor.kind + run_id from the calling session, G1; the
+ * gate already enforced the run for writes — this is the defensive
+ * second look). Identity never comes from args: the frozen faces refuse
+ * every identity key (tests/tools/trusted-boundary + semantic-create).
+ */
+export function semanticCallerFrom(ctx: ToolExecContext): SemanticAgentActor {
+  if (typeof ctx.runId !== 'string' || ctx.runId.length === 0) {
+    throw new ToolError(
+      'TOOL_RUN_REQUIRED',
+      'the semantic agent create lane requires the run-resolved actor (INV-PERM-1) — unreachable past the gate',
+    )
+  }
+  return {
+    kind: 'AGENT',
+    run_id: ctx.runId,
+    ...(ctx.actor.session_id !== undefined ? { session_id: ctx.actor.session_id } : {}),
+    ...(ctx.actor.label !== undefined ? { label: ctx.actor.label } : {}),
+  }
+}
+
+/**
+ * G3 — map a semantic-lane failure into the tool error contract. The
+ * semantics service throws the documented carrier
+ * `[research-control] <CODE>: <message>` (service/semantics/errors.ts);
+ * the machine code rides in `detail.serviceCode` (the run-checkpoint
+ * precedent), the message carries the full carrier text. Anything else
+ * maps to TOOL_SERVICE WITHOUT inventing a code.
+ */
+export function toSemanticToolServiceError(toolName: string, cause: unknown): ToolError {
+  if (cause instanceof ToolError) return cause
+  const message = cause instanceof Error ? cause.message : String(cause)
+  const carrier = /^\[research-control\] ([A-Z0-9_]+): /.exec(message)
+  return new ToolError(
+    'TOOL_SERVICE',
+    `${toolName}: ${message}`,
+    carrier !== null
+      ? { cause, detail: { serviceCode: carrier[1] as string } }
+      : { cause },
+  )
+}
+
 /* ------------------------------------------------------------------ *
  * Service deps (the ONLY forwarding surface — INV-PLAN-3 type proof)
  * ------------------------------------------------------------------ */
 
 /**
- * The service ports the real (non-stub) tools forward to: the two write
- * ports (WP-3.1 creation chain + WP-2.4 checkpoint) and the four G2 §2d
- * READ ports (context/plan/history/contract — each a pure projection,
- * none carries a write argument or a mutating return).
+ * The service ports the real (non-stub) tools forward to: the write
+ * surface (WP-3.1 creation chain + WP-2.4 checkpoint backing + the G3
+ * narrow semantic create lane) and the four G2 §2d READ ports
+ * (context/plan/history/contract — each a pure projection, none carries
+ * a write argument or a mutating return).
  *
  * TYPE-SURFACE PROOF of INV-PLAN-3 (Agent 无 canonical plan 写路径):
  * this interface is the complete dependency face of the tool layer —
  * `tests/tools/inv-plan-3.test.ts` pins `keyof ResearchToolDeps` to
- * EXACTLY these six keys (write: the original two; read: G2's four, each
- * with a pinned read-only signature), so any canonical-plan writer
- * (PlanStore's savePlan/insertItemAt/moveItem/removeItem/… or a contract
- * writer) can never be injected into the tool face without a compile
- * error. The `planForkCreate` port's parameter is the frozen §4
+ * EXACTLY these seven keys (write surface: planForkCreate /
+ * recordCheckpoint / semanticAgentCreate — the G3 lane is semantic
+ * CREATE with typed AGENT callers, never a plan mutation; read: G2's
+ * four, each with a pinned read-only signature), so any canonical-plan
+ * writer (PlanStore's savePlan/insertItemAt/moveItem/removeItem/… or a
+ * contract writer) can never be injected into the tool face without a
+ * compile error. The `planForkCreate` port's parameter is the frozen §4
  * `CreatePlanForkParams` (no `base*` key — WP-3.1's own absent-key type
  * assertions), and its return is a PlanFork RECORD, never a plan; the
  * `planGet` port returns a READ VIEW of the canonical plan, never the
@@ -384,6 +442,21 @@ export interface ResearchToolDeps {
     params: { note?: string },
     actor: UserOrAgentActorRef,
   ) => RunRecord
+  /**
+   * G3 — research_fact_record / research_claim_record / research_artifact_register:
+   * the narrow AGENT create lane of the semantic records service. The
+   * `caller` parameter is REQUIRED and typed `SemanticAgentActor` — a
+   * USER actor is a compile error on this surface, the tools build it
+   * from the host-resolved exec actor (never from args, G1), and the
+   * service re-verifies the run (existence + owner WS) before writing.
+   * Semantic CREATE only — no update/delete/retract rides this port
+   * (the §6 USER-only lanes stay unreachable; INV-PLAN-3 unaffected).
+   */
+  readonly semanticAgentCreate: {
+    readonly recordFact: (args: RecordFactArgs, caller: SemanticAgentActor) => RecordFactResult
+    readonly recordClaim: (args: RecordClaimArgs, caller: SemanticAgentActor) => RecordClaimResult
+    readonly registerArtifact: (args: RegisterArtifactArgs, caller: SemanticAgentActor) => RegisterArtifactResult
+  }
   /**
    * G2 (§2d) research_context_get — the read service resolving the CALLING
    * session's research context (runbinding single binding + declarative

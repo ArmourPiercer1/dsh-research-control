@@ -4,11 +4,13 @@
  * 本 WP 交付工具面半边).
  *
  * 编译期 (类型面, tsc/typecheck 消费者生效):
- *  - 依赖面的**写面**被钉死为恰好两个键 (planForkCreate /
- *    recordCheckpoint) — 任何 canonical plan 写口 (PlanStore 的
- *    savePlan/createItem/updateItem/insertItemAt/moveItem/removeItem/
- *    addItem 或 contract writer) 想进入工具层依赖面 ⇒ 编译失败;
- *    (G2 §2d 起依赖面共六个键: 上述两写口 + 四个只读端口
+ *  - 依赖面的**写面**被钉死为恰好三个键 (planForkCreate /
+ *    recordCheckpoint / semanticAgentCreate) — 任何 canonical plan 写口
+ *    (PlanStore 的 savePlan/createItem/updateItem/insertItemAt/moveItem/
+ *    removeItem/addItem 或 contract writer) 想进入工具层依赖面 ⇒ 编译
+ *    失败; (G3 的 semanticAgentCreate 是语义创建窄端口 — 只建
+ *    fact/claim/artifact, 无任何 plan 语义, 签名逐字钉死; G2 §2d 起
+ *    依赖面共七个键: 上述三写面键 + 四个只读端口
  *    contextGet/planGet/historyQuery/contractRead — 每个只读端口的
  *    返回类型被逐字钉为投影 DTO, 签名里没有任何写参数/写返回;)
  *  - 两个端口的签名被逐字钉死: planForkCreate 的参数是冻结 §4
@@ -34,6 +36,12 @@ import {
   type PlanForkRecord,
 } from '../../src/host/domain/planfork/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../../src/host/service/runbinding/index.js'
+import type {
+  RecordClaimArgs,
+  RecordFactArgs,
+  RegisterArtifactArgs,
+  SemanticAgentActor,
+} from '../../src/host/service/semantics/index.js'
 import type {
   ToolHistoryPage,
   ToolHistoryQuery,
@@ -61,13 +69,17 @@ type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y 
 /** True iff K is NOT a key of T. */
 type Absent<K extends string, T> = [K] extends [keyof T] ? false : true
 
-/** INV-PLAN-3 核心钉 (G2 §2d 后): 依赖面 = 两个写口 + 四个只读端口,
- *  键集恰此六个 — 任何 canonical plan 写口都不在其中. */
+/** INV-PLAN-3 核心钉 (G3+G2 后): 工具层依赖面恰七个键 — 无 canonical
+ *  plan 写口可注入 (写面 = planForkCreate / recordCheckpoint /
+ *  semanticAgentCreate: G3 语义创建窄端口只建 fact/claim/artifact, 参数
+ *  被冻结语义 args + 必传 trusted caller 逐字钉死, 无任何 plan 语义;
+ *  读面 = G2 四个只读端口, 签名逐一钉为投影 DTO). */
 type T_DepsFaceExact = Expect<
   Equal<
     keyof ResearchToolDeps,
     | 'planForkCreate'
     | 'recordCheckpoint'
+    | 'semanticAgentCreate'
     | 'contextGet'
     | 'planGet'
     | 'historyQuery'
@@ -75,9 +87,22 @@ type T_DepsFaceExact = Expect<
   >
 >
 
-/** 正例钉: 六个键都在. */
+/** 正例钉: 七个键都在. */
 type T_HasPlanForkCreate = Expect<['planForkCreate'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasRecordCheckpoint = Expect<['recordCheckpoint'] extends [keyof ResearchToolDeps] ? true : false>
+type T_HasSemanticAgentCreate = Expect<['semanticAgentCreate'] extends [keyof ResearchToolDeps] ? true : false>
+
+/** G3 语义创建端口逐字钉: 每个方法 = (冻结语义 args, 必传 trusted caller),
+ *  返回 = 服务结果; caller 类型 AGENT 硬约束 (USER 在类型面不可传入). */
+type T_SemanticFactParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['recordFact']>, [RecordFactArgs, SemanticAgentActor]>
+>
+type T_SemanticClaimParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['recordClaim']>, [RecordClaimArgs, SemanticAgentActor]>
+>
+type T_SemanticArtifactParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['registerArtifact']>, [RegisterArtifactArgs, SemanticAgentActor]>
+>
 
 /** Canonical plan 写口 (PlanStore 面) 无一可进入依赖面. */
 type T_NoSavePlan = Expect<Absent<'savePlan', ResearchToolDeps>>
@@ -190,9 +215,9 @@ const PLAN_WRITE_PARAM_KEYS = [
 ] as const
 
 describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路径)', () => {
-  it('deps face is the frozen six-port set (compile-time pin; runtime mirror: the composition accepts only those)', () => {
-    // 运行时镜像: 依赖对象的键集 = 两个写口 + 四个 G2 只读端口 (JS 调用者
-    // 绕过类型的护栏时, 写词汇依然不可达 — 只有六个端口键).
+  it('deps face is the frozen seven-port set (compile-time pin; runtime mirror: the composition accepts only those)', () => {
+    // 运行时镜像: 依赖对象的键集 = 三个写面键 + 四个 G2 只读端口 (JS 调用者
+    // 绕过类型的护栏时, plan 写词汇依然不可达 — 只有这七个端口键).
     const deps = makeRecordingDeps()
     const {
       planForkCreateCalls,
@@ -203,6 +228,7 @@ describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路�
       contractReadCalls,
       setPlanForkCreate,
       setRecordCheckpoint,
+      setSemanticAgentCreate,
       setContextGet,
       setPlanGet,
       setHistoryQuery,
@@ -217,6 +243,7 @@ describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路�
     void contractReadCalls
     void setPlanForkCreate
     void setRecordCheckpoint
+    void setSemanticAgentCreate
     void setContextGet
     void setPlanGet
     void setHistoryQuery
@@ -228,6 +255,7 @@ describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路�
       'planForkCreate',
       'planGet',
       'recordCheckpoint',
+      'semanticAgentCreate',
     ])
   })
 

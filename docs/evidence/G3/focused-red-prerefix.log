@@ -1,0 +1,301 @@
+
+ RUN  v4.1.11 <repo>/.worktrees/g3
+
+ ❯ tests/tools/semantic-create.test.ts (11 tests | 7 failed) 9ms
+     × forwards the frozen face + the host-resolved caller and returns the strict success value 4ms
+     × optional references absent ⇒ fresh empty array on the value 1ms
+     × returns the strict success value validating against the tool output schema 0ms
+     × maps the 7-key face to the service args and returns the strict success value 0ms
+     ✓ research_fact_record: an identity/unknown key on the wire is TOOL_INPUT before any port 1ms
+     ✓ research_claim_record: an identity/unknown key on the wire is TOOL_INPUT before any port 0ms
+     ✓ research_artifact_register: an identity/unknown key on the wire is TOOL_INPUT before any port 0ms
+     ✓ an AGENT actor without a formal run never reaches the lane (TOOL_RUN_REQUIRED) 0ms
+     × the OWNER_MISMATCH carrier becomes TOOL_SERVICE with detail.serviceCode (message rides verbatim) 1ms
+     × an unknown caller run (OBJECT_NOT_FOUND carrier) maps the same way 0ms
+     × a non-carrier failure maps to TOOL_SERVICE WITHOUT a serviceCode (no invented codes) 0ms
+ ❯ tests/semantics-records/agent-create.test.ts (10 tests | 8 failed) 109ms
+     × records a fact attributed to the run: AGENT envelope actor, created_by_run payload + row 92ms
+     × records a claim attributed to the run (CLAIM_RECORDED, ACTIVE, created_by_run) 1ms
+     × registers an artifact by reference attributed to the run (BY REFERENCE, §13.6) 1ms
+     × bad refs keep the existing registry rules (related_task / supersedes OBJECT_NOT_FOUND, no event row) 1ms
+     × unknown caller run ⇒ OBJECT_NOT_FOUND carrier, no event row, no derived row 1ms
+     × cross-WS caller (run on WS-2, target WS-1) ⇒ OWNER_MISMATCH, nothing written 1ms
+     × the same-WS positive on the OTHER workstream keeps working (no WS-1 special-casing) 1ms
+     × a non-AGENT or run-less caller is refused BEFORE any reservation (INVALID_ENVELOPE) 1ms
+     ✓ the lane fails LOUD when the wiring did not inject the run registry (composition bug, not a runtime surprise) 1ms
+     ✓ recordFact (USER) on the same service: actor USER, NO created_by_run anywhere 6ms
+stdout | tests/discovery/host-tools-semantic-write.test.ts
+[research-control][startup-integrity] git boundary: pass — dirty working tree (1 dirty path(s), 1 under .research/) — reads unaffected; the checkpoint commits only .research/** (TC-GIT-001)
+
+stdout | tests/discovery/host-tools-semantic-write.test.ts
+[research-control][startup-integrity] git boundary: pass — dirty working tree (1 dirty path(s), 1 under .research/) — reads unaffected; the checkpoint commits only .research/** (TC-GIT-001)
+
+stdout | tests/discovery/host-tools-semantic-write.test.ts
+[research-control][startup-integrity] git boundary: pass — dirty working tree (1 dirty path(s), 1 under .research/) — reads unaffected; the checkpoint commits only .research/** (TC-GIT-001)
+
+ ❯ tests/discovery/host-tools-semantic-write.test.ts (3 tests | 3 failed) 1055ms
+     × fact/claim/artifact succeed on the bound run; events + rows carry AGENT actor/run provenance 256ms
+     × identity is host-owned: run-less session / forged identity keys never reach the lane 167ms
+     × cross-WS caller: AGENT(run on WS-2) recording on WS-1 is a structured refusal, nothing written 128ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 18 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/discovery/host-tools-semantic-write.test.ts > G3 semantic writes through the real host lane > fact/claim/artifact succeed on the bound run; events + rows carry AGENT actor/run provenance
+ResearchToolHostError: TOOL_NOT_IMPLEMENTED: research_fact_record: not wired in this build yet (the fact-recording service (FACT_RECORDED + registry row) — not yet landed (stub; see report))
+ ❯ ResearchControlService.#runResearchTool src/host/dsh-adapter/host/index.ts:2065:15
+    2063|         // ErrorOptions (HarnessError forwards them to Error — verified
+    2064|         // against the pinned runtime, no invented interface).
+    2065|         throw new ResearchToolHostError(e.code, `${e.code}: ${e.messag…
+       |               ^
+    2066|       }
+    2067|       throw toHostError(name, e)
+ ❯ tests/discovery/host-tools-semantic-write.test.ts:175:21
+
+Caused by: ToolError: research_fact_record: not wired in this build yet (the fact-recording service (FACT_RECORDED + registry row) — not yet landed (stub; see report))
+ ❯ handle src/host/tools/stub.ts:53:13
+ ❯ Object.execute src/host/tools/types.ts:440:27
+ ❯ ResearchControlService.#runResearchTool src/host/dsh-adapter/host/index.ts:2056:24
+ ❯ Object.execute src/host/dsh-adapter/host/index.ts:1989:16
+ ❯ tests/discovery/host-tools-semantic-write.test.ts:175:59
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'TOOL_NOT_IMPLEMENTED', detail: { tool: 'research_fact_record', plannedService: 'the fact-recording service (FACT_RECORDED + registry row) — not yet landed (stub; see report)' } }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/18]⎯
+
+ FAIL  tests/discovery/host-tools-semantic-write.test.ts > G3 semantic writes through the real host lane > identity is host-owned: run-less session / forged identity keys never reach the lane
+AssertionError: expected [ { eventId: 'H-1', …(9) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/discovery/host-tools-semantic-write.test.ts:244:49
+    242|         ),
+    243|       ).rejects.toSatisfy((e: unknown) => expectHostError(e, 'TOOL_INP…
+    244|       expect(wiring.store.listRange('WS-1', 1)).toHaveLength(0)
+       |                                                 ^
+    245|
+    246|       // ③ A session with NO formal run: the write gate fires first — …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/18]⎯
+
+ FAIL  tests/discovery/host-tools-semantic-write.test.ts > G3 semantic writes through the real host lane > cross-WS caller: AGENT(run on WS-2) recording on WS-1 is a structured refusal, nothing written
+Error: expected host error code "TOOL_SERVICE", got code="TOOL_NOT_IMPLEMENTED" message="TOOL_NOT_IMPLEMENTED: research_fact_record: not wired in this build yet (the fact-recording service (FACT_RECORDED + registry row) — not yet landed (stub; see report))"
+ ❯ tests/discovery/host-tools-semantic-write.test.ts:271:8
+    269|       await expect(
+    270|         tool(h, 'research_fact_record').execute({ workstream_id: 'WS-1…
+    271|       ).rejects.toSatisfy((e: unknown) => expectHostError(e, 'TOOL_SER…
+       |        ^
+    272|       expect(wiring.store.listRange('WS-1', 1)).toHaveLength(0)
+    273|       expect(wiring.store.listRange('WS-2', 1)).toHaveLength(0)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/18]⎯
+
+ FAIL  tests/semantics-records/agent-create.test.ts > G3 agent create lane — recordFactAsAgent > records a fact attributed to the run: AGENT envelope actor, created_by_run payload + row
+TypeError: h.service.recordFactAsAgent is not a function
+ ❯ tests/semantics-records/agent-create.test.ts:74:29
+     72|     const h = makeService(defaultPlans(), { runs })
+     73|     try {
+     74|       const res = h.service.recordFactAsAgent(
+       |                             ^
+     75|         { workstreamId: 'WS-1', statement: 'loss plateaued at epoch 12…
+     76|         CALLER_WS1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/18]⎯
+
+ FAIL  tests/semantics-records/agent-create.test.ts > G3 agent create lane — recordClaimAsAgent > records a claim attributed to the run (CLAIM_RECORDED, ACTIVE, created_by_run)
+TypeError: h.service.recordClaimAsAgent is not a function
+ ❯ tests/semantics-records/agent-create.test.ts:119:29
+    117|     const h = makeService(defaultPlans(), { runs })
+    118|     try {
+    119|       const res = h.service.recordClaimAsAgent({ workstreamId: 'WS-1',…
+       |                             ^
+    120|       expect(res.claimId).toBe('C-1')
+    121|       expect(res.status).toBe('ACTIVE')
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/18]⎯
+
+ FAIL  tests/semantics-records/agent-create.test.ts > G3 agent create lane — registerArtifactAsAgent > registers an artifact by reference attributed to the run (BY REFERENCE, §13.6)
+TypeError: h.service.registerArtifactAsAgent is not a function
+ ❯ tests/semantics-records/agent-create.test.ts:143:29
+    141|     const h = makeService(defaultPlans(), { runs })
+    142|     try {
+    143|       const res = h.service.registerArtifactAsAgent(
+       |                             ^
+    144|         {
+    145|           workstreamId: 'WS-1',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/18]⎯
+
+ FAIL  tests/semantics-records/agent-create.test.ts > G3 agent create lane — registerArtifactAsAgent > bad refs keep the existing registry rules (related_task / supersedes OBJECT_NOT_FOUND, no event row)
+Error: expected carrier code OBJECT_NOT_FOUND, got (not a carrier: TypeError: h.service.registerArtifactAsAgent is not a function) (message: h.service.registerArtifactAsAgent is not a function)
+ ❯ expectCarrier tests/semantics-records/helpers.ts:18:30
+     16|   if (!(e instanceof Error)) throw new Error(`expected a thrown Error,…
+     17|   const actual = carrierCode(e)
+     18|   if (actual !== code) throw new Error(`expected carrier code ${code},…
+       |                              ^
+     19| }
+     20|
+ ❯ expectCarrierCode tests/semantics-records/helpers.ts:26:5
+ ❯ tests/semantics-records/agent-create.test.ts:184:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/18]⎯
+
+ FAIL  tests/semantics-records/agent-create.test.ts > G3 agent create lane — trusted-run verification > unknown caller run ⇒ OBJECT_NOT_FOUND carrier, no event row, no derived row
+Error: expected carrier code OBJECT_NOT_FOUND, got (not a carrier: TypeError: h.service.recordFactAsAgent is not a function) (message: h.service.recordFactAsAgent is not a function)
+ ❯ expectCarrier tests/semantics-records/helpers.ts:18:30
+     16|   if (!(e instanceof Error)) throw new Error(`expected a thrown Error,…
+     17|   const actual = carrierCode(e)
+     18|   if (actual !== code) throw new Error(`expected carrier code ${code},…
+       |                              ^
+     19| }
+     20|
+ ❯ expectCarrierCode tests/semantics-records/helpers.ts:26:5
+ ❯ tests/semantics-records/agent-create.test.ts:218:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/18]⎯
+
+ FAIL  tests/semantics-records/agent-create.test.ts > G3 agent create lane — trusted-run verification > cross-WS caller (run on WS-2, target WS-1) ⇒ OWNER_MISMATCH, nothing written
+Error: expected carrier code OWNER_MISMATCH, got (not a carrier: TypeError: h.service.recordFactAsAgent is not a function) (message: h.service.recordFactAsAgent is not a function)
+ ❯ expectCarrier tests/semantics-records/helpers.ts:18:30
+     16|   if (!(e instanceof Error)) throw new Error(`expected a thrown Error,…
+     17|   const actual = carrierCode(e)
+     18|   if (actual !== code) throw new Error(`expected carrier code ${code},…
+       |                              ^
+     19| }
+     20|
+ ❯ expectCarrierCode tests/semantics-records/helpers.ts:26:5
+ ❯ tests/semantics-records/agent-create.test.ts:235:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/18]⎯
+
+ FAIL  tests/semantics-records/agent-create.test.ts > G3 agent create lane — trusted-run verification > the same-WS positive on the OTHER workstream keeps working (no WS-1 special-casing)
+TypeError: h.service.recordClaimAsAgent is not a function
+ ❯ tests/semantics-records/agent-create.test.ts:252:29
+    250|     const h = makeService(defaultPlans(), { runs })
+    251|     try {
+    252|       const res = h.service.recordClaimAsAgent({ workstreamId: 'WS-2',…
+       |                             ^
+    253|       expect(res.workstreamId).toBe('WS-2')
+    254|       expect(findEvent(h.store, res.eventId)!.ownerWorkstreamId).toBe(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/18]⎯
+
+ FAIL  tests/semantics-records/agent-create.test.ts > G3 agent create lane — trusted-run verification > a non-AGENT or run-less caller is refused BEFORE any reservation (INVALID_ENVELOPE)
+Error: expected carrier code INVALID_ENVELOPE, got (not a carrier: TypeError: h.service.recordFactAsAgent is not a function) (message: h.service.recordFactAsAgent is not a function)
+ ❯ expectCarrier tests/semantics-records/helpers.ts:18:30
+     16|   if (!(e instanceof Error)) throw new Error(`expected a thrown Error,…
+     17|   const actual = carrierCode(e)
+     18|   if (actual !== code) throw new Error(`expected carrier code ${code},…
+       |                              ^
+     19| }
+     20|
+ ❯ expectCarrierCode tests/semantics-records/helpers.ts:26:5
+ ❯ tests/semantics-records/agent-create.test.ts:266:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/18]⎯
+
+ FAIL  tests/tools/semantic-create.test.ts > research_fact_record (live): forwarding + strict output > forwards the frozen face + the host-resolved caller and returns the strict success value
+ToolError: research_fact_record: not wired in this build yet (the fact-recording service (FACT_RECORDED + registry row) — not yet landed (stub; see report))
+ ❯ handle src/host/tools/stub.ts:53:13
+     51|     handle: async (args, _ctx): Promise<ToolJsonValue> => {
+     52|       spec.parseArgs(args)
+     53|       throw new ToolError(
+       |             ^
+     54|         'TOOL_NOT_IMPLEMENTED',
+     55|         `${spec.name}: not wired in this build yet (${spec.plannedServ…
+ ❯ Object.execute src/host/tools/types.ts:440:27
+ ❯ tests/tools/semantic-create.test.ts:144:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/18]⎯
+
+ FAIL  tests/tools/semantic-create.test.ts > research_fact_record (live): forwarding + strict output > optional references absent ⇒ fresh empty array on the value
+ToolError: research_fact_record: not wired in this build yet (the fact-recording service (FACT_RECORDED + registry row) — not yet landed (stub; see report))
+ ❯ handle src/host/tools/stub.ts:53:13
+     51|     handle: async (args, _ctx): Promise<ToolJsonValue> => {
+     52|       spec.parseArgs(args)
+     53|       throw new ToolError(
+       |             ^
+     54|         'TOOL_NOT_IMPLEMENTED',
+     55|         `${spec.name}: not wired in this build yet (${spec.plannedServ…
+ ❯ Object.execute src/host/tools/types.ts:440:27
+ ❯ tests/tools/semantic-create.test.ts:173:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/18]⎯
+
+ FAIL  tests/tools/semantic-create.test.ts > research_claim_record (live): forwarding + strict output > returns the strict success value validating against the tool output schema
+ToolError: research_claim_record: not wired in this build yet (the claim-recording service (CLAIM_RECORDED + registry row) — not yet landed (stub; see report))
+ ❯ handle src/host/tools/stub.ts:53:13
+     51|     handle: async (args, _ctx): Promise<ToolJsonValue> => {
+     52|       spec.parseArgs(args)
+     53|       throw new ToolError(
+       |             ^
+     54|         'TOOL_NOT_IMPLEMENTED',
+     55|         `${spec.name}: not wired in this build yet (${spec.plannedServ…
+ ❯ Object.execute src/host/tools/types.ts:440:27
+ ❯ tests/tools/semantic-create.test.ts:185:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/18]⎯
+
+ FAIL  tests/tools/semantic-create.test.ts > research_artifact_register (live): forwarding + strict output > maps the 7-key face to the service args and returns the strict success value
+ToolError: research_artifact_register: not wired in this build yet (the artifact-recording service (ARTIFACT_REGISTERED + registry row) — not yet landed (stub; see report))
+ ❯ handle src/host/tools/stub.ts:53:13
+     51|     handle: async (args, _ctx): Promise<ToolJsonValue> => {
+     52|       spec.parseArgs(args)
+     53|       throw new ToolError(
+       |             ^
+     54|         'TOOL_NOT_IMPLEMENTED',
+     55|         `${spec.name}: not wired in this build yet (${spec.plannedServ…
+ ❯ Object.execute src/host/tools/types.ts:440:27
+ ❯ tests/tools/semantic-create.test.ts:213:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/18]⎯
+
+ FAIL  tests/tools/semantic-create.test.ts > G3 service-error mapping: carrier code → TOOL_SERVICE detail > the OWNER_MISMATCH carrier becomes TOOL_SERVICE with detail.serviceCode (message rides verbatim)
+Error: expected ToolError(TOOL_SERVICE), got ToolError(TOOL_NOT_IMPLEMENTED): research_fact_record: not wired in this build yet (the fact-recording service (FACT_RECORDED + registry row) — not yet landed (stub; see report))
+ ❯ expectToolErrorAsync tests/tools/fixtures.ts:96:11
+     94|   }
+     95|   if (!(thrown instanceof ToolError) || thrown.code !== code) {
+     96|     throw new Error(`expected ToolError(${code}), got ${describeThrown…
+       |           ^
+     97|   }
+     98|   return thrown
+ ❯ tests/tools/semantic-create.test.ts:282:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/18]⎯
+
+ FAIL  tests/tools/semantic-create.test.ts > G3 service-error mapping: carrier code → TOOL_SERVICE detail > an unknown caller run (OBJECT_NOT_FOUND carrier) maps the same way
+Error: expected ToolError(TOOL_SERVICE), got ToolError(TOOL_NOT_IMPLEMENTED): research_claim_record: not wired in this build yet (the claim-recording service (CLAIM_RECORDED + registry row) — not yet landed (stub; see report))
+ ❯ expectToolErrorAsync tests/tools/fixtures.ts:96:11
+     94|   }
+     95|   if (!(thrown instanceof ToolError) || thrown.code !== code) {
+     96|     throw new Error(`expected ToolError(${code}), got ${describeThrown…
+       |           ^
+     97|   }
+     98|   return thrown
+ ❯ tests/tools/semantic-create.test.ts:297:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/18]⎯
+
+ FAIL  tests/tools/semantic-create.test.ts > G3 service-error mapping: carrier code → TOOL_SERVICE detail > a non-carrier failure maps to TOOL_SERVICE WITHOUT a serviceCode (no invented codes)
+Error: expected ToolError(TOOL_SERVICE), got ToolError(TOOL_NOT_IMPLEMENTED): research_artifact_register: not wired in this build yet (the artifact-recording service (ARTIFACT_REGISTERED + registry row) — not yet landed (stub; see report))
+ ❯ expectToolErrorAsync tests/tools/fixtures.ts:96:11
+     94|   }
+     95|   if (!(thrown instanceof ToolError) || thrown.code !== code) {
+     96|     throw new Error(`expected ToolError(${code}), got ${describeThrown…
+       |           ^
+     97|   }
+     98|   return thrown
+ ❯ tests/tools/semantic-create.test.ts:311:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/18]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  18 failed | 6 passed (24)
+   Start at  06:40:37
+   Duration  2.29s (transform 1.92s, setup 0ms, import 2.62s, tests 1.17s, environment 0ms)
+
+exit=1

@@ -63,6 +63,44 @@ export interface SemanticEndpointRef {
 }
 
 /* ------------------------------------------------------------------ *
+ * G3 — the narrow AGENT create lane (the three research_* write tools)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The trusted caller of the agent create lane (G3). The host resolves it
+ * from the CALLING SESSION (session → formal run row → frozen AGENT
+ * actorRef, G1) — it is never constructible from tool arguments, and the
+ * `kind:'AGENT'` literal makes a USER actor a COMPILE error on this
+ * surface (the USER face has no caller parameter at all — the lanes are
+ * disjoint by signature, INV-PERM-2's type half). `run_id` is the formal
+ * run (INV-PERM-1); the service re-verifies it against the injected run
+ * registry (existence + owner WS) BEFORE writing anything.
+ */
+export interface SemanticAgentActor {
+  readonly kind: 'AGENT'
+  readonly run_id: string
+  readonly session_id?: string
+  readonly label?: string
+}
+
+/** The narrow run row the lane verifies against (structural subset of
+ *  the operational `RunRecord` — existence + owner WS + status). */
+export interface SemanticRunRegistryRow {
+  readonly id: string
+  readonly workstream_id: string
+  readonly status: 'RUNNING' | 'FINISHED' | 'FAILED' | 'CANCELLED'
+}
+
+/**
+ * The run-registry port (G3). The production wiring injects the live
+ * `RunBindingService.getRun` face; the lane requires the option whenever
+ * an agent entry is called (missing port = composition bug, fail loud).
+ */
+export interface SemanticRunRegistryPort {
+  getRun(runId: string): SemanticRunRegistryRow | null
+}
+
+/* ------------------------------------------------------------------ *
  * Args / results (the service-level face; the adapter maps the wire
  * DTO onto it)
  * ------------------------------------------------------------------ */
@@ -83,6 +121,9 @@ export interface RecordFactResult {
   readonly status: 'ACTIVE'
   readonly recordedAt: number
   readonly eventId: string
+  /** G3 agent lane: the attributed run (present ONLY on the
+   *  `recordFactAsAgent` lane; the USER lane never sets it). */
+  readonly createdByRun?: string
 }
 
 /** recordClaim — D §13.2 「claim 行创建, status=ACTIVE」. */
@@ -101,6 +142,8 @@ export interface RecordClaimResult {
   readonly status: 'ACTIVE'
   readonly recordedAt: number
   readonly eventId: string
+  /** G3 agent lane: the attributed run (see RecordFactResult). */
+  readonly createdByRun?: string
 }
 
 /** retractClaim — D §13.2 「claim.status=RETRACTED（终态）」. */
@@ -136,6 +179,8 @@ export interface RegisterArtifactResult {
   readonly status: 'REGISTERED'
   readonly recordedAt: number
   readonly eventId: string
+  /** G3 agent lane: the attributed run (see RecordFactResult). */
+  readonly createdByRun?: string
 }
 
 /** markArtifactMissing — D §13.2 「artifact.status=MISSING」(V1 one-way;
@@ -281,6 +326,13 @@ export interface SemanticRecordsServiceOptions {
   readonly plans: SemanticPlanIndex
   /** The project the record ids attribute to. */
   readonly projectId: string
+  /**
+   * G3 — the run-registry port for the narrow AGENT create lane (the
+   * trusted-run verification + the real runs in the registry validate
+   * context). The USER lane ignores it; the agent lane fails loud when
+   * the wiring did not inject it.
+   */
+  readonly runs?: SemanticRunRegistryPort
   /** Event `occurredAt` clock (default Date.now). */
   readonly now?: () => number
 }

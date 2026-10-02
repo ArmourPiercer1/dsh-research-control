@@ -47,6 +47,7 @@ import {
   type SemanticIdAllocator,
   type SemanticPlanIndex,
   type SemanticRecordsStorePort,
+  type SemanticRunRegistryPort,
 } from '../../src/host/service/semantics/index.js'
 
 /** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
@@ -172,7 +173,10 @@ export interface Harness {
   close(): void
 }
 
-export function makeService(plans: SemanticPlanIndex = defaultPlans()): Harness {
+export function makeService(
+  plans: SemanticPlanIndex = defaultPlans(),
+  options: { readonly runs?: SemanticRunRegistryPort } = {},
+): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'rc-records-'))
   const clock = makeClock()
   const store = openDatabase(join(dir, 'research.sqlite'), { now: clock.now })
@@ -205,6 +209,7 @@ export function makeService(plans: SemanticPlanIndex = defaultPlans()): Harness 
     allocator: spy.allocator,
     plans,
     projectId: PROJECT,
+    ...(options.runs !== undefined ? { runs: options.runs } : {}),
     now: clock.now,
   })
   let closed = false

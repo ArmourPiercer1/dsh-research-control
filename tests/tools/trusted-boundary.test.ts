@@ -96,7 +96,7 @@ describe('G1 trusted boundary: identity is not forgeable from input', () => {
     // tests/runbinding/checkpoint-boundary.test.ts + host-tools-reinit).
   })
 
-  it('the composition face is exactly 11 tools over the two service ports', () => {
+  it('the composition face is exactly 11 tools over the three service ports', () => {
     const deps = makeRecordingDeps()
     const tools = createResearchTools(deps)
     expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(FROZEN_ARG_KEYS).sort())
@@ -143,5 +143,34 @@ describe('G1 trusted boundary: identity is not forgeable from input', () => {
 
     expect(deps.planForkCreateCalls ?? []).toHaveLength(0)
     expect(deps.recordCheckpointCalls).toHaveLength(0)
+  })
+
+  it('G3: the semantic trio refuse forged identity keys at the wire too (TOOL_INPUT, the lane never runs)', async () => {
+    const deps = makeRecordingDeps()
+    deps.setSemanticAgentCreate({
+      recordFact: () => {
+        throw new Error('unreachable — the key guard must fire first')
+      },
+      recordClaim: () => {
+        throw new Error('unreachable — the key guard must fire first')
+      },
+      registerArtifact: () => {
+        throw new Error('unreachable — the key guard must fire first')
+      },
+    })
+    const tools = createResearchTools(deps)
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['research_fact_record', { workstream_id: 'WS-1', statement: 's', created_by_run: 'R-2' }],
+      ['research_claim_record', { workstream_id: 'WS-1', statement: 's', run_id: 'R-2' }],
+      ['research_artifact_register', { workstream_id: 'WS-1', type: 'CODE', title: 't', uri: 'u', caller: { kind: 'AGENT', run_id: 'R-2' } }],
+    ]
+    for (const [name, args] of cases) {
+      const tool = tools.find((t) => t.name === name)!
+      const error = await expectToolErrorAsync(
+        () => tool.execute(args, makeExec({ actor: AGENT })),
+        'TOOL_INPUT',
+      )
+      expect(error.message, name).toMatch(/\/(created_by_run|run_id|caller)/)
+    }
   })
 })

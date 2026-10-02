@@ -127,6 +127,7 @@ export interface RecordingDeps extends ResearchToolDeps {
 export function makeRecordingDeps(): RecordingDeps & {
   setPlanForkCreate(fn: ResearchToolDeps['planForkCreate']): void
   setRecordCheckpoint(fn: ResearchToolDeps['recordCheckpoint']): void
+  setSemanticAgentCreate(fns: Partial<ResearchToolDeps['semanticAgentCreate']>): void
   setContextGet(fn: (sessionId: string) => ToolSessionContext): void
   setPlanGet(fn: (workstreamId: string) => ToolWorkstreamPlanView): void
   setHistoryQuery(fn: (query: ToolHistoryQuery) => ToolHistoryPageFixture): void
@@ -156,6 +157,12 @@ export function makeRecordingDeps(): RecordingDeps & {
   let contractImpl: (edgeId: string) => ToolMergeContractView = () => {
     throw new Error('deps.contractRead called without a test override (a read tool reached its port un-wired)')
   }
+  const unreachableSemantic = (method: string) => {
+    throw new Error(`deps.semanticAgentCreate.${method} called without a test override (the lane was reached unexpectedly)`)
+  }
+  let saFact: ResearchToolDeps['semanticAgentCreate']['recordFact'] = () => unreachableSemantic('recordFact')
+  let saClaim: ResearchToolDeps['semanticAgentCreate']['recordClaim'] = () => unreachableSemantic('recordClaim')
+  let saArtifact: ResearchToolDeps['semanticAgentCreate']['registerArtifact'] = () => unreachableSemantic('registerArtifact')
   return {
     planForkCreateCalls,
     recordCheckpointCalls,
@@ -170,6 +177,11 @@ export function makeRecordingDeps(): RecordingDeps & {
     recordCheckpoint: (runId, params, actor) => {
       recordCheckpointCalls.push({ runId, params, actor: actor as ToolActorRef })
       return rcImpl(runId, params, actor)
+    },
+    semanticAgentCreate: {
+      recordFact: (args, caller) => saFact(args, caller),
+      recordClaim: (args, caller) => saClaim(args, caller),
+      registerArtifact: (args, caller) => saArtifact(args, caller),
     },
     contextGet: (sessionId) => {
       contextGetCalls.push(sessionId)
@@ -192,6 +204,11 @@ export function makeRecordingDeps(): RecordingDeps & {
     },
     setRecordCheckpoint: (fn) => {
       rcImpl = fn
+    },
+    setSemanticAgentCreate: (fns) => {
+      if (fns.recordFact !== undefined) saFact = fns.recordFact
+      if (fns.recordClaim !== undefined) saClaim = fns.recordClaim
+      if (fns.registerArtifact !== undefined) saArtifact = fns.registerArtifact
     },
     setContextGet: (fn) => {
       ctxImpl = fn

@@ -982,8 +982,21 @@ describe('TC-DB-004 (iv): no credential-receiving write face (structural asserti
       recordCheckpoint: () => {
         throw new Error('unused in this test')
       },
-      // G2 §2d read ports (the composition now requires all six — none
-      // is exercised here; the read fidelity suites own that).
+      // G3 — the semantic create lane (unused here; the G3 fidelity
+      // suites own that).
+      semanticAgentCreate: {
+        recordFact: () => {
+          throw new Error('unused in this test')
+        },
+        recordClaim: () => {
+          throw new Error('unused in this test')
+        },
+        registerArtifact: () => {
+          throw new Error('unused in this test')
+        },
+      },
+      // G2 §2d read ports (the composition now requires all seven keys —
+      // none is exercised here; the read fidelity suites own that).
       contextGet: () => {
         throw new Error('unused in this test')
       },

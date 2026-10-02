@@ -310,10 +310,27 @@ describe('definition completeness: parameter faces (the host-derived JSON Schema
     expect([...(run.required ?? [])].sort()).toEqual(['id', 'started_at', 'status', 'workstream_id', 'initiated_by'].sort())
     expect(run.properties!.status).toMatchObject({ enum: ['RUNNING', 'FINISHED', 'FAILED', 'CANCELLED'] })
 
+    // G3: the semantic trio — strict success shapes (created rows)
+    for (const [name, key, status] of [
+      ['research_fact_record', 'fact', 'ACTIVE'],
+      ['research_claim_record', 'claim', 'ACTIVE'],
+      ['research_artifact_register', 'artifact', 'REGISTERED'],
+    ] as const) {
+      const schema = byName.get(name)!.output.schema
+      expect(schema.type).toBe('object')
+      expect(schema.additionalProperties, `${name} strict`).toBe(false)
+      expect(schema.properties!.status).toMatchObject({ const: 'ok' })
+      const row = schema.properties![key]!
+      expect(row.type).toBe('object')
+      expect(row.additionalProperties).toBe(false)
+      expect(row.properties!.status).toMatchObject({ const: status })
+      for (const field of ['id', 'workstream_id', 'created_by_run', 'recorded_at', 'event_id']) {
+        expect(row.required, `${name} required ${key}.${field}`).toContain(field)
+      }
+      expect(row.properties!.created_by_run).toMatchObject({ type: 'string' })
+    }
+
     for (const name of [
-      'research_fact_record',
-      'research_claim_record',
-      'research_artifact_register',
       'research_intervention_create',
       'research_next_action_create',
     ]) {
@@ -362,6 +379,12 @@ describe('definition completeness: composition (createResearchTools)', () => {
     expect(() => createResearchTools({ planForkCreate: () => ({} as never) } as never)).toThrow(
       /recordCheckpoint/,
     )
+    expect(() =>
+      createResearchTools({
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+      } as never),
+    ).toThrow(/semanticAgentCreate/)
   })
 
   it('composes the 11 definitions in the frozen §7.2 order (registration-ready)', () => {

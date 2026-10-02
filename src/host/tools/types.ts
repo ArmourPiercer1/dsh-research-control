@@ -480,8 +480,14 @@ export interface ResearchToolDeps {
    * USER actor is a compile error on this surface, the tools build it
    * from the host-resolved exec actor (never from args, G1), and the
    * service re-verifies the run (existence + owner WS) before writing.
-   * Semantic CREATE only — no update/delete/retract rides this port
-   * (the §6 USER-only lanes stay unreachable; INV-PLAN-3 unaffected).
+   * Semantic CREATE only — no update/delete/retract rides this port.
+   * Precision (G5, per BASELINE_PLAN §1 non-goal 2): the frozen §6
+   * matrix allows AGENT-initiated Claim RETRACTION and Artifact
+   * MARK-MISSING (they are NOT user-only lanes) — they are simply not
+   * exposed by the current 11-tool API (outside the current scope, not
+   * forbidden). The genuinely §6 USER-only lanes (select/dismiss,
+   * canonical edits, PROMOTE/DISMISS, …) stay unreachable;
+   * INV-PLAN-3 unaffected.
    */
   readonly semanticAgentCreate: {
     readonly recordFact: (args: RecordFactArgs, caller: SemanticAgentActor) => RecordFactResult

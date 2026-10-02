@@ -200,14 +200,15 @@ describe('research_plan_get — forwarded (no stub)', () => {
     expect(deps.contextGetCalls).toHaveLength(0)
   })
 
-  it('an ABSENT plan.yaml is an honest empty subject (present false, ordered_items [])', async () => {
+  it('an ABSENT plan.yaml is an honest empty subject (present false, ordered_items []) — the REAL provider surface; an INCONSISTENT plan never reaches the tool (the loader rejects the tree — fail loud, see tests/wiring)', async () => {
     const { tool, deps } = toolOf(RESEARCH_PLAN_GET)
-    deps.setPlanGet(() => ({ ...PLAN_VIEW, present: false, consistent: false, problem: 'plan.yaml does not exist', ordered_items: [] }))
-    const value = (await tool.execute({ workstream_id: 'WS-9' }, readExec())) as Record<string, unknown>
+    deps.setPlanGet(() => ({ ...PLAN_VIEW, present: false, consistent: true, ordered_items: [] }))
+    const value = (await tool.execute({ workstream_id: 'WS-2' }, readExec())) as Record<string, unknown>
     expect(value['status']).toBe('ok')
     expect(value['present']).toBe(false)
+    expect(value['consistent']).toBe(true)
     expect(value['ordered_items']).toEqual([])
-    expect(value['problem']).toContain('plan.yaml')
+    expect(value['problem']).toBeUndefined()
     expectValueMatchesHostCodec(tool.output.schema, value)
   })
 
@@ -332,6 +333,14 @@ describe('research_contract_read — forwarded (no stub)', () => {
     expect(value['path']).toBe('merges/TE-2/contract.md')
     expectValueMatchesHostCodec(tool.output.schema, value)
     expect(deps.contractReadCalls).toEqual(['TE-2'])
+  })
+
+  it('a DROPPED-edge lifecycle passes the host codec (the FROZEN wsLifecycle enum: PLANNED/REALIZED/DROPPED — no VOID exists)', async () => {
+    const { tool, deps } = toolOf(RESEARCH_CONTRACT_READ)
+    deps.setContractRead(() => ({ ...CONTRACT_VIEW, edge: { ...CONTRACT_VIEW.edge, lifecycle: 'DROPPED' } }))
+    const value = (await tool.execute({ edge_id: 'TE-2' }, readExec())) as Record<string, unknown>
+    expect((value['edge'] as Record<string, unknown>)['lifecycle']).toBe('DROPPED')
+    expectValueMatchesHostCodec(tool.output.schema, value)
   })
 
   it('AN EDGE WITHOUT A CONTRACT is content null (ADJ-7 VALUE face — absence is data, not an error)', async () => {

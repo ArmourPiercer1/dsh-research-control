@@ -145,9 +145,13 @@ export interface ToolSessionContext {
 /**
  * The canonical plan of ONE workstream (plan.yaml is that workstream's
  * full truth source — `ordered_items` VERBATIM in file order,
- * INV-PLAN-1; presence and §4.4 consistency are reported, never
- * repaired). No pagination, no truncation: the plan is bounded by
- * construction.
+ * INV-PLAN-1). An INCONSISTENT plan never reaches this view as a
+ * success: the §16.1 phase-2 loader rejects it (fail loud, matching the
+ * existing RPC face) — `consistent:false/problem` are lossless
+ * pass-through fields of the provider DTO, not a success path the tool
+ * offers. `present:false` (real workstream, absent plan.yaml) is the
+ * honest empty subject. No pagination, no truncation: the plan is
+ * bounded by construction.
  */
 export interface ToolWorkstreamPlanView {
   readonly workstream: { readonly id: string; readonly title: string | null }

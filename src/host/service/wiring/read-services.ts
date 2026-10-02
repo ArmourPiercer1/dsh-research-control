@@ -75,13 +75,28 @@ export function makeToolReadServices(input: ToolReadServicesInput): ToolReadServ
   const { reader, researchRoot, declarativeDir, tables, store, io, planProvider } = input
 
   /** Fresh declarative tree, fail-loud (the hierarchy-service discipline:
-   *  every read resolves against the FILE as it is NOW). */
-  const freshTree = (operation: string): ResearchTree => {
+   *  every read resolves against the FILE as it is NOW).
+   *
+   *  ONE narrow, named exception (`tolerateMissingContractFile`, the
+   *  contract read only): when the loader reports MISSING_REQUIRED for
+   *  EXACTLY the selected edge's `merges/<TE>/contract.md` (a legal
+   *  `merges/<TE>` dir whose file was deleted post-boot), that single
+   *  error is the very absence the read reports as `content: null`
+   *  (ADJ-7 VALUE face) — it must not degrade into a tree failure. The
+   *  tolerance is keyed on code AND the exact file path of the selected
+   *  edge; every other loader error still fails loud (no blanket ignore). */
+  const freshTree = (operation: string, tolerateMissingContractFile?: string): ResearchTree => {
     const result = loadResearchTree(reader, researchRoot, declarativeDir)
-    if (result.errors.length > 0) {
+    const errors =
+      tolerateMissingContractFile === undefined
+        ? result.errors
+        : result.errors.filter(
+            (e) => !(e.code === 'MISSING_REQUIRED' && e.file === tolerateMissingContractFile),
+          )
+    if (errors.length > 0) {
       throw new ToolReadServiceError(
         'DECLARATIVE_TREE_UNAVAILABLE',
-        `${operation}: the declarative tree failed to load — ${result.errors
+        `${operation}: the declarative tree failed to load — ${errors
           .slice(0, 3)
           .map((e) => `[${e.code}] ${e.file || '<root>'}: ${e.message}`)
           .join('; ')}`,
@@ -205,8 +220,10 @@ export function makeToolReadServices(input: ToolReadServicesInput): ToolReadServ
         }
       }
       // The edge identity: the tree is the authority (§3.1; §16.1(h) the
-      // ownership-by-path snapshot a contract must anchor to).
-      const tree = freshTree('research_contract_read')
+      // ownership-by-path snapshot a contract must anchor to). The ONE
+      // tolerated loader error is the selected file's own absence — the
+      // content:null this read reports (see freshTree).
+      const tree = freshTree('research_contract_read', `merges/${edgeId}/contract.md`)
       const edge = edgesOf(tree).find((e) => e.id === edgeId)
       if (edge === undefined) {
         throw new ToolReadServiceError(

@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -194,6 +194,51 @@ describe('G2 read tools over the REAL wiring (tree + sqlite + frozen schemas)', 
     expect(await expectServiceCode('research_contract_read', wiring, { edge_id: 'TE-404' })).toBe('EDGE_NOT_FOUND')
     // a malformed id keeps the kernel code
     expect(await expectServiceCode('research_contract_read', wiring, { edge_id: 'not-an-edge' })).toBe('INVALID_ID')
+  })
+
+  it('DROPPED-edge contract over the real tree validates through the host codec (frozen wsLifecycle enum)', async () => {
+    const { wiring, researchRoot } = makeWiring()
+    // the FILE is the truth (fresh-load discipline): flip TE-2's lifecycle on disk
+    const topoPath = join(researchRoot, 'topics', 'TPC-1', 'topology.yaml')
+    const topo = readFileSync(topoPath, 'utf8')
+    expect(topo).toContain('TE-2')
+    writeFileSync(topoPath, topo.replace('    - id: TE-2\n      topic_id: TPC-1\n      operation: MERGE\n      lifecycle: PLANNED', '    - id: TE-2\n      topic_id: TPC-1\n      operation: MERGE\n      lifecycle: DROPPED'), 'utf8')
+    expect(readFileSync(topoPath, 'utf8')).toContain('lifecycle: DROPPED')
+
+    const value = await read('research_contract_read', wiring, { edge_id: 'TE-2' })
+    expect((value['edge'] as Record<string, unknown>)['lifecycle']).toBe('DROPPED')
+    expect(String(value['content'])).toContain('# Merge Contract TE-2')
+  })
+
+  it('DELETED contract.md inside a legal merges/<TE> dir = content:null (not a tree failure); other lanes still fail loud', async () => {
+    const { wiring, researchRoot } = makeWiring()
+    // post-boot deletion: the file goes, the legal TE-2 dir remains (kernel →
+    // CONTRACT_NOT_FOUND → null; the loader reports MISSING_REQUIRED for that
+    // one file — the SELECTED edge's contract read must tolerate exactly it)
+    rmSync(join(researchRoot, 'merges', 'TE-2', 'contract.md'))
+
+    const value = await read('research_contract_read', wiring, { edge_id: 'TE-2' })
+    expect(value['status']).toBe('ok')
+    expect(value['content']).toBeNull()
+    expect(value['path']).toBe('merges/TE-2/contract.md')
+
+    // NARROW tolerance, not a blanket ignore: a DIFFERENT edge's read sees the
+    // unresolved tree error and fails loud (the tree stays the authority).
+    expect(await expectServiceCode('research_contract_read', wiring, { edge_id: 'TE-1' })).toBe('DECLARATIVE_TREE_UNAVAILABLE')
+    expect(await expectServiceCode('research_plan_get', wiring, { workstream_id: 'WS-1' })).toBe('DECLARATIVE_TREE_UNAVAILABLE')
+    expect(await expectServiceCode('research_history_query', wiring, { workstream_id: 'WS-1' })).toBe('DECLARATIVE_TREE_UNAVAILABLE')
+    // and every OTHER loader error still fails the selected read too:
+    // a broken topology.yaml rejects even the TE-2 read.
+    writeFileSync(join(researchRoot, 'topics', 'TPC-1', 'topology.yaml'), 'topology:\n  topic_id: TPC-999\n  edges: []\n', 'utf8')
+    expect(await expectServiceCode('research_contract_read', wiring, { edge_id: 'TE-2' })).toBe('DECLARATIVE_TREE_UNAVAILABLE')
+  })
+
+  it('inconsistent plan fails loud (the loader rejects it — no consistent:false success face, RPC-consistent)', async () => {
+    const { wiring, researchRoot } = makeWiring()
+    // §16.1 phase-2 violation on disk: a dangling ordered_items reference
+    const planPath = join(researchRoot, 'topics', 'TPC-1', 'workstreams', 'WS-1', 'plan.yaml')
+    writeFileSync(planPath, 'workstream: WS-1\nordered_items: [G-1, T-1, T-2, T-3, M-1, T-4, G-2, T-999]\n', 'utf8')
+    expect(await expectServiceCode('research_plan_get', wiring, { workstream_id: 'WS-1' })).toBe('DECLARATIVE_TREE_UNAVAILABLE')
   })
 
   it('NO WRITE SIDE EFFECT: every read leaves the tree AND the state dir byte-identical', async () => {

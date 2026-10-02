@@ -63,7 +63,8 @@ export const CONTRACT_READ_OUTPUT_SCHEMA: ToolJsonSchemaNode = {
         id: { type: 'string' },
         topic_id: { type: 'string' },
         operation: { type: 'string', enum: ['FORK', 'MERGE'] },
-        lifecycle: { type: 'string', enum: ['PLANNED', 'REALIZED', 'VOID'] },
+        // the frozen lifecycle vocabulary (common.schema.json $defs/wsLifecycle)
+        lifecycle: { type: 'string', enum: ['PLANNED', 'REALIZED', 'DROPPED'] },
         inputs: { type: 'array', items: { type: 'string' } },
         outputs: { type: 'array', items: { type: 'string' } },
         note: { type: 'string' },

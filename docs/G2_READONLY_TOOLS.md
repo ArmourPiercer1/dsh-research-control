@@ -9,7 +9,7 @@
 | 工具 | 端口（`ResearchToolDeps`，G2 新增四只读口） | 组合服务 | 单一主体 · 全量返回 |
 | --- | --- | --- | --- |
 | `research_context_get` | `contextGet(sessionId)` | runbinding `getRunBySessionId`（单绑定）+ 新鲜 loader 树 join（workstream/task 标题、topic） | 一个会话 → 至多一个 formal Run（§6.2）；未绑定 = `bound:false` 诚实空结果 |
-| `research_plan_get` | `planGet(workstreamId)` | WP-1.3 `PlanStore.loadPlan`（wiring 规范 provider，每次全新）+ 树 join 标题 | 一个 WS 的 `ordered_items` 逐字文件序（INV-PLAN-1，不排序/去重/截断）；`present/consistent/problem` 报告不修复 |
+| `research_plan_get` | `planGet(workstreamId)` | WP-1.3 `PlanStore.loadPlan`（wiring 规范 provider，每次全新）+ 树 join 标题 | 一个 WS 的 `ordered_items` 逐字文件序（INV-PLAN-1，不排序/去重/截断）；缺 plan.yaml = 诚实空 subject（`present:false`）；**不一致 plan 走 fail-loud**（loader §16.1 拒绝 → `TOOL_SERVICE/DECLARATIVE_TREE_UNAVAILABLE`，与既有 RPC 面一致——无 `consistent:false` 成功面；`consistent/problem` 仅为 provider DTO 的无损透传字段） |
 | `research_history_query` | `historyQuery(query)` | WP-2.3 `queryEvents`（seq 游标协议逐字）+ 真实 WS 存在性门 | 一页事件（冻结 envelope 逐字）；`next_after_seq/exhausted` 密度规则原样 |
 | `research_contract_read` | `contractRead(edgeId)` | WP-1.4 `MergeContractStore.readContract`（字节级 Markdown）+ 树边快照门 | 一条边 → 完整 subject（边身份 + content + path） |
 
@@ -26,7 +26,11 @@
   default/cap）与此不冲突——已核对。
 - **缺对象 vs 空结果**：未知 WS → `TOOL_SERVICE` + `detail.serviceCode=WS_NOT_FOUND`；未知 TE →
   `EDGE_NOT_FOUND`；畸形 TE → 内核 `INVALID_ID`（先过内核 `assertWellFormedTeId`）。边存在而无
-  contract.md → `content:null`（ADJ-7 VALUE 面：路径即身份，缺文件是数据）。空 WS 事件页 = 合法空结果。
+  contract.md（含**启动后删除**、合法 `merges/<TE>` 目录仍在的情形）→ `content:null`（ADJ-7 VALUE
+  面：路径即身份，缺文件是数据）。为此 contract 读的 freshTree 对**选中边自己的**
+  `merges/<TE>/contract.md` 的 `MISSING_REQUIRED` 单条错误作窄豁免（code+文件路径双精确匹配），
+  其余任何 loader 错误、以及其他读口看到同一错误，一律仍 fail-loud——非 blanket 忽略。空 WS
+  事件页 = 合法空结果。
 - **context 主体门**：actor 无 `session_id` → `TOOL_ACTOR_FORBIDDEN`（主体即调用会话，身份永不自参数来）。
 - **错误载体**：服务错误 → `ToolError('TOOL_SERVICE')`，`detail.serviceCode` 携带稳定码
   （`ToolReadServiceError` / `ReplayError` / `TopologyStoreError` / `RunBindingError` / `PlanStoreError`
@@ -83,6 +87,12 @@ nullable 关键字）。context/plan/contract 三个单 subject 面**无**任何
 ## 6. 未决项
 
 - limit 100/1000 为 Q2 授权工程决定（仅本工具面）；若未来冻结文档另行规定，改一处常量。
-- `DECLARATIVE_TREE_UNAVAILABLE`（新鲜树加载失败）路径为 fail-loud 设计，负例仅在单测端口层覆盖
-  （构造真树损坏会牵动启动完整性检查，属 G5 集成面范畴）。
+- `DECLARATIVE_TREE_UNAVAILABLE` 的通用树损坏负例在单测端口层覆盖；真实文件面负例已由
+  PR#6 review 回归补齐（缺 contract.md 的窄豁免边界 + 悬空 ordered_items 的 plan fail-loud）。
+- PR#6 review 窄修记录（同 PR 提交）：① `contract.edge.lifecycle` 枚举修正为冻结
+  `wsLifecycle = PLANNED|REALIZED|DROPPED`（原误写 VOID）；真实 DROPPED 边结果过真实 host
+  output validator。② 选中边 contract.md 启动后被删不再被 freshTree 拒成
+  `DECLARATIVE_TREE_UNAVAILABLE`（窄豁免见上），真实缺文件回归 + 其他错误仍 fail 在
+  `tests/wiring/read-services.test.ts`。③ docs/tests 不再声称 `consistent:false` 成功面
+  （inconsistent plan 实测 fail-loud，与既有 RPC 一致，行为零改动）。
 - e2e 与 11-tool 全套集成按分工归 G5。

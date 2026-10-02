@@ -12665,10 +12665,20 @@ var ToolReadServiceError = class extends Error {
 function makeToolReadServices(input) {
 	const { reader, researchRoot, declarativeDir, tables, store, io, planProvider } = input;
 	/** Fresh declarative tree, fail-loud (the hierarchy-service discipline:
-	*  every read resolves against the FILE as it is NOW). */
-	const freshTree = (operation) => {
+	*  every read resolves against the FILE as it is NOW).
+	*
+	*  ONE narrow, named exception (`tolerateMissingContractFile`, the
+	*  contract read only): when the loader reports MISSING_REQUIRED for
+	*  EXACTLY the selected edge's `merges/<TE>/contract.md` (a legal
+	*  `merges/<TE>` dir whose file was deleted post-boot), that single
+	*  error is the very absence the read reports as `content: null`
+	*  (ADJ-7 VALUE face) — it must not degrade into a tree failure. The
+	*  tolerance is keyed on code AND the exact file path of the selected
+	*  edge; every other loader error still fails loud (no blanket ignore). */
+	const freshTree = (operation, tolerateMissingContractFile) => {
 		const result = loadResearchTree(reader, researchRoot, declarativeDir);
-		if (result.errors.length > 0) throw new ToolReadServiceError("DECLARATIVE_TREE_UNAVAILABLE", `${operation}: the declarative tree failed to load — ${result.errors.slice(0, 3).map((e) => `[${e.code}] ${e.file || "<root>"}: ${e.message}`).join("; ")}`);
+		const errors = tolerateMissingContractFile === void 0 ? result.errors : result.errors.filter((e) => !(e.code === "MISSING_REQUIRED" && e.file === tolerateMissingContractFile));
+		if (errors.length > 0) throw new ToolReadServiceError("DECLARATIVE_TREE_UNAVAILABLE", `${operation}: the declarative tree failed to load — ${errors.slice(0, 3).map((e) => `[${e.code}] ${e.file || "<root>"}: ${e.message}`).join("; ")}`);
 		return result.tree;
 	};
 	const findWorkstream = (tree, workstreamId) => {
@@ -12761,7 +12771,7 @@ function makeToolReadServices(input) {
 				if (cause instanceof TopologyStoreError && cause.code === "CONTRACT_NOT_FOUND") content = null;
 				else throw cause;
 			}
-			const tree = freshTree("research_contract_read");
+			const tree = freshTree("research_contract_read", `merges/${edgeId}/contract.md`);
 			const edge = edgesOf(tree).find((e) => e.id === edgeId);
 			if (edge === void 0) throw new ToolReadServiceError("EDGE_NOT_FOUND", `research_contract_read: ${edgeId} names no topology edge (the loaded tree carries no such edge — DOMAIN_SCHEMA §3.1/§3.2)`);
 			return {
@@ -19512,7 +19522,7 @@ const CONTRACT_READ_OUTPUT_SCHEMA = {
 					enum: [
 						"PLANNED",
 						"REALIZED",
-						"VOID"
+						"DROPPED"
 					]
 				},
 				inputs: {

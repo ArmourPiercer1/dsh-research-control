@@ -458,10 +458,21 @@ export class RunBindingService {
 
   /**
    * §6.1 `last_checkpoint_*` update — the operational backing store of
-   * the future `research_run_checkpoint` agent tool (matrix row: AGENT
+   * the `research_run_checkpoint` agent tool (matrix row: AGENT
    * 「checkpoint 报告触发」). NO History event (a checkpoint is an
    * operational note; the chronicle records Run boundaries only).
    * USER-or-AGENT actors (PLUGIN/SYSTEM are not checkpoint reporters).
+   *
+   * G1 trusted-boundary gate: an AGENT reporter self-reports — it must
+   * carry its OWN formal run_id and that run_id must EQUAL the target
+   * run (otherwise `RB_CHECKPOINT_FOREIGN_RUN`, checked after target
+   * existence so a wrong id stays `RB_RUN_NOT_FOUND` for every lane).
+   * The checkpoint report is the agent's single Run lane, and
+   * INV-PERM-1 attributes it to the reporting run; cross-run
+   * note-taking and unattributed AGENT reporters stay on the USER
+   * lane. NO RUNNING-only policy is invented: §6.1 is status-agnostic
+   * and terminal runs keep accepting notes (the pre-existing semantics
+   * are respected, not re-strategized).
    */
   recordCheckpoint(
     runId: string,
@@ -472,6 +483,16 @@ export class RunBindingService {
     assertNonEmptyString(runId, 'runId')
     const run = this.#tables.getRun(runId)
     if (run === null) throw new RunBindingError('RB_RUN_NOT_FOUND', `no run with id ${runId}`)
+    if (actor.kind === 'AGENT') {
+      const own = typeof actor.run_id === 'string' && actor.run_id.length > 0 ? actor.run_id : undefined
+      if (own === undefined || own !== runId) {
+        throw new RunBindingError(
+          'RB_CHECKPOINT_FOREIGN_RUN',
+          `recordCheckpoint: an AGENT reporter may only note its OWN run (caller run_id=${own ?? '<missing>'}, target run ${runId}) — ` +
+            'cross-run checkpoint notes belong to the USER lane (ARCHITECTURE §6 「Run 生命周期事件」, INV-PERM-1)',
+        )
+      }
+    }
     const at = this.#now()
     const changed = this.#tables.updateRunCheckpoint(runId, at, params.note)
     if (changed === 0) throw new RunBindingError('RB_RUN_NOT_FOUND', `run ${runId} disappeared concurrently`)

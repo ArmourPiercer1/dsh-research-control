@@ -819,12 +819,37 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
               acceptanceCriteria: ac,
             })
           }
-          for (const g of ws.gates) gates.set(g.id, { workstreamId: ws.id, lastResult: null })
-          for (const m of ws.milestones) milestones.set(m.id, { workstreamId: ws.id, status: 'PLANNED' })
+          // PR5 review 第四轮: EVERY tree-node kind carries the same guard —
+          // the loader keeps a node whose file is missing/schema-rejected
+          // present with `doc: null` (loader contract: "a failed file is
+          // rejected, its node stays doc: null"), and a null doc must never
+          // answer existence (tasks skipped it above; gates/milestones must
+          // not differ — a corrupted G-1/M-1 file is unresolved, not resolvable).
+          for (const g of ws.gates) {
+            if (g.doc === null) continue
+            gates.set(g.id, { workstreamId: ws.id, lastResult: null })
+          }
+          for (const m of ws.milestones) {
+            if (m.doc === null) continue
+            milestones.set(m.id, { workstreamId: ws.id, status: 'PLANNED' })
+          }
         }
       }
       return { workstreams, tasks, gates, milestones }
     }
+    // Pre-release audit (PR5 第四轮), every map kind this context answers with,
+    // once and for all: the FOUR loader-derived kinds — workstream, task,
+    // gate, milestone — all now require a VALID, CURRENT doc (a null doc from
+    // a missing/rejected file never answers existence; a rejected WS doc also
+    // un-owns its children — refs needing owner context cannot resolve either).
+    // The remaining existence kinds are STORE-derived, not file-derived, and
+    // row existence IS the current authority by construction (their write
+    // paths are the validators): run = the run/DS table row; claim/fact/
+    // artifact = the RR-011 (b) fold's derived-state rows (built only from
+    // registry-validated events). The service's existence switch covers
+    // exactly these 8 kinds; any further kind keeps the frozen shape-only
+    // treatment (undefined ⇒ not existence-checked here). No other kind
+    // resolves through loader nodes.
     const attentionValidationState = (): InterventionExternalState => {
       const sem = readSemanticState()
       const declarative = freshDeclarativeValidationMaps()

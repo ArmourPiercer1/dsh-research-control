@@ -177,6 +177,33 @@ report 引用 T-1 被拒（TOOL_SERVICE+IV_INPUT）且**行/事件零增量** �
 T-2 仍可 report（loader 文件级 partial 语义, 不 blanket fail-closed）→ 无
 WS/无 ref 的裸上报仍成功（event_id null, 行入队）。
 
+### 5e. gate/milestone doc-null guard（review 输入 bug #4: 同类缺陷补全）
+
+**输入 bug（reviewer 判定）**: 5d 的 fresh builder 里 tasks 有 `t.doc===null`
+跳过, 但 gates/milestones 仍加入全部节点——loader 对被删/被 schema 拒绝的
+文件**保留节点仅 doc 置 null**（loader 契约）, 于是改坏的 G-1/M-1 照常应答
+存在性 ⇒ 引用被放行。RED 复现: boot 合法 report G-1/M-1 成功 → 写坏两文件
+（id 非法）→ 修正前新 report 引用被接受（`unreachable: GATE G-1`）。
+
+**修正（同类窄修, 两行 guard）**: gates/milestones 加与 tasks 相同的
+`doc===null ⇒ continue`。至此发布前审计一次做尽（代码内注释存档）: 四个
+loader-derived kinds（workstream/task/gate/milestone）全部要求**当前有效
+doc**——WS doc 被拒同时其子项失去 owner 上下文亦不可解析; 其余存在性 kinds
+（run/claim/fact/artifact）为 store-derived, 行存在即当前权威（写路径即
+校验器, 无外部文件漂移面）; 服务侧存在性 switch 恰覆盖这 8 类, 其余种类维持
+冻结契约的 shape-only 处理。无新增领域语义。
+
+| 门（5e 轮, focused——按指令不重跑 1186 全量） | 结果 |
+|---|---|
+| RED 复现 | `unreachable: GATE G-1`（未拒绝 = BLOCK 实证） |
+| GREEN host codec（11 例, 含全部前轮回归） | **11 passed, EXIT=0** |
+| tsc 逐行 vs BASELINE | diff=**空**（EXIT=1 已知） |
+| lint | EXIT=0 |
+| build/pack | 功能产物入库（+guard）; churn 复除; pack-verify PASS |
+
+完整 integration 复跑按指令留待最终轮。**前四修无回退**: owner 锚点 / GUI 新
+T 无 rescan / drift 权威（T-1）/ 本 guard 全在同一 host 套件绿。
+
 ### 5c. 合并轮统一门禁（5a+5b 同一 commit）
 
 | 门 | 结果 |

@@ -373,6 +373,53 @@ describe('G4 host codec: research_intervention_create over the real wiring + rea
     }
   }, 40_000)
 
+  it('corrupted gate/milestone files are not resolvable: boot-valid G-1/M-1 ⇒ corrupt ⇒ new refs refused with zero increments (same guard class as tasks)', async () => {
+    freshDshHome()
+    const wsA = makeValidWs()
+    const hub = makeHubWs(wsA)
+    const h = mountHost([hub, wsA])
+    try {
+      await initPlane(h.svc)
+      const wiring = liveWiring(h.svc)
+      wiring.runBinding.registerRun({ workstreamId: 'WS-1', dshSessionId: 'sess-g4-a' }, USER)
+
+      // boot-valid: both kinds report (the precondition the guard must mirror)
+      for (const ref of [{ kind: 'GATE', id: 'G-1' }, { kind: 'MILESTONE', id: 'M-1' }] as const) {
+        const ok = (await tool(h, 'research_intervention_create').execute(
+          { title: 'boot 合法基线', workstream_ids: ['WS-1'], source_refs: [ref] },
+          execAs('sess-g4-a'),
+        )) as { status: string }
+        expect(ok.status).toBe('created')
+      }
+
+      // drift: both item files corrupted (schema-rejected ⇒ the loader keeps
+      // the node with doc: null — a null doc must NEVER answer existence)
+      const itemsDir = join(wsA, '.research', 'topics', 'TPC-1', 'workstreams', 'WS-1', 'items')
+      writeFileSync(join(itemsDir, 'gates', 'G-1.yaml'), 'id: 123\nworkstream_id: WS-1\n', 'utf8')
+      writeFileSync(join(itemsDir, 'milestones', 'M-1.yaml'), 'id: 456\nworkstream_id: WS-1\n', 'utf8')
+
+      const rowsBefore = wiring.interventions.listInterventions().length
+      const eventsBefore = wiring.store.listRange('WS-1', 1).length
+      for (const ref of [{ kind: 'GATE', id: 'G-1' }, { kind: 'MILESTONE', id: 'M-1' }] as const) {
+        await tool(h, 'research_intervention_create')
+          .execute({ title: 't', workstream_ids: ['WS-1'], source_refs: [ref] }, execAs('sess-g4-a'))
+          .then(() => { throw new Error(`unreachable: ${ref.kind} ${ref.id}`) })
+          .catch((e: unknown) => expectHostError(e, 'TOOL_SERVICE', 'IV_INPUT'))
+      }
+      expect(wiring.interventions.listInterventions()).toHaveLength(rowsBefore)
+      expect(wiring.store.listRange('WS-1', 1)).toHaveLength(eventsBefore)
+
+      // no collateral: the surviving gate file still validates
+      const ok2 = (await tool(h, 'research_intervention_create').execute(
+        { title: 'G-2 排期需人工确认', workstream_ids: ['WS-1'], source_refs: [{ kind: 'GATE', id: 'G-2' }] },
+        execAs('sess-g4-a'),
+      )) as { status: string }
+      expect(ok2.status).toBe('created')
+    } finally {
+      disposeFiber(h)
+    }
+  }, 40_000)
+
   it('an injected identity key is refused at the wire (TOOL_INPUT) — the live face keeps the G1 boundary', async () => {
     freshDshHome()
     const wsA = makeValidWs()

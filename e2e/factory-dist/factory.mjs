@@ -23164,8 +23164,6 @@ function createHostWiring(options) {
 	const workstreamList = [];
 	const liveWorkstreams = /* @__PURE__ */ new Map();
 	const liveTasks = /* @__PURE__ */ new Map();
-	const liveGates = /* @__PURE__ */ new Map();
-	const liveMilestones = /* @__PURE__ */ new Map();
 	const milestoneIds = /* @__PURE__ */ new Set();
 	const objectiveIds = /* @__PURE__ */ new Set();
 	/** Opened second connections + the discovery disposer — closed by `close()`. */
@@ -23224,17 +23222,8 @@ function createHostWiring(options) {
 					acceptanceCriteria: ac
 				});
 			}
-			for (const g of ws.gates) liveGates.set(g.id, {
-				workstreamId: ws.id,
-				lastResult: null
-			});
-			for (const m of ws.milestones) {
-				milestoneIds.add(m.id);
-				liveMilestones.set(m.id, {
-					workstreamId: ws.id,
-					status: "PLANNED"
-				});
-			}
+			for (const g of ws.gates);
+			for (const m of ws.milestones) milestoneIds.add(m.id);
 		}
 		for (const o of load.tree.objectives) objectiveIds.add(o.id);
 		load.tree;
@@ -23396,54 +23385,44 @@ function createHostWiring(options) {
 			now
 		});
 		const freshDeclarativeValidationMaps = () => {
-			try {
-				const fresh = loadResearchTree(reader, researchRoot, declarativeDir);
-				if (fresh.errors.length > 0) throw new Error(fresh.errors.map((e) => `[${e.code}] ${e.file || "<root>"}: ${e.message}`).join("; "));
-				const workstreams = /* @__PURE__ */ new Map();
-				const tasks = /* @__PURE__ */ new Map();
-				const gates = /* @__PURE__ */ new Map();
-				const milestones = /* @__PURE__ */ new Map();
-				for (const topic of fresh.tree.topics) for (const ws of topic.workstreams) {
-					const doc = ws.doc;
-					if (doc === null) continue;
-					workstreams.set(ws.id, {
-						topicId: topic.id,
-						lifecycle: doc.lifecycle
-					});
-					for (const t of ws.tasks) {
-						if (t.doc === null) continue;
-						const ac = t.doc.acceptance_criteria;
-						tasks.set(t.id, {
-							workstreamId: ws.id,
-							execution: "PLANNED",
-							validation: ac.length > 0 ? "PENDING" : "NOT_REQUIRED",
-							acceptanceCriteria: ac
-						});
-					}
-					for (const g of ws.gates) gates.set(g.id, {
+			const fresh = loadResearchTree(reader, researchRoot, declarativeDir);
+			if (fresh.errors.length > 0) logger?.warn("wiring", `attention validation: declarative tree read is DEGRADED \u2014 nodes of rejected files stay unresolved and new refs to them are refused: ` + fresh.errors.map((e) => `[${e.code}] ${e.file || "<root>"}`).join("; "));
+			const workstreams = /* @__PURE__ */ new Map();
+			const tasks = /* @__PURE__ */ new Map();
+			const gates = /* @__PURE__ */ new Map();
+			const milestones = /* @__PURE__ */ new Map();
+			for (const topic of fresh.tree.topics) for (const ws of topic.workstreams) {
+				const doc = ws.doc;
+				if (doc === null) continue;
+				workstreams.set(ws.id, {
+					topicId: topic.id,
+					lifecycle: doc.lifecycle
+				});
+				for (const t of ws.tasks) {
+					if (t.doc === null) continue;
+					const ac = t.doc.acceptance_criteria;
+					tasks.set(t.id, {
 						workstreamId: ws.id,
-						lastResult: null
-					});
-					for (const m of ws.milestones) milestones.set(m.id, {
-						workstreamId: ws.id,
-						status: "PLANNED"
+						execution: "PLANNED",
+						validation: ac.length > 0 ? "PENDING" : "NOT_REQUIRED",
+						acceptanceCriteria: ac
 					});
 				}
-				return {
-					workstreams,
-					tasks,
-					gates,
-					milestones
-				};
-			} catch (cause) {
-				logger?.warn("wiring", `attention validation: fresh tree read failed — answering from the boot snapshot until rescan: ${cause instanceof Error ? cause.message : String(cause)}`);
-				return {
-					workstreams: liveWorkstreams,
-					tasks: liveTasks,
-					gates: liveGates,
-					milestones: liveMilestones
-				};
+				for (const g of ws.gates) gates.set(g.id, {
+					workstreamId: ws.id,
+					lastResult: null
+				});
+				for (const m of ws.milestones) milestones.set(m.id, {
+					workstreamId: ws.id,
+					status: "PLANNED"
+				});
 			}
+			return {
+				workstreams,
+				tasks,
+				gates,
+				milestones
+			};
 		};
 		const attentionValidationState = () => {
 			const sem = readSemanticState();

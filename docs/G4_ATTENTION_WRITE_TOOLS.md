@@ -133,35 +133,49 @@ OWNER_MISMATCH 分支）判 WS-1≠WS-2 拒事件；删掉尾部 WS ref 反而�
 新增回归：service 4 例（tail-order 成功+payload 锚定+行逐字、双序等价、owner ref
 去重、无 owner ref 车道逐字不变）+ tool 2 例（真实服务面 tail/head 两序端到端）。
 
-### 5b. 声明式侧 fresh 读（review 输入 bug #2）
+### 5b. 声明式侧 fresh 读（review 输入 bug #2；fallback 后被 review 判 BLOCK → 5d 再修）
 
 **输入 bug（reviewer 实证 + 本机复现）**: `attentionValidationState` 的
-tasks/gates/milestones 取**启动树快照**（create.ts 启动 loop 507–518 一次性
-填充），但 GUI 计划编辑/NextAction promote 经 rpc `createPlanItem` 面直写
-plan.yaml **不 rewire wiring**（rpc-services.ts:1417–1438；host/index.ts:1314）。
-常见序列「启动 → GUI 建 Task → agent report 引用新 T」被误拒：RED 复现
+tasks/gates/milestones 取**启动树快照**，而 GUI 计划编辑/NextAction promote 经
+rpc `createPlanItem` 面直写 plan.yaml **不 rewire wiring**。常见序列
+「启动 → GUI 建 Task → agent report 引用新 T」被误拒：RED 复现
 `TOOL_SERVICE [IV_INPUT] ... TASK "T-5" does not exist`，直到 rescan。
 
-**修正**: 声明式侧改**每次创建 fresh** `loadResearchTree(reader, researchRoot,
-declarativeDir)`（hierarchy 面 1025 的既有先例——无缓存、刚建节点下次读即可见；
-不发明 invalidation bus）。map 形状与启动 loop 逐字一致（tree=真源：gates 未
-评估、milestones PLANNED 的存在性/owner 口径）。fresh 读取失败**不阻塞创建**
-（声明式树破损时人工上报必须可用）——回退启动快照 + logger.warn（rescan 仍是
-修复路径）。runs/claims/facts/artifacts 原本已 fresh；权限、multiWS/optionalWS、
-幂等/队列语义不变。
+**第一轮修正（fresh + boot fallback）被 5d 判 BLOCK**——保留记录以备审计。
+现行修正见 5d。新增的 host 回归保留：initPlane → `svc.createPlanItem`（GUI
+真实 rpc 面）建 TASK → **无 rescan** report 成功 + event 落地。
 
-| 门（5b 轮） | 范围 | 结果（真实 exit） |
+### 5d. 当前树 = 唯一声明式权威（review 输入 bug #3: boot fallback = fail-open）
+
+**输入 bug（reviewer 判定 + 本机复现）**: 5b 第一轮实现把 fresh 读取失败
+（`errors.length>0`）回退到**启动快照**——启动时 T-1 合法、其后被删除/改坏 ⇒
+新报告引用 T-1 会按 boot 状态放行，违反 DOMAIN_SCHEMA §16（unresolved 新引用
+必须拒绝）。RED 复现：删除 T-1.yaml 后 report 引用 T-1 **成功**（断言
+`unreachable` 失败 = 未拒绝即 BLOCK）。
+
+**现行修正**: 删除 boot fallback——**当前树是唯一权威**，且只依既有 loader
+语义（文件级拒绝 = 节点缺失，`doc: null` → 不入 map → 引用 unresolved ⇒
+IV_INPUT 零写入；存活文件照常通过 = 无 blanket fail-closed、无新宽松模式、无
+invalidation bus）。degraded 读取 warn 日志可见。合契约的 no-WS/no-ref 车道
+无可解析对象，两种树况下都保持可用（服务只按实际引用消费这些 map）；
+`liveGates`/`liveMilestones` boot map 随之删除（无消费者后不留死码）。
+
+**前两项 PASS 修复未回退**: owner 锚点位置性与「GUI 新 T 无需 rescan」两修在
+round-3 全量套件下保持绿（host 套件 10/10 含全部相关用例）。
+
+| 门（5d 轮） | 范围 | 结果（真实 exit） |
 |---|---|---|
-| RED 复现 | host 回归（真实 RPC createPlanItem → report T-5） | `× TOOL_SERVICE [IV_INPUT] TASK "T-5" does not exist` |
-| GREEN host codec | tests/discovery/host-attention-write 全 9 例 | 9 passed, EXIT=0 |
-| tsc 逐行 | vs BASELINE 40 行 | diff=空（EXIT=1 已知） |
+| RED 复现 | host 回归（boot 绿 → `rmSync T-1.yaml` → report 引用 T-1） | 修正前**未拒绝**（`unreachable`）= BLOCK 实证 |
+| GREEN host codec | tests/discovery/host-attention-write 全 10 例（含锚点 2 + T-5 无 rescan 1 + drift 1） | 10 passed, EXIT=0 |
+| GREEN 广域 | 10 套件复跑 | **1186 passed, EXIT=0**（`.g4-logs/green-round3-broad.log`） |
+| tsc | 逐行 diff vs BASELINE 40 行 | diff=**空**（EXIT=1 已知） |
 | lint | check-imports | EXIT=0 |
-| build/pack/广域 | 与 5a 合并 commit 后统一复跑（下表） | — |
+| build/pack | 功能产物入库 + churn 复除 | build EXIT=0；pack-verify PASS（519 entries/59 descriptors） |
 
-新增 host 回归（真实 API）：initPlane → `svc.createPlanItem`（GUI rpc 面）建
-TASK → **无 rescan** report 该 ref 成功 + event_id 非空；`T-404` 仍拒
-（TOOL_SERVICE+IV_INPUT）且**零部分写**（行数/事件数前后相等 = 预校验在号预留
-前，事件先行/行第二窗口不被破坏）。
+新增 host 回归（drift 权威）：boot 时 T-1 合法 report 成功 → 删除 T-1.yaml →
+report 引用 T-1 被拒（TOOL_SERVICE+IV_INPUT）且**行/事件零增量** → 同计划存活
+T-2 仍可 report（loader 文件级 partial 语义, 不 blanket fail-closed）→ 无
+WS/无 ref 的裸上报仍成功（event_id null, 行入队）。
 
 ### 5c. 合并轮统一门禁（5a+5b 同一 commit）
 

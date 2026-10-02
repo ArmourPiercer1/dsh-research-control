@@ -384,13 +384,6 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
   const workstreamList: string[] = []
   const liveWorkstreams = new Map<string, WorkstreamSnapshot>()
   const liveTasks = new Map<string, TaskSnapshot>()
-  // G4 attention-write validation face (existence purpose): the declarative
-  // tree is the 正源 — a gate carries no operational evaluation yet in a tree
-  // snapshot (lastResult null = 未评估, §5.6 PLANNED) and a milestone is
-  // PLANNED until MILESTONE_ACHIEVED (the registry checks existence + owner
-  // WS for source refs, not evaluation state — same discipline as liveTasks).
-  const liveGates = new Map<string, GateSnapshot>()
-  const liveMilestones = new Map<string, MilestoneSnapshot>()
   const milestoneIds = new Set<string>()
   const objectiveIds = new Set<string>()
 
@@ -512,11 +505,8 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
           })
           void liveTasks
         }
-        for (const g of ws.gates) liveGates.set(g.id, { workstreamId: ws.id, lastResult: null })
-        for (const m of ws.milestones) {
-          milestoneIds.add(m.id)
-          liveMilestones.set(m.id, { workstreamId: ws.id, status: 'PLANNED' })
-        }
+        for (const g of ws.gates) void g
+        for (const m of ws.milestones) milestoneIds.add(m.id)
       }
     }
     for (const o of load.tree.objectives) objectiveIds.add(o.id)
@@ -782,58 +772,58 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     //
     // PR5 review 第二轮: the DECLARATIVE side is read FRESH per creation (the
     // hierarchy lane's precedent — `loadResearchTree` per call, no cache: a
-    // just-created node is visible to the next read without a restart/rescan).
-    // The GUI plan-editor/NextAction-promote lane writes plan.yaml through
-    // the rpc face WITHOUT rewiring this wiring, so boot-time maps would
-    // reject a report referencing the new T id (§16 规则 2 误拒) until rescan.
-    // Map shapes mirror the boot loop above verbatim (the tree is the 真源 —
-    // gates un-evaluated, milestones PLANNED: existence + owner context is
-    // what the frozen validation reads). On a fresh-load failure the creation
-    // is NOT blocked (a human-attention report must survive a partially
-    // broken tree) — the boot snapshot answers instead, with a warn (rescan
-    // remains the repair path; no invalidation bus is invented).
+    // just-created node is visible to the next read without a restart/rescan;
+    // the GUI plan-editor/NextAction-promote face writes the tree WITHOUT
+    // rewiring this wiring). PR5 review 第三轮: the CURRENT tree is the ONLY
+    // declarative answer — NO boot-snapshot fallback (that would let a ref to
+    // a node deleted/corrupted after boot pass as it was at boot, violating
+    // DOMAIN_SCHEMA §16: unresolved new refs are REFUSED). The loader's existing
+    // file-level semantics do the work: a missing or rejected file keeps its
+    // node absent (`doc: null`) ⇒ absent from these maps ⇒ unresolved ⇒ the
+    // creation is rejected (IV_INPUT, zero writes); surviving files keep
+    // validating normally (no blanket fail-closed, no invented lax mode, no
+    // invalidation bus). A degraded read is surfaced on the log; the no-WS /
+    // no-ref lane references nothing to resolve and stays contract-compliant
+    // either way (the service consumes these maps only for what is referenced
+    // — §16.4/§16.3; the TC-DOM-023 no-event lane needs no declarative ctx).
     const freshDeclarativeValidationMaps = (): {
       workstreams: ReadonlyMap<string, WorkstreamSnapshot>
       tasks: ReadonlyMap<string, TaskSnapshot>
       gates: ReadonlyMap<string, GateSnapshot>
       milestones: ReadonlyMap<string, MilestoneSnapshot>
     } => {
-      try {
-        const fresh = loadResearchTree(reader, researchRoot, declarativeDir)
-        if (fresh.errors.length > 0) {
-          throw new Error(fresh.errors.map((e) => `[${e.code}] ${e.file || '<root>'}: ${e.message}`).join('; '))
-        }
-        const workstreams = new Map<string, WorkstreamSnapshot>()
-        const tasks = new Map<string, TaskSnapshot>()
-        const gates = new Map<string, GateSnapshot>()
-        const milestones = new Map<string, MilestoneSnapshot>()
-        for (const topic of fresh.tree.topics) {
-          for (const ws of topic.workstreams) {
-            const doc = ws.doc
-            if (doc === null) continue
-            workstreams.set(ws.id, { topicId: topic.id, lifecycle: doc.lifecycle })
-            for (const t of ws.tasks) {
-              if (t.doc === null) continue
-              const ac = t.doc.acceptance_criteria
-              tasks.set(t.id, {
-                workstreamId: ws.id,
-                execution: 'PLANNED',
-                validation: ac.length > 0 ? 'PENDING' : 'NOT_REQUIRED',
-                acceptanceCriteria: ac,
-              })
-            }
-            for (const g of ws.gates) gates.set(g.id, { workstreamId: ws.id, lastResult: null })
-            for (const m of ws.milestones) milestones.set(m.id, { workstreamId: ws.id, status: 'PLANNED' })
-          }
-        }
-        return { workstreams, tasks, gates, milestones }
-      } catch (cause) {
+      const fresh = loadResearchTree(reader, researchRoot, declarativeDir)
+      if (fresh.errors.length > 0) {
         logger?.warn(
           'wiring',
-          `attention validation: fresh tree read failed — answering from the boot snapshot until rescan: ${cause instanceof Error ? cause.message : String(cause)}`,
+          `attention validation: declarative tree read is DEGRADED \u2014 nodes of rejected files stay unresolved and new refs to them are refused: ` +
+            fresh.errors.map((e) => `[${e.code}] ${e.file || '<root>'}`).join('; '),
         )
-        return { workstreams: liveWorkstreams, tasks: liveTasks, gates: liveGates, milestones: liveMilestones }
       }
+      const workstreams = new Map<string, WorkstreamSnapshot>()
+      const tasks = new Map<string, TaskSnapshot>()
+      const gates = new Map<string, GateSnapshot>()
+      const milestones = new Map<string, MilestoneSnapshot>()
+      for (const topic of fresh.tree.topics) {
+        for (const ws of topic.workstreams) {
+          const doc = ws.doc
+          if (doc === null) continue
+          workstreams.set(ws.id, { topicId: topic.id, lifecycle: doc.lifecycle })
+          for (const t of ws.tasks) {
+            if (t.doc === null) continue
+            const ac = t.doc.acceptance_criteria
+            tasks.set(t.id, {
+              workstreamId: ws.id,
+              execution: 'PLANNED',
+              validation: ac.length > 0 ? 'PENDING' : 'NOT_REQUIRED',
+              acceptanceCriteria: ac,
+            })
+          }
+          for (const g of ws.gates) gates.set(g.id, { workstreamId: ws.id, lastResult: null })
+          for (const m of ws.milestones) milestones.set(m.id, { workstreamId: ws.id, status: 'PLANNED' })
+        }
+      }
+      return { workstreams, tasks, gates, milestones }
     }
     const attentionValidationState = (): InterventionExternalState => {
       const sem = readSemanticState()

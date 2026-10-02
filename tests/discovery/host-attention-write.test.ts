@@ -319,6 +319,60 @@ describe('G4 host codec: research_intervention_create over the real wiring + rea
     }
   }, 40_000)
 
+  it('tree drift is authoritative: delete the boot-valid T-1 file ⇒ new refs to T-1 refused with zero increments; the contract-compliant no-WS/no-ref lane stays available', async () => {
+    freshDshHome()
+    const wsA = makeValidWs()
+    const hub = makeHubWs(wsA)
+    const h = mountHost([hub, wsA])
+    try {
+      await initPlane(h.svc)
+      const wiring = liveWiring(h.svc)
+      wiring.runBinding.registerRun({ workstreamId: 'WS-1', dshSessionId: 'sess-g4-a' }, USER)
+
+      // boot state: T-1 (附录 A fixture) is legal and resolvable
+      const ok = (await tool(h, 'research_intervention_create').execute(
+        { title: 'T-1 的前置假设需人工确认', workstream_ids: ['WS-1'], source_refs: [{ kind: 'TASK', id: 'T-1' }] },
+        execAs('sess-g4-a'),
+      )) as { status: string; event_id: string | null }
+      expect(ok.status).toBe('created')
+
+      // the tree drifts AFTER boot: the T-1 file is deleted (the GUI lane or
+      // any other writer can do this without a rewire) — the CURRENT tree no
+      // longer resolves T-1 (loader: missing file ⇒ node absent; other files
+      // of the workstream stay valid)
+      rmSync(join(wsA, '.research', 'topics', 'TPC-1', 'workstreams', 'WS-1', 'items', 'tasks', 'T-1.yaml'))
+
+      const rowsBefore = wiring.interventions.listInterventions().length
+      const eventsBefore = wiring.store.listRange('WS-1', 1).length
+      await tool(h, 'research_intervention_create')
+        .execute({ title: 't', workstream_ids: ['WS-1'], source_refs: [{ kind: 'TASK', id: 'T-1' }] }, execAs('sess-g4-a'))
+        .then(() => { throw new Error('unreachable') })
+        .catch((e: unknown) => expectHostError(e, 'TOOL_SERVICE', 'IV_INPUT'))
+      expect(wiring.interventions.listInterventions()).toHaveLength(rowsBefore)
+      expect(wiring.store.listRange('WS-1', 1)).toHaveLength(eventsBefore)
+
+      // the surviving files keep validating (loader partial semantics — no
+      // blanket fail-closed): T-2 of the same plan is still reportable
+      const ok2 = (await tool(h, 'research_intervention_create').execute(
+        { title: 'T-2 排期需人工确认', workstream_ids: ['WS-1'], source_refs: [{ kind: 'TASK', id: 'T-2' }] },
+        execAs('sess-g4-a'),
+      )) as { status: string }
+      expect(ok2.status).toBe('created')
+
+      // the contract-compliant no-WS lane stays available (nothing to
+      // resolve ⇒ nothing to reject — row only, NO event)
+      const noWs = (await tool(h, 'research_intervention_create').execute(
+        { title: '跨项目风险需人工判断（树部分损坏时的裸上报）' },
+        execAs('sess-g4-a'),
+      )) as { status: string; event_id: string | null }
+      expect(noWs.status).toBe('created')
+      expect(noWs.event_id).toBeNull()
+      expect(wiring.interventions.listInterventions()).toHaveLength(rowsBefore + 2)
+    } finally {
+      disposeFiber(h)
+    }
+  }, 40_000)
+
   it('an injected identity key is refused at the wire (TOOL_INPUT) — the live face keeps the G1 boundary', async () => {
     freshDshHome()
     const wsA = makeValidWs()

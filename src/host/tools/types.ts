@@ -44,6 +44,15 @@
 
 import type { CreatePlanForkParams, PlanForkRecord } from '../domain/planfork/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../service/runbinding/index.js'
+import type {
+  RecordClaimArgs,
+  RecordClaimResult,
+  RecordFactArgs,
+  RecordFactResult,
+  RegisterArtifactArgs,
+  RegisterArtifactResult,
+  SemanticAgentActor,
+} from '../service/semantics/index.js'
 
 /* ------------------------------------------------------------------ *
  * Lossless JSON (the wire/value vocabulary of the tool face)
@@ -333,6 +342,49 @@ export function isToolError(error: unknown): error is ToolError {
   return error instanceof ToolError
 }
 
+/**
+ * G3 — build the trusted lane caller from the exec context ONLY (the
+ * host resolved actor.kind + run_id from the calling session, G1; the
+ * gate already enforced the run for writes — this is the defensive
+ * second look). Identity never comes from args: the frozen faces refuse
+ * every identity key (tests/tools/trusted-boundary + semantic-create).
+ */
+export function semanticCallerFrom(ctx: ToolExecContext): SemanticAgentActor {
+  if (typeof ctx.runId !== 'string' || ctx.runId.length === 0) {
+    throw new ToolError(
+      'TOOL_RUN_REQUIRED',
+      'the semantic agent create lane requires the run-resolved actor (INV-PERM-1) — unreachable past the gate',
+    )
+  }
+  return {
+    kind: 'AGENT',
+    run_id: ctx.runId,
+    ...(ctx.actor.session_id !== undefined ? { session_id: ctx.actor.session_id } : {}),
+    ...(ctx.actor.label !== undefined ? { label: ctx.actor.label } : {}),
+  }
+}
+
+/**
+ * G3 — map a semantic-lane failure into the tool error contract. The
+ * semantics service throws the documented carrier
+ * `[research-control] <CODE>: <message>` (service/semantics/errors.ts);
+ * the machine code rides in `detail.serviceCode` (the run-checkpoint
+ * precedent), the message carries the full carrier text. Anything else
+ * maps to TOOL_SERVICE WITHOUT inventing a code.
+ */
+export function toSemanticToolServiceError(toolName: string, cause: unknown): ToolError {
+  if (cause instanceof ToolError) return cause
+  const message = cause instanceof Error ? cause.message : String(cause)
+  const carrier = /^\[research-control\] ([A-Z0-9_]+): /.exec(message)
+  return new ToolError(
+    'TOOL_SERVICE',
+    `${toolName}: ${message}`,
+    carrier !== null
+      ? { cause, detail: { serviceCode: carrier[1] as string } }
+      : { cause },
+  )
+}
+
 /* ------------------------------------------------------------------ *
  * Service deps (the ONLY forwarding surface — INV-PLAN-3 type proof)
  * ------------------------------------------------------------------ */
@@ -369,6 +421,21 @@ export interface ResearchToolDeps {
     params: { note?: string },
     actor: UserOrAgentActorRef,
   ) => RunRecord
+  /**
+   * G3 — research_fact_record / research_claim_record / research_artifact_register:
+   * the narrow AGENT create lane of the semantic records service. The
+   * `caller` parameter is REQUIRED and typed `SemanticAgentActor` — a
+   * USER actor is a compile error on this surface, the tools build it
+   * from the host-resolved exec actor (never from args, G1), and the
+   * service re-verifies the run (existence + owner WS) before writing.
+   * Semantic CREATE only — no update/delete/retract rides this port
+   * (the §6 USER-only lanes stay unreachable; INV-PLAN-3 unaffected).
+   */
+  readonly semanticAgentCreate: {
+    readonly recordFact: (args: RecordFactArgs, caller: SemanticAgentActor) => RecordFactResult
+    readonly recordClaim: (args: RecordClaimArgs, caller: SemanticAgentActor) => RecordClaimResult
+    readonly registerArtifact: (args: RegisterArtifactArgs, caller: SemanticAgentActor) => RegisterArtifactResult
+  }
 }
 
 /* ------------------------------------------------------------------ *

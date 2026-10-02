@@ -2,7 +2,12 @@
  * WP-3.3 — stub tool behavior (task goal 3: 「未落地的服务以 stub 处理器 +
  * 显式 NOT_IMPLEMENTED 结构化错误交付」).
  *
- * Each of the 9 stub tools must:
+ * G3 note: the semantic trio (fact_record / claim_record / artifact_register)
+ * retired from this file — their live behavior lives in
+ * tests/tools/semantic-create.test.ts. Six stubs remain (G2/G4 will retire
+ * theirs the same way; G5 turns this file into a no-stub assertion).
+ *
+ * Each remaining stub must:
  *  1. pass the permission gate first (a forged actor is refused with
  *     TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED — NOT NOT_IMPLEMENTED);
  *  2. validate the frozen wire face (TOOL_INPUT on a bad face — the face
@@ -15,11 +20,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  RESEARCH_ARTIFACT_REGISTER,
-  RESEARCH_CLAIM_RECORD,
-  RESEARCH_CONTRACT_READ,
   RESEARCH_CONTEXT_GET,
-  RESEARCH_FACT_RECORD,
+  RESEARCH_CONTRACT_READ,
   RESEARCH_HISTORY_QUERY,
   RESEARCH_INTERVENTION_CREATE,
   RESEARCH_NEXT_ACTION_CREATE,
@@ -29,13 +31,6 @@ import {
 import { expectToolErrorAsync, makeExec, makeRecordingDeps } from './fixtures.js'
 
 const STUBS: { name: string; args: Record<string, unknown>; writeStub: boolean }[] = [
-  { name: RESEARCH_FACT_RECORD, args: { workstream_id: 'WS-1', statement: 's' }, writeStub: true },
-  { name: RESEARCH_CLAIM_RECORD, args: { workstream_id: 'WS-1', statement: 's' }, writeStub: true },
-  {
-    name: RESEARCH_ARTIFACT_REGISTER,
-    args: { workstream_id: 'WS-1', type: 'CODE', title: 't', uri: 'a/b.py' },
-    writeStub: true,
-  },
   { name: RESEARCH_INTERVENTION_CREATE, args: { title: '需要人工判断：误差预算冲突', detail: 'd' }, writeStub: true },
   { name: RESEARCH_NEXT_ACTION_CREATE, args: { workstream_id: 'WS-1', statement: 's', rationale: 'r' }, writeStub: true },
   { name: RESEARCH_CONTEXT_GET, args: {}, writeStub: false },

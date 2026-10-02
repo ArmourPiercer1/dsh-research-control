@@ -115,6 +115,7 @@ export interface RecordingDeps extends ResearchToolDeps {
 export function makeRecordingDeps(): RecordingDeps & {
   setPlanForkCreate(fn: ResearchToolDeps['planForkCreate']): void
   setRecordCheckpoint(fn: ResearchToolDeps['recordCheckpoint']): void
+  setSemanticAgentCreate(fns: Partial<ResearchToolDeps['semanticAgentCreate']>): void
 } {
   const planForkCreateCalls: unknown[] = []
   const recordCheckpointCalls: { runId: string; params: { note?: string }; actor: ToolActorRef }[] = []
@@ -124,6 +125,12 @@ export function makeRecordingDeps(): RecordingDeps & {
   let rcImpl: ResearchToolDeps['recordCheckpoint'] = () => {
     throw new Error('deps.recordCheckpoint called without a test override (a stub reached the service port)')
   }
+  const unreachableSemantic = (method: string) => {
+    throw new Error(`deps.semanticAgentCreate.${method} called without a test override (the lane was reached unexpectedly)`)
+  }
+  let saFact: ResearchToolDeps['semanticAgentCreate']['recordFact'] = () => unreachableSemantic('recordFact')
+  let saClaim: ResearchToolDeps['semanticAgentCreate']['recordClaim'] = () => unreachableSemantic('recordClaim')
+  let saArtifact: ResearchToolDeps['semanticAgentCreate']['registerArtifact'] = () => unreachableSemantic('registerArtifact')
   return {
     planForkCreateCalls,
     recordCheckpointCalls,
@@ -135,11 +142,21 @@ export function makeRecordingDeps(): RecordingDeps & {
       recordCheckpointCalls.push({ runId, params, actor: actor as ToolActorRef })
       return rcImpl(runId, params, actor)
     },
+    semanticAgentCreate: {
+      recordFact: (args, caller) => saFact(args, caller),
+      recordClaim: (args, caller) => saClaim(args, caller),
+      registerArtifact: (args, caller) => saArtifact(args, caller),
+    },
     setPlanForkCreate: (fn) => {
       pfImpl = fn
     },
     setRecordCheckpoint: (fn) => {
       rcImpl = fn
+    },
+    setSemanticAgentCreate: (fns) => {
+      if (fns.recordFact !== undefined) saFact = fns.recordFact
+      if (fns.recordClaim !== undefined) saClaim = fns.recordClaim
+      if (fns.registerArtifact !== undefined) saArtifact = fns.registerArtifact
     },
   }
 }

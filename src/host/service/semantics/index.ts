@@ -32,7 +32,10 @@ export type {
   SemanticEndpointRef,
   SemanticIdAllocator,
   SemanticPlanIndex,
+  SemanticAgentActor,
   SemanticRecordsServiceOptions,
   SemanticRecordsStorePort,
+  SemanticRunRegistryPort,
+  SemanticRunRegistryRow,
   SemanticWorkstreamIndex,
 } from './types.js'

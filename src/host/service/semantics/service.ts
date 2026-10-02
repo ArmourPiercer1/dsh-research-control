@@ -97,8 +97,11 @@ import type {
   SemanticEndpointRef,
   SemanticIdAllocator,
   SemanticPlanIndex,
+  SemanticAgentActor,
   SemanticRecordsServiceOptions,
   SemanticRecordsStorePort,
+  SemanticRunRegistryPort,
+  SemanticRunRegistryRow,
 } from './types.js'
 
 const EVENT_SCHEMA_VERSION = 1
@@ -106,6 +109,19 @@ const EVENT_SCHEMA_VERSION = 1
 /** The USER management actor (the face's action — no user_id in V1;
  *  matches the plan-writer ledger actor carrier). */
 const USER_ACTOR: ActorRefDoc = { kind: 'USER' }
+
+/**
+ * G3 — a resolved AGENT create lane (see `SemanticAgentActor`): the
+ * envelope actor, the payload `created_by_run` stamp, and the verified
+ * run row (projected into the registry validate context so the frozen
+ * §5 cross-checks — actor.run_id / created_by_run ∈ runs — see the REAL
+ * run, not an empty map).
+ */
+interface AgentCreateLane {
+  readonly actor: ActorRefDoc
+  readonly createdByRun: string
+  readonly run: { readonly workstreamId: string; readonly status: SemanticRunRegistryRow['status'] }
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -131,6 +147,7 @@ export class SemanticRecordsService {
   readonly #plans: SemanticPlanIndex
   readonly #projectId: string
   readonly #now: () => number
+  readonly #runs: SemanticRunRegistryPort | undefined
 
   constructor(options: SemanticRecordsServiceOptions) {
     if (options.store === undefined || options.store === null) {
@@ -157,6 +174,7 @@ export class SemanticRecordsService {
     this.#plans = options.plans
     this.#projectId = options.projectId
     this.#now = options.now ?? Date.now
+    this.#runs = options.runs
   }
 
   /* ---------------------------------------------------------------- *
@@ -197,6 +215,94 @@ export class SemanticRecordsService {
       return this.#registerArtifactImpl(args)
     } catch (e) {
       throw mapSemanticsError(e)
+    }
+  }
+
+  /* ---------------------------------------------------------------- *
+   * G3 — the narrow AGENT create lanes (the three research_* write
+   * tools forward here; the caller is the host-resolved trusted
+   * identity, NEVER tool input). The trusted run is verified BEFORE
+   * any reservation: existence in the run registry (OBJECT_NOT_FOUND)
+   * and owner WS == target WS (OWNER_MISMATCH — the same-WS gate); a
+   * non-AGENT / run-less caller is refused as INVALID_ENVELOPE. On
+   * success the event carries the AGENT actorRef + payload
+   * created_by_run (catalog §5.3: AGENT 发射时必填) and the registry
+   * validate context sees the REAL run.
+   * ---------------------------------------------------------------- */
+
+  /** recordFactAsAgent — FACT_RECORDED emitted by AGENT(run). */
+  recordFactAsAgent(args: RecordFactArgs, caller: SemanticAgentActor): RecordFactResult {
+    try {
+      return this.#recordFactImpl(args, this.#agentLane(caller, args.workstreamId))
+    } catch (e) {
+      throw mapSemanticsError(e)
+    }
+  }
+
+  /** recordClaimAsAgent — CLAIM_RECORDED emitted by AGENT(run). */
+  recordClaimAsAgent(args: RecordClaimArgs, caller: SemanticAgentActor): RecordClaimResult {
+    try {
+      return this.#recordClaimImpl(args, this.#agentLane(caller, args.workstreamId))
+    } catch (e) {
+      throw mapSemanticsError(e)
+    }
+  }
+
+  /** registerArtifactAsAgent — ARTIFACT_REGISTERED emitted by AGENT(run). */
+  registerArtifactAsAgent(args: RegisterArtifactArgs, caller: SemanticAgentActor): RegisterArtifactResult {
+    try {
+      return this.#registerArtifactImpl(args, this.#agentLane(caller, args.workstreamId))
+    } catch (e) {
+      throw mapSemanticsError(e)
+    }
+  }
+
+  /** Resolve + verify the trusted caller (module block comment above). */
+  #agentLane(caller: SemanticAgentActor, ownerWs: string): AgentCreateLane {
+    if (
+      caller === null ||
+      typeof caller !== 'object' ||
+      caller.kind !== 'AGENT' ||
+      typeof caller.run_id !== 'string' ||
+      caller.run_id.length === 0
+    ) {
+      throw new SemanticDomainError(
+        'INVALID_ENVELOPE',
+        `the agent create lane requires a trusted AGENT actorRef carrying its formal run_id (got ${JSON.stringify(caller)}) — ` +
+          `the host resolves it from the calling session, it is never tool input`,
+        '/actor',
+      )
+    }
+    if (this.#runs === undefined) {
+      throw new TypeError(
+        'SemanticRecordsService: options.runs (the run-registry port) is required for the agent create lane — composition bug',
+      )
+    }
+    const run = this.#runs.getRun(caller.run_id)
+    if (run === null) {
+      throw new SemanticDomainError(
+        'OBJECT_NOT_FOUND',
+        `Run ${JSON.stringify(caller.run_id)} does not exist (catalog §5: actor.run_id 对应 Run 存在) — the caller run is unverifiable`,
+        '/actor/run_id',
+      )
+    }
+    if (run.workstream_id !== ownerWs) {
+      throw new SemanticDomainError(
+        'OWNER_MISMATCH',
+        `Run ${JSON.stringify(run.id)} belongs to workstream ${JSON.stringify(run.workstream_id)}, not the target ${JSON.stringify(ownerWs)} ` +
+          `(INV-SCI-1 / catalog §4: the agent records on its own run's workstream)`,
+        '/workstream_id',
+      )
+    }
+    return {
+      actor: {
+        kind: 'AGENT',
+        run_id: caller.run_id,
+        ...(caller.session_id !== undefined ? { session_id: caller.session_id } : {}),
+        ...(caller.label !== undefined ? { label: caller.label } : {}),
+      },
+      createdByRun: caller.run_id,
+      run: { workstreamId: run.workstream_id, status: run.status },
     }
   }
 
@@ -243,10 +349,12 @@ export class SemanticRecordsService {
    * recordFact
    * ---------------------------------------------------------------- */
 
-  #recordFactImpl(args: RecordFactArgs): RecordFactResult {
+  #recordFactImpl(args: RecordFactArgs, lane?: AgentCreateLane): RecordFactResult {
     const ownerWs = args.workstreamId
     const references = [...(args.references ?? [])]
     const occurredAt = this.#now()
+    const actor = lane?.actor ?? USER_ACTOR
+    const stamp = lane !== undefined ? { created_by_run: lane.createdByRun } : {}
     const result = canonicalSemanticAppend(
       { allocator: this.#allocator, store: this.#store, projectId: this.#projectId },
       {
@@ -254,20 +362,21 @@ export class SemanticRecordsService {
         eventType: 'FACT_RECORDED',
         ownerWorkstreamId: ownerWs,
         occurredAt,
-        actor: USER_ACTOR,
+        actor,
         buildPayload: (ids) => ({
           fact_id: ids.objectId as string,
           statement: args.statement,
           references,
+          ...stamp,
         }),
         precheck: this.#precheck((ids) => ({
           eventType: 'FACT_RECORDED',
           ownerWorkstreamId: ownerWs,
           occurredAt,
-          actor: USER_ACTOR,
-          payload: { fact_id: ids.objectId as string, statement: args.statement, references },
+          actor,
+          payload: { fact_id: ids.objectId as string, statement: args.statement, references, ...stamp },
         })),
-        validate: this.#composedValidate(ownerWs),
+        validate: this.#composedValidate(ownerWs, lane),
         label: 'semantics',
       },
     )
@@ -279,6 +388,7 @@ export class SemanticRecordsService {
       status: 'ACTIVE',
       recordedAt: occurredAt,
       eventId: result.eventId,
+      ...(lane !== undefined ? { createdByRun: lane.createdByRun } : {}),
     }
   }
 
@@ -286,10 +396,12 @@ export class SemanticRecordsService {
    * recordClaim
    * ---------------------------------------------------------------- */
 
-  #recordClaimImpl(args: RecordClaimArgs): RecordClaimResult {
+  #recordClaimImpl(args: RecordClaimArgs, lane?: AgentCreateLane): RecordClaimResult {
     const ownerWs = args.workstreamId
     const references = [...(args.references ?? [])]
     const occurredAt = this.#now()
+    const actor = lane?.actor ?? USER_ACTOR
+    const stamp = lane !== undefined ? { created_by_run: lane.createdByRun } : {}
     const result = canonicalSemanticAppend(
       { allocator: this.#allocator, store: this.#store, projectId: this.#projectId },
       {
@@ -297,20 +409,21 @@ export class SemanticRecordsService {
         eventType: 'CLAIM_RECORDED',
         ownerWorkstreamId: ownerWs,
         occurredAt,
-        actor: USER_ACTOR,
+        actor,
         buildPayload: (ids) => ({
           claim_id: ids.objectId as string,
           statement: args.statement,
           references,
+          ...stamp,
         }),
         precheck: this.#precheck((ids) => ({
           eventType: 'CLAIM_RECORDED',
           ownerWorkstreamId: ownerWs,
           occurredAt,
-          actor: USER_ACTOR,
-          payload: { claim_id: ids.objectId as string, statement: args.statement, references },
+          actor,
+          payload: { claim_id: ids.objectId as string, statement: args.statement, references, ...stamp },
         })),
-        validate: this.#composedValidate(ownerWs),
+        validate: this.#composedValidate(ownerWs, lane),
         label: 'semantics',
       },
     )
@@ -322,6 +435,7 @@ export class SemanticRecordsService {
       status: 'ACTIVE',
       recordedAt: occurredAt,
       eventId: result.eventId,
+      ...(lane !== undefined ? { createdByRun: lane.createdByRun } : {}),
     }
   }
 
@@ -374,9 +488,11 @@ export class SemanticRecordsService {
    * registerArtifact (BY REFERENCE — D §13.6: the file is never copied)
    * ---------------------------------------------------------------- */
 
-  #registerArtifactImpl(args: RegisterArtifactArgs): RegisterArtifactResult {
+  #registerArtifactImpl(args: RegisterArtifactArgs, lane?: AgentCreateLane): RegisterArtifactResult {
     const ownerWs = args.workstreamId
     const occurredAt = this.#now()
+    const actor = lane?.actor ?? USER_ACTOR
+    const stamp = lane !== undefined ? { created_by_run: lane.createdByRun } : {}
     const buildPayload = (ids: CanonicalAppendIds): Record<string, unknown> => ({
       artifact_id: ids.objectId as string,
       type: args.type,
@@ -385,6 +501,7 @@ export class SemanticRecordsService {
       ...(args.contentHash !== undefined ? { content_hash: args.contentHash } : {}),
       ...(args.relatedTaskId !== undefined ? { related_task: args.relatedTaskId } : {}),
       ...(args.supersedes !== undefined ? { supersedes: args.supersedes } : {}),
+      ...stamp,
     })
     const result = canonicalSemanticAppend(
       { allocator: this.#allocator, store: this.#store, projectId: this.#projectId },
@@ -393,16 +510,16 @@ export class SemanticRecordsService {
         eventType: 'ARTIFACT_REGISTERED',
         ownerWorkstreamId: ownerWs,
         occurredAt,
-        actor: USER_ACTOR,
+        actor,
         buildPayload,
         precheck: this.#precheck((ids) => ({
           eventType: 'ARTIFACT_REGISTERED',
           ownerWorkstreamId: ownerWs,
           occurredAt,
-          actor: USER_ACTOR,
+          actor,
           payload: buildPayload(ids),
         })),
-        validate: this.#composedValidate(ownerWs),
+        validate: this.#composedValidate(ownerWs, lane),
         label: 'semantics',
       },
     )
@@ -415,6 +532,7 @@ export class SemanticRecordsService {
       status: 'REGISTERED',
       recordedAt: occurredAt,
       eventId: result.eventId,
+      ...(lane !== undefined ? { createdByRun: lane.createdByRun } : {}),
     }
   }
 
@@ -630,7 +748,7 @@ export class SemanticRecordsService {
    * maps — proven by the domain tests).
    * ---------------------------------------------------------------- */
 
-  #buildContext(ownerWs: string): HistoryObjectContext {
+  #buildContext(ownerWs: string, lane?: AgentCreateLane): HistoryObjectContext {
     const semantic = toObjectContext(this.#readSemanticState())
     const tasks = new Map<string, TaskSnapshot>()
     const gates = new Map<string, GateSnapshot>()
@@ -645,7 +763,11 @@ export class SemanticRecordsService {
     return {
       workstreams,
       tasks,
-      runs: new Map(),
+      // G3: the agent lane contributes its VERIFIED run to the registry
+      // ctx (catalog §5: actor.run_id / created_by_run must reference an
+      // existing Run — the empty-map default stays for the USER lane,
+      // which never emits run-attributed payloads).
+      runs: lane !== undefined ? new Map([[lane.createdByRun, { workstreamId: lane.run.workstreamId, status: lane.run.status }]]) : new Map(),
       claims: semantic.claims,
       facts: semantic.facts,
       artifacts: semantic.artifacts,
@@ -659,8 +781,8 @@ export class SemanticRecordsService {
 
   /** The composed registry validate hook (ADJ-4: `options.validate`
    *  MUST be this — the authoritative in-tx layer). */
-  #composedValidate(ownerWs: string): SemanticValidateHook {
-    return makeValidateHook(this.#registry, () => this.#buildContext(ownerWs))
+  #composedValidate(ownerWs: string, lane?: AgentCreateLane): SemanticValidateHook {
+    return makeValidateHook(this.#registry, () => this.#buildContext(ownerWs, lane))
   }
 
   /* ---------------------------------------------------------------- *

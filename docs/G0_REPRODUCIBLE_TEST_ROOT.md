@@ -25,10 +25,15 @@ checkout 父层没有该 fixture 时全量测试 ENOENT/`WIRING_INTEGRITY` 失�
 | **显式覆盖** | `DSH_RESEARCH_WORKSPACE_ROOT=<research workspace root>`（含 `schema/` 的目录）；用于**有意**指向 canonical 正本。缺失锚点 `schema/common.schema.json` = fail-loud 并打印两个旋钮 |
 | **不做的事** | 不向上探测（避免任何父层目录静默改变测试输入面）；不读生产 env `DSH_RESEARCH_SCHEMA_ROOT`；不被 `src/` import |
 
-消费面：13 个 resolver 文件保留原导出名（`WR_ROOT` 等）仅替换解析式；下游
+消费面：14 个 resolver 文件保留原导出名（`WR_ROOT` 等）仅替换解析式；下游
 ~38 个 spec 与 `tests/{atomic,flooding,intervention,planfork}` 等间接消费者经
 import 继承，无需逐文件改动。`scripts/e2e-run.sh` 的 `E2E_SCHEMA_ROOT` 同口径：
-默认包内快照，caller 显式 `DSH_RESEARCH_SCHEMA_ROOT` 优先。
+默认包内快照，caller 显式 `DSH_RESEARCH_SCHEMA_ROOT` 优先；且在**任何 consumer
+之前一次性规范化为绝对路径**（PR#2 review P2：seed factory `abs()` 要求
+absolute、host 启动 env 按各自 cwd 解析——相对值统一锚定 `$REPO_DIR`，目录
+不存在=启动即 fatal exit 1，杜绝跨 consumer 的歧义解释；实现在
+`scripts/resolve-e2e-schema-root.sh`，聚焦回归=default/relative/absolute/invalid
+四类跑 `scripts/e2e-schema-root-check.sh`，不启服务）。
 
 ## 3. 边界（不混同的三条解析线）
 
@@ -76,3 +81,7 @@ pack/快照刷新仍用 `DSH_SNAPSHOT_SOURCE_ROOT=<workspace-root>`。
   记录，未降门禁；是否加 CI 重试策略归后续（BASELINE §5/Q3 域外）。
 - 机器特异面（`lib/client.js` region 注释、`SNAPSHOT.md` 时间戳）不入库
   （BASELINE_PROGRESS §5 纪律不变）；本文档与日志不写机器绝对路径结论。
+- P2（PR#2 review，e2e schema 根相对路径歧义）修复后聚焦回归：
+  `scripts/e2e-schema-root-check.sh` default/relative/absolute/invalid 全 PASS
+  （`wt-07b`）；`e2e-run.sh` 接线探针 default=relative(两 cwd)=anchored absolute、
+  invalid=启动即 exit 1（`wt-08b`）。未启动任何服务/UI，e2e 维持 NOT_RUN。

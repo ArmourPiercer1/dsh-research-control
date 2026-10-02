@@ -105,7 +105,22 @@ E2E_REPO="$SMOKE_ROOT/ws"
 # of the workspace-root canonical — so a standalone checkout (nothing above
 # the repo) runs too; an explicit DSH_RESEARCH_SCHEMA_ROOT in the caller's
 # env wins, to point at the canonical originals on purpose.
-E2E_SCHEMA_ROOT="${DSH_RESEARCH_SCHEMA_ROOT:-$(cd "$REPO_DIR/schema" && pwd)}"
+# G0 P2 (PR#2 review): normalize to an ABSOLUTE path ONCE here, before any
+# consumer (host launch env below · the seed factory, whose `abs()` rejects
+# relative paths outright) — relative overrides anchor at $REPO_DIR, never
+# at the launcher's or a consumer's cwd; a missing directory is FATAL at
+# once (exit 1) instead of a late, cwd-dependent factory/boot failure.
+# Semantics live in scripts/resolve-e2e-schema-root.sh, regression-checked
+# by scripts/e2e-schema-root-check.sh (default/relative/absolute/invalid).
+# shellcheck source=./resolve-e2e-schema-root.sh
+. "$REPO_DIR/scripts/resolve-e2e-schema-root.sh"
+if ! E2E_SCHEMA_ROOT="$(resolve_e2e_schema_root "$REPO_DIR" "${DSH_RESEARCH_SCHEMA_ROOT:-}")"; then
+  printf '[e2e-run] FATAL: unusable schema root (DSH_RESEARCH_SCHEMA_ROOT=%s)\n' "${DSH_RESEARCH_SCHEMA_ROOT:-<unset>}" >&2
+  exit 1
+fi
+DSH_RESEARCH_SCHEMA_ROOT="$E2E_SCHEMA_ROOT"
+export DSH_RESEARCH_SCHEMA_ROOT
+printf '[e2e-run] schema root (normalized, absolute): %s\n' "$E2E_SCHEMA_ROOT"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$SMOKE_ROOT/pw-browsers}"
 EXPECTED_DSH_VERSION="0.1.0-rc.8"
 CYCLES="${E2E_CYCLES:-2}"

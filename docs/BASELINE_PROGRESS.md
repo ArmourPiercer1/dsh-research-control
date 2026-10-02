@@ -112,5 +112,5 @@ fresh build 对已提交产物产生两类**机器特异** diff，Stage-0 一律
 G4 退役注意力两写桩 → **11/11 实转发**；G5 在真实 `@deepseek-ai/dsh-tools` `ToolRuntime`
 registry（真实注册门 + 真实 output validator）上完成 11 工具端到端成功输出验收 + rescan/restart
 连续性 + 权限边界矩阵。现状与验收追溯见 `docs/TOOLS_TRACEABILITY.md`；组说明见
-`docs/G1..G4_*.md` 与 `docs/G5_REAL_REGISTRY_ACCEPTANCE.md`。tsc 债务行不变（known-fail 基线，
-逐行 diff 判定）。
+`docs/G1..G4_*.md`；G5 的验收追溯（真实/模拟分层、逐项证据、门禁摘要、用户指南）在
+`docs/TOOLS_TRACEABILITY.md`。tsc 债务行不变（known-fail 基线，逐行 diff 判定）。

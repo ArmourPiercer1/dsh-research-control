@@ -37,7 +37,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { ToolRuntime, type ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -111,6 +114,10 @@ export function g5Plane(): { hubPath: string; wsPath: string } {
  * ------------------------------------------------------------------ */
 
 export interface RealRegistryHarness {
+  /** The REAL cordis root context (launcher/scope composition seam: the
+   *  production host passes a plain Context to HostAgentLauncherAdapter;
+   *  tests mint agent scopes under this same root). */
+  readonly root: Context
   readonly svc: ResearchControlService
   /** The REAL registry instance (dsh-tools `ToolRuntime`). */
   readonly runtime: ToolRuntime
@@ -175,6 +182,7 @@ export async function bootRealRegistryHarness(workspacePaths?: readonly string[]
   let rpcWiring: HostWiring | undefined
 
   const harness: RealRegistryHarness = {
+    root,
     svc,
     runtime,
     workspacePaths: paths,
@@ -297,5 +305,122 @@ export function g5SnapshotDiff(a: string, b: string): string | null {
   return null
 }
 
+/* ------------------------------------------------------------------ *
+ * Persisted-row snapshots (node:sqlite READ-ONLY second connections)
+ * ------------------------------------------------------------------ */
+
+function findSqliteFiles(dir: string, out: string[]): void {
+  if (!existsSync(dir)) return
+  for (const name of readdirSync(dir)) {
+    const abs = join(dir, name)
+    if (statSync(abs).isDirectory()) findSqliteFiles(abs, out)
+    else if (name.endsWith('.sqlite')) out.push(abs)
+  }
+}
+
+/** A row-level snapshot of EVERY table of EVERY operational sqlite store
+ *  under the given roots (hash per `<file-basename>#<table>`; rows sorted
+ *  by their JSON form, so DB row ORDER never leaks into the hash).
+ *  Covers the FULL persisted face — history_event/derived_state AND the
+ *  operational tables (runs / DS / plan forks / interventions /
+ *  next actions / blockers / inbox / …) — not just one store's view.
+ *  The `meta` table (id-allocator counters + fold watermarks) is split
+ *  out: allocator reservations that BURN an id are legal existing design
+ *  (gaps allowed), so callers compare business tables for equality and
+ *  handle `meta` under its own (monotonic, never-regress) rule. */
+export function g5DbRowSnapshot(workspacePaths: readonly string[]): {
+  business: Record<string, string>
+  meta: Record<string, string>
+} {
+  const business: Record<string, string> = {}
+  const meta: Record<string, string> = {}
+  const files: string[] = []
+  for (const p of workspacePaths) findSqliteFiles(p, files)
+  files.sort()
+  for (const file of files) {
+    const db = new DatabaseSync(file, { readOnly: true })
+    try {
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .all() as Array<{ name: string }>
+      for (const { name } of tables) {
+        const rows = db.prepare(`SELECT * FROM "${name}"`).all()
+        const dumped = rows.map((r) => JSON.stringify(r)).sort().join('\n')
+        const key = `${basename(file)}#${name}`
+        const hash = createHash('sha256').update(dumped).digest('hex')
+        if (name === 'meta') meta[key] = hash
+        else business[key] = `${hash} (${rows.length} rows)`
+      }
+    } finally {
+      db.close()
+    }
+  }
+  return { business, meta }
+}
+
+/** Diff two business-row snapshots (`field | a | b` per first delta). */
+export function g5BusinessRowDiff(a: ReturnType<typeof g5DbRowSnapshot>['business'], b: ReturnType<typeof g5DbRowSnapshot>['business']): string | null {
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()
+  for (const k of keys) {
+    if (a[k] !== b[k]) return `${k}: ${JSON.stringify(a[k])} vs ${JSON.stringify(b[k])}`
+  }
+  return null
+}
+
+/** Diff the `meta` tables KEY-WISE (allocator counters + watermarks are
+ *  plain key/value rows): returns the changed keys with before/after. */
+export function g5MetaRows(workspacePaths: readonly string[]): Record<string, string> {
+  // meta tables are tiny; re-read unhashed for key-wise comparison
+  const out: Record<string, string> = {}
+  const files: string[] = []
+  for (const p of workspacePaths) findSqliteFiles(p, files)
+  files.sort()
+  for (const file of files) {
+    const db = new DatabaseSync(file, { readOnly: true })
+    try {
+      const has = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get()
+      if (has === undefined) continue
+      for (const r of db.prepare('SELECT * FROM meta').all()) {
+        out[`${basename(file)}#meta ${JSON.stringify(r)}`] = 'row'
+      }
+    } finally {
+      db.close()
+    }
+  }
+  return out
+}
+
 // re-exported for the suites' wiring-side helpers
 export { dirname }
+
+/* ------------------------------------------------------------------ *
+ * The REAL scope library (dsh-scope — the package dsh-tools itself
+ * imports for `restrict()`'s scope machinery).
+ *
+ * DISCLOSED: `@deepseek-ai/dsh-scope` is a TRANSITIVE dependency (not a
+ * direct one), so it is resolved through dsh-tools' own dependency view
+ * (`createRequire(<dsh-tools entry>).resolve`) — this yields the EXACT
+ * same pinned 0.1.2-alpha.3 instance dsh-tools imports (verified by
+ * realpath), not a parallel copy. Nothing is re-implemented: scope
+ * minting here is the production `createScope` (the same function the
+ * DSH agent factory uses to mint every agent context).
+ * ------------------------------------------------------------------ */
+
+export interface RealScope {
+  readonly ctx: Context
+  dispose(): Promise<void>
+}
+
+let scopeLib: { createScope: (ctx: Context, key: object) => RealScope } | undefined
+
+export async function g5RealScopeLib(): Promise<{ createScope: (ctx: Context, key: object) => RealScope }> {
+  if (scopeLib !== undefined) return scopeLib
+  const toolsEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-tools'))
+  const req = createRequire(toolsEntry)
+  const mod = (await import(pathToFileURL(req.resolve('@deepseek-ai/dsh-scope')).href)) as {
+    createScope: (ctx: Context, key: object) => RealScope
+  }
+  if (typeof mod.createScope !== 'function') throw new Error('dsh-scope loaded without createScope')
+  scopeLib = mod
+  return mod
+}

@@ -14,8 +14,10 @@
  *     dispatch, G1): the same registered defs keep succeeding after
  *     rescan, registration count stays 11, the boot wiring is truly
  *     closed.
- *  3. RESTART SEMANTICS — full host close (every effect disposer run:
- *     wiring + stores + rpc second connections) then a NEW root
+ *  3. RESTART SEMANTICS — in-process restart semantics ONLY (a FULL
+ *     dispose + reconstruct of Context/service/registry inside ONE OS
+ *     process — NOT an OS process restart; the suite makes no such
+ *     claim): every effect disposer runs, then a NEW root
  *     Context + a NEW ToolRuntime + a NEW ResearchControlService over
  *     the SAME temp workspace: the persisted state (runs/events/
  *     semantic rows) is visible and the tools CONTINUE (fresh
@@ -134,8 +136,8 @@ describe('G5 §C.2 rescan continuity (production mutation path, same registry)',
   }, 90_000)
 })
 
-describe('G5 §C.3 restart semantics (full close → fresh Context + registry + host over the same state)', () => {
-  it('persisted runs/events/semantic rows survive the restart and the tools CONTINUE (allocator + planfork state intact)', async () => {
+describe('G5 §C.3 restart semantics — IN-PROCESS dispose + reconstruct (not an OS process restart)', () => {
+  it('persisted runs/events/semantic rows survive the in-process reconstruct and the tools CONTINUE (allocator + planfork state intact)', async () => {
     // ── life #1
     const first = await bootRealRegistryHarness()
     const paths = first.workspacePaths
@@ -155,7 +157,7 @@ describe('G5 §C.3 restart semantics (full close → fresh Context + registry + 
     // the closed boot store must be truly closed:
     expect(() => first.wiring().tables.getRun(run.id)).toThrow()
 
-    // ── life #2 (NEW process-like world: new Context, new ToolRuntime, new host)
+    // ── life #2 (in-process reconstruct: new Context, new ToolRuntime, new host — same OS process)
     const second = await bootRealRegistryHarness(paths)
     try {
       expect(second.runtime.schemas().length).toBe(11)
@@ -232,14 +234,22 @@ describe('G5 §C.4 kept G4 regressions on the real-registry lane', () => {
 
       // and a GATE whose doc is corrupted (id invalid) loses existence (§5e guard)
       writeFileSync(join(wsRoot, '.research', 'topics', 'TPC-1', 'workstreams', 'WS-1', 'items', 'gates', 'G-1.yaml'), 'id: 123\nworkstream_id: WS-1\n', 'utf8')
+      const rowsBeforeGate = h.wiring().interventions.listInterventions().length
+      const evBeforeGate = h.wiring().store.listRange('WS-1', 1).length
       const refusedGate = await h.callTool('research_intervention_create', {
         title: '改坏 GATE 的引用必须被拒',
         workstream_ids: ['WS-1'],
         source_refs: [{ kind: 'GATE', id: 'G-1' }],
       }, { sessionId: 'sess-g5c-d' })
       expectDispatchErr(refusedGate, 'TOOL_SERVICE', 'IV_INPUT')
+      // the corrupted-gate refusal writes NOTHING: neither a row nor an
+      // event (previously only the row count carried this claim).
+      expect(h.wiring().interventions.listInterventions().length).toBe(rowsBeforeGate)
+      expect(h.wiring().store.listRange('WS-1', 1).length).toBe(evBeforeGate)
 
-      // side-effect ledger: ①③ produced exactly 2 rows + 2 events; ②④ zero.
+      // side-effect ledger: ①③ produced exactly 2 rows (+ their events);
+      // ② and the corrupted-gate refusal produced zero rows AND zero
+      // events (each refusal asserted individually above).
       expect(h.wiring().interventions.listInterventions().length).toBe(rowsBefore + 2)
     } finally {
       await h.dispose()

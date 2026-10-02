@@ -1,20 +1,35 @@
 /**
  * G5 §B — permission-boundary matrix THROUGH THE REAL REGISTRY.
  *
- *  1. USER-only canonical/decision operations are NOT EXPOSED: the
- *     registry resolves them as `UNKNOWN_TOOL` (the agent literally has
- *     no call face — the USER lanes live behind the RPC/GUI boundary,
- *     exercised in workflow.test.ts through the real production class);
- *  2. the Investigator persona (a session with NO formal run): the 4
- *     read tools SUCCEED through the registry, the 7 write tools are
- *     refused with the machine code `TOOL_RUN_REQUIRED` — zero store
- *     delta on every refusal;
- *  3. identity forgery via args (extra `actor`/`run_id` keys on every
- *     tool that takes args) → `TOOL_INPUT` at the frozen key-set gate
- *     BEFORE any lane runs, zero store delta.
+ *  1. operations that are NOT on the agent tool face resolve as
+ *     `UNKNOWN_TOOL` — two POLICY classes, pinned apart (§B.1):
+ *       (a) genuinely §6 USER-only lanes (canonical plan edits,
+ *           SELECT/DISMISS, PROMOTE/DISMISS, intervention state,
+ *           checkpoint commit, git restore, history mutation);
+ *       (b) FROZEN-§6 AGENT-ALLOWED operations that the current
+ *           11-tool API simply does not expose (Claim retraction,
+ *           Artifact mark-missing) — unavailable, NOT forbidden
+ *           (BASELINE_PLAN §1 non-goal 2).
+ *     Either way the agent has no call face; USER lanes are exercised
+ *     through the real production classes in workflow.test.ts;
+ *  2. the Investigator persona AS A RUN-LESS SESSION: the 4 read tools
+ *     SUCCEED, the 7 write tools are refused with `TOOL_RUN_REQUIRED`
+ *     (the RUN gate). The REAL scoped-restriction layer
+ *     (`HostAgentLauncherAdapter` + `tools.restrict`) is proven
+ *     SEPARATELY in investigator-restricted.test.ts — a run-bound
+ *     agent losing the 7 names to the registry restriction, so the two
+ *     gates are never conflated;
+ *  3. identity forgery via args (extra `actor`/`run_id`/
+ *     `created_by_run`/`caller` keys) → `TOOL_INPUT` at the frozen
+ *     key-set gate BEFORE any lane runs.
  *
- * Zero-delta proof = event-stream length + derived semantic row ids +
- * declarative-tree sha256, captured around every refused call.
+ * Zero-delta proof = the FULL persisted face, re-read after EVERY
+ * individual refusal: every table of every operational sqlite store
+ * (history_event, derived_state, runs, plan forks, interventions, NEXT
+ * ACTIONS, blockers, inbox, …) + the declarative-tree sha256. The
+ * `meta` id-allocator counters are tracked under their own rule
+ * (below) because reserved-then-burned ids (gaps) are the EXISTING
+ * legal design — never assert blanket "nothing anywhere changed".
  */
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -22,7 +37,10 @@ import {
   bootRealRegistryHarness,
   expectDispatchErr,
   expectDispatchOk,
+  g5BusinessRowDiff,
   g5CleanupAll,
+  g5DbRowSnapshot,
+  g5MetaRows,
   g5SnapshotDiff,
   g5TreeSnapshot,
   type RealRegistryHarness,
@@ -85,35 +103,67 @@ async function setup(): Promise<RealRegistryHarness> {
   return h
 }
 
-/** The store-side delta snapshot (events + semantic ids + tree hash). */
-function deltas(w: RealRegistryHarness) {
+/** The FULL persisted-face snapshot: every operational-store table
+ *  (business) + the meta counters (own rule) + derived semantic rows
+ *  (API-level double-check) + declarative tree. */
+function persistedFace(w: RealRegistryHarness) {
+  const db = g5DbRowSnapshot(w.workspacePaths)
   const wiring = w.wiring()
-  const events = ['WS-1', 'WS-2'].map((ws) => wiring.store.listRange(ws, 1).length)
   const row = readSemanticRow(wiring.store, wiring.projectId)
   return {
-    events,
+    dbBusiness: db.business,
+    dbMeta: db.meta,
+    metaRows: g5MetaRows(w.workspacePaths),
     facts: [...(row?.facts.keys() ?? [])].sort().join(','),
     claims: [...(row?.claims.keys() ?? [])].sort().join(','),
     artifacts: [...(row?.artifacts.keys() ?? [])].sort().join(','),
-    interventions: wiring.interventions.listInterventions?.({})?.length ?? 0,
     tree: g5TreeSnapshot(w.workspacePaths[1] ?? ''),
   }
 }
-type Deltas = ReturnType<typeof deltas>
-function deltasEqual(a: Deltas, b: Deltas): string | null {
-  if (JSON.stringify(a.events) !== JSON.stringify(b.events)) return `events ${a.events} vs ${b.events}`
-  if (a.facts !== b.facts) return `facts ${a.facts} vs ${b.facts}`
-  if (a.claims !== b.claims) return `claims ${a.claims} vs ${b.claims}`
-  if (a.artifacts !== b.artifacts) return `artifacts ${a.artifacts} vs ${b.artifacts}`
-  if (a.interventions !== b.interventions) return `interventions ${a.interventions} vs ${b.interventions}`
-  return g5SnapshotDiff(a.tree, b.tree) ? `declarative tree diff: ${g5SnapshotDiff(a.tree, b.tree)}` : null
+type PersistedFace = ReturnType<typeof persistedFace>
+
+/** Business-face equality: every table + derived rows + tree. Returns
+ *  the first difference or null. Allocator meta is EXCLUDED here on
+ *  purpose — it has its own assertion below. */
+function businessDiff(a: PersistedFace, b: PersistedFace): string | null {
+  return (
+    g5BusinessRowDiff(a.dbBusiness, b.dbBusiness) ??
+    (a.facts !== b.facts ? `facts ${a.facts} vs ${b.facts}` : null) ??
+    (a.claims !== b.claims ? `claims ${a.claims} vs ${b.claims}` : null) ??
+    (a.artifacts !== b.artifacts ? `artifacts ${a.artifacts} vs ${b.artifacts}` : null) ??
+    (g5SnapshotDiff(a.tree, b.tree) !== null ? `declarative tree diff: ${g5SnapshotDiff(a.tree, b.tree)}` : null)
+  )
 }
 
-describe('G5 §B USER-only surfaces are NOT exposed on the registry', () => {
-  it('every canonical/decision/attention-mutation name resolves UNKNOWN_TOOL (no agent face exists)', async () => {
+/** Meta (id-allocator counters / fold watermarks) key-wise drift. For
+ *  THESE refusal paths the refusal happens BEFORE any lane, so no id is
+ *  even reserved — equality is the honest expectation here. (Elsewhere,
+ *  reserved-then-burned ids leaving gaps are the existing legal design;
+ *  this helper reports drift, the caller decides, and monotonicity is
+ *  always mandatory.) */
+function metaDiff(a: PersistedFace, b: PersistedFace): string | null {
+  const keys = [...new Set([...Object.keys(a.metaRows), ...Object.keys(b.metaRows)])].sort()
+  for (const k of keys) {
+    if (a.metaRows[k] !== b.metaRows[k]) return `meta row changed/absent: ${k}`
+  }
+  return null
+}
+
+function assertUnchanged(before: PersistedFace, label: string): PersistedFace {
+  const after = persistedFace(h)
+  // non-triviality guard: the snapshot must actually SEE the persisted
+  // face (a vacuous empty map would "prove" nothing)
+  expect(Object.keys(after.dbBusiness).length, 'db table snapshot must cover the operational tables').toBeGreaterThan(5)
+  expect(businessDiff(before, after), `${label}: partial business write detected`).toBeNull()
+  expect(metaDiff(before, after), `${label}: meta/allocator moved on a pre-lane refusal`).toBeNull()
+  return after
+}
+
+describe('G5 §B.1 operations absent from the agent tool face (registry UNKNOWN_TOOL)', () => {
+  it('class (a): genuinely §6 USER-only lanes have no agent call face', async () => {
     await setup()
     try {
-      const userOnly = [
+      const userOnlyLanes = [
         'research_plan_fork_select',
         'research_plan_fork_dismiss',
         'research_plan_reorder',
@@ -121,13 +171,30 @@ describe('G5 §B USER-only surfaces are NOT exposed on the registry', () => {
         'research_intervention_update_state',
         'research_next_action_promote',
         'research_next_action_dismiss',
-        'research_claim_retract',
-        'research_artifact_mark_missing',
         'research_checkpoint_commit',
         'research_git_restore',
         'research_history_mutation',
       ]
-      for (const name of userOnly) {
+      for (const name of userOnlyLanes) {
+        const r = await h.callTool(name, {}, { sessionId: 'sess-g5b-user' })
+        expectDispatchErr(r, 'UNKNOWN_TOOL', name)
+      }
+    } finally {
+      await h.dispose()
+    }
+  }, 60_000)
+
+  it('class (b): FROZEN-§6 AGENT-ALLOWED operations not exposed by the current 11-tool API (unavailable, NOT forbidden)', async () => {
+    await setup()
+    try {
+      // The frozen §6 matrix permits AGENT-initiated Claim RETRACTION and
+      // Artifact MARK-MISSING; the current 11-tool API ships no such tool
+      // (scope, not policy). They are UNAVAILABLE on the registry — the
+      // same UNKNOWN_TOOL resolution as class (a), a DIFFERENT policy:
+      // a future tool group may expose them; class (a) names must NEVER
+      // reach the agent face. (BASELINE_PLAN §1 non-goal 2.)
+      const agentAllowedNotExposed = ['research_claim_retract', 'research_artifact_mark_missing']
+      for (const name of agentAllowedNotExposed) {
         const r = await h.callTool(name, {}, { sessionId: 'sess-g5b-user' })
         expectDispatchErr(r, 'UNKNOWN_TOOL', name)
       }
@@ -137,11 +204,11 @@ describe('G5 §B USER-only surfaces are NOT exposed on the registry', () => {
   }, 60_000)
 })
 
-describe('G5 §B Investigator: 4 reads allowed, 7 writes refused (registry-dispatched)', () => {
+describe('G5 §B.2 run-less session: 4 reads allowed, 7 writes refused by the RUN gate', () => {
   it('a run-less session completes all four reads and is refused on all seven writes with TOOL_RUN_REQUIRED + zero delta', async () => {
     await setup()
     try {
-      const before = deltas(h)
+      const before = persistedFace(h)
 
       // reads — real-registry SUCCESS for the run-less investigator session
       const ctx = expectDispatchOk(await h.callTool('research_context_get', {}, { sessionId: 'sess-g5b-inv' }), 'context_get')
@@ -149,34 +216,31 @@ describe('G5 §B Investigator: 4 reads allowed, 7 writes refused (registry-dispa
       expectDispatchOk(await h.callTool('research_plan_get', WIRE_ARGS.research_plan_get, { sessionId: 'sess-g5b-inv' }), 'plan_get')
       expectDispatchOk(await h.callTool('research_history_query', WIRE_ARGS.research_history_query, { sessionId: 'sess-g5b-inv' }), 'history_query')
       expectDispatchOk(await h.callTool('research_contract_read', WIRE_ARGS.research_contract_read, { sessionId: 'sess-g5b-inv' }), 'contract_read')
+      let cursor = assertUnchanged(before, '4 reads (read-only by contract)')
 
-      // writes — every one refused BEFORE the lane (machine code, zero delta)
+      // writes — every one refused at the RUN gate (this is NOT the
+      // registry-restriction layer; see investigator-restricted.test.ts)
       for (const name of WRITE_7) {
         const r = await h.callTool(name, WIRE_ARGS[name]!, { sessionId: 'sess-g5b-inv' })
         expectDispatchErr(r, 'TOOL_RUN_REQUIRED', name)
-        const diff = deltasEqual(before, deltas(h))
-        expect(diff, `${name}: partial write detected`).toBeNull()
+        cursor = assertUnchanged(cursor, `run-gate refusal ${name}`)
       }
-
-      // the read set really is the 4-name READ lane
-      expect(READ_4).toHaveLength(4)
-      const after = deltas(h)
-      expect(deltasEqual(before, after)).toBeNull()
+      void cursor
     } finally {
       await h.dispose()
     }
   }, 90_000)
 })
 
-describe('G5 §B identity forgery via args is refused at the frozen key-set gate', () => {
-  it('every injected identity key on every wire face → TOOL_INPUT before any lane (zero delta)', async () => {
+describe('G5 §B.3 identity forgery via args is refused at the frozen key-set gate', () => {
+  it('every injected identity key on every wire face → TOOL_INPUT before any lane, re-asserted after EACH refusal', async () => {
     await setup()
     try {
       // The write lanes run the ACTOR gate BEFORE the wire face (frozen
       // order) — bind a run so the forged-key refusal observed here is
       // the wire-face TOOL_INPUT, not the earlier TOOL_RUN_REQUIRED.
       h.wiring().runBinding.registerRun({ workstreamId: 'WS-1', dshSessionId: 'sess-g5b-forger' }, USER)
-      const before = deltas(h)
+      let before = persistedFace(h)
       const forgedKeys: Array<Record<string, unknown>> = [
         { actor: { kind: 'USER', user_id: 'evil' } },
         { run_id: 'R-999' },
@@ -192,26 +256,24 @@ describe('G5 §B identity forgery via args is refused at the frozen key-set gate
             // key only on run_checkpoint (the B2 gate then forces
             // target === caller) — here the target simply does not exist.
             expectDispatchErr(r, 'TOOL_SERVICE', 'R-999')
+            before = assertUnchanged(before, `${name} × legal target run_id (missing target)`)
             continue
           }
           expectDispatchErr(r, 'TOOL_INPUT', name)
+          before = assertUnchanged(before, `${name} × forged ${JSON.stringify(Object.keys(forged))}`)
         }
       }
-      // run_id is a LEGAL target key ONLY on run_checkpoint (frozen face);
-      // every OTHER tool rejects it as an unknown key — pinned above.
-      const diff = deltasEqual(before, deltas(h))
-      expect(diff).toBeNull()
     } finally {
       await h.dispose()
     }
-  }, 90_000)
+  }, 120_000)
 
-  it('a USER-actor session cannot be smuggled past the run gate: bound USER-less session + run_id on checkpoint targets the CALLER run (cross-run refused)', async () => {
+  it('cross-run checkpoint is refused and the target run row stays untouched', async () => {
     await setup()
     try {
       const runA = h.wiring().runBinding.registerRun({ workstreamId: 'WS-1', dshSessionId: 'sess-g5b-a' }, USER).run
       h.wiring().runBinding.registerRun({ workstreamId: 'WS-1', dshSessionId: 'sess-g5b-b' }, USER).run
-      const before = deltas(h)
+      const before = persistedFace(h)
       // AGENT(session A) checkpointing run B — same-plane cross-run:
       // registry-layer machine code is TOOL_SERVICE (the service code
       // RB_CHECKPOINT_FOREIGN_RUN is asserted exactly at the plugin/host
@@ -219,10 +281,12 @@ describe('G5 §B identity forgery via args is refused at the frozen key-set gate
       // here the message carries the identifying refusal text.
       const r = await h.callTool('research_run_checkpoint', { run_id: 'R-2', note: '越权补记' }, { sessionId: 'sess-g5b-a' })
       expectDispatchErr(r, 'TOOL_SERVICE', 'OWN run')
+      // independent target-row check (kept per review — not subsumed by
+      // the snapshot): the refused target and the caller row BOTH show
+      // no checkpoint note, and the full persisted face is unchanged.
       expect(h.wiring().runBinding.getRun('R-2')?.last_checkpoint_note ?? null).toBeNull()
       expect(runA.last_checkpoint_note ?? null).toBeNull()
-      const diff = deltasEqual(before, deltas(h))
-      expect(diff).toBeNull()
+      assertUnchanged(before, 'cross-run checkpoint refusal')
     } finally {
       await h.dispose()
     }

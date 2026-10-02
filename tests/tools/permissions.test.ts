@@ -121,6 +121,8 @@ describe('TC-DOM-013 layer 3: the allowed lane (AGENT + run passes the gate on a
           status: 'OPEN',
           created_by: { kind: 'AGENT', run_id: 'R-1' },
           created_at: 1,
+          workstream_ids: [],
+          source_refs: [],
         },
         eventId: null,
       }))

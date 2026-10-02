@@ -264,3 +264,109 @@ describe('G4 lanes that must NOT change (regression)', () => {
     expect(h.lifecycle.listInterventions()).toHaveLength(0)
   })
 })
+
+describe('G4 review fix (PR5): the event owner anchor never depends on caller ref order', () => {
+  // The registry derives the owner from the FIRST WS-related source ref
+  // (validate.ts OWNER_MISMATCH: `firstWs !== e.ownerWorkstreamId`), while the
+  // service previously treated the owner WORKSTREAM ref as anchored when it
+  // appeared ANYWHERE (`some`) — so [RUN:R-1(∈WS-1), WORKSTREAM:WS-2] with
+  // owner WS-2 kept R-1 first ⇒ OWNER_MISMATCH. The anchor is now positional:
+  // the payload leads with WORKSTREAM:<owner>, every other ref survives in the
+  // caller's relative order (no invented same-WS rule, no dropped ref).
+
+  type Payload = { source_refs: { kind: string; id: string }[] }
+  const payloadOf = (h: InterventionHarness, owner: string): Payload => {
+    const ev = h.dbPair.store.listRange(owner, 1).find((e) => e.eventType === 'INTERVENTION_CREATED')!
+    return ev.payload as unknown as Payload
+  }
+
+  it('the review case: owner WS ref at the TAIL creates (was IV_EVENT OWNER_MISMATCH) with the payload anchored first', () => {
+    const h = harness()
+    const result = h.service.createMechanicalIntervention(
+      {
+        title: 'run 证据与 owner WS-2 排期冲突（WS ref 在尾部）',
+        trigger: 'AGENT_REPORT_REQUIRES_HUMAN',
+        workstream_ids: ['WS-2', 'WS-1'],
+        source_refs: [{ kind: 'RUN', id: 'R-1' }, { kind: 'WORKSTREAM', id: 'WS-2' }],
+      },
+      AGENT,
+    )
+    expect(result.eventId).not.toBeNull()
+    // the EVENT payload anchors the owner first; every caller ref survives exactly once
+    expect(payloadOf(h, 'WS-2').source_refs).toEqual([
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+      { kind: 'RUN', id: 'R-1' },
+    ])
+    // the ROW keeps the caller's face verbatim (§9.2 — the anchor is event-side only)
+    expect(result.intervention.source_refs).toEqual([
+      { kind: 'RUN', id: 'R-1' },
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+    ])
+    expect(result.intervention.workstream_ids).toEqual(['WS-2', 'WS-1'])
+  })
+
+  it('both ref orders succeed with the identical anchored payload (order equivalence)', () => {
+    const hA = harness()
+    const hB = harness()
+    const refs = [
+      { kind: 'RUN', id: 'R-1' },
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+    ] as const
+    const a = hA.service.createMechanicalIntervention(
+      { title: 't', trigger: 'AGENT_REPORT_REQUIRES_HUMAN', workstream_ids: ['WS-2', 'WS-1'], source_refs: [...refs] },
+      AGENT,
+    )
+    const b = hB.service.createMechanicalIntervention(
+      { title: 't', trigger: 'AGENT_REPORT_REQUIRES_HUMAN', workstream_ids: ['WS-2', 'WS-1'], source_refs: [...refs].reverse() },
+      AGENT,
+    )
+    expect(a.eventId).not.toBeNull()
+    expect(b.eventId).not.toBeNull()
+    expect(payloadOf(hA, 'WS-2')).toEqual(payloadOf(hB, 'WS-2'))
+    // the rows keep their OWN (pre-anchor) order — the fix is payload-side only
+    expect(a.intervention.source_refs).toEqual([{ kind: 'RUN', id: 'R-1' }, { kind: 'WORKSTREAM', id: 'WS-2' }])
+    expect(b.intervention.source_refs).toEqual([{ kind: 'WORKSTREAM', id: 'WS-2' }, { kind: 'RUN', id: 'R-1' }])
+  })
+
+  it('a duplicated owner WS ref dedupes to the single leading anchor; non-owner refs are untouched', () => {
+    const h = harness()
+    const result = h.service.createMechanicalIntervention(
+      {
+        title: 'owner ref 重复出现',
+        trigger: 'AGENT_REPORT_REQUIRES_HUMAN',
+        workstream_ids: ['WS-2', 'WS-1'],
+        source_refs: [
+          { kind: 'RUN', id: 'R-1' },
+          { kind: 'WORKSTREAM', id: 'WS-2' },
+          { kind: 'WORKSTREAM', id: 'WS-1' },
+          { kind: 'WORKSTREAM', id: 'WS-2' },
+        ],
+      },
+      AGENT,
+    )
+    expect(payloadOf(h, 'WS-2').source_refs).toEqual([
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+      { kind: 'RUN', id: 'R-1' },
+      { kind: 'WORKSTREAM', id: 'WS-1' },
+    ])
+    expect(result.intervention.source_refs).toHaveLength(4)
+  })
+
+  it('no owner ref in source_refs keeps the old prepend lane bit-identical (cross-WS RUN first stays legal)', () => {
+    const h = harness()
+    const result = h.service.createMechanicalIntervention(
+      {
+        title: '无 owner ref — prepend 车道不变',
+        trigger: 'AGENT_REPORT_REQUIRES_HUMAN',
+        workstream_ids: ['WS-2', 'WS-1'],
+        source_refs: [{ kind: 'RUN', id: 'R-1' }],
+      },
+      AGENT,
+    )
+    expect(payloadOf(h, 'WS-2').source_refs).toEqual([
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+      { kind: 'RUN', id: 'R-1' },
+    ])
+    expect(result.intervention.source_refs).toEqual([{ kind: 'RUN', id: 'R-1' }])
+  })
+})

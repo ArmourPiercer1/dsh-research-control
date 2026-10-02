@@ -200,3 +200,60 @@ describe('research_intervention_create: the frozen face + gates hold on the now-
     expect(deps.interventionCreateCalls).toHaveLength(0)
   })
 })
+
+describe('research_intervention_create: owner-anchor order regression (PR5 review)', () => {
+  // The tool → REAL-service lane with the review case: workstream_ids
+  // [WS-2, WS-1] + source_refs [RUN:R-1(∈WS-1), WORKSTREAM:WS-2]. Pre-fix the
+  // service anchored on `some()` and the frozen registry refused the event
+  // (OWNER_MISMATCH ⇒ IV_EVENT ⇒ TOOL_SERVICE); the forwarded face must now
+  // succeed with the payload anchored, both ref orders equivalent.
+
+  it('tail owner-WS ref succeeds end to end; anchored event payload; row keeps the wire order', async () => {
+    const { harness, deps, tool } = setup()
+
+    const value = (await tool.execute(
+      {
+        title: 'run 证据与 WS-2 排期冲突需人工判断',
+        workstream_ids: ['WS-2', 'WS-1'],
+        source_refs: [{ kind: 'RUN', id: 'R-1' }, { kind: 'WORKSTREAM', id: 'WS-2' }],
+      },
+      makeExec({ actor: AGENT_R1 }),
+    )) as { status: string; intervention: Record<string, unknown>; event_id: string | null }
+
+    expect(value.status).toBe('created')
+    expect(value.event_id).not.toBeNull()
+    const ev = harness.dbPair.store.listRange('WS-2', 1).find((e) => e.eventType === 'INTERVENTION_CREATED')!
+    expect(ev).toBeDefined()
+    expect((ev.payload as { source_refs: unknown[] }).source_refs).toEqual([
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+      { kind: 'RUN', id: 'R-1' },
+    ])
+    // the row = the wire face verbatim (no silent reorder on the record side)
+    expect(value.intervention.source_refs).toEqual([
+      { kind: 'RUN', id: 'R-1' },
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+    ])
+    expect(deps.interventionCreateCalls[0]!.params.source_refs).toEqual([
+      { kind: 'RUN', id: 'R-1' },
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+    ])
+  })
+
+  it('the head-order twin produces the identical event payload (caller order never decides the owner)', async () => {
+    const { harness, tool } = setup()
+    const value = (await tool.execute(
+      {
+        title: 'run 证据与 WS-2 排期冲突需人工判断',
+        workstream_ids: ['WS-2', 'WS-1'],
+        source_refs: [{ kind: 'WORKSTREAM', id: 'WS-2' }, { kind: 'RUN', id: 'R-1' }],
+      },
+      makeExec({ actor: AGENT_R1 }),
+    )) as { status: string; event_id: string | null }
+    expect(value.status).toBe('created')
+    const ev = harness.dbPair.store.listRange('WS-2', 1).find((e) => e.eventType === 'INTERVENTION_CREATED')!
+    expect((ev.payload as { source_refs: unknown[] }).source_refs).toEqual([
+      { kind: 'WORKSTREAM', id: 'WS-2' },
+      { kind: 'RUN', id: 'R-1' },
+    ])
+  })
+})

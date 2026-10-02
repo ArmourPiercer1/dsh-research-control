@@ -777,12 +777,67 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
     // creation validates against the state as it is NOW): runs = the run/DS
     // table (the actor.run_id existence the frozen registry demands + RUN
     // source refs), claims/facts/artifacts = the RR-011 (b) fold's derived-
-    // state row (the same row the plan-fork trigger resolver reads),
-    // tasks/gates/milestones/workstreams = the boot tree snapshot (rescan
-    // swaps the wiring — same freshness class as liveWorkstreams). A kind
+    // state row (the same row the plan-fork trigger resolver reads). A kind
     // the context does not model keeps the frozen shape-only treatment.
+    //
+    // PR5 review 第二轮: the DECLARATIVE side is read FRESH per creation (the
+    // hierarchy lane's precedent — `loadResearchTree` per call, no cache: a
+    // just-created node is visible to the next read without a restart/rescan).
+    // The GUI plan-editor/NextAction-promote lane writes plan.yaml through
+    // the rpc face WITHOUT rewiring this wiring, so boot-time maps would
+    // reject a report referencing the new T id (§16 规则 2 误拒) until rescan.
+    // Map shapes mirror the boot loop above verbatim (the tree is the 真源 —
+    // gates un-evaluated, milestones PLANNED: existence + owner context is
+    // what the frozen validation reads). On a fresh-load failure the creation
+    // is NOT blocked (a human-attention report must survive a partially
+    // broken tree) — the boot snapshot answers instead, with a warn (rescan
+    // remains the repair path; no invalidation bus is invented).
+    const freshDeclarativeValidationMaps = (): {
+      workstreams: ReadonlyMap<string, WorkstreamSnapshot>
+      tasks: ReadonlyMap<string, TaskSnapshot>
+      gates: ReadonlyMap<string, GateSnapshot>
+      milestones: ReadonlyMap<string, MilestoneSnapshot>
+    } => {
+      try {
+        const fresh = loadResearchTree(reader, researchRoot, declarativeDir)
+        if (fresh.errors.length > 0) {
+          throw new Error(fresh.errors.map((e) => `[${e.code}] ${e.file || '<root>'}: ${e.message}`).join('; '))
+        }
+        const workstreams = new Map<string, WorkstreamSnapshot>()
+        const tasks = new Map<string, TaskSnapshot>()
+        const gates = new Map<string, GateSnapshot>()
+        const milestones = new Map<string, MilestoneSnapshot>()
+        for (const topic of fresh.tree.topics) {
+          for (const ws of topic.workstreams) {
+            const doc = ws.doc
+            if (doc === null) continue
+            workstreams.set(ws.id, { topicId: topic.id, lifecycle: doc.lifecycle })
+            for (const t of ws.tasks) {
+              if (t.doc === null) continue
+              const ac = t.doc.acceptance_criteria
+              tasks.set(t.id, {
+                workstreamId: ws.id,
+                execution: 'PLANNED',
+                validation: ac.length > 0 ? 'PENDING' : 'NOT_REQUIRED',
+                acceptanceCriteria: ac,
+              })
+            }
+            for (const g of ws.gates) gates.set(g.id, { workstreamId: ws.id, lastResult: null })
+            for (const m of ws.milestones) milestones.set(m.id, { workstreamId: ws.id, status: 'PLANNED' })
+          }
+        }
+        return { workstreams, tasks, gates, milestones }
+      } catch (cause) {
+        logger?.warn(
+          'wiring',
+          `attention validation: fresh tree read failed — answering from the boot snapshot until rescan: ${cause instanceof Error ? cause.message : String(cause)}`,
+        )
+        return { workstreams: liveWorkstreams, tasks: liveTasks, gates: liveGates, milestones: liveMilestones }
+      }
+    }
     const attentionValidationState = (): InterventionExternalState => {
       const sem = readSemanticState()
+      const declarative = freshDeclarativeValidationMaps()
       const runs = new Map<string, RunSnapshot>()
       for (const row of tables.listAllRuns()) runs.set(row.id, { workstreamId: row.workstream_id, status: row.status })
       const claims = new Map<string, ClaimSnapshot>()
@@ -792,11 +847,11 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       const artifacts = new Map<string, ArtifactSnapshot>()
       for (const [id, row] of sem.artifacts) artifacts.set(id, { workstreamId: row.workstream_id, status: row.status })
       return {
-        workstreams: liveWorkstreams,
+        workstreams: declarative.workstreams,
         runs,
-        tasks: liveTasks,
-        gates: liveGates,
-        milestones: liveMilestones,
+        tasks: declarative.tasks,
+        gates: declarative.gates,
+        milestones: declarative.milestones,
         claims,
         facts,
         artifacts,

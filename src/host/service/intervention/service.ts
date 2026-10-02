@@ -337,7 +337,9 @@ export class InterventionService {
    * payload 的 `source_refs` 以**显式 WORKSTREAM ref（owner WS）打头**
    * （与 record.workstream_ids[0] 冗余一致, 非新信息）, 后跟记录本身的
    * source_refs; 记录行保持参数原样（§9.2: workstream_ids 独立承载 WS
-   * 关联）。owner WS ref 已在记录 source_refs 内打头时不重复。
+   * 关联）。锚点是**位置性**的（PR5 评审修正）: 无论调用方 source_refs 顺序
+   * 如何, payload 恒以 WORKSTREAM:<owner> 打头, 该 ref 的调用方重复项折入
+   * 锚点（去重不丢 ref）, 其余 ref 保持相对顺序。
    */
   #buildCreatedEvent(
     eventId: string,
@@ -361,8 +363,20 @@ export class InterventionService {
     if (typeof input.occurredAt !== 'number' || !Number.isSafeInteger(input.occurredAt) || input.occurredAt < 0) {
       throw new InterventionError({ code: 'IV_INPUT', message: `buildCreatedEvent: occurredAt must be a non-negative safe integer epoch ms (got ${String(input.occurredAt)})` })
     }
-    const anchored = input.sourceRefs.some((ref) => ref.kind === 'WORKSTREAM' && ref.id === input.ownerWs)
-    const payloadRefs: TypedRef[] = anchored ? [...input.sourceRefs] : [{ kind: 'WORKSTREAM', id: input.ownerWs }, ...input.sourceRefs]
+    // Owner anchor is POSITIONAL, not presence-based: the frozen registry
+    // derives the event owner from the FIRST WS-related source ref
+    // (validate.ts: `firstWs !== e.ownerWorkstreamId` ⇒ OWNER_MISMATCH), so a
+    // caller-supplied WORKSTREAM:<owner> ref sitting anywhere BUT first must
+    // not leave a foreign-WS ref leading (the PR5 review case:
+    // [RUN:R-1(∈WS-1), WORKSTREAM:WS-2] with owner WS-2 died in the registry).
+    // The payload therefore ALWAYS leads with WORKSTREAM:<owner> (the design
+    // above already treats it as redundant-with-record information); every
+    // other ref survives in the caller's relative order and only the owner ref
+    // itself is deduplicated into the anchor. No same-WS restriction is
+    // invented — cross-WS refs stay legal, and the RECORD keeps the caller's
+    // source_refs verbatim (§9.2: 关联由 workstream_ids 承载, 本锚点仅事件侧).
+    const ownerRef: TypedRef = { kind: 'WORKSTREAM', id: input.ownerWs }
+    const payloadRefs: TypedRef[] = [ownerRef, ...input.sourceRefs.filter((ref) => !(ref.kind === 'WORKSTREAM' && ref.id === input.ownerWs))]
     return {
       eventId,
       ownerWorkstreamId: input.ownerWs,

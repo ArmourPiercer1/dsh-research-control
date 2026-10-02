@@ -277,6 +277,48 @@ describe('G4 host codec: research_intervention_create over the real wiring + rea
     }
   }, 40_000)
 
+  it('fresh declarative reads: a TASK created through the real GUI RPC face is reportable WITHOUT rescan; invalid refs still refused, zero partial writes', async () => {
+    freshDshHome()
+    const wsA = makeValidWs()
+    const hub = makeHubWs(wsA)
+    const h = mountHost([hub, wsA])
+    try {
+      await initPlane(h.svc)
+      const wiring = liveWiring(h.svc)
+      wiring.runBinding.registerRun({ workstreamId: 'WS-1', dshSessionId: 'sess-g4-a' }, USER)
+
+      // the GUI plan-editor lane (rpc createPlanItem → plan-writer tree write —
+      // NO rewire; the boot validation maps in the wiring never see it):
+      const created = await h.svc.createPlanItem({
+        workstreamId: 'WS-1',
+        kind: 'TASK',
+        item: { task: { title: '复测 p95 抖动', goal: '确认抖动根因' } },
+      })
+      expect(created.itemId).toMatch(/^T-[1-9][0-9]*$/)
+
+      // reporting a ref to the just-created task must succeed on the NEXT
+      // creation (pre-fix: stale boot map ⇒ IV_INPUT until rescan)
+      const value = (await tool(h, 'research_intervention_create').execute(
+        { title: '新任务的前置假设需人工确认', workstream_ids: ['WS-1'], source_refs: [{ kind: 'TASK', id: created.itemId }] },
+        execAs('sess-g4-a'),
+      )) as { status: string; event_id: string | null }
+      expect(value.status).toBe('created')
+      expect(value.event_id).not.toBeNull()
+
+      // invalid refs keep being refused — and the refusal leaves NOTHING behind
+      const rowsBefore = wiring.interventions.listInterventions().length
+      const eventsBefore = wiring.store.listRange('WS-1', 1).length
+      await tool(h, 'research_intervention_create')
+        .execute({ title: 't', workstream_ids: ['WS-1'], source_refs: [{ kind: 'TASK', id: 'T-404' }] }, execAs('sess-g4-a'))
+        .then(() => { throw new Error('unreachable') })
+        .catch((e: unknown) => expectHostError(e, 'TOOL_SERVICE', 'IV_INPUT'))
+      expect(wiring.interventions.listInterventions()).toHaveLength(rowsBefore)
+      expect(wiring.store.listRange('WS-1', 1)).toHaveLength(eventsBefore)
+    } finally {
+      disposeFiber(h)
+    }
+  }, 40_000)
+
   it('an injected identity key is refused at the wire (TOOL_INPUT) — the live face keeps the G1 boundary', async () => {
     freshDshHome()
     const wsA = makeValidWs()

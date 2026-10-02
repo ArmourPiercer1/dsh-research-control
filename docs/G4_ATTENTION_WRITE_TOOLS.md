@@ -104,7 +104,75 @@ attentionValidationState/nextActionCreate 符号）; lib/client.js 18/18 全部�
 ^[+-]\s*// （rcm-css region 机器路径注释, 功能 diff=0）; SNAPSHOT.md 2/2 = 生成时间+源根。
 ```
 
-## 5. 未跟随的邀请 / 开放项
+## 5. PR5 评审修正轮（两项 material BLOCK, 同一 PR 合并交付）
+
+### 5a. owner 锚点位置性（review 输入 bug #1）
+
+**输入 bug（reviewer 实证）**: `#buildCreatedEvent` 以 `some()`（owner WORKSTREAM
+ref 出现在**任意位置**）判断是否 prepend ⇒ `[RUN:R-1(∈WS-1), WORKSTREAM:WS-2]` +
+owner WS-2 时 RUN 保持首位，被冻结 registry 的
+`firstWs = source_refs.map(workstreamOf).find(≠undefined)`（validate.ts
+OWNER_MISMATCH 分支）判 WS-1≠WS-2 拒事件；删掉尾部 WS ref 反而成功（走 prepend
+车道）。
+
+**修正**: 锚点改为**位置性**——payload 恒以 `WORKSTREAM:<owner>` 打头，调用方
+该 ref 的重复项折入锚点（去重不丢 ref），其余 ref 保持相对顺序；记录行仍逐字
+保留参数 source_refs（§9.2）。不新增 same-WS 限制，跨 WS ref 合法如常。
+
+| 门（修正轮） | 范围 | 结果（真实 exit） |
+|---|---|---|
+| RED 先跑 | 新锚点回归 4+2 例 | 4 failed 逐字 `IV_EVENT ... OWNER_MISMATCH`（head-order 孪生例与 prepend 车道绿 = 预期不变面） |
+| GREEN | tests/intervention + intervention-create | 6 files / 76 passed |
+| GREEN 消费方 | flooding brief history-registry semantics store wiring | 61 files / 866 passed |
+| GREEN host codec | tests/discovery（含 host 缺口证明 8 例） | 60 passed, EXIT=0 |
+| GREEN tools 全套 | tests/tools（含 permissions override 修正） | 9 files / 148 passed |
+| tsc | 逐行 diff vs BASELINE 40 行 | 正文 diff=**空**（EXIT=1 为已知失败）。更正记录：上一轮 push 的 HEAD 上，permissions override 补写先于该 tsc 证据重跑，曾引入 1 行额外错误（`workstream_ids`/`source_refs` 必填缺失）；本轮修正记录后 diff 复为空——该 1 行属本组自引入，非基线漂移 |
+| lint | check-imports | EXIT=0 |
+| build/pack | 同 §4 产物甄别规则 | 功能产物 `lib/index.js`/`factory.mjs` 随本 commit 更新（含锚点修正）；client/SNAPSHOT churn 复归除 |
+
+新增回归：service 4 例（tail-order 成功+payload 锚定+行逐字、双序等价、owner ref
+去重、无 owner ref 车道逐字不变）+ tool 2 例（真实服务面 tail/head 两序端到端）。
+
+### 5b. 声明式侧 fresh 读（review 输入 bug #2）
+
+**输入 bug（reviewer 实证 + 本机复现）**: `attentionValidationState` 的
+tasks/gates/milestones 取**启动树快照**（create.ts 启动 loop 507–518 一次性
+填充），但 GUI 计划编辑/NextAction promote 经 rpc `createPlanItem` 面直写
+plan.yaml **不 rewire wiring**（rpc-services.ts:1417–1438；host/index.ts:1314）。
+常见序列「启动 → GUI 建 Task → agent report 引用新 T」被误拒：RED 复现
+`TOOL_SERVICE [IV_INPUT] ... TASK "T-5" does not exist`，直到 rescan。
+
+**修正**: 声明式侧改**每次创建 fresh** `loadResearchTree(reader, researchRoot,
+declarativeDir)`（hierarchy 面 1025 的既有先例——无缓存、刚建节点下次读即可见；
+不发明 invalidation bus）。map 形状与启动 loop 逐字一致（tree=真源：gates 未
+评估、milestones PLANNED 的存在性/owner 口径）。fresh 读取失败**不阻塞创建**
+（声明式树破损时人工上报必须可用）——回退启动快照 + logger.warn（rescan 仍是
+修复路径）。runs/claims/facts/artifacts 原本已 fresh；权限、multiWS/optionalWS、
+幂等/队列语义不变。
+
+| 门（5b 轮） | 范围 | 结果（真实 exit） |
+|---|---|---|
+| RED 复现 | host 回归（真实 RPC createPlanItem → report T-5） | `× TOOL_SERVICE [IV_INPUT] TASK "T-5" does not exist` |
+| GREEN host codec | tests/discovery/host-attention-write 全 9 例 | 9 passed, EXIT=0 |
+| tsc 逐行 | vs BASELINE 40 行 | diff=空（EXIT=1 已知） |
+| lint | check-imports | EXIT=0 |
+| build/pack/广域 | 与 5a 合并 commit 后统一复跑（下表） | — |
+
+新增 host 回归（真实 API）：initPlane → `svc.createPlanItem`（GUI rpc 面）建
+TASK → **无 rescan** report 该 ref 成功 + event_id 非空；`T-404` 仍拒
+（TOOL_SERVICE+IV_INPUT）且**零部分写**（行数/事件数前后相等 = 预校验在号预留
+前，事件先行/行第二窗口不被破坏）。
+
+### 5c. 合并轮统一门禁（5a+5b 同一 commit）
+
+| 门 | 结果 |
+|---|---|
+| tests/intervention+tools+actions+wiring+store+flooding+inbox+attention+discovery+history-registry | **1185 passed, EXIT=0**（`.g4-logs/green-round2-broad.log`） |
+| tsc | 逐行 diff vs BASELINE = 空 |
+| lint | EXIT=0 |
+| build+pack-verify | 功能产物 `lib/index.js`/`e2e/factory-dist/factory.mjs` 更新入库；client/SNAPSHOT churn 复除 |
+
+## 6. 未跟随的邀请 / 开放项
 
 - gate/milestone 快照取「存在性」口径（`lastResult:null`、`status:'PLANNED'`）：注册事件
   的评估态校验不在本车道；若后续要把 GATE/MILESTONE 评估态纳入注意力校验，接线处有单一

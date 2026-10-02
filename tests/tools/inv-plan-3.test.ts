@@ -4,10 +4,15 @@
  * 本 WP 交付工具面半边).
  *
  * 编译期 (类型面, tsc/typecheck 消费者生效):
- *  - `keyof ResearchToolDeps` 被钉死为恰好两个键 (planForkCreate /
- *    recordCheckpoint) — 任何 canonical plan 写口 (PlanStore 的
- *    savePlan/createItem/updateItem/insertItemAt/moveItem/removeItem/
- *    addItem 或 contract writer) 想进入工具层依赖面 ⇒ 编译失败;
+ *  - 依赖面的**写面**被钉死为恰好三个键 (planForkCreate /
+ *    recordCheckpoint / semanticAgentCreate) — 任何 canonical plan 写口
+ *    (PlanStore 的 savePlan/createItem/updateItem/insertItemAt/moveItem/
+ *    removeItem/addItem 或 contract writer) 想进入工具层依赖面 ⇒ 编译
+ *    失败; (G3 的 semanticAgentCreate 是语义创建窄端口 — 只建
+ *    fact/claim/artifact, 无任何 plan 语义, 签名逐字钉死; G2 §2d 起
+ *    依赖面共七个键: 上述三写面键 + 四个只读端口
+ *    contextGet/planGet/historyQuery/contractRead — 每个只读端口的
+ *    返回类型被逐字钉为投影 DTO, 签名里没有任何写参数/写返回;)
  *  - 两个端口的签名被逐字钉死: planForkCreate 的参数是冻结 §4
  *    `CreatePlanForkParams` (其无 base 由 WP-3.1 的 absent-key 断言传递
  *    证明), 返回值是 PlanFork 记录 (不是 plan); recordCheckpoint 的参数
@@ -37,6 +42,19 @@ import type {
   MechanicalActorRef,
 } from '../../src/host/service/intervention/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../../src/host/service/runbinding/index.js'
+import type {
+  RecordClaimArgs,
+  RecordFactArgs,
+  RegisterArtifactArgs,
+  SemanticAgentActor,
+} from '../../src/host/service/semantics/index.js'
+import type {
+  ToolHistoryPage,
+  ToolHistoryQuery,
+  ToolMergeContractView,
+  ToolSessionContext,
+  ToolWorkstreamPlanView,
+} from '../../src/host/tools/read-ports.js'
 import * as toolsModule from '../../src/host/tools/index.js'
 import {
   RESEARCH_TOOL_NAMES,
@@ -57,18 +75,46 @@ type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y 
 /** True iff K is NOT a key of T. */
 type Absent<K extends string, T> = [K] extends [keyof T] ? false : true
 
-/** INV-PLAN-3 核心钉: 工具层依赖面被钉死为**恰好**这个键集 — 任何扩张都是显式
- *  评审点; plan 写口 (PlanStore/contract writer) 无一可进入. G4 加入注意力写两
- *  端口 (interventionCreate / nextActionCreate — 均无 plan 写/promote/dismiss 语义). */
+/** INV-PLAN-3 核心钉 (G3+G2+G4 后): 工具层依赖面恰九个键 — 无 canonical
+ *  plan 写口可注入 (写面 = planForkCreate / recordCheckpoint /
+ *  semanticAgentCreate: G3 语义创建窄端口只建 fact/claim/artifact, 参数
+ *  被冻结语义 args + 必传 trusted caller 逐字钉死, 无任何 plan 语义;
+ *  G4 注意力写两端口 interventionCreate / nextActionCreate — 均无 plan
+ *  写/promote/dismiss 语义; 读面 = G2 四个只读端口, 签名逐一钉为投影
+ *  DTO). */
 type T_DepsFaceExact = Expect<
-  Equal<keyof ResearchToolDeps, 'planForkCreate' | 'recordCheckpoint' | 'interventionCreate' | 'nextActionCreate'>
+  Equal<
+    keyof ResearchToolDeps,
+    | 'planForkCreate'
+    | 'recordCheckpoint'
+    | 'semanticAgentCreate'
+    | 'contextGet'
+    | 'planGet'
+    | 'historyQuery'
+    | 'contractRead'
+    | 'interventionCreate'
+    | 'nextActionCreate'
+  >
 >
 
-/** 正例钉: 键都在 (演进同步). */
+/** 正例钉: 九个键都在 (演进同步). */
 type T_HasPlanForkCreate = Expect<['planForkCreate'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasRecordCheckpoint = Expect<['recordCheckpoint'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasInterventionCreate = Expect<['interventionCreate'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasNextActionCreate = Expect<['nextActionCreate'] extends [keyof ResearchToolDeps] ? true : false>
+type T_HasSemanticAgentCreate = Expect<['semanticAgentCreate'] extends [keyof ResearchToolDeps] ? true : false>
+
+/** G3 语义创建端口逐字钉: 每个方法 = (冻结语义 args, 必传 trusted caller),
+ *  返回 = 服务结果; caller 类型 AGENT 硬约束 (USER 在类型面不可传入). */
+type T_SemanticFactParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['recordFact']>, [RecordFactArgs, SemanticAgentActor]>
+>
+type T_SemanticClaimParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['recordClaim']>, [RecordClaimArgs, SemanticAgentActor]>
+>
+type T_SemanticArtifactParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['registerArtifact']>, [RegisterArtifactArgs, SemanticAgentActor]>
+>
 
 /** Canonical plan 写口 (PlanStore 面) 无一可进入依赖面. */
 type T_NoSavePlan = Expect<Absent<'savePlan', ResearchToolDeps>>
@@ -99,6 +145,15 @@ type T_IvCreateParamsFrozen = Expect<
 type T_IvCreateReturnsResult = Expect<Equal<ReturnType<ResearchToolDeps['interventionCreate']>, CreateInterventionResult>>
 type T_NaCreateParamsFrozen = Expect<Equal<Parameters<ResearchToolDeps['nextActionCreate']>, [CreateNextActionParams, ActorRef]>>
 type T_NaCreateReturnsRecord = Expect<Equal<ReturnType<ResearchToolDeps['nextActionCreate']>, NextActionRecord>>
+/** G2 §2d 只读端口逐字钉: 参数只有 id 字符串, 返回只有投影 DTO —— 四个
+ *  签名都不携带任何 plan/contract/history 写语义 (INV-PLAN-3 读面半边). */
+type T_ContextGetFrozen = Expect<Equal<ResearchToolDeps['contextGet'], (sessionId: string) => ToolSessionContext>>
+type T_PlanGetFrozen = Expect<Equal<ResearchToolDeps['planGet'], (workstreamId: string) => ToolWorkstreamPlanView>>
+type T_HistoryQueryFrozen = Expect<Equal<ResearchToolDeps['historyQuery'], (query: ToolHistoryQuery) => ToolHistoryPage>>
+type T_ContractReadFrozen = Expect<Equal<ResearchToolDeps['contractRead'], (edgeId: string) => ToolMergeContractView>>
+/** planGet 的返回是 READ VIEW (ToolWorkstreamPlanView), 不是 PlanStore/PlanDoc:
+ *  写方法在返回类型上不可达 (投影 DTO 无任何方法成员). */
+type T_PlanGetReturnsView = Expect<Equal<ReturnType<ResearchToolDeps['planGet']>['ordered_items'], readonly string[]>>
 
 /** PF 参数本身无 base 变体 (INV-PLAN-6 在工具面的类型传递). */
 type T_PfParamsNoBase = Expect<Absent<'base', CreatePlanForkParams>>
@@ -132,6 +187,11 @@ const _typeSurface: [
   T_IvCreateReturnsResult,
   T_NaCreateParamsFrozen,
   T_NaCreateReturnsRecord,
+  T_ContextGetFrozen,
+  T_PlanGetFrozen,
+  T_HistoryQueryFrozen,
+  T_ContractReadFrozen,
+  T_PlanGetReturnsView,
   T_PfParamsNoBase,
   T_PfParamsNoBasePlanObjects,
   T_PfParamsNoBasePlanObjects_Camel,
@@ -143,6 +203,7 @@ const _typeSurface: [
   true, true, true,
   true, true,
   true, true, true, true,
+  true, true, true, true, true,
   true, true, true, true, true,
 ]
 void _typeSurface
@@ -180,29 +241,59 @@ const PLAN_WRITE_PARAM_KEYS = [
 ] as const
 
 describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路径)', () => {
-  it('deps face is exactly the pinned ports (compile-time pin; runtime mirror: the composition accepts only those)', () => {
-    // 运行时镜像: 依赖对象的键集 = 钉死的端口 (JS 调用者绕过类型的护栏)
+  it('deps face is the frozen nine-port set (compile-time pin; runtime mirror: the composition accepts only those)', () => {
+    // 运行时镜像: 依赖对象的键集 = 三个写面键 + G4 注意力写两端口 + 四个 G2
+    // 只读端口 (JS 调用者绕过类型的护栏时, plan 写词汇依然不可达 — 只有这
+    // 九个端口键).
     const deps = makeRecordingDeps()
     const {
       planForkCreateCalls,
       recordCheckpointCalls,
       interventionCreateCalls,
       nextActionCreateCalls,
+      contextGetCalls,
+      planGetCalls,
+      historyQueryCalls,
+      contractReadCalls,
       setPlanForkCreate,
       setRecordCheckpoint,
       setInterventionCreate,
       setNextActionCreate,
+      setSemanticAgentCreate,
+      setContextGet,
+      setPlanGet,
+      setHistoryQuery,
+      setContractRead,
       ...ports
     } = deps
     void planForkCreateCalls
     void recordCheckpointCalls
     void interventionCreateCalls
     void nextActionCreateCalls
+    void contextGetCalls
+    void planGetCalls
+    void historyQueryCalls
+    void contractReadCalls
     void setPlanForkCreate
     void setRecordCheckpoint
     void setInterventionCreate
     void setNextActionCreate
-    expect(Object.keys(ports).sort()).toEqual(['interventionCreate', 'nextActionCreate', 'planForkCreate', 'recordCheckpoint'])
+    void setSemanticAgentCreate
+    void setContextGet
+    void setPlanGet
+    void setHistoryQuery
+    void setContractRead
+    expect(Object.keys(ports).sort()).toEqual([
+      'contextGet',
+      'contractRead',
+      'historyQuery',
+      'interventionCreate',
+      'nextActionCreate',
+      'planForkCreate',
+      'planGet',
+      'recordCheckpoint',
+      'semanticAgentCreate',
+    ])
   })
 
   it('no tool parameter key can name a canonical plan mutation (模型调用语法层)', () => {

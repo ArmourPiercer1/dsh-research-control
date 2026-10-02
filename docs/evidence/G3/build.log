@@ -1,0 +1,62 @@
+$ tsdown && node scripts/snapshot-release.mjs
+ℹ tsdown v0.22.14 powered by rolldown v1.2.5
+ℹ config file: <repo>/.worktrees/g3/tsdown.config.ts 
+ℹ [dsh-research-control/factory] entry: ./e2e/factory/factory.ts
+ℹ [dsh-research-control/factory] target: node22.19.0
+ℹ [dsh-research-control/factory] tsconfig: tsconfig.json
+ℹ entry: ./src/host/index.ts, ./src/host/dsh-adapter/host/typert.artifact.ts, ./src/client/dsh-adapter/remote/contribution.ts
+ℹ target: node22.19.0
+ℹ tsconfig: tsconfig.json
+ℹ [dsh-research-control/client] entry: ./src/client/index.tsx
+ℹ [dsh-research-control/client] target: node22.19.0
+ℹ [dsh-research-control/client] tsconfig: tsconfig.json
+ℹ Build start
+
+ WARN  We recommend using the ESM format instead of CommonJS.
+The ESM format is compatible with modern platforms and runtimes, and most new libraries are now distributed only in ESM format.
+Learn more at https://nodejs.org/en/learn/modules/publishing-a-package#how-did-we-get-here
+
+ℹ Cleaning 11 files
+
+ WARN  TypeScript 7.0 does not yet have a stable API and is experimental. Some options will be unavailable.
+
+ℹ Emit types with typescript@7.0.2
+ℹ [dsh-research-control/factory] [ESM] e2e/factory-dist/factory.mjs  1.08 MB
+ℹ [dsh-research-control/factory] [ESM] 1 files, total: 1.08 MB
+✔ [dsh-research-control/factory] Build complete in 115ms
+ℹ [dsh-research-control/client] Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.
+See more at https://tsdown.dev/options/dependencies#deps-onlybundle
+Detected dependencies in bundle:
+- zod
+- classcat
+- d3-dispatch
+- d3-selection
+- d3-drag
+- d3-color
+- d3-interpolate
+- d3-timer
+- d3-transition
+- d3-ease
+- d3-zoom
+- @xyflow/system
+- use-sync-external-store
+- zustand
+- @xyflow/react
+ℹ [dsh-research-control/client] [CJS] lib/client.js      1.65 MB
+ℹ [dsh-research-control/client] [CJS] lib/client.js.map  2.96 MB
+ℹ [dsh-research-control/client] [CJS] 2 files, total: 4.61 MB
+✔ [dsh-research-control/client] Build complete in 302ms
+ℹ [ESM] lib/index.js                      1.61 MB
+ℹ [ESM] lib/typert.host.js               47.73 kB │ gzip:  9.47 kB
+ℹ [ESM] lib/typert.remote-client.js       1.16 kB │ gzip:  0.66 kB
+ℹ [ESM] lib/rpc-contracts-BAeOX3y7.js    66.25 kB │ gzip: 14.27 kB
+ℹ [ESM] lib/index.d.ts                   50.16 kB │ gzip: 16.53 kB
+ℹ [ESM] lib/typert.remote-client.d.ts    17.94 kB │ gzip:  3.10 kB
+ℹ [ESM] lib/typert.host.d.ts              2.79 kB │ gzip:  1.21 kB
+ℹ [ESM] lib/rpc-contracts-CAb1T63d.d.ts  71.75 kB │ gzip: 18.50 kB
+ℹ [ESM] 8 files, total: 1.87 MB
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] [0msrc/host/git/index.ts is dynamically imported by src/host/service/checkpoint/save.ts but also statically imported by src/host/audit/strict/audit.ts, src/host/persistence/hardening/git-check.ts, src/host/service/checkpoint/diff.ts, src/host/service/checkpoint/restore.ts, src/host/service/checkpoint/save.ts, ..., dynamic import will not move module into another chunk.
+
+✔ Build complete in 1060ms
+[snapshot-release] SNAPSHOT.md unchanged (file set + hashes identical) — restored verbatim; no timestamp churn in the version tree
+[snapshot-release] snapshot complete: 31 files (8 docs + 23 schema) → <repo>/.worktrees/g3; read-only; provenance in SNAPSHOT.md

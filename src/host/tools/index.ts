@@ -25,20 +25,25 @@
  *    is exactly the §7.2 list and tests/tools/permissions.test.ts audits
  *    the §7.2 forbidden list + the matrix rows against it (INV-PERM-2);
  *  - the Agent has NO canonical-plan write path (INV-PLAN-3): the deps
- *    face (`ResearchToolDeps`) is exactly two ports and the
+ *    face (`ResearchToolDeps`) carries no plan writer (the write surface:
+ *    planForkCreate / recordCheckpoint / the G3 semantic create lane —
+ *    semantic CREATE only, never a plan mutation; plus the four G2 §2d
+ *    READ ports, each a pure projection) and the
  *    `research_plan_fork_create` parameter face is base-less (INV-PLAN-6);
  *    the type-surface proof lives in tests/tools/inv-plan-3.test.ts.
  *
- * Stub state: 5 of the 11 tools are stubs (NOT_IMPLEMENTED structured
- * error) — their forwarding services have not landed yet (the report's
- * stub table names each replacement WP); 6 live forwards as of G4:
- * research_plan_fork_create → the WP-3.1 eight-step creation chain,
- * research_run_checkpoint → the WP-2.4 recordCheckpoint surface,
- * research_intervention_create → the WP-5.1 mechanical lane (the wiring
- * closes trigger=AGENT_REPORT_REQUIRES_HUMAN; origin/state are not
- * arguments), research_next_action_create → the independent WP-5.2
- * ActionsService.createNextAction lane (G4; promote/dismiss stay user-only
- * with no tool).
+ * Stub state: ZERO stubs as of the G4 merge — all 11 tools are live
+ * forwards: research_plan_fork_create → the WP-3.1 eight-step creation
+ * chain, research_run_checkpoint → the WP-2.4 recordCheckpoint surface,
+ * the G3 semantic trio research_fact_record / research_claim_record /
+ * research_artifact_register → the narrow AGENT create lane of the
+ * semantics service, all four read tools (G2 §2d) → their service
+ * compositions in `service/wiring/read-services.ts`, and the G4
+ * attention pair research_intervention_create → the WP-5.1 mechanical
+ * lane (the wiring closes trigger=AGENT_REPORT_REQUIRES_HUMAN;
+ * origin/state are not arguments) + research_next_action_create → the
+ * independent WP-5.2 ActionsService.createNextAction lane (promote/
+ * dismiss stay user-only with no tool).
  */
 
 export {
@@ -61,6 +66,7 @@ export {
   CONTEXT_GET_OUTPUT_SCHEMA,
   CONTEXT_GET_PARAMETERS,
   RESEARCH_CONTEXT_GET,
+  parseContextGetArgs,
   makeContextGetDefinition,
 } from './context-get.js'
 export {
@@ -68,6 +74,7 @@ export {
   CONTRACT_READ_OUTPUT_SCHEMA,
   CONTRACT_READ_PARAMETERS,
   RESEARCH_CONTRACT_READ,
+  parseContractReadArgs,
   makeContractReadDefinition,
 } from './contract-read.js'
 export {
@@ -80,9 +87,12 @@ export {
 export {
   HISTORY_ORDERS,
   HISTORY_QUERY_ARG_KEYS,
+  HISTORY_QUERY_DEFAULT_LIMIT,
+  HISTORY_QUERY_MAX_LIMIT,
   HISTORY_QUERY_OUTPUT_SCHEMA,
   HISTORY_QUERY_PARAMETERS,
   RESEARCH_HISTORY_QUERY,
+  parseHistoryQueryArgs,
   makeHistoryQueryDefinition,
 } from './history-query.js'
 export {
@@ -117,8 +127,22 @@ export {
   PLAN_GET_OUTPUT_SCHEMA,
   PLAN_GET_PARAMETERS,
   RESEARCH_PLAN_GET,
+  parsePlanGetArgs,
   makePlanGetDefinition,
 } from './plan-get.js'
+export {
+  ToolReadServiceError,
+  mapReadServiceError,
+  type ToolHistoryPage,
+  type ToolHistoryQuery,
+  type ToolMergeContractView,
+  type ToolReadServiceErrorCode,
+  type ToolSessionContext,
+  type ToolTaskRef,
+  type ToolTopologyEdgeRef,
+  type ToolWorkstreamPlanView,
+  type ToolWorkstreamRef,
+} from './read-ports.js'
 export {
   RESEARCH_RUN_CHECKPOINT,
   RUN_CHECKPOINT_ARG_KEYS,
@@ -137,6 +161,8 @@ export {
   ToolError,
   buildTool,
   isToolError,
+  semanticCallerFrom,
+  toSemanticToolServiceError,
   toToolJsonValue,
   type ResearchToolDefinition,
   type ResearchToolDeps,
@@ -206,30 +232,32 @@ export const READ_TOOL_NAMES: readonly string[] = RESEARCH_TOOL_NAMES.slice(7)
 export const INVESTIGATOR_TOOL_NAMES: readonly string[] = READ_TOOL_NAMES
 
 /**
- * Compose the complete tool face over the reviewed service ports.
- * Fail-loud on a malformed deps object (misconfiguration is a
- * composition-time error, not a per-call surprise). The returned
+ * Compose the complete tool face over the service ports (two write
+ * ports + the G3 semantic create lane + the four G2 read ports + the
+ * two G4 attention-write ports). Fail-loud on a malformed deps object
+ * (misconfiguration is a composition-time error, not a per-call
+ * surprise). The returned
  * definitions are frozen and registered by the host wiring WP (WP-3.6)
  * — one `defineTool` adaptation per definition.
  */
 export function createResearchTools(deps: ResearchToolDeps): readonly ResearchToolDefinition[] {
   assertDeps(deps)
   return [
-    makeFactRecordDefinition(),
-    makeClaimRecordDefinition(),
-    makeArtifactRegisterDefinition(),
+    makeFactRecordDefinition(deps),
+    makeClaimRecordDefinition(deps),
+    makeArtifactRegisterDefinition(deps),
     makeInterventionCreateDefinition(deps),
     makeNextActionCreateDefinition(deps),
     makePlanForkCreateDefinition(deps),
     makeRunCheckpointDefinition(deps),
-    makeContextGetDefinition(),
-    makePlanGetDefinition(),
-    makeHistoryQueryDefinition(),
-    makeContractReadDefinition(),
+    makeContextGetDefinition(deps),
+    makePlanGetDefinition(deps),
+    makeHistoryQueryDefinition(deps),
+    makeContractReadDefinition(deps),
   ]
 }
 
-/** Every reviewed port must be a function (fail loud at composition). */
+/** Every reviewed port (write surface + lane methods + the four reads + the attention pair) must be a function (fail loud at composition). */
 function assertDeps(deps: ResearchToolDeps): void {
   if (deps === null || typeof deps !== 'object') {
     throw new TypeError('createResearchTools: deps must be an object with the reviewed service ports')
@@ -245,5 +273,22 @@ function assertDeps(deps: ResearchToolDeps): void {
   }
   if (typeof deps.nextActionCreate !== 'function') {
     throw new TypeError('createResearchTools: deps.nextActionCreate must be the ActionsService.createNextAction surface (WP-5.2)')
+  }
+  const lane = deps.semanticAgentCreate
+  if (
+    lane === null ||
+    typeof lane !== 'object' ||
+    typeof lane.recordFact !== 'function' ||
+    typeof lane.recordClaim !== 'function' ||
+    typeof lane.registerArtifact !== 'function'
+  ) {
+    throw new TypeError(
+      'createResearchTools: deps.semanticAgentCreate must be the narrow semantic agent create lane (G3 — recordFact/recordClaim/registerArtifact)',
+    )
+  }
+  for (const port of ['contextGet', 'planGet', 'historyQuery', 'contractRead'] as const) {
+    if (typeof deps[port] !== 'function') {
+      throw new TypeError(`createResearchTools: deps.${port} must be the G2 §2d read service (service/wiring/read-services.ts)`)
+    }
   }
 }

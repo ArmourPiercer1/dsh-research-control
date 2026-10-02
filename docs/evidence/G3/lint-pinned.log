@@ -1,0 +1,2 @@
+check-imports: OK — no INV-PERM-5 violations in src
+lint_exit=0

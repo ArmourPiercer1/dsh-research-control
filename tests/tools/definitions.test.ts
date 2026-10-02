@@ -362,24 +362,72 @@ describe('definition completeness: parameter faces (the host-derived JSON Schema
     )
     expect(naRec.properties!.status).toMatchObject({ enum: ['PROPOSED', 'PROMOTED', 'DISMISSED'] })
 
-    // the REMAINING stubs keep the permissive placeholder (never a success value)
-    for (const name of [
-      'research_fact_record',
-      'research_claim_record',
-      'research_artifact_register',
-      'research_context_get',
-      'research_plan_get',
-      'research_history_query',
-      'research_contract_read',
-    ]) {
+    // G3: the semantic trio — strict success shapes (created rows)
+    for (const [name, key, status] of [
+      ['research_fact_record', 'fact', 'ACTIVE'],
+      ['research_claim_record', 'claim', 'ACTIVE'],
+      ['research_artifact_register', 'artifact', 'REGISTERED'],
+    ] as const) {
       const schema = byName.get(name)!.output.schema
-      expect(schema.additionalProperties, `${name} stub schema permissive`).toBe(true)
+      expect(schema.type).toBe('object')
+      expect(schema.additionalProperties, `${name} strict`).toBe(false)
+      expect(schema.properties!.status).toMatchObject({ const: 'ok' })
+      const row = schema.properties![key]!
+      expect(row.type).toBe('object')
+      expect(row.additionalProperties).toBe(false)
+      expect(row.properties!.status).toMatchObject({ const: status })
+      for (const field of ['id', 'workstream_id', 'created_by_run', 'recorded_at', 'event_id']) {
+        expect(row.required, `${name} required ${key}.${field}`).toContain(field)
+      }
+      expect(row.properties!.created_by_run).toMatchObject({ type: 'string' })
+    }
+
+    // ZERO stubs remain (G3 trio + G2 four reads + G4 attention pair all
+    // retired their placeholders): NO tool may answer the permissive
+    // shape anymore — every one of the 11 output contracts is closed.
+    for (const name of RESEARCH_TOOL_NAMES) {
+      const schema = byName.get(name)!.output.schema
+      expect(schema.additionalProperties, `${name} closed (zero stubs)`).toBe(false)
+    }
+
+
+    // G2 §2d — the four read tools retired their stub placeholders for
+    // STRICT canonical shapes (each a closed root object, status const
+    // 'ok'; the full value-level codec proof lives in
+    // tests/tools/read-tools.test.ts via the real @deepseek-ai/dsh-tools
+    // validator — this is the cheap shape pin).
+    for (const [name, required] of [
+      ['research_context_get', ['status', 'session_id', 'bound']],
+      ['research_plan_get', ['status', 'workstream_id', 'title', 'topic_id', 'present', 'consistent', 'ordered_items']],
+      ['research_history_query', ['status', 'workstream_id', 'order', 'limit', 'events', 'next_after_seq', 'exhausted']],
+      ['research_contract_read', ['status', 'edge', 'content', 'path']],
+    ] as const) {
+      const schema = byName.get(name)!.output.schema
+      expect(schema.type, name).toBe('object')
+      expect(schema.additionalProperties, `${name} read schema closed`).toBe(false)
+      expect([...(schema.required ?? [])].sort(), `${name} required`).toEqual([...required].sort())
+      expect(schema.properties!.status, `${name} status const`).toMatchObject({ type: 'string', const: 'ok' })
+    }
+    // the history page carries the frozen cursor protocol fields
+    const hq = byName.get('research_history_query')!.output.schema
+    expect(hq.properties!.order).toMatchObject({ enum: ['semantic', 'audit'] })
+    expect(hq.properties!.events).toMatchObject({ type: 'array' })
+    expect(hq.properties!.events!.items!.additionalProperties).toBe(false)
+    // single-subject faces carry NO pagination/truncation surface
+    for (const name of ['research_context_get', 'research_plan_get', 'research_contract_read']) {
+      const props = byName.get(name)!.output.schema.properties!
+      for (const forbidden of ['next_after_seq', 'exhausted', 'truncated', 'total', 'offset', 'page']) {
+        expect(props, `${name} must not expose a ${forbidden} field`).not.toHaveProperty(forbidden)
+      }
     }
   })
 })
 
+/** the assertDeps message for a missing read port is `deps.<port> must…` */
+const port2rx = (port: string): string => `deps\\.${port} must`
+
 describe('definition completeness: composition (createResearchTools)', () => {
-  it('fail-loud on a malformed deps object', () => {
+  it('fail-loud on a malformed deps object (nine-port union face, check-order pinned port by port)', () => {
     expect(() => createResearchTools(null as never)).toThrow(TypeError)
     expect(() => createResearchTools({ recordCheckpoint: () => ({} as never) } as never)).toThrow(
       /planForkCreate/,
@@ -387,6 +435,61 @@ describe('definition completeness: composition (createResearchTools)', () => {
     expect(() => createResearchTools({ planForkCreate: () => ({} as never) } as never)).toThrow(
       /recordCheckpoint/,
     )
+    const lane = {
+      recordFact: () => ({} as never),
+      recordClaim: () => ({} as never),
+      registerArtifact: () => ({} as never),
+    }
+    expect(() =>
+      createResearchTools({
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+      } as never),
+    ).toThrow(/interventionCreate/)
+    expect(() =>
+      createResearchTools({
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+        interventionCreate: () => ({} as never),
+      } as never),
+    ).toThrow(/nextActionCreate/)
+    expect(() =>
+      createResearchTools({
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+        interventionCreate: () => ({} as never),
+        nextActionCreate: () => ({} as never),
+      } as never),
+    ).toThrow(/semanticAgentCreate/)
+    // each G2 read port individually: the loop names the first missing one,
+    // so supply every other key and omit exactly that port
+    for (const missing of ['contextGet', 'planGet', 'historyQuery', 'contractRead'] as const) {
+      const deps: Record<string, unknown> = {
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+        interventionCreate: () => ({} as never),
+        nextActionCreate: () => ({} as never),
+        semanticAgentCreate: lane,
+      }
+      for (const port of ['contextGet', 'planGet', 'historyQuery', 'contractRead'] as const) {
+        if (port !== missing) deps[port] = () => ({} as never)
+      }
+      expect(() => createResearchTools(deps as never), missing).toThrow(new RegExp(port2rx(missing)))
+    }
+    // positive mirror: the complete nine-port face composes without throwing
+    expect(() =>
+      createResearchTools({
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+        interventionCreate: () => ({} as never),
+        nextActionCreate: () => ({} as never),
+        semanticAgentCreate: lane,
+        contextGet: () => ({} as never),
+        planGet: () => ({} as never),
+        historyQuery: () => ({} as never),
+        contractRead: () => ({} as never),
+      } as never),
+    ).not.toThrow()
   })
 
   it('composes the 11 definitions in the frozen §7.2 order (registration-ready)', () => {

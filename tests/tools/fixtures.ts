@@ -14,6 +14,12 @@ import type {
 } from '../../src/host/service/intervention/index.js'
 import type { ActorRef, CreateNextActionParams, NextActionRecord } from '../../src/host/service/actions/index.js'
 import { ToolError, type ResearchToolDeps, type ResearchToolExec, type ToolActorRef } from '../../src/host/tools/index.js'
+import type {
+  ToolHistoryQuery,
+  ToolMergeContractView,
+  ToolSessionContext,
+  ToolWorkstreamPlanView,
+} from '../../src/host/tools/read-ports.js'
 
 /* ------------------------------------------------------------------ *
  * Actors (frozen actorRef shapes)
@@ -113,24 +119,39 @@ export interface RecordingDeps extends ResearchToolDeps {
   readonly recordCheckpointCalls: readonly { runId: string; params: { note?: string }; actor: ToolActorRef }[]
   readonly interventionCreateCalls: readonly { params: InterventionCreateParams; actor: MechanicalActorRef }[]
   readonly nextActionCreateCalls: readonly { params: CreateNextActionParams; actor: ActorRef }[]
+  /** G2 read ports — call capture (the forwarding-fidelity surface). */
+  readonly contextGetCalls: readonly string[]
+  readonly planGetCalls: readonly string[]
+  readonly historyQueryCalls: readonly ToolHistoryQuery[]
+  readonly contractReadCalls: readonly string[]
 }
 
 /**
  * Deps with call capture. `planForkCreate`/`recordCheckpoint`/
  * `interventionCreate`/`nextActionCreate` must be overridden per-test (they
  * throw by default: a stub path that reaches a service is a test failure by
- * construction).
+ * construction). The four G2 read ports and the G3 semantic lane are the
+ * same firewall pattern: overridden per-test, throw otherwise.
  */
 export function makeRecordingDeps(): RecordingDeps & {
   setPlanForkCreate(fn: ResearchToolDeps['planForkCreate']): void
   setRecordCheckpoint(fn: ResearchToolDeps['recordCheckpoint']): void
   setInterventionCreate(fn: (params: InterventionCreateParams, actor: MechanicalActorRef) => CreateInterventionResult): void
   setNextActionCreate(fn: (params: CreateNextActionParams, actor: ActorRef) => NextActionRecord): void
+  setSemanticAgentCreate(fns: Partial<ResearchToolDeps['semanticAgentCreate']>): void
+  setContextGet(fn: (sessionId: string) => ToolSessionContext): void
+  setPlanGet(fn: (workstreamId: string) => ToolWorkstreamPlanView): void
+  setHistoryQuery(fn: (query: ToolHistoryQuery) => ToolHistoryPageFixture): void
+  setContractRead(fn: (edgeId: string) => ToolMergeContractView): void
 } {
   const planForkCreateCalls: unknown[] = []
   const recordCheckpointCalls: { runId: string; params: { note?: string }; actor: ToolActorRef }[] = []
   const interventionCreateCalls: { params: InterventionCreateParams; actor: MechanicalActorRef }[] = []
   const nextActionCreateCalls: { params: CreateNextActionParams; actor: ActorRef }[] = []
+  const contextGetCalls: string[] = []
+  const planGetCalls: string[] = []
+  const historyQueryCalls: ToolHistoryQuery[] = []
+  const contractReadCalls: string[] = []
   let pfImpl: ResearchToolDeps['planForkCreate'] = () => {
     throw new Error('deps.planForkCreate called without a test override (a stub reached the service port)')
   }
@@ -143,11 +164,33 @@ export function makeRecordingDeps(): RecordingDeps & {
   let naImpl: (params: CreateNextActionParams, actor: ActorRef) => NextActionRecord = () => {
     throw new Error('deps.nextActionCreate called without a test override (a stub reached the service port)')
   }
+  let ctxImpl: (sessionId: string) => ToolSessionContext = () => {
+    throw new Error('deps.contextGet called without a test override (a read tool reached its port un-wired)')
+  }
+  let planImpl: (workstreamId: string) => ToolWorkstreamPlanView = () => {
+    throw new Error('deps.planGet called without a test override (a read tool reached its port un-wired)')
+  }
+  let histImpl: (query: ToolHistoryQuery) => ToolHistoryPageFixture = () => {
+    throw new Error('deps.historyQuery called without a test override (a read tool reached its port un-wired)')
+  }
+  let contractImpl: (edgeId: string) => ToolMergeContractView = () => {
+    throw new Error('deps.contractRead called without a test override (a read tool reached its port un-wired)')
+  }
+  const unreachableSemantic = (method: string) => {
+    throw new Error(`deps.semanticAgentCreate.${method} called without a test override (the lane was reached unexpectedly)`)
+  }
+  let saFact: ResearchToolDeps['semanticAgentCreate']['recordFact'] = () => unreachableSemantic('recordFact')
+  let saClaim: ResearchToolDeps['semanticAgentCreate']['recordClaim'] = () => unreachableSemantic('recordClaim')
+  let saArtifact: ResearchToolDeps['semanticAgentCreate']['registerArtifact'] = () => unreachableSemantic('registerArtifact')
   return {
     planForkCreateCalls,
     recordCheckpointCalls,
     interventionCreateCalls,
     nextActionCreateCalls,
+    contextGetCalls,
+    planGetCalls,
+    historyQueryCalls,
+    contractReadCalls,
     planForkCreate: (params) => {
       planForkCreateCalls.push(params)
       return pfImpl(params)
@@ -164,6 +207,27 @@ export function makeRecordingDeps(): RecordingDeps & {
       nextActionCreateCalls.push({ params, actor })
       return naImpl(params, actor)
     },
+    semanticAgentCreate: {
+      recordFact: (args, caller) => saFact(args, caller),
+      recordClaim: (args, caller) => saClaim(args, caller),
+      registerArtifact: (args, caller) => saArtifact(args, caller),
+    },
+    contextGet: (sessionId) => {
+      contextGetCalls.push(sessionId)
+      return ctxImpl(sessionId)
+    },
+    planGet: (workstreamId) => {
+      planGetCalls.push(workstreamId)
+      return planImpl(workstreamId)
+    },
+    historyQuery: (query) => {
+      historyQueryCalls.push(query)
+      return histImpl(query)
+    },
+    contractRead: (edgeId) => {
+      contractReadCalls.push(edgeId)
+      return contractImpl(edgeId)
+    },
     setPlanForkCreate: (fn) => {
       pfImpl = fn
     },
@@ -176,5 +240,26 @@ export function makeRecordingDeps(): RecordingDeps & {
     setNextActionCreate: (fn) => {
       naImpl = fn
     },
+    setSemanticAgentCreate: (fns) => {
+      if (fns.recordFact !== undefined) saFact = fns.recordFact
+      if (fns.recordClaim !== undefined) saClaim = fns.recordClaim
+      if (fns.registerArtifact !== undefined) saArtifact = fns.registerArtifact
+    },
+    setContextGet: (fn) => {
+      ctxImpl = fn
+    },
+    setPlanGet: (fn) => {
+      planImpl = fn
+    },
+    setHistoryQuery: (fn) => {
+      histImpl = fn
+    },
+    setContractRead: (fn) => {
+      contractImpl = fn
+    },
   }
 }
+
+/** The recording fixture's page shape (the ToolHistoryPage port return —
+ *  re-exported here structurally so fixture consumers import one face). */
+export type ToolHistoryPageFixture = import('../../src/host/tools/read-ports.js').ToolHistoryPage

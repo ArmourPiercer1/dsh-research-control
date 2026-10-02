@@ -7030,6 +7030,48 @@ function stringifyCanonical(value) {
 //#endregion
 //#region src/host/history/replay/query.ts
 /**
+* Query ONE owner workstream's event log in semantic or audit order with
+* seq-cursor pagination (see the module header for the full protocol).
+* Pure read: no writes, no seq assignment, no validation — the store's
+* read face (`listRange`) is the only I/O.
+*/
+function queryEvents(store, ownerWorkstreamId, options = {}) {
+	const ws = assertWorkstreamId$1(ownerWorkstreamId);
+	const order = options.order ?? "semantic";
+	assertOrder(order);
+	const afterSeq = options.afterSeq ?? 0;
+	assertCursor(afterSeq, "afterSeq");
+	const beforeSeq = options.beforeSeq;
+	if (beforeSeq !== void 0) {
+		assertCursor(beforeSeq, "beforeSeq");
+		if (beforeSeq <= afterSeq + 1) throw new ReplayInputError(`queryEvents: beforeSeq (${String(beforeSeq)}) must be > afterSeq + 1 (${String(afterSeq + 1)}) — it is the exclusive upper bound and the window must hold at least one seq`);
+	}
+	const limit = options.limit;
+	if (limit !== void 0) assertCursor(limit, "limit");
+	let upper;
+	if (beforeSeq !== void 0) upper = beforeSeq - 1;
+	if (limit !== void 0) upper = upper === void 0 ? afterSeq + limit : Math.min(upper, afterSeq + limit);
+	const fromSeq = afterSeq + 1;
+	const rows = upper === void 0 ? store.listRange(ws, fromSeq) : store.listRange(ws, fromSeq, upper);
+	let exhausted;
+	let nextAfterSeq;
+	if (upper === void 0) {
+		exhausted = true;
+		nextAfterSeq = null;
+	} else if (rows.length === upper - afterSeq) {
+		exhausted = false;
+		nextAfterSeq = upper;
+	} else {
+		exhausted = true;
+		nextAfterSeq = null;
+	}
+	return {
+		events: order === "semantic" ? semanticOrder(rows) : rows,
+		nextAfterSeq,
+		exhausted
+	};
+}
+/**
 * Collect ALL events of the listed workstreams and merge them into one
 * deterministic total order (`semantic` = occurredAt, eventSeq, owner, id;
 * `audit` = eventSeq, owner, id — the WP-2.2 total orders, TC-HIST-005).
@@ -7051,6 +7093,12 @@ function assertWorkstreamId$1(value) {
 }
 function assertOrder(order) {
 	if (order !== "semantic" && order !== "audit") throw new ReplayInputError(`query order must be "semantic" or "audit" (got ${JSON.stringify(String(order))})`);
+}
+/** Cursor/limit values: non-negative safe integers (afterSeq may be 0 =
+*  from the beginning; beforeSeq/limit must be >= 1 via their own rules). */
+function assertCursor(value, what) {
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new ReplayInputError(`${what} must be a non-negative safe integer (got ${String(value)})`);
+	if (what !== "afterSeq" && value < 1) throw new ReplayInputError(`${what} must be a positive safe integer (got ${String(value)})`);
 }
 //#endregion
 //#region src/host/history/replay/rebuild.ts
@@ -12181,10 +12229,178 @@ var HierarchyService = class {
 //#endregion
 //#region src/host/domain/topology/types.ts
 /**
+* WP-1.4 — topology + merge-contract service: types (domain layer).
+*
+* Frozen contracts implemented here (read-only):
+*  - DOMAIN_SCHEMA.md §3.1 (TopologyEdge, `topology.yaml`), §3.2 (MergeContract,
+*    `merges/<TE-id>/contract.md`), §1.1 (ID rules), §13 (state machines,
+*    L540-560 — the TE lifecycle row reuses the `WsLifecycle` machine, L548),
+*    §14 (layout), §16.1 (declarative→declarative reference integrity);
+*  - HISTORY_EVENT_CATALOG.md §5.8 (拓扑实现: TOPOLOGY_FORK/MERGE_REALIZED —
+*    realized FORK edge `inputs` 恰为 1, MERGE edge `outputs` 恰为 1);
+*  - schema/declarative/topology.schema.json + schema/common.schema.json.
+*
+* Layer rules (ARCHITECTURE.md §2.2 rule 1, same pattern as the WP-1.1
+* loader): this module is pure domain logic — it performs no I/O of its own.
+* Every byte goes through the injected {@link TopologyFileIo} (implemented by
+* the service layer in a later WP, or by an in-memory fake in tests). No DSH
+* imports (INV-PERM-5), no git imports, no node builtins.
+*
+* Boundary notes (WP-1.4 brief):
+*  - NO HistoryEvent is written anywhere in this module: `validateRealize`
+*    and the transition executor only VALIDATE and mutate the declarative
+*    `topology.yaml`; TOPOLOGY_FORK/MERGE_REALIZED event emission is Phase 2.
+*  - The plan is READ-ONLY for this module: the workstream registry and the
+*    edge-id snapshot are injected (they come from the loaded ResearchTree).
+*/
+/**
 * Suffix for the temp file the store's atomic-write protocol uses
 * (`<target>.dshrc-tmp`). Exported so tests can observe the protocol.
 */
 const TMP_FILE_SUFFIX = ".dshrc-tmp";
+/** One structured error of the topology/contract service. Always THROWN (the
+*  service-facing counterpart of the loader's aggregated error list). */
+var TopologyStoreError = class extends Error {
+	code;
+	/** Root-relative POSIX path (`'topics/TPC-1/topology.yaml'`, `'merges/TE-2/contract.md'`), when applicable. */
+	file;
+	/** The topology edge the error is about, when applicable. */
+	teId;
+	/** JSON-pointer-style path inside the document, when applicable. */
+	path;
+	constructor(code, message, extra) {
+		super(message);
+		this.name = "TopologyStoreError";
+		this.code = code;
+		if (extra?.file !== void 0) this.file = extra.file;
+		if (extra?.teId !== void 0) this.teId = extra.teId;
+		if (extra?.path !== void 0) this.path = extra.path;
+	}
+};
+/** Fail loud when `teId` is not a well-formed TE id (frozen §1.1 registry). */
+function assertWellFormedTeId(teId) {
+	if (!idMatchesKind(teId, "TOPOLOGY_EDGE")) throw new TopologyStoreError("INVALID_ID", `${JSON.stringify(teId)} is not a well-formed topology edge id — expected TE-<positive integer> (DOMAIN_SCHEMA §1.1)`);
+}
+//#endregion
+//#region src/host/domain/topology/contract.ts
+/**
+* WP-1.4 — MergeContract (`merges/<TE-id>/contract.md`, DOMAIN_SCHEMA §3.2)
+* + the realize pre-validator (`validateRealize`, HISTORY_EVENT_CATALOG §5.8).
+*
+* §3.2 contract rules (implemented verbatim):
+*  - 纯 Markdown 自由内容 — the file is stored byte-for-byte; the plugin
+*    performs NO content validation (no schema, no field check; 「插件不检查
+*    contract 满足度、不因此阻塞或提示」);
+*  - 归属由路径决定 — the directory name IS the TE id; the only path-level
+*    checks are (a) the directory name is a well-formed TE id (§1.1) and
+*    (b) that TE id names an existing topology edge (loader §16.1(h) analog);
+*  - 可选 YAML front-matter (`title`, `updated_at`) — not parsed, not
+*    validated, not touched;
+*  - 无 ContractRevision — version history/diff/restore belong to Git
+*    (INV-GIT-8, WP-1.2's restoreFile/ logFile); this module has no
+*    revision machinery and never deletes a contract.
+*
+* `edgeIds` is a CONSTRUCTION-TIME SNAPSHOT (the read-only boundary: the
+* caller assembles it from the loaded ResearchTree —
+* `tree.topics.flatMap(t => t.topology?.topology.edges.map(e => e.id) ?? [])`).
+* A contract write is checked against the snapshot it was built with; the
+* service layer rebuilds the store when the topology changes.
+*
+* Layer rules: all I/O through the injected `TopologyFileIo` (loader pattern);
+* no HistoryEvent is written (realize event emission is Phase 2); the plan
+* and other declarative files are read-only for this module.
+*/
+function ioMessage(cause) {
+	return cause instanceof Error ? cause.message : String(cause);
+}
+/**
+* Atomic write protocol: write the FULL new content to `<path>.dshrc-tmp`,
+* then `rename` it into place (atomic on POSIX). On a failed rename the temp
+* file is unlinked (best effort — a cleanup failure does not mask the
+* original error) and the error propagates. On success the target always
+* holds a complete document: the previous content is either fully present
+* (write/rename failed) or fully replaced (rename succeeded) — never a
+* mix (tests/topology/atomic-write.test.ts).
+*/
+function atomicWrite(io, path, rel, content) {
+	const tmp = path + TMP_FILE_SUFFIX;
+	try {
+		io.writeFile(tmp, content);
+	} catch (cause) {
+		throw new TopologyStoreError("WRITE", `atomic write of ${rel}: temp-file write failed: ${ioMessage(cause)}`, { file: rel });
+	}
+	try {
+		io.rename(tmp, path);
+	} catch (cause) {
+		try {
+			io.unlink(tmp);
+		} catch {}
+		throw new TopologyStoreError("WRITE", `atomic write of ${rel}: rename into place failed: ${ioMessage(cause)}`, { file: rel });
+	}
+}
+/**
+* Read/write access to `.research/merges/<TE-id>/contract.md` (§3.2).
+* Content is free Markdown, stored byte-for-byte (no validation, no
+* parsing, no revision tracking — INV-GIT-8).
+*/
+var MergeContractStore = class {
+	io;
+	researchRoot;
+	edgeIdSet;
+	constructor(options) {
+		this.io = options.io;
+		this.researchRoot = options.researchRoot;
+		this.edgeIdSet = new Set(options.edgeIds);
+	}
+	/** `.research/merges/<TE-id>/contract.md` (absolute, as given to io). */
+	contractPath(teId) {
+		return pjoin(this.researchRoot, "merges", teId, "contract.md");
+	}
+	/** Root-relative POSIX path (loader error-location convention). */
+	relPath(teId) {
+		return `merges/${teId}/contract.md`;
+	}
+	/**
+	* Read the contract content (raw Markdown, byte-for-byte).
+	* @throws INVALID_ID — teId is not a well-formed TE id;
+	*         READ       — io failure;
+	*         CONTRACT_NOT_FOUND — the file does not exist.
+	*/
+	readContract(teId) {
+		assertWellFormedTeId(teId);
+		let text;
+		try {
+			text = this.io.readFile(this.contractPath(teId));
+		} catch (cause) {
+			throw new TopologyStoreError("READ", `read of ${this.relPath(teId)} failed: ${ioMessage(cause)}`, {
+				teId,
+				file: this.relPath(teId)
+			});
+		}
+		if (text === null) throw new TopologyStoreError("CONTRACT_NOT_FOUND", `merge contract for ${teId} does not exist (${this.relPath(teId)}, DOMAIN_SCHEMA §3.2)`, {
+			teId,
+			file: this.relPath(teId)
+		});
+		return text;
+	}
+	/**
+	* Write the contract content (full replacement, atomic — §3.2 free
+	* Markdown is stored verbatim; optional front-matter is not parsed).
+	* @throws INVALID_ID           — teId is not a well-formed TE id;
+	*         CONTRACT_TE_UNKNOWN  — teId names no existing topology edge
+	*                                (snapshot, §16.1(h));
+	*         WRITE                — atomic-write failure (previous content intact).
+	*/
+	writeContract(teId, content) {
+		assertWellFormedTeId(teId);
+		if (!this.edgeIdSet.has(teId)) throw new TopologyStoreError("CONTRACT_TE_UNKNOWN", `merge contract for ${teId} references a topology edge that does not exist (DOMAIN_SCHEMA §3.2/§16.1)`, {
+			teId,
+			file: this.relPath(teId)
+		});
+		atomicWrite(this.io, this.contractPath(teId), this.relPath(teId), content);
+		return content;
+	}
+};
 //#endregion
 //#region src/host/service/fs/fs-plan-writer.ts
 /**
@@ -12237,6 +12453,383 @@ var FsPlanFileWriter = class {
 		}
 	}
 };
+//#endregion
+//#region src/host/service/fs/fs-topology-io.ts
+/**
+* WP-2.6 (rider 2, G1 观察③) — the production real-fs `TopologyFileIo`.
+*
+* The four primitives the WP-1.4 store composes into its atomic-write
+* protocol (`writeFile` tmp → `rename` → best-effort `unlink`; the store
+* owns the composition — `contract.ts` `atomicWrite`), implemented on
+* node:fs with EXACTLY the read-contract of the loader's
+* `ResearchFileReader` (WP-1.1: `readFile` returns `null` when the path is
+* missing, throws on I/O failure) — verbatim the protocol the WP-1.7 crash
+* tests proved on real files (`tests/atomic/crash-fs.ts`
+* `RealFsTopologyIo`, TC-DB-001):
+*
+*  - `readFile`  — `ENOENT` ⇒ `null` (missing file, not an error); any
+*    other errno (EACCES, EISDIR, …) ⇒ the original error propagates;
+*  - `writeFile` — parent-directory creation is THIS layer's duty (the
+*    port contract), then a full-content write (never a patch);
+*  - `rename`    — `renameSync` (atomic on POSIX, same-directory);
+*  - `unlink`    — `unlinkSync`; throws when the path does not exist
+*    (the port contract — the store's best-effort cleanup swallows it).
+*/
+/** `true` for the errno that means "the path does not exist" (readFile → null). */
+function isEnoent(cause) {
+	return cause instanceof Error && cause.code === "ENOENT";
+}
+/** The production real-fs `TopologyFileIo` (module doc = the contract). */
+var FsTopologyFileIo = class {
+	/** Read a file; `null` when the path does not exist; throws on I/O failure. */
+	readFile(path) {
+		try {
+			return readFileSync(path, "utf8");
+		} catch (cause) {
+			if (isEnoent(cause)) return null;
+			throw cause;
+		}
+	}
+	/** Write a file (full content). Parent-directory creation included. Throws on I/O failure. */
+	writeFile(path, content) {
+		mkdirSync(dirname(path), { recursive: true });
+		writeFileSync(path, content, "utf8");
+	}
+	/** Rename (move) one path to another; atomic on POSIX. Throws on failure. */
+	rename(from, to) {
+		renameSync(from, to);
+	}
+	/** Delete a file. Throws when the path does not exist or on I/O failure. */
+	unlink(path) {
+		unlinkSync(path);
+	}
+};
+//#endregion
+//#region src/host/tools/types.ts
+/**
+* Project a service record into a lossless-JSON value (structural deep
+* copy — the host registry does the same materialization; a service
+* record interface carries no string index signature, so the copy is
+* the type-safe bridge, not a cast). Only lossless-JSON record shapes
+* (the frozen snake_case rows) flow through here.
+* @param value - a plain JSON-shaped value (frozen records, arrays, scalars).
+* @returns the projected ToolJsonValue.
+*/
+function toToolJsonValue(value) {
+	if (value === null || typeof value !== "object") return value;
+	if (Array.isArray(value)) return value.map((item) => toToolJsonValue(item));
+	const out = {};
+	for (const [key, child] of Object.entries(value)) out[key] = toToolJsonValue(child);
+	return out;
+}
+/** All 4 frozen actor kinds (mirrors the domain/registry spellings). */
+const TOOL_ACTOR_KINDS = [
+	"USER",
+	"AGENT",
+	"PLUGIN",
+	"SYSTEM"
+];
+/** One structured tool failure (thrown; never returned as a success value). */
+var ToolError = class extends Error {
+	/** The taxonomy code above. */
+	code;
+	/** Structured extras (service code/step/path, the tool name, the planned service). */
+	detail;
+	constructor(code, message, options) {
+		super(message, options?.cause !== void 0 ? { cause: options.cause } : void 0);
+		this.name = "ToolError";
+		this.code = code;
+		if (options?.detail !== void 0) this.detail = options.detail;
+	}
+};
+/**
+* G3 — build the trusted lane caller from the exec context ONLY (the
+* host resolved actor.kind + run_id from the calling session, G1; the
+* gate already enforced the run for writes — this is the defensive
+* second look). Identity never comes from args: the frozen faces refuse
+* every identity key (tests/tools/trusted-boundary + semantic-create).
+*/
+function semanticCallerFrom(ctx) {
+	if (typeof ctx.runId !== "string" || ctx.runId.length === 0) throw new ToolError("TOOL_RUN_REQUIRED", "the semantic agent create lane requires the run-resolved actor (INV-PERM-1) — unreachable past the gate");
+	return {
+		kind: "AGENT",
+		run_id: ctx.runId,
+		...ctx.actor.session_id !== void 0 ? { session_id: ctx.actor.session_id } : {},
+		...ctx.actor.label !== void 0 ? { label: ctx.actor.label } : {}
+	};
+}
+/**
+* G3 — map a semantic-lane failure into the tool error contract. The
+* semantics service throws the documented carrier
+* `[research-control] <CODE>: <message>` (service/semantics/errors.ts);
+* the machine code rides in `detail.serviceCode` (the run-checkpoint
+* precedent), the message carries the full carrier text. Anything else
+* maps to TOOL_SERVICE WITHOUT inventing a code.
+*/
+function toSemanticToolServiceError(toolName, cause) {
+	if (cause instanceof ToolError) return cause;
+	const message = cause instanceof Error ? cause.message : String(cause);
+	const carrier = /^\[research-control\] ([A-Z0-9_]+): /.exec(message);
+	return new ToolError("TOOL_SERVICE", `${toolName}: ${message}`, carrier !== null ? {
+		cause,
+		detail: { serviceCode: carrier[1] }
+	} : { cause });
+}
+/**
+* Assemble one tool: wraps `handle` with the built-in permission gate
+* (allowedActorKinds → run requirement → abort checks around the body).
+* The static definition is frozen on creation (HMR-safe, host convention:
+* registration is an effect, the definition is data).
+*/
+function buildTool(build) {
+	if (build.requiresRun !== (build.access === "write")) throw new Error(`tool "${build.name}": requiresRun must equal (access === 'write') — the §6 matrix gives the agent NO write lane without a formal run (INV-PERM-1) and NO run requirement for reads`);
+	const allowedActorKinds = ["AGENT"];
+	const definition = {
+		name: build.name,
+		description: build.description,
+		access: build.access,
+		allowedActorKinds,
+		requiresRun: build.requiresRun,
+		parameters: build.parameters,
+		output: build.output,
+		execute: async (args, exec) => {
+			const { name, requiresRun, handle } = build;
+			if (!allowedActorKinds.includes(exec.actor.kind)) throw new ToolError("TOOL_ACTOR_FORBIDDEN", `${name}: actor kind ${JSON.stringify(exec.actor.kind)} is not allowed — this is an agent-facing tool (allowed kinds: ${allowedActorKinds.join(", ")})`);
+			const runId = requiresRun ? exec.actor.run_id : void 0;
+			if (requiresRun && (typeof runId !== "string" || runId.length === 0)) throw new ToolError("TOOL_RUN_REQUIRED", `${name}: an AGENT actor on the write set must carry its formal run_id (INV-PERM-1: every agent write is attributed to a run)`);
+			if (exec.signal.aborted) throw new ToolError("TOOL_ABORTED", `${name}: aborted before dispatch`);
+			const value = await handle(args, {
+				signal: exec.signal,
+				actor: exec.actor,
+				runId
+			});
+			if (exec.signal.aborted) throw new ToolError("TOOL_ABORTED", `${name}: aborted after dispatch`);
+			return value;
+		}
+	};
+	freezeToolDefinition(definition);
+	return definition;
+}
+/** Deep-freeze the static parts (parameters/output); the execute closure stays intact. */
+function freezeToolDefinition(definition) {
+	deepFreeze(definition.parameters);
+	deepFreeze(definition.output.schema);
+	Object.freeze(definition);
+}
+/** Recursively freeze plain JSON-ish data (functions pass through untouched). */
+function deepFreeze(value) {
+	if (value === null || typeof value !== "object") return;
+	Object.freeze(value);
+	for (const child of Object.values(value)) deepFreeze(child);
+}
+//#endregion
+//#region src/host/tools/read-ports.ts
+/** A thrown value carrying a stable machine code (the service error
+*  families the read ports may surface: ToolReadServiceError, ReplayError,
+*  TopologyStoreError, … — duck-typed on `code` so the mapping never
+*  needs per-service imports; a `ToolError` passes through untouched). */
+function codedError(cause) {
+	if (cause instanceof ToolError) return null;
+	if (cause instanceof Error) {
+		const code = cause.code;
+		if (typeof code === "string") return {
+			code,
+			message: cause.message
+		};
+	}
+	return null;
+}
+/**
+* Map any forwarding failure onto the structured tool carrier (the
+* `RB_CHECKPOINT_FOREIGN_RUN` precedent): `ToolError('TOOL_SERVICE')`
+* with `detail.serviceCode` when the cause carries a stable code, bare
+* `TOOL_SERVICE` (message verbatim) otherwise. A `ToolError` (e.g. the
+* already-validated TOOL_INPUT surface) is never re-wrapped.
+*/
+function mapReadServiceError(toolName, cause) {
+	if (cause instanceof ToolError) return cause;
+	const coded = codedError(cause);
+	return new ToolError("TOOL_SERVICE", `${toolName}: ${cause instanceof Error ? cause.message : String(cause)}`, coded === null ? {
+		cause,
+		detail: { tool: toolName }
+	} : {
+		cause,
+		detail: {
+			tool: toolName,
+			serviceCode: coded.code
+		}
+	});
+}
+/** One structured read-service failure (the tool maps it to TOOL_SERVICE). */
+var ToolReadServiceError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = "ToolReadServiceError";
+		this.code = code;
+	}
+};
+//#endregion
+//#region src/host/service/wiring/read-services.ts
+/**
+* G2 (§2d) — the composed READ services behind the four agent read ports.
+*
+* `makeToolReadServices` assembles the four narrow ports the read tools
+* forward to, from the live wiring primitives (the BASELINE_PLAN §2d
+* compositions):
+*
+*  - contextGet  — runbinding (`getRunBySessionId`, the single binding)
+*    + the declarative loader (a FRESH tree load resolves the
+*    workstream/task identity — fresh per call, the hierarchy-service
+*    precedent: the FILE is the truth, no cache);
+*  - planGet     — the WP-1.3 `PlanStore.loadPlan` composition (the
+*    wiring's canonical `planProvider`) + the loader join for the title;
+*  - historyQuery — the WP-2.3 `queryEvents` seq-cursor face verbatim,
+*    gated by the real workstream-existence check (a missing WS is a
+*    missing OBJECT, not an empty page); the QueryStore face makes a
+*    write path unreachable by TYPE SURFACE (no `appendEvents`);
+*  - contractRead — the WP-1.4 `MergeContractStore.readContract` kernel
+*    (byte-for-byte Markdown) + the tree edge snapshot gate (the
+*    §16.1(h) ownership-by-path boundary: a TE id naming no edge is
+*    EDGE_NOT_FOUND; an existing edge without contract.md is the ADJ-7
+*    VALUE face — `content: null`, absence as data).
+*
+* READ-ONLY BY CONSTRUCTION: every primitive consumed here is a read
+* face (`Pick`-narrowed tables/store, the loader reader, the contract
+* READ path). Errors thrown here are the structured
+* `ToolReadServiceError` family (tool-mapped to TOOL_SERVICE +
+* detail.serviceCode); kernel/service errors (TopologyStoreError,
+* ReplayError, …) propagate untouched — the tool layer owns their code
+* mapping. No DSH imports (INV-PERM-5).
+*/
+function makeToolReadServices(input) {
+	const { reader, researchRoot, declarativeDir, tables, store, io, planProvider } = input;
+	/** Fresh declarative tree, fail-loud (the hierarchy-service discipline:
+	*  every read resolves against the FILE as it is NOW).
+	*
+	*  ONE narrow, named exception (`tolerateMissingContractFile`, the
+	*  contract read only): when the loader reports MISSING_REQUIRED for
+	*  EXACTLY the selected edge's `merges/<TE>/contract.md` (a legal
+	*  `merges/<TE>` dir whose file was deleted post-boot), that single
+	*  error is the very absence the read reports as `content: null`
+	*  (ADJ-7 VALUE face) — it must not degrade into a tree failure. The
+	*  tolerance is keyed on code AND the exact file path of the selected
+	*  edge; every other loader error still fails loud (no blanket ignore). */
+	const freshTree = (operation, tolerateMissingContractFile) => {
+		const result = loadResearchTree(reader, researchRoot, declarativeDir);
+		const errors = tolerateMissingContractFile === void 0 ? result.errors : result.errors.filter((e) => !(e.code === "MISSING_REQUIRED" && e.file === tolerateMissingContractFile));
+		if (errors.length > 0) throw new ToolReadServiceError("DECLARATIVE_TREE_UNAVAILABLE", `${operation}: the declarative tree failed to load — ${errors.slice(0, 3).map((e) => `[${e.code}] ${e.file || "<root>"}: ${e.message}`).join("; ")}`);
+		return result.tree;
+	};
+	const findWorkstream = (tree, workstreamId) => {
+		for (const topic of tree.topics) {
+			const ws = topic.workstreams.find((w) => w.id === workstreamId);
+			if (ws !== void 0) return ws;
+		}
+		return null;
+	};
+	const edgesOf = (tree) => tree.topics.flatMap((topic) => (topic.topology?.topology.edges ?? []).map((edge) => ({
+		id: edge.id,
+		topicId: topic.id,
+		operation: edge.operation,
+		lifecycle: edge.lifecycle,
+		inputs: edge.inputs,
+		outputs: edge.outputs,
+		...edge.note !== void 0 ? { note: edge.note } : {}
+	})));
+	return {
+		contextGet(sessionId) {
+			const run = tables.getRunBySessionId(sessionId);
+			if (run === null) return {
+				session_id: sessionId,
+				bound: false
+			};
+			const tree = freshTree("research_context_get");
+			const ws = findWorkstream(tree, run.workstream_id);
+			const task = run.task_id === void 0 ? void 0 : ws?.tasks.find((t) => t.id === run.task_id) ?? null;
+			return {
+				session_id: sessionId,
+				bound: true,
+				run,
+				workstream: {
+					id: run.workstream_id,
+					title: ws?.doc?.title ?? null,
+					topic_id: ws?.topicId ?? null
+				},
+				...run.task_id !== void 0 ? { task: {
+					id: run.task_id,
+					title: task?.doc?.title ?? null
+				} } : {}
+			};
+		},
+		planGet(workstreamId) {
+			const view = planProvider.load(workstreamId);
+			if (!view.workstream_exists) throw new ToolReadServiceError("WS_NOT_FOUND", `research_plan_get: workstream ${workstreamId} does not exist (no workstream directory under any topic — DOMAIN_SCHEMA §14)`);
+			const tree = freshTree("research_plan_get");
+			const ws = findWorkstream(tree, workstreamId);
+			return {
+				workstream: {
+					id: workstreamId,
+					title: ws?.doc?.title ?? null
+				},
+				topic_id: ws?.topicId ?? null,
+				present: view.present,
+				consistent: view.consistent,
+				...view.problem !== void 0 ? { problem: view.problem } : {},
+				ordered_items: view.ordered_items
+			};
+		},
+		historyQuery(query) {
+			const tree = freshTree("research_history_query");
+			if (findWorkstream(tree, query.workstreamId) === null) throw new ToolReadServiceError("WS_NOT_FOUND", `research_history_query: workstream ${query.workstreamId} does not exist (no workstream directory under any topic — DOMAIN_SCHEMA §14)`);
+			const order = query.order ?? "semantic";
+			const page = queryEvents(store, query.workstreamId, {
+				order,
+				...query.afterSeq !== void 0 ? { afterSeq: query.afterSeq } : {},
+				...query.beforeSeq !== void 0 ? { beforeSeq: query.beforeSeq } : {},
+				limit: query.limit
+			});
+			return {
+				workstream_id: query.workstreamId,
+				order,
+				limit: query.limit,
+				events: page.events,
+				next_after_seq: page.nextAfterSeq,
+				exhausted: page.exhausted
+			};
+		},
+		contractRead(edgeId) {
+			const contractStore = new MergeContractStore({
+				io,
+				researchRoot,
+				edgeIds: []
+			});
+			let content;
+			try {
+				content = contractStore.readContract(edgeId);
+			} catch (cause) {
+				if (cause instanceof TopologyStoreError && cause.code === "CONTRACT_NOT_FOUND") content = null;
+				else throw cause;
+			}
+			const tree = freshTree("research_contract_read", `merges/${edgeId}/contract.md`);
+			const edge = edgesOf(tree).find((e) => e.id === edgeId);
+			if (edge === void 0) throw new ToolReadServiceError("EDGE_NOT_FOUND", `research_contract_read: ${edgeId} names no topology edge (the loaded tree carries no such edge — DOMAIN_SCHEMA §3.1/§3.2)`);
+			return {
+				edge: {
+					id: edge.id,
+					topic_id: edge.topicId,
+					operation: edge.operation,
+					lifecycle: edge.lifecycle,
+					inputs: edge.inputs,
+					outputs: edge.outputs,
+					...edge.note !== void 0 ? { note: edge.note } : {}
+				},
+				content,
+				path: `merges/${edgeId}/contract.md`
+			};
+		}
+	};
+}
 //#endregion
 //#region src/host/service/intervention/types.ts
 /**
@@ -13014,7 +13607,7 @@ const CONVERSION_TARGET_KINDS = [
 	"INTERACTION"
 ];
 /** The default user actor for GUI operations (matrix column U). */
-const USER_ACTOR$1 = {
+const USER_ACTOR$2 = {
 	kind: "USER",
 	label: "user"
 };
@@ -16601,7 +17194,7 @@ var PlanForkStaleService = class {
 //#endregion
 //#region src/host/service/runbinding/types.ts
 /** The default user actor for GUI operations (matrix column U). */
-const USER_ACTOR = {
+const USER_ACTOR$1 = {
 	kind: "USER",
 	label: "user"
 };
@@ -16985,7 +17578,7 @@ var RunBindingService = class {
 	* on PENDING; a second concurrent BIND loses the gate and its
 	* RUN_STARTED remains a valid History entry — module header ②/③ note).
 	*/
-	bindDiscoveredSession(dsId, params, actor = USER_ACTOR) {
+	bindDiscoveredSession(dsId, params, actor = USER_ACTOR$1) {
 		assertUserActor$1(actor, "bindDiscoveredSession");
 		assertNonEmptyString(dsId, "dsId");
 		if (params === void 0 || typeof params !== "object") throw new RunBindingError("RB_INPUT", "bindDiscoveredSession: params are required");
@@ -17043,7 +17636,7 @@ var RunBindingService = class {
 	* Row-only (no RUN_* event exists for a PENDING DS — module header).
 	* After DETACH the session is never re-discovered (TC-DSH-003).
 	*/
-	detachDiscoveredSession(dsId, actor = USER_ACTOR) {
+	detachDiscoveredSession(dsId, actor = USER_ACTOR$1) {
 		assertUserActor$1(actor, "detachDiscoveredSession");
 		assertNonEmptyString(dsId, "dsId");
 		const ds = this.#tables.getDiscoveredSession(dsId);
@@ -17058,7 +17651,7 @@ var RunBindingService = class {
 	* IGNORE (§6.2): PENDING → IGNORED — 防重复发现. Row-only (no event).
 	* After IGNORE the session is never re-discovered (TC-DSH-003).
 	*/
-	ignoreDiscoveredSession(dsId, actor = USER_ACTOR) {
+	ignoreDiscoveredSession(dsId, actor = USER_ACTOR$1) {
 		assertUserActor$1(actor, "ignoreDiscoveredSession");
 		assertNonEmptyString(dsId, "dsId");
 		const ds = this.#tables.getDiscoveredSession(dsId);
@@ -17075,7 +17668,7 @@ var RunBindingService = class {
 	* INV-DB-2: pointer only, and the session must NOT already be inside
 	* the control-plane scope — scoped sessions go through BIND).
 	*/
-	registerRun(params, actor = USER_ACTOR) {
+	registerRun(params, actor = USER_ACTOR$1) {
 		if (params === void 0 || typeof params !== "object") throw new RunBindingError("RB_INPUT", "registerRun: params are required");
 		const { workstreamId, taskId } = this.#checkWorkstreamAndTask(params.workstreamId, params.taskId);
 		if (params.dshSessionId !== void 0) {
@@ -17124,15 +17717,15 @@ var RunBindingService = class {
 		};
 	}
 	/** Finish a RUNNING run → RUN_FINISHED (§5.1; side effect: status, ended_at). */
-	finishRun(runId, params = {}, actor = USER_ACTOR) {
+	finishRun(runId, params = {}, actor = USER_ACTOR$1) {
 		return this.#endRun(runId, "FINISHED", actor, (spec) => buildRunFinishedEvent(spec, params.outcomeSummary));
 	}
 	/** Fail a RUNNING run → RUN_FAILED (§5.1; optional error_summary/failure_kind). */
-	failRun(runId, params = {}, actor = USER_ACTOR) {
+	failRun(runId, params = {}, actor = USER_ACTOR$1) {
 		return this.#endRun(runId, "FAILED", actor, (spec) => buildRunFailedEvent(spec, params.errorSummary, params.failureKind));
 	}
 	/** Cancel a RUNNING run → RUN_CANCELLED (§5.1; `cancelled_by` = actor). */
-	cancelRun(runId, params = {}, actor = USER_ACTOR) {
+	cancelRun(runId, params = {}, actor = USER_ACTOR$1) {
 		return this.#endRun(runId, "CANCELLED", actor, (spec) => buildRunCancelledEvent(spec, params.reason));
 	}
 	/**
@@ -17153,7 +17746,7 @@ var RunBindingService = class {
 	* and terminal runs keep accepting notes (the pre-existing semantics
 	* are respected, not re-strategized).
 	*/
-	recordCheckpoint(runId, params = {}, actor = USER_ACTOR) {
+	recordCheckpoint(runId, params = {}, actor = USER_ACTOR$1) {
 		assertUserOrAgentActor(actor, "recordCheckpoint");
 		assertNonEmptyString(runId, "runId");
 		if (this.#tables.getRun(runId) === null) throw new RunBindingError("RB_RUN_NOT_FOUND", `no run with id ${runId}`);
@@ -18494,91 +19087,6 @@ function startedAtOf(mapping, sessionId) {
 	});
 }
 //#endregion
-//#region src/host/tools/types.ts
-/**
-* Project a service record into a lossless-JSON value (structural deep
-* copy — the host registry does the same materialization; a service
-* record interface carries no string index signature, so the copy is
-* the type-safe bridge, not a cast). Only lossless-JSON record shapes
-* (the frozen snake_case rows) flow through here.
-* @param value - a plain JSON-shaped value (frozen records, arrays, scalars).
-* @returns the projected ToolJsonValue.
-*/
-function toToolJsonValue(value) {
-	if (value === null || typeof value !== "object") return value;
-	if (Array.isArray(value)) return value.map((item) => toToolJsonValue(item));
-	const out = {};
-	for (const [key, child] of Object.entries(value)) out[key] = toToolJsonValue(child);
-	return out;
-}
-/** All 4 frozen actor kinds (mirrors the domain/registry spellings). */
-const TOOL_ACTOR_KINDS = [
-	"USER",
-	"AGENT",
-	"PLUGIN",
-	"SYSTEM"
-];
-/** One structured tool failure (thrown; never returned as a success value). */
-var ToolError = class extends Error {
-	/** The taxonomy code above. */
-	code;
-	/** Structured extras (service code/step/path, the tool name, the planned service). */
-	detail;
-	constructor(code, message, options) {
-		super(message, options?.cause !== void 0 ? { cause: options.cause } : void 0);
-		this.name = "ToolError";
-		this.code = code;
-		if (options?.detail !== void 0) this.detail = options.detail;
-	}
-};
-/**
-* Assemble one tool: wraps `handle` with the built-in permission gate
-* (allowedActorKinds → run requirement → abort checks around the body).
-* The static definition is frozen on creation (HMR-safe, host convention:
-* registration is an effect, the definition is data).
-*/
-function buildTool(build) {
-	if (build.requiresRun !== (build.access === "write")) throw new Error(`tool "${build.name}": requiresRun must equal (access === 'write') — the §6 matrix gives the agent NO write lane without a formal run (INV-PERM-1) and NO run requirement for reads`);
-	const allowedActorKinds = ["AGENT"];
-	const definition = {
-		name: build.name,
-		description: build.description,
-		access: build.access,
-		allowedActorKinds,
-		requiresRun: build.requiresRun,
-		parameters: build.parameters,
-		output: build.output,
-		execute: async (args, exec) => {
-			const { name, requiresRun, handle } = build;
-			if (!allowedActorKinds.includes(exec.actor.kind)) throw new ToolError("TOOL_ACTOR_FORBIDDEN", `${name}: actor kind ${JSON.stringify(exec.actor.kind)} is not allowed — this is an agent-facing tool (allowed kinds: ${allowedActorKinds.join(", ")})`);
-			const runId = requiresRun ? exec.actor.run_id : void 0;
-			if (requiresRun && (typeof runId !== "string" || runId.length === 0)) throw new ToolError("TOOL_RUN_REQUIRED", `${name}: an AGENT actor on the write set must carry its formal run_id (INV-PERM-1: every agent write is attributed to a run)`);
-			if (exec.signal.aborted) throw new ToolError("TOOL_ABORTED", `${name}: aborted before dispatch`);
-			const value = await handle(args, {
-				signal: exec.signal,
-				actor: exec.actor,
-				runId
-			});
-			if (exec.signal.aborted) throw new ToolError("TOOL_ABORTED", `${name}: aborted after dispatch`);
-			return value;
-		}
-	};
-	freezeToolDefinition(definition);
-	return definition;
-}
-/** Deep-freeze the static parts (parameters/output); the execute closure stays intact. */
-function freezeToolDefinition(definition) {
-	deepFreeze(definition.parameters);
-	deepFreeze(definition.output.schema);
-	Object.freeze(definition);
-}
-/** Recursively freeze plain JSON-ish data (functions pass through untouched). */
-function deepFreeze(value) {
-	if (value === null || typeof value !== "object") return;
-	Object.freeze(value);
-	for (const child of Object.values(value)) deepFreeze(child);
-}
-//#endregion
 //#region src/host/tools/args.ts
 /**
 * Wire-boundary argument parsing for the agent tool face (WP-3.3).
@@ -18688,48 +19196,6 @@ function jsonType(value) {
 //#endregion
 //#region src/host/tools/stub.ts
 /**
-* The stub tool factory (WP-3.3): tools whose forwarding service has not
-* landed yet (the Phase-3/Phase-5 service WPs — see the report's stub
-* table). A stub keeps the FULL frozen tool face (name / description /
-* parameters — so the model-facing schema never changes when the service
-* lands) and a handler that:
-*   1. passes the built-in permission gate (actor kind + run requirement);
-*   2. validates the wire arguments against the frozen face (TOOL_INPUT);
-*   3. throws `ToolError('TOOL_NOT_IMPLEMENTED')` with the planned service
-*      named in `detail.plannedService` (WP-3.4/3.5/3.6 et al. replace the
-*      stub with a forwarding handler and delete the code path).
-*/
-/** Permissive output schema: a stub never produces a success value (it throws). */
-const STUB_OUTPUT_SCHEMA = {
-	type: "object",
-	description: "placeholder — a stub tool never returns a success value (it throws NOT_IMPLEMENTED)",
-	additionalProperties: true
-};
-/** Build one stub tool definition (the gate + arg validation + NOT_IMPLEMENTED). */
-function makeStubDefinition(spec) {
-	return buildTool({
-		name: spec.name,
-		description: spec.description,
-		access: spec.access,
-		requiresRun: spec.access === "write",
-		parameters: spec.parameters,
-		output: {
-			schema: STUB_OUTPUT_SCHEMA,
-			render: (_args, value) => [{
-				type: "text",
-				text: JSON.stringify(value)
-			}]
-		},
-		handle: async (args, _ctx) => {
-			spec.parseArgs(args);
-			throw new ToolError("TOOL_NOT_IMPLEMENTED", `${spec.name}: not wired in this build yet (${spec.plannedService})`, { detail: {
-				tool: spec.name,
-				plannedService: spec.plannedService
-			} });
-		}
-	});
-}
-/**
 * The shared parameter helpers for the stub faces (the frozen field tables
 * of the semantic/event payloads — see each tool module's JSDoc).
 */
@@ -18749,17 +19215,21 @@ const optStrArray = (description) => ({
 //#endregion
 //#region src/host/tools/artifact-register.ts
 /**
-* research_artifact_register (WP-3.3) — STUB (the forwarding service has
-* not landed yet; the report's stub table names the replacement).
+* research_artifact_register (WP-3.3, live since G3) — register an
+* Artifact BY REFERENCE through the narrow AGENT create lane of the
+* semantic records service (SemanticsService.registerArtifactAsAgent).
 *
 * Parameter face — frozen ARTIFACT_REGISTERED payload + envelope owner:
-* `workstream_id` (artifacts are Workstream-local; the service
-* cross-checks it against the calling run's WS), `type` (frozen
-* artifactType enum), `title`, `uri` (the plugin stores path/URI/reference
-* only — never copies content, ARCHITECTURE §9.3), optional
-* `content_hash` / `related_task` / `supersedes`. The id (A-<n>) and
-* `created_by_run` are NOT arguments — allocated / attributed by the
-* service from the call context.
+* `workstream_id` (artifacts are Workstream-local; the lane cross-checks
+* it against the calling run's WS), `type` (frozen artifactType enum),
+* `title`, `uri` (the plugin stores path/URI/reference only — never
+* copies content, ARCHITECTURE §9.3), optional `content_hash` /
+* `related_task` / `supersedes`. The id (A-<n>) and `created_by_run` are
+* NOT arguments — allocated / attributed by the service from the call
+* context (host-resolved run, G1). Existence rules (related_task /
+* supersedes) ride the frozen registry checks.
+*
+* The success value is the created artifact row (strict schema).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_ARTIFACT_REGISTER = "research_artifact_register";
@@ -18785,7 +19255,7 @@ const ARTIFACT_REGISTER_ARG_KEYS = [
 ];
 /** The tool's model-facing parameter face (frozen 7 keys). */
 const ARTIFACT_REGISTER_PARAMETERS = {
-	workstream_id: str("The workstream (WS id) the artifact belongs to.", true),
+	workstream_id: str("The workstream (WS id) the artifact belongs to — it must be your run's workstream.", true),
 	type: {
 		type: "string",
 		enum: [...ARTIFACT_TYPES$1],
@@ -18797,6 +19267,44 @@ const ARTIFACT_REGISTER_PARAMETERS = {
 	content_hash: str("Optional content hash (integrity pointer)."),
 	related_task: str("Optional id of the task (T-<n>) that produced the artifact."),
 	supersedes: str("Optional id of the earlier artifact (A-<n>) this one replaces.")
+};
+/** The canonical output contract (G3 strict): the created artifact row. */
+const ARTIFACT_REGISTER_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: ["status", "artifact"],
+	properties: {
+		status: { const: "ok" },
+		artifact: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"workstream_id",
+				"type",
+				"title",
+				"uri",
+				"status",
+				"created_by_run",
+				"recorded_at",
+				"event_id"
+			],
+			properties: {
+				id: { type: "string" },
+				workstream_id: { type: "string" },
+				type: { enum: [...ARTIFACT_TYPES$1] },
+				title: { type: "string" },
+				uri: { type: "string" },
+				content_hash: { type: "string" },
+				related_task: { type: "string" },
+				supersedes: { type: "string" },
+				status: { const: "REGISTERED" },
+				created_by_run: { type: "string" },
+				recorded_at: { type: "integer" },
+				event_id: { type: "string" }
+			}
+		}
+	}
 };
 function parseArtifactRegisterArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_ARTIFACT_REGISTER);
@@ -18815,32 +19323,89 @@ function parseArtifactRegisterArgs(args) {
 		const value = obj[key];
 		if (typeof value !== "string" || value.length === 0) throw new ToolError("TOOL_INPUT", `/${key}: must be a non-empty string`);
 	}
-	assertEnum(obj["type"], "/type", ARTIFACT_TYPES$1);
-	assertOptionalString(obj, "content_hash");
-	assertOptionalString(obj, "related_task");
-	assertOptionalString(obj, "supersedes");
+	const type = assertEnum(obj["type"], "/type", ARTIFACT_TYPES$1);
+	const contentHash = assertOptionalString(obj, "content_hash");
+	const relatedTask = assertOptionalString(obj, "related_task");
+	const supersedes = assertOptionalString(obj, "supersedes");
+	return {
+		workstream_id: obj["workstream_id"],
+		type,
+		title: obj["title"],
+		uri: obj["uri"],
+		...contentHash !== void 0 ? { content_hash: contentHash } : {},
+		...relatedTask !== void 0 ? { related_task: relatedTask } : {},
+		...supersedes !== void 0 ? { supersedes } : {}
+	};
 }
-function makeArtifactRegisterDefinition() {
-	return makeStubDefinition({
+function makeArtifactRegisterDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_ARTIFACT_REGISTER,
-		description: "Register an artifact (dataset / figure / model / code / report / note) by reference: the plugin stores the path/URI and metadata, never copies the content.",
+		description: "Register an artifact (dataset / figure / model / code / report / note) by reference: the plugin stores the path/URI and metadata, never copies the content. Workstream-local; attributed to your run.",
 		access: "write",
+		requiresRun: true,
 		parameters: ARTIFACT_REGISTER_PARAMETERS,
-		plannedService: "the artifact-recording service (ARTIFACT_REGISTERED + registry row) — not yet landed (stub; see report)",
-		parseArgs: parseArtifactRegisterArgs
+		output: {
+			schema: ARTIFACT_REGISTER_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: `Artifact ${v.artifact.id} registered on ${v.artifact.workstream_id}.`
+				}];
+			}
+		},
+		handle: async (args, ctx) => {
+			const parsed = parseArtifactRegisterArgs(args);
+			const caller = semanticCallerFrom(ctx);
+			try {
+				const res = deps.semanticAgentCreate.registerArtifact({
+					workstreamId: parsed.workstream_id,
+					type: parsed.type,
+					title: parsed.title,
+					uri: parsed.uri,
+					...parsed.content_hash !== void 0 ? { contentHash: parsed.content_hash } : {},
+					...parsed.related_task !== void 0 ? { relatedTaskId: parsed.related_task } : {},
+					...parsed.supersedes !== void 0 ? { supersedes: parsed.supersedes } : {}
+				}, caller);
+				if (typeof res.createdByRun !== "string") throw new ToolError("TOOL_SERVICE", `${RESEARCH_ARTIFACT_REGISTER}: the lane returned an unattributed result (missing createdByRun)`);
+				return {
+					status: "ok",
+					artifact: {
+						id: res.artifactId,
+						workstream_id: res.workstreamId,
+						type: res.type,
+						title: res.title,
+						uri: res.uri,
+						...parsed.content_hash !== void 0 ? { content_hash: parsed.content_hash } : {},
+						...parsed.related_task !== void 0 ? { related_task: parsed.related_task } : {},
+						...parsed.supersedes !== void 0 ? { supersedes: parsed.supersedes } : {},
+						status: res.status,
+						created_by_run: res.createdByRun,
+						recorded_at: res.recordedAt,
+						event_id: res.eventId
+					}
+				};
+			} catch (cause) {
+				throw toSemanticToolServiceError(RESEARCH_ARTIFACT_REGISTER, cause);
+			}
+		}
 	});
 }
 //#endregion
 //#region src/host/tools/claim-record.ts
 /**
-* research_claim_record (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_claim_record (WP-3.3, live since G3) — record a Claim through
+* the narrow AGENT create lane of the semantic records service
+* (SemanticsService.recordClaimAsAgent).
 *
 * Parameter face — frozen CLAIM_RECORDED payload + envelope owner:
-* `workstream_id` (claims are Workstream-local, INV-SCI-1; the service
-* cross-checks it against the calling run's WS), `statement` (minLength 1),
-* optional `references`. The id (C-<n>) and `created_by_run` are NOT
-* arguments — allocated / attributed by the service from the call context.
+* `workstream_id` (claims are Workstream-local, INV-SCI-1; the lane
+* cross-checks it against the calling run's WS), `statement` (minLength
+* 1), optional `references`. The id (C-<n>) and `created_by_run` are NOT
+* arguments — allocated / attributed by the service from the call
+* context (host-resolved run, G1).
+*
+* The success value is the created claim row (strict schema).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_CLAIM_RECORD = "research_claim_record";
@@ -18852,9 +19417,45 @@ const CLAIM_RECORD_ARG_KEYS = [
 ];
 /** The tool's model-facing parameter face (frozen 3 keys). */
 const CLAIM_RECORD_PARAMETERS = {
-	workstream_id: str("The workstream (WS id) the claim belongs to.", true),
+	workstream_id: str("The workstream (WS id) the claim belongs to — it must be your run's workstream.", true),
 	statement: str("The claim (a scientific statement you stand behind), stated precisely.", true),
 	references: optStrArray("Ids of the objects the claim references or rests on (T-/G-/M-/F-/A-/C-…).")
+};
+/** The canonical output contract (G3 strict): the created claim row. */
+const CLAIM_RECORD_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: ["status", "claim"],
+	properties: {
+		status: { const: "ok" },
+		claim: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"workstream_id",
+				"statement",
+				"references",
+				"status",
+				"created_by_run",
+				"recorded_at",
+				"event_id"
+			],
+			properties: {
+				id: { type: "string" },
+				workstream_id: { type: "string" },
+				statement: { type: "string" },
+				references: {
+					type: "array",
+					items: { type: "string" }
+				},
+				status: { const: "ACTIVE" },
+				created_by_run: { type: "string" },
+				recorded_at: { type: "integer" },
+				event_id: { type: "string" }
+			}
+		}
+	}
 };
 function parseClaimRecordArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_CLAIM_RECORD);
@@ -18863,29 +19464,77 @@ function parseClaimRecordArgs(args) {
 	requireKey(obj, "statement", RESEARCH_CLAIM_RECORD);
 	if (typeof obj["workstream_id"] !== "string" || obj["workstream_id"].length === 0) throw new ToolError("TOOL_INPUT", "/workstream_id: must be a non-empty string");
 	if (typeof obj["statement"] !== "string" || obj["statement"].length === 0) throw new ToolError("TOOL_INPUT", "/statement: must be a non-empty string");
-	assertOptionalStringArray(obj, "references");
+	const references = assertOptionalStringArray(obj, "references");
+	return {
+		workstream_id: obj["workstream_id"],
+		statement: obj["statement"],
+		...references !== void 0 ? { references } : {}
+	};
 }
-function makeClaimRecordDefinition() {
-	return makeStubDefinition({
+function makeClaimRecordDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_CLAIM_RECORD,
 		description: "Record a claim (a scientific statement you stand behind, e.g. a hypothesis or conclusion) into the workstream semantic registry. Workstream-local; attributed to your run. The plugin records and indexes claims — it never judges their scientific correctness (INV-SCI-2).",
 		access: "write",
+		requiresRun: true,
 		parameters: CLAIM_RECORD_PARAMETERS,
-		plannedService: "the claim-recording service (CLAIM_RECORDED + registry row) — not yet landed (stub; see report)",
-		parseArgs: parseClaimRecordArgs
+		output: {
+			schema: CLAIM_RECORD_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: `Claim ${v.claim.id} recorded on ${v.claim.workstream_id}.`
+				}];
+			}
+		},
+		handle: async (args, ctx) => {
+			const parsed = parseClaimRecordArgs(args);
+			const caller = semanticCallerFrom(ctx);
+			try {
+				const res = deps.semanticAgentCreate.recordClaim({
+					workstreamId: parsed.workstream_id,
+					statement: parsed.statement,
+					...parsed.references !== void 0 ? { references: parsed.references } : {}
+				}, caller);
+				if (typeof res.createdByRun !== "string") throw new ToolError("TOOL_SERVICE", `${RESEARCH_CLAIM_RECORD}: the lane returned an unattributed result (missing createdByRun)`);
+				return {
+					status: "ok",
+					claim: {
+						id: res.claimId,
+						workstream_id: res.workstreamId,
+						statement: res.statement,
+						references: res.references,
+						status: res.status,
+						created_by_run: res.createdByRun,
+						recorded_at: res.recordedAt,
+						event_id: res.eventId
+					}
+				};
+			} catch (cause) {
+				throw toSemanticToolServiceError(RESEARCH_CLAIM_RECORD, cause);
+			}
+		}
 	});
 }
 //#endregion
 //#region src/host/tools/context-get.ts
 /**
-* research_context_get (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_context_get (G2 §2d — LIVE forwarding, the stub retired).
 *
 * Parameter face: NONE — the tool reports the research context bound to
 * the CALLING session (workstream, task, Run binding): there is no
-* argument because there is no other subject to ask about (the session's
-* own binding IS the context; the DSH session identity comes from the
-* call context, never from arguments).
+* argument because there is no other subject to ask about (the session
+* identity comes from the call context, never from arguments).
+*
+* Forwards to `ResearchToolDeps.contextGet` — the runbinding single
+* binding (`getRunBySessionId`) + the declarative loader join. One
+* session maps to at most one formal Run (§6.2), so the FULL structured
+* subject returns: the frozen run row verbatim plus the declarative
+* identity (titles resolve from the tree; an unresolvable declaration
+* reports `null`, never a fabrication). An UNBOUND session is the honest
+* empty result (`bound: false`) — reads never require a run, so the
+* Investigator preset can ask this question before any registration.
 */
 /** Frozen §7.2 name. */
 const RESEARCH_CONTEXT_GET = "research_context_get";
@@ -18893,67 +19542,267 @@ const RESEARCH_CONTEXT_GET = "research_context_get";
 const CONTEXT_GET_ARG_KEYS = [];
 /** The tool's model-facing parameter face (no parameters). */
 const CONTEXT_GET_PARAMETERS = {};
+/** A nullable string leaf (declarative joins report `null` when the
+*  declaration is unresolvable — absence as data, never invented). */
+const NULLABLE_STRING = { oneOf: [{ type: "string" }, { type: "null" }] };
+/** The canonical output contract: the single binding's full subject (the
+*  frozen `Run` row — run.schema.json `$defs/Run` — verbatim, plus the
+*  declarative workstream/task join). */
+const CONTEXT_GET_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"session_id",
+		"bound"
+	],
+	properties: {
+		status: {
+			type: "string",
+			const: "ok"
+		},
+		session_id: { type: "string" },
+		bound: { type: "boolean" },
+		run: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"workstream_id",
+				"status",
+				"initiated_by",
+				"started_at"
+			],
+			properties: {
+				id: { type: "string" },
+				workstream_id: { type: "string" },
+				task_id: { type: "string" },
+				dsh_session_id: { type: "string" },
+				status: {
+					type: "string",
+					enum: [
+						"RUNNING",
+						"FINISHED",
+						"FAILED",
+						"CANCELLED"
+					]
+				},
+				intent: { type: "string" },
+				initiated_by: { type: "object" },
+				started_at: { type: "integer" },
+				ended_at: { type: "integer" },
+				summary: { type: "string" },
+				last_checkpoint_at: { type: "integer" },
+				last_checkpoint_note: { type: "string" }
+			}
+		},
+		workstream: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"title",
+				"topic_id"
+			],
+			properties: {
+				id: { type: "string" },
+				title: NULLABLE_STRING,
+				topic_id: NULLABLE_STRING
+			}
+		},
+		task: {
+			type: "object",
+			additionalProperties: false,
+			required: ["id", "title"],
+			properties: {
+				id: { type: "string" },
+				title: NULLABLE_STRING
+			}
+		}
+	}
+};
+/** Validate the frozen NO-ARG face (TOOL_INPUT on any deviation). */
 function parseContextGetArgs(args) {
 	checkKeySet(assertArgsObject(args, RESEARCH_CONTEXT_GET), CONTEXT_GET_ARG_KEYS, RESEARCH_CONTEXT_GET);
 }
-function makeContextGetDefinition() {
-	return makeStubDefinition({
+function makeContextGetDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_CONTEXT_GET,
 		description: "Get the research context bound to the current session: the workstream, the task (if any), and the formal Run binding.",
 		access: "read",
+		requiresRun: false,
 		parameters: CONTEXT_GET_PARAMETERS,
-		plannedService: "the research-context query service (runbinding + declarative loader composition; host wiring WP-3.6) — not yet landed (stub; see report)",
-		parseArgs: parseContextGetArgs
+		output: {
+			schema: CONTEXT_GET_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: v.bound === true ? `Session ${v.session_id} is bound to run ${v.run?.id} on workstream ${v.run?.workstream_id}${v.task !== void 0 ? ` (task ${v.task.id})` : ""}.` : `Session ${v.session_id} is not bound to a research context (no formal run yet).`
+				}];
+			}
+		},
+		handle: async (args, ctx) => {
+			parseContextGetArgs(args);
+			const sessionId = ctx.actor.session_id;
+			if (typeof sessionId !== "string" || sessionId.length === 0) throw new ToolError("TOOL_ACTOR_FORBIDDEN", `${RESEARCH_CONTEXT_GET}: the calling actor carries no session_id — this tool's subject IS the calling session and its identity is host-resolved, never input`);
+			try {
+				return {
+					status: "ok",
+					...toToolJsonValue(deps.contextGet(sessionId))
+				};
+			} catch (cause) {
+				throw mapReadServiceError(RESEARCH_CONTEXT_GET, cause);
+			}
+		}
 	});
 }
 //#endregion
 //#region src/host/tools/contract-read.ts
 /**
-* research_contract_read (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_contract_read (G2 §2d — LIVE forwarding, the stub retired).
 *
-* Parameter face: `edge_id` — the topology edge (TE-<n>) whose merge
-* contract (`contract.md`) is read. The agent may EDIT contracts only by
-* direct file editing inside the workspace (ARCHITECTURE §6 脚注 ²: the
-* plugin neither blocks nor prompts it — there is deliberately NO
-* contract-write tool; the read is the structured lane). Read-only by
-* construction.
+* Parameter face: `edge_id` — the tool reads the merge contract of ONE
+* cross-workstream edge (MERGE/FORK, DOMAIN_SCHEMA §3.1) at its
+* path-fixed location `merges/<TE-id>/contract.md` (§3.2; INV-GIT-8:
+* content ownership by path, no field copy).
+*
+* Forwards to `ResearchToolDeps.contractRead` — the WP-1.4
+* `MergeContractStore.readContract` kernel (Markdown stored/read
+* byte-for-byte) composed with the declarative edge snapshot (the tree
+* is the edge identity authority, §3.1). Single edge → the FULL
+* structured subject (edge identity + content + path), no pagination or
+* truncation surface:
+*  - a TE id that is malformed → the kernel's structured `INVALID_ID`;
+*  - a WELL-FORMED TE id naming no topology edge → `EDGE_NOT_FOUND`
+*    (the ownership-by-path file must anchor to a real edge, §16.1(h) —
+*    a missing object is a structured error, never an empty result);
+*  - an edge that exists WITHOUT a contract.md → the ADJ-7 VALUE face:
+*    `content: null`, absence as data (the value has no existence
+*    independent of the path — the path is the identity).
+* Contract WRITING stays outside the tool face (ARCHITECTURE §6 脚注 ²).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_CONTRACT_READ = "research_contract_read";
 /** The frozen tool parameter key set. */
 const CONTRACT_READ_ARG_KEYS = ["edge_id"];
 /** The tool's model-facing parameter face (frozen 1 key). */
-const CONTRACT_READ_PARAMETERS = { edge_id: str("The topology edge id (TE-<n>) whose merge contract to read.", true) };
+const CONTRACT_READ_PARAMETERS = { edge_id: str("The cross-workstream topology edge (TE id) whose merge contract to read.", true) };
+/** The canonical output contract: ONE edge's identity + its contract
+*  bytes (`content: null` = the edge exists but has no contract.md yet). */
+const CONTRACT_READ_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"edge",
+		"content",
+		"path"
+	],
+	properties: {
+		status: {
+			type: "string",
+			const: "ok"
+		},
+		edge: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"topic_id",
+				"operation",
+				"lifecycle",
+				"inputs",
+				"outputs"
+			],
+			properties: {
+				id: { type: "string" },
+				topic_id: { type: "string" },
+				operation: {
+					type: "string",
+					enum: ["FORK", "MERGE"]
+				},
+				lifecycle: {
+					type: "string",
+					enum: [
+						"PLANNED",
+						"REALIZED",
+						"DROPPED"
+					]
+				},
+				inputs: {
+					type: "array",
+					items: { type: "string" }
+				},
+				outputs: {
+					type: "array",
+					items: { type: "string" }
+				},
+				note: { type: "string" }
+			}
+		},
+		content: { oneOf: [{ type: "string" }, { type: "null" }] },
+		path: { type: "string" }
+	}
+};
+/** Validate + parse the frozen 1-key wire face. */
 function parseContractReadArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_CONTRACT_READ);
 	checkKeySet(obj, CONTRACT_READ_ARG_KEYS, RESEARCH_CONTRACT_READ);
 	requireKey(obj, "edge_id", RESEARCH_CONTRACT_READ);
 	if (typeof obj["edge_id"] !== "string" || obj["edge_id"].length === 0) throw new ToolError("TOOL_INPUT", "/edge_id: must be a non-empty string");
+	return { edge_id: obj["edge_id"] };
 }
-function makeContractReadDefinition() {
-	return makeStubDefinition({
+function makeContractReadDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_CONTRACT_READ,
-		description: "Read the merge contract (contract.md) of a topology edge — the agreed integration conditions between workstreams. Read-only (editing happens by direct file edit in the workspace, not through a tool).",
+		description: "Read the merge contract (contract.md) of one cross-workstream topology edge. Read-only: contract content is edited in the workspace, never through an agent tool.",
 		access: "read",
+		requiresRun: false,
 		parameters: CONTRACT_READ_PARAMETERS,
-		plannedService: "the contract-read service (WP-1.4 MergeContractStore.readContract composition; host wiring WP-3.6) — not yet landed (stub; see report)",
-		parseArgs: parseContractReadArgs
+		output: {
+			schema: CONTRACT_READ_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: v.content === null ? `Edge ${v.edge.id} has no merge contract yet (${v.path} does not exist).` : `Merge contract of edge ${v.edge.id} (${v.path}): ${v.content.length} character(s).`
+				}];
+			}
+		},
+		handle: async (args, _ctx) => {
+			const parsed = parseContractReadArgs(args);
+			try {
+				const view = deps.contractRead(parsed.edge_id);
+				return {
+					status: "ok",
+					edge: toToolJsonValue(view.edge),
+					content: toToolJsonValue(view.content),
+					path: view.path
+				};
+			} catch (cause) {
+				throw mapReadServiceError(RESEARCH_CONTRACT_READ, cause);
+			}
+		}
 	});
 }
 //#endregion
 //#region src/host/tools/fact-record.ts
 /**
-* research_fact_record (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_fact_record (WP-3.3, live since G3) — record a Fact into the
+* workstream semantic registry through the narrow AGENT create lane of
+* the semantic records service (SemanticsService.recordFactAsAgent).
 *
 * Parameter face — frozen FACT_RECORDED payload (history-events.schema.json
 * §5) + the envelope owner: `workstream_id` is the record's Workstream
-* (INV-SCI-1: facts are Workstream-local; the service cross-checks it
+* (INV-SCI-1: facts are Workstream-local; the lane cross-checks it
 * against the calling run's WS), `statement` (minLength 1), optional
 * `references`. The id (F-<n>) and `created_by_run` are NOT arguments —
-* the service allocates the id and attributes the event to the call
-* context's run.
+* the service allocates the id and the lane attributes the event to the
+* call context's run (host-resolved, never forgeable from args — G1).
+*
+* The success value is the created fact row (strict schema: the same
+* snake_case fields the derived row carries, plus the event id).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_FACT_RECORD = "research_fact_record";
@@ -18965,9 +19814,45 @@ const FACT_RECORD_ARG_KEYS = [
 ];
 /** The tool's model-facing parameter face (frozen 3 keys). */
 const FACT_RECORD_PARAMETERS = {
-	workstream_id: str("The workstream (WS id) the fact belongs to.", true),
+	workstream_id: str("The workstream (WS id) the fact belongs to — it must be your run's workstream.", true),
 	statement: str("The observed fact (data, measurement, observation), stated precisely.", true),
 	references: optStrArray("Ids of the objects the fact references (T-/G-/M-/F-/C-…).")
+};
+/** The canonical output contract (G3 strict): the created fact row. */
+const FACT_RECORD_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: ["status", "fact"],
+	properties: {
+		status: { const: "ok" },
+		fact: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"workstream_id",
+				"statement",
+				"references",
+				"status",
+				"created_by_run",
+				"recorded_at",
+				"event_id"
+			],
+			properties: {
+				id: { type: "string" },
+				workstream_id: { type: "string" },
+				statement: { type: "string" },
+				references: {
+					type: "array",
+					items: { type: "string" }
+				},
+				status: { const: "ACTIVE" },
+				created_by_run: { type: "string" },
+				recorded_at: { type: "integer" },
+				event_id: { type: "string" }
+			}
+		}
+	}
 };
 function parseFactRecordArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_FACT_RECORD);
@@ -18976,23 +19861,63 @@ function parseFactRecordArgs(args) {
 	requireKey(obj, "statement", RESEARCH_FACT_RECORD);
 	if (typeof obj["workstream_id"] !== "string" || obj["workstream_id"].length === 0) throw new ToolError("TOOL_INPUT", "/workstream_id: must be a non-empty string");
 	if (typeof obj["statement"] !== "string" || obj["statement"].length === 0) throw new ToolError("TOOL_INPUT", "/statement: must be a non-empty string");
-	assertOptionalStringArray(obj, "references");
+	const references = assertOptionalStringArray(obj, "references");
+	return {
+		workstream_id: obj["workstream_id"],
+		statement: obj["statement"],
+		...references !== void 0 ? { references } : {}
+	};
 }
-function makeFactRecordDefinition() {
-	return makeStubDefinition({
+function makeFactRecordDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_FACT_RECORD,
 		description: "Record an observed fact (data, measurement, observation) into the workstream semantic registry. Workstream-local; attributed to your run.",
 		access: "write",
+		requiresRun: true,
 		parameters: FACT_RECORD_PARAMETERS,
-		plannedService: "the fact-recording service (FACT_RECORDED + registry row) — not yet landed (stub; see report)",
-		parseArgs: parseFactRecordArgs
+		output: {
+			schema: FACT_RECORD_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: `Fact ${v.fact.id} recorded on ${v.fact.workstream_id}.`
+				}];
+			}
+		},
+		handle: async (args, ctx) => {
+			const parsed = parseFactRecordArgs(args);
+			const caller = semanticCallerFrom(ctx);
+			try {
+				const res = deps.semanticAgentCreate.recordFact({
+					workstreamId: parsed.workstream_id,
+					statement: parsed.statement,
+					...parsed.references !== void 0 ? { references: parsed.references } : {}
+				}, caller);
+				if (typeof res.createdByRun !== "string") throw new ToolError("TOOL_SERVICE", `${RESEARCH_FACT_RECORD}: the lane returned an unattributed result (missing createdByRun)`);
+				return {
+					status: "ok",
+					fact: {
+						id: res.factId,
+						workstream_id: res.workstreamId,
+						statement: res.statement,
+						references: res.references,
+						status: res.status,
+						created_by_run: res.createdByRun,
+						recorded_at: res.recordedAt,
+						event_id: res.eventId
+					}
+				};
+			} catch (cause) {
+				throw toSemanticToolServiceError(RESEARCH_FACT_RECORD, cause);
+			}
+		}
 	});
 }
 //#endregion
 //#region src/host/tools/history-query.ts
 /**
-* research_history_query (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_history_query (G2 §2d — LIVE forwarding, the stub retired).
 *
 * Parameter face — a faithful projection of the WP-2.3 read-only query
 * surface (`queryEvents`, seq-cursor pagination, §8 「History 按页面/时间
@@ -19002,6 +19927,17 @@ function makeFactRecordDefinition() {
 * `before_seq` (exclusive upper bound), `limit` (page size, ≥ 1).
 * Read-only by construction — History mutation/delete has NO tool
 * (INV-PERM-2; the matrix row 「History update/delete ❌ ❌ ❌ ❌」).
+*
+* PAGE-SIZE POLICY (BASELINE_PLAN §5 Q2 — the small ruling, THIS tool
+* only): no frozen document names a default or a maximum (verified:
+* `QueryHistoryArgsSchema` leaves `limit` unbounded; TEST_MATRIX names
+* no numbers), so the tool boundary resolves `limit ?? 100` and REFUSES
+* `limit > 1000` with TOOL_INPUT — never a silent clamp (the caller
+* learns the cap and pages with the frozen cursor instead). The applied
+* page size is echoed on every page (`limit`). Everything else is the
+* WP-2.3 protocol verbatim: windows PARTITION the seq axis, rows are
+* never truncated mid-window, `next_after_seq`/`exhausted` are
+* self-terminating.
 */
 /** Frozen §7.2 name. */
 const RESEARCH_HISTORY_QUERY = "research_history_query";
@@ -19015,6 +19951,9 @@ const HISTORY_QUERY_ARG_KEYS = [
 	"before_seq",
 	"limit"
 ];
+/** Q2 (this tool only): maximum page size — above it the call is REFUSED
+*  (TOOL_INPUT), never silently truncated. */
+const HISTORY_QUERY_MAX_LIMIT = 1e3;
 /** The tool's model-facing parameter face (frozen 5 keys). */
 const HISTORY_QUERY_PARAMETERS = {
 	workstream_id: str("The workstream (WS id) whose ResearchHistory to query (the event-log owner).", true),
@@ -19033,27 +19972,153 @@ const HISTORY_QUERY_PARAMETERS = {
 	},
 	limit: {
 		type: "integer",
-		description: "Page size in events (caps the window)."
+		description: `Page size in events (100 when omitted; maximum ${HISTORY_QUERY_MAX_LIMIT} — larger calls are refused, page with after_seq instead).`
 	}
 };
+/** The frozen event envelope (`HistoryEventRecord`, camelCase carrier —
+*  the same DTO face the frozen `queryHistory` RPC row serves). */
+const HISTORY_EVENT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"eventId",
+		"ownerWorkstreamId",
+		"eventType",
+		"schemaVersion",
+		"occurredAt",
+		"actor",
+		"payload",
+		"eventSeq",
+		"recordedAt"
+	],
+	properties: {
+		eventId: { type: "string" },
+		ownerWorkstreamId: { type: "string" },
+		eventType: { type: "string" },
+		schemaVersion: { type: "integer" },
+		occurredAt: { type: "integer" },
+		actor: {
+			type: "object",
+			additionalProperties: false,
+			required: ["kind"],
+			properties: {
+				kind: { type: "string" },
+				user_id: { type: "string" },
+				run_id: { type: "string" },
+				session_id: { type: "string" },
+				label: { type: "string" }
+			}
+		},
+		source: { oneOf: [{
+			type: "object",
+			additionalProperties: false,
+			required: ["kind"],
+			properties: {
+				kind: { type: "string" },
+				session_id: { type: "string" },
+				path: { type: "string" },
+				commit_oid: { type: "string" },
+				interaction_id: { type: "string" },
+				note: { type: "string" }
+			}
+		}, { type: "null" }] },
+		payload: {
+			type: "object",
+			additionalProperties: true
+		},
+		eventSeq: { type: "integer" },
+		recordedAt: { type: "integer" }
+	}
+};
+/** The canonical output contract: ONE page of the frozen seq-cursor
+*  protocol (rows verbatim; `next_after_seq`/`exhausted` as WP-2.3). */
+const HISTORY_QUERY_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"workstream_id",
+		"order",
+		"limit",
+		"events",
+		"next_after_seq",
+		"exhausted"
+	],
+	properties: {
+		status: {
+			type: "string",
+			const: "ok"
+		},
+		workstream_id: { type: "string" },
+		order: {
+			type: "string",
+			enum: [...HISTORY_ORDERS]
+		},
+		limit: { type: "integer" },
+		events: {
+			type: "array",
+			items: HISTORY_EVENT_SCHEMA
+		},
+		next_after_seq: { oneOf: [{ type: "integer" }, { type: "null" }] },
+		exhausted: { type: "boolean" }
+	}
+};
+/** Validate + parse the frozen 5-key wire face into the port query
+*  (the page-size policy resolves HERE: default applied, max REFUSED). */
 function parseHistoryQueryArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_HISTORY_QUERY);
 	checkKeySet(obj, HISTORY_QUERY_ARG_KEYS, RESEARCH_HISTORY_QUERY);
 	requireKey(obj, "workstream_id", RESEARCH_HISTORY_QUERY);
 	if (typeof obj["workstream_id"] !== "string" || obj["workstream_id"].length === 0) throw new ToolError("TOOL_INPUT", "/workstream_id: must be a non-empty string");
-	if (obj["order"] !== void 0) assertEnum(obj["order"], "/order", HISTORY_ORDERS);
-	assertOptionalInteger(obj, "after_seq", { min: 0 });
-	assertOptionalInteger(obj, "before_seq", { min: 1 });
-	assertOptionalInteger(obj, "limit", { min: 1 });
+	const order = obj["order"] !== void 0 ? assertEnum(obj["order"], "/order", HISTORY_ORDERS) : void 0;
+	const afterSeq = assertOptionalInteger(obj, "after_seq", { min: 0 });
+	const beforeSeq = assertOptionalInteger(obj, "before_seq", { min: 1 });
+	const limit = assertOptionalInteger(obj, "limit", {
+		min: 1,
+		max: HISTORY_QUERY_MAX_LIMIT
+	});
+	return {
+		workstreamId: obj["workstream_id"],
+		...order !== void 0 ? { order } : {},
+		...afterSeq !== void 0 ? { afterSeq } : {},
+		...beforeSeq !== void 0 ? { beforeSeq } : {},
+		limit: limit ?? 100
+	};
 }
-function makeHistoryQueryDefinition() {
-	return makeStubDefinition({
+function makeHistoryQueryDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_HISTORY_QUERY,
 		description: "Query a workstream ResearchHistory (the append-only research event log) with seq-cursor pagination. Read-only: the log cannot be mutated or deleted from any agent surface.",
 		access: "read",
+		requiresRun: false,
 		parameters: HISTORY_QUERY_PARAMETERS,
-		plannedService: "the history-query service (WP-2.3 queryEvents composition; host wiring WP-3.6) — not yet landed (stub; see report)",
-		parseArgs: parseHistoryQueryArgs
+		output: {
+			schema: HISTORY_QUERY_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: `${String(v.events.length)} event(s) of ${v.workstream_id} (${v.order} order, page size ${String(v.limit)})` + (v.exhausted ? " — log exhausted." : ` — next page after seq ${String(v.next_after_seq)}.`)
+				}];
+			}
+		},
+		handle: async (args, _ctx) => {
+			const query = parseHistoryQueryArgs(args);
+			try {
+				const page = deps.historyQuery(query);
+				return {
+					status: "ok",
+					workstream_id: page.workstream_id,
+					order: page.order,
+					limit: page.limit,
+					events: toToolJsonValue([...page.events]),
+					next_after_seq: toToolJsonValue(page.next_after_seq),
+					exhausted: page.exhausted
+				};
+			} catch (cause) {
+				throw mapReadServiceError(RESEARCH_HISTORY_QUERY, cause);
+			}
+		}
 	});
 }
 //#endregion
@@ -19870,13 +20935,24 @@ function makePlanForkCreateDefinition(deps) {
 //#endregion
 //#region src/host/tools/plan-get.ts
 /**
-* research_plan_get (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_plan_get (G2 §2d — LIVE forwarding, the stub retired).
 *
 * Parameter face: `workstream_id` — the tool reads the workstream's
 * canonical Future Plan (the stable ordered G/T/M sequence,
 * `plan.yaml`). Read-only by construction (INV-PLAN-3: the agent has no
 * plan write path at any surface; the read is the only lane).
+*
+* Forwards to `ResearchToolDeps.planGet` — the WP-1.3
+* `PlanStore.loadPlan` composition (the wiring's canonical provider,
+* fresh per call). One workstream → the FULL subject: `ordered_items`
+* VERBATIM in file order (INV-PLAN-1 — never sorted, deduped or
+* truncated; the plan is bounded by construction), plus the presence /
+* §4.4-consistency facts (`consistent: false` reports the first
+* `problem` instead of repairing it — the FILE stays the truth) and the
+* declarative identity (title/topic, `null` when unresolvable). A
+* missing workstream is a missing OBJECT (structured
+* `TOOL_SERVICE/WS_NOT_FOUND`); a missing `plan.yaml` on a real
+* workstream is the honest empty plan (`present: false`, `[]`).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_PLAN_GET = "research_plan_get";
@@ -19884,20 +20960,80 @@ const RESEARCH_PLAN_GET = "research_plan_get";
 const PLAN_GET_ARG_KEYS = ["workstream_id"];
 /** The tool's model-facing parameter face (frozen 1 key). */
 const PLAN_GET_PARAMETERS = { workstream_id: str("The workstream (WS id) whose canonical future plan to read.", true) };
+/** The canonical output contract: ONE workstream's full canonical plan
+*  (no pagination/truncation surface — the subject is bounded). */
+const PLAN_GET_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"workstream_id",
+		"title",
+		"topic_id",
+		"present",
+		"consistent",
+		"ordered_items"
+	],
+	properties: {
+		status: {
+			type: "string",
+			const: "ok"
+		},
+		workstream_id: { type: "string" },
+		title: { oneOf: [{ type: "string" }, { type: "null" }] },
+		topic_id: { oneOf: [{ type: "string" }, { type: "null" }] },
+		present: { type: "boolean" },
+		consistent: { type: "boolean" },
+		problem: { type: "string" },
+		ordered_items: {
+			type: "array",
+			items: { type: "string" }
+		}
+	}
+};
+/** Validate + parse the frozen 1-key wire face. */
 function parsePlanGetArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_PLAN_GET);
 	checkKeySet(obj, PLAN_GET_ARG_KEYS, RESEARCH_PLAN_GET);
 	requireKey(obj, "workstream_id", RESEARCH_PLAN_GET);
 	if (typeof obj["workstream_id"] !== "string" || obj["workstream_id"].length === 0) throw new ToolError("TOOL_INPUT", "/workstream_id: must be a non-empty string");
+	return { workstream_id: obj["workstream_id"] };
 }
-function makePlanGetDefinition() {
-	return makeStubDefinition({
+function makePlanGetDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_PLAN_GET,
 		description: "Read a workstream canonical future plan: the stable ordered sequence of Goals / Tasks / Gates / Milestones (plan.yaml). Read-only.",
 		access: "read",
+		requiresRun: false,
 		parameters: PLAN_GET_PARAMETERS,
-		plannedService: "the canonical-plan query service (WP-1.3 PlanStore.loadPlan composition; host wiring WP-3.6) — not yet landed (stub; see report)",
-		parseArgs: parsePlanGetArgs
+		output: {
+			schema: PLAN_GET_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: v.present ? `Canonical plan of ${v.workstream_id}: ${String(v.ordered_items.length)} item(s) in canonical order${v.consistent ? "" : " (INCONSISTENT plan — see the structured result)"}.` : `Workstream ${v.workstream_id} exists but has no canonical plan (plan.yaml absent).`
+				}];
+			}
+		},
+		handle: async (args, _ctx) => {
+			const parsed = parsePlanGetArgs(args);
+			try {
+				const view = deps.planGet(parsed.workstream_id);
+				return {
+					status: "ok",
+					workstream_id: view.workstream.id,
+					title: toToolJsonValue(view.workstream.title),
+					topic_id: toToolJsonValue(view.topic_id),
+					present: view.present,
+					consistent: view.consistent,
+					...view.problem !== void 0 ? { problem: view.problem } : {},
+					ordered_items: toToolJsonValue([...view.ordered_items])
+				};
+			} catch (cause) {
+				throw mapReadServiceError(RESEARCH_PLAN_GET, cause);
+			}
+		}
 	});
 }
 //#endregion
@@ -20051,35 +21187,45 @@ const RESEARCH_TOOL_NAMES = [
 RESEARCH_TOOL_NAMES.slice(0, 7);
 RESEARCH_TOOL_NAMES.slice(7);
 /**
-* Compose the complete tool face over the reviewed service ports.
-* Fail-loud on a malformed deps object (misconfiguration is a
-* composition-time error, not a per-call surprise). The returned
+* Compose the complete tool face over the service ports (two write
+* ports + the G3 semantic create lane + the four G2 read ports + the
+* two G4 attention-write ports). Fail-loud on a malformed deps object
+* (misconfiguration is a composition-time error, not a per-call
+* surprise). The returned
 * definitions are frozen and registered by the host wiring WP (WP-3.6)
 * — one `defineTool` adaptation per definition.
 */
 function createResearchTools(deps) {
 	assertDeps(deps);
 	return [
-		makeFactRecordDefinition(),
-		makeClaimRecordDefinition(),
-		makeArtifactRegisterDefinition(),
+		makeFactRecordDefinition(deps),
+		makeClaimRecordDefinition(deps),
+		makeArtifactRegisterDefinition(deps),
 		makeInterventionCreateDefinition(deps),
 		makeNextActionCreateDefinition(deps),
 		makePlanForkCreateDefinition(deps),
 		makeRunCheckpointDefinition(deps),
-		makeContextGetDefinition(),
-		makePlanGetDefinition(),
-		makeHistoryQueryDefinition(),
-		makeContractReadDefinition()
+		makeContextGetDefinition(deps),
+		makePlanGetDefinition(deps),
+		makeHistoryQueryDefinition(deps),
+		makeContractReadDefinition(deps)
 	];
 }
-/** Every reviewed port must be a function (fail loud at composition). */
+/** Every reviewed port (write surface + lane methods + the four reads + the attention pair) must be a function (fail loud at composition). */
 function assertDeps(deps) {
 	if (deps === null || typeof deps !== "object") throw new TypeError("createResearchTools: deps must be an object with the reviewed service ports");
 	if (typeof deps.planForkCreate !== "function") throw new TypeError("createResearchTools: deps.planForkCreate must be the PlanFork creation service (WP-3.1 chain)");
 	if (typeof deps.recordCheckpoint !== "function") throw new TypeError("createResearchTools: deps.recordCheckpoint must be the RunBindingService.recordCheckpoint surface (WP-2.4)");
 	if (typeof deps.interventionCreate !== "function") throw new TypeError("createResearchTools: deps.interventionCreate must be the mechanical intervention creation lane (WP-5.1, trigger pinned by the wiring)");
 	if (typeof deps.nextActionCreate !== "function") throw new TypeError("createResearchTools: deps.nextActionCreate must be the ActionsService.createNextAction surface (WP-5.2)");
+	const lane = deps.semanticAgentCreate;
+	if (lane === null || typeof lane !== "object" || typeof lane.recordFact !== "function" || typeof lane.recordClaim !== "function" || typeof lane.registerArtifact !== "function") throw new TypeError("createResearchTools: deps.semanticAgentCreate must be the narrow semantic agent create lane (G3 — recordFact/recordClaim/registerArtifact)");
+	for (const port of [
+		"contextGet",
+		"planGet",
+		"historyQuery",
+		"contractRead"
+	]) if (typeof deps[port] !== "function") throw new TypeError(`createResearchTools: deps.${port} must be the G2 §2d read service (service/wiring/read-services.ts)`);
 }
 //#endregion
 //#region src/host/service/investigator/types.ts
@@ -22577,7 +23723,7 @@ function reduceSemanticEvent(state, event) {
 	switch (event.eventType) {
 		case "FACT_RECORDED": {
 			const p = event.payload;
-			if (!isRecord(p) || typeof p.fact_id !== "string" || typeof p.statement !== "string" || p.statement.length === 0) throwInvalidPayload("FACT_RECORDED", "payload requires string fact_id + non-empty string statement");
+			if (!isRecord$1(p) || typeof p.fact_id !== "string" || typeof p.statement !== "string" || p.statement.length === 0) throwInvalidPayload("FACT_RECORDED", "payload requires string fact_id + non-empty string statement");
 			requireIdKind(p.fact_id, "FACT", "/payload/fact_id");
 			if (state.facts.has(p.fact_id)) throw new SemanticDomainError("OBJECT_ALREADY_EXISTS", `Fact ${JSON.stringify(p.fact_id)} already exists; FACT_RECORDED requires a fresh fact_id (catalog §5.3: 新建)`, "/payload/fact_id");
 			const row = {
@@ -22599,7 +23745,7 @@ function reduceSemanticEvent(state, event) {
 		}
 		case "CLAIM_RECORDED": {
 			const p = event.payload;
-			if (!isRecord(p) || typeof p.claim_id !== "string" || typeof p.statement !== "string" || p.statement.length === 0) throwInvalidPayload("CLAIM_RECORDED", "payload requires string claim_id + non-empty string statement");
+			if (!isRecord$1(p) || typeof p.claim_id !== "string" || typeof p.statement !== "string" || p.statement.length === 0) throwInvalidPayload("CLAIM_RECORDED", "payload requires string claim_id + non-empty string statement");
 			requireIdKind(p.claim_id, "CLAIM", "/payload/claim_id");
 			if (state.claims.has(p.claim_id)) throw new SemanticDomainError("OBJECT_ALREADY_EXISTS", `Claim ${JSON.stringify(p.claim_id)} already exists; CLAIM_RECORDED requires a fresh claim_id (catalog §5.3: 新建)`, "/payload/claim_id");
 			const row = {
@@ -22621,7 +23767,7 @@ function reduceSemanticEvent(state, event) {
 		}
 		case "CLAIM_RETRACTED": {
 			const p = event.payload;
-			if (!isRecord(p) || typeof p.claim_id !== "string") throwInvalidPayload("CLAIM_RETRACTED", "payload requires string claim_id");
+			if (!isRecord$1(p) || typeof p.claim_id !== "string") throwInvalidPayload("CLAIM_RETRACTED", "payload requires string claim_id");
 			requireIdKind(p.claim_id, "CLAIM", "/payload/claim_id");
 			const claim = state.claims.get(p.claim_id);
 			if (claim === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Claim ${JSON.stringify(p.claim_id)} does not exist (catalog §5.3: 存在)`, "/payload/claim_id");
@@ -22644,7 +23790,7 @@ function reduceSemanticEvent(state, event) {
 		}
 		case "ARTIFACT_REGISTERED": {
 			const p = event.payload;
-			if (!isRecord(p) || typeof p.artifact_id !== "string" || !isArtifactType(p.type) || typeof p.title !== "string" || p.title.length === 0 || typeof p.uri !== "string" || p.uri.length === 0) throwInvalidPayload("ARTIFACT_REGISTERED", `payload requires string artifact_id + artifact type ∈ {${ARTIFACT_TYPES.join(", ")}} + non-empty title/uri`);
+			if (!isRecord$1(p) || typeof p.artifact_id !== "string" || !isArtifactType(p.type) || typeof p.title !== "string" || p.title.length === 0 || typeof p.uri !== "string" || p.uri.length === 0) throwInvalidPayload("ARTIFACT_REGISTERED", `payload requires string artifact_id + artifact type ∈ {${ARTIFACT_TYPES.join(", ")}} + non-empty title/uri`);
 			requireIdKind(p.artifact_id, "ARTIFACT", "/payload/artifact_id");
 			if (state.artifacts.has(p.artifact_id)) throw new SemanticDomainError("OBJECT_ALREADY_EXISTS", `Artifact ${JSON.stringify(p.artifact_id)} already exists; ARTIFACT_REGISTERED requires a fresh artifact_id (catalog §5.4: 新建)`, "/payload/artifact_id");
 			if (typeof p.supersedes === "string") {
@@ -22673,7 +23819,7 @@ function reduceSemanticEvent(state, event) {
 		}
 		case "ARTIFACT_MARKED_MISSING": {
 			const p = event.payload;
-			if (!isRecord(p) || typeof p.artifact_id !== "string") throwInvalidPayload("ARTIFACT_MARKED_MISSING", "payload requires string artifact_id");
+			if (!isRecord$1(p) || typeof p.artifact_id !== "string") throwInvalidPayload("ARTIFACT_MARKED_MISSING", "payload requires string artifact_id");
 			requireIdKind(p.artifact_id, "ARTIFACT", "/payload/artifact_id");
 			const artifact = state.artifacts.get(p.artifact_id);
 			if (artifact === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Artifact ${JSON.stringify(p.artifact_id)} does not exist (catalog §5.4: 存在)`, "/payload/artifact_id");
@@ -22692,7 +23838,7 @@ function reduceSemanticEvent(state, event) {
 		}
 		case "RELATION_ADDED": {
 			const p = event.payload;
-			if (!isRecord(p) || typeof p.relation_id !== "string" || typeof p.relation_type !== "string" || !isWellFormedRef(p.source) || !isWellFormedRef(p.target)) throwInvalidPayload("RELATION_ADDED", "payload requires string relation_id/relation_type + well-formed {kind,id} source/target");
+			if (!isRecord$1(p) || typeof p.relation_id !== "string" || typeof p.relation_type !== "string" || !isWellFormedRef(p.source) || !isWellFormedRef(p.target)) throwInvalidPayload("RELATION_ADDED", "payload requires string relation_id/relation_type + well-formed {kind,id} source/target");
 			requireIdKind(p.relation_id, "RELATION", "/payload/relation_id");
 			if (state.relations.has(p.relation_id)) throw new SemanticDomainError("OBJECT_ALREADY_EXISTS", `Relation ${JSON.stringify(p.relation_id)} already exists; RELATION_ADDED requires a fresh relation_id (catalog §5.5: 新建)`, "/payload/relation_id");
 			if (isForbiddenReverseForm(p.relation_type)) throw new SemanticDomainError("RELATION_TYPE_UNKNOWN", `${p.relation_type} is a reverse form refused by §8 (INV-REL-2: only RELY_ON direct edges are persisted; the reverse view is derived by incoming-edge query)`, "/payload/relation_type");
@@ -22733,7 +23879,7 @@ function reduceSemanticEvent(state, event) {
 		}
 		case "RELATION_REMOVED": {
 			const p = event.payload;
-			if (!isRecord(p) || typeof p.relation_id !== "string") throwInvalidPayload("RELATION_REMOVED", "payload requires string relation_id");
+			if (!isRecord$1(p) || typeof p.relation_id !== "string") throwInvalidPayload("RELATION_REMOVED", "payload requires string relation_id");
 			requireIdKind(p.relation_id, "RELATION", "/payload/relation_id");
 			const relation = state.relations.get(p.relation_id);
 			if (relation === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Relation ${JSON.stringify(p.relation_id)} does not exist (catalog §5.5: 存在)`, "/payload/relation_id");
@@ -22770,7 +23916,40 @@ function foldSemanticEvents(events, init = initialSemanticState()) {
 	for (const event of events) state = reduceSemanticEvent(state, event);
 	return state;
 }
-function isRecord(value) {
+/**
+* Project the derived semantic state into the four snapshot maps the WP-2.2
+* `HistoryObjectContext` consumes (camelCase; structural mirror of the
+* registry's Claim/Fact/Artifact/RelationSnapshot). The service merges the
+* projection into a full ctx so write-time validation sees the reducer state.
+*/
+function toObjectContext(state) {
+	const claims = /* @__PURE__ */ new Map();
+	for (const [id, row] of state.claims) claims.set(id, {
+		workstreamId: row.workstream_id,
+		status: row.status
+	});
+	const facts = /* @__PURE__ */ new Map();
+	for (const [id, row] of state.facts) facts.set(id, { workstreamId: row.workstream_id });
+	const artifacts = /* @__PURE__ */ new Map();
+	for (const [id, row] of state.artifacts) artifacts.set(id, {
+		workstreamId: row.workstream_id,
+		status: row.status
+	});
+	const relations = /* @__PURE__ */ new Map();
+	for (const [id, row] of state.relations) relations.set(id, {
+		status: row.status,
+		source: row.source,
+		relationType: row.relation_type,
+		target: row.target
+	});
+	return {
+		claims,
+		facts,
+		artifacts,
+		relations
+	};
+}
+function isRecord$1(value) {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function isArrayOfStrings(value) {
@@ -22784,7 +23963,7 @@ const ACTOR_KINDS = [
 ];
 function actorOf(event, eventType) {
 	const actor = event.actor;
-	if (!isRecord(actor) || typeof actor.kind !== "string" || !ACTOR_KINDS.includes(actor.kind)) throw new SemanticDomainError("INVALID_PAYLOAD", `${eventType} requires a well-formed envelope actor (kind ∈ USER|AGENT|PLUGIN|SYSTEM) — it becomes the row's created_by (common.schema actorRef)`, "/actor");
+	if (!isRecord$1(actor) || typeof actor.kind !== "string" || !ACTOR_KINDS.includes(actor.kind)) throw new SemanticDomainError("INVALID_PAYLOAD", `${eventType} requires a well-formed envelope actor (kind ∈ USER|AGENT|PLUGIN|SYSTEM) — it becomes the row's created_by (common.schema actorRef)`, "/actor");
 	return actor;
 }
 function envelopeOwner(event) {
@@ -22818,6 +23997,212 @@ function endpointWorkstream(ref, state) {
 		case "ARTIFACT": return state.artifacts.get(ref.id)?.workstream_id;
 		default: return;
 	}
+}
+//#endregion
+//#region src/host/domain/semantics/validate.ts
+/**
+* WP-2.5 — semantic event pre-validation against the derived semantic state
+* (the incremental-maintenance gate).
+*
+* ## Role in the write path
+*
+* `validateEvent` (WP-2.2) validates an event against a FULL
+* `HistoryObjectContext` snapshot (11 object families). This function
+* validates the SEVEN semantic events against the derived `SemanticState`
+* ALONE — plus an optional external resolver for non-semantic workstream-
+* local endpoints (TASK/GATE/MILESTONE/RUN). The service layer composes:
+*
+*   1. `registry.checkShape(event)`        — frozen envelope + payload shape (INV-HIST-4);
+*   2. `validateSemanticEvent(state, event)` — this module: the §5.3–5.5
+*      preconditions + the §8/INV-REL rule family (the rules WP-2.2 does
+*      NOT check: duplicate 5-tuple, self-loop, reverse duplicate, owner);
+*   3. `validateEvent(registry, event, fullCtx)` — cross-family checks
+*      (run/task existence, emitter matrix, mutation from→to for the task
+*      events, …);
+*   4. store append (WP-2.1) + `reduceSemanticEvent` (derived state).
+*
+* Pure: reads `state` only, never writes, collects ALL errors (no
+* short-circuit beyond the unknown-type/invalid-envelope boundary).
+* Zero I/O, zero DSH (INV-PERM-5).
+*/
+/**
+* Validate ONE semantic event against the current derived semantic state.
+* Returns a structured result (never throws; an invalid `event` reference
+* itself — not an object / no string eventType — is reported, not raised).
+*/
+function validateSemanticEvent(state, event, options = {}) {
+	if (typeof event !== "object" || event === null || typeof event.eventType !== "string") return {
+		ok: false,
+		errors: [{
+			code: "UNKNOWN_EVENT_TYPE",
+			path: "/eventType",
+			message: `event must be an object with a string eventType (got ${JSON.stringify(event)})`
+		}]
+	};
+	const errors = [];
+	const push = (code, message, path) => {
+		errors.push({
+			code,
+			path,
+			message
+		});
+	};
+	const owner = event.ownerWorkstreamId;
+	if (typeof owner !== "string" || parseId(owner)?.kind !== "WORKSTREAM") push("INVALID_ENVELOPE", `ownerWorkstreamId must be a well-formed WS id (got ${JSON.stringify(owner)})`, "/ownerWorkstreamId");
+	if (typeof event.occurredAt !== "number" || !Number.isInteger(event.occurredAt) || event.occurredAt < 0) push("INVALID_ENVELOPE", `occurredAt must be a non-negative integer epoch ms (got ${JSON.stringify(event.occurredAt)})`, "/occurredAt");
+	const actor = event.actor;
+	if (typeof actor !== "object" || actor === null || typeof actor.kind !== "string" || ![
+		"USER",
+		"AGENT",
+		"PLUGIN",
+		"SYSTEM"
+	].includes(actor.kind)) push("INVALID_ENVELOPE", `actor must be a well-formed actorRef with kind ∈ USER|AGENT|PLUGIN|SYSTEM (got ${JSON.stringify(actor)})`, "/actor");
+	if (!SEMANTIC_EVENT_TYPES.includes(event.eventType)) {
+		push("UNKNOWN_EVENT_TYPE", `${event.eventType} is not one of the seven semantic events (${SEMANTIC_EVENT_TYPES.join(" / ")})`, "/eventType");
+		return {
+			ok: false,
+			errors
+		};
+	}
+	const external = options.externalWorkstream;
+	const wsOf = (ref) => {
+		switch (ref.kind) {
+			case "WORKSTREAM": return external?.("WORKSTREAM", ref.id) ?? ref.id;
+			case "CLAIM": return state.claims.get(ref.id)?.workstream_id;
+			case "FACT": return state.facts.get(ref.id)?.workstream_id;
+			case "ARTIFACT": return state.artifacts.get(ref.id)?.workstream_id;
+			default: return external?.(ref.kind, ref.id);
+		}
+	};
+	const ownerOfEdge = (source, target) => wsOf(source) ?? wsOf(target);
+	const checkOwner = (label, edgeOwner, path) => {
+		if (edgeOwner === void 0) push("OWNER_UNRESOLVABLE", `Neither ${label} endpoint is workstream-local; V1 refuses such relations (DOMAIN_SCHEMA §8: 两端都非 workstream-local 的 relation 拒绝创建)`, path);
+		else if (typeof owner === "string" && edgeOwner !== owner) push("OWNER_MISMATCH", `${label} owner must be source.ws ?? target.ws = ${edgeOwner}, not the event owner ${owner} (DOMAIN_SCHEMA §8 / catalog §4 特例)`, path);
+	};
+	switch (event.eventType) {
+		case "FACT_RECORDED": {
+			const p = event.payload;
+			const id = p?.fact_id;
+			if (typeof id !== "string" || parseId(id)?.kind !== "FACT") push("INVALID_ID", `fact_id must be a well-formed F-<n> id (got ${JSON.stringify(id)})`, "/payload/fact_id");
+			else if (state.facts.has(id)) push("OBJECT_ALREADY_EXISTS", `Fact ${JSON.stringify(id)} already exists; FACT_RECORDED requires a fresh fact_id (catalog §5.3: 新建)`, "/payload/fact_id");
+			if (typeof p?.statement !== "string" || p.statement.length === 0) push("INVALID_PAYLOAD", "statement must be a non-empty string (schema minLength 1)", "/payload/statement");
+			break;
+		}
+		case "CLAIM_RECORDED": {
+			const p = event.payload;
+			const id = p?.claim_id;
+			if (typeof id !== "string" || parseId(id)?.kind !== "CLAIM") push("INVALID_ID", `claim_id must be a well-formed C-<n> id (got ${JSON.stringify(id)})`, "/payload/claim_id");
+			else if (state.claims.has(id)) push("OBJECT_ALREADY_EXISTS", `Claim ${JSON.stringify(id)} already exists; CLAIM_RECORDED requires a fresh claim_id (catalog §5.3: 新建)`, "/payload/claim_id");
+			if (typeof p?.statement !== "string" || p.statement.length === 0) push("INVALID_PAYLOAD", "statement must be a non-empty string (schema minLength 1)", "/payload/statement");
+			break;
+		}
+		case "CLAIM_RETRACTED": {
+			const id = event.payload?.claim_id;
+			if (typeof id !== "string" || parseId(id)?.kind !== "CLAIM") {
+				push("INVALID_ID", `claim_id must be a well-formed C-<n> id (got ${JSON.stringify(id)})`, "/payload/claim_id");
+				break;
+			}
+			const claim = state.claims.get(id);
+			if (claim === void 0) push("OBJECT_NOT_FOUND", `Claim ${JSON.stringify(id)} does not exist (catalog §5.3: 存在)`, "/payload/claim_id");
+			else {
+				if (claim.status !== "ACTIVE") push("WRONG_STATE", `Claim ${id} is ${claim.status}; CLAIM_RETRACTED requires ACTIVE (RETRACTED is terminal, §13)`, "/payload/claim_id");
+				if (claim.workstream_id !== owner) push("OWNER_MISMATCH", `Claim ${id} belongs to workstream ${claim.workstream_id}, not the event owner ${owner} (catalog §4: claim 所属 WS)`, "/payload/claim_id");
+			}
+			break;
+		}
+		case "ARTIFACT_REGISTERED": {
+			const p = event.payload;
+			const id = p?.artifact_id;
+			if (typeof id !== "string" || parseId(id)?.kind !== "ARTIFACT") push("INVALID_ID", `artifact_id must be a well-formed A-<n> id (got ${JSON.stringify(id)})`, "/payload/artifact_id");
+			else if (state.artifacts.has(id)) push("OBJECT_ALREADY_EXISTS", `Artifact ${JSON.stringify(id)} already exists; ARTIFACT_REGISTERED requires a fresh artifact_id (catalog §5.4: 新建)`, "/payload/artifact_id");
+			if (typeof p?.title !== "string" || p.title.length === 0) push("INVALID_PAYLOAD", "title must be a non-empty string", "/payload/title");
+			if (typeof p?.uri !== "string" || p.uri.length === 0) push("INVALID_PAYLOAD", "uri must be a non-empty string", "/payload/uri");
+			if (!isArtifactType(p?.type)) push("INVALID_PAYLOAD", `type must be one of the frozen artifactType enum [${ARTIFACT_TYPES.join(", ")}] (common.schema.json)`, "/payload/type");
+			const supersedes = p?.supersedes;
+			if (supersedes !== void 0) {
+				if (typeof supersedes !== "string" || parseId(supersedes)?.kind !== "ARTIFACT") push("INVALID_ID", `supersedes must be a well-formed A-<n> id (got ${JSON.stringify(supersedes)})`, "/payload/supersedes");
+				else if (!state.artifacts.has(supersedes)) push("OBJECT_NOT_FOUND", `supersedes artifact ${JSON.stringify(supersedes)} does not exist (catalog §5.4: supersedes 存在)`, "/payload/supersedes");
+			}
+			const relatedTask = p?.related_task;
+			if (relatedTask !== void 0 && external !== void 0) {
+				if (typeof relatedTask !== "string" || parseId(relatedTask)?.kind !== "TASK") push("INVALID_ID", `related_task must be a well-formed T-<n> id (got ${JSON.stringify(relatedTask)})`, "/payload/related_task");
+				else {
+					const ws = external("TASK", relatedTask);
+					if (ws === void 0) push("OBJECT_NOT_FOUND", `related task ${JSON.stringify(relatedTask)} does not exist (catalog §5.4)`, "/payload/related_task");
+					else if (typeof owner === "string" && ws !== owner) push("OWNER_MISMATCH", `related task ${relatedTask} belongs to workstream ${ws}, not the event owner ${owner} (catalog §5.4: 属同 WS)`, "/payload/related_task");
+				}
+			}
+			break;
+		}
+		case "ARTIFACT_MARKED_MISSING": {
+			const id = event.payload?.artifact_id;
+			if (typeof id !== "string" || parseId(id)?.kind !== "ARTIFACT") {
+				push("INVALID_ID", `artifact_id must be a well-formed A-<n> id (got ${JSON.stringify(id)})`, "/payload/artifact_id");
+				break;
+			}
+			const artifact = state.artifacts.get(id);
+			if (artifact === void 0) push("OBJECT_NOT_FOUND", `Artifact ${JSON.stringify(id)} does not exist (catalog §5.4: 存在)`, "/payload/artifact_id");
+			else {
+				if (artifact.status !== "REGISTERED") push("WRONG_STATE", `Artifact ${id} is ${artifact.status}; ARTIFACT_MARKED_MISSING requires REGISTERED (catalog §5.4)`, "/payload/artifact_id");
+				if (artifact.workstream_id !== owner) push("OWNER_MISMATCH", `Artifact ${id} belongs to workstream ${artifact.workstream_id}, not the event owner ${owner} (catalog §4: artifact 所属 WS)`, "/payload/artifact_id");
+			}
+			break;
+		}
+		case "RELATION_ADDED": {
+			const p = event.payload;
+			const id = p?.relation_id;
+			if (typeof id !== "string" || parseId(id)?.kind !== "RELATION") push("INVALID_ID", `relation_id must be a well-formed REL-<n> id (got ${JSON.stringify(id)}; DOMAIN_SCHEMA §8 relation_id 形态)`, "/payload/relation_id");
+			else if (state.relations.has(id)) push("OBJECT_ALREADY_EXISTS", `Relation ${JSON.stringify(id)} already exists; RELATION_ADDED requires a fresh relation_id (catalog §5.5: 新建)`, "/payload/relation_id");
+			const type = p?.relation_type;
+			if (isForbiddenReverseForm(type)) {
+				push("RELATION_TYPE_UNKNOWN", `${String(type)} is a reverse form refused by §8 (INV-REL-2: only RELY_ON direct edges are persisted)`, "/payload/relation_type");
+				break;
+			}
+			if (!isRelationType(type)) {
+				push("RELATION_TYPE_UNKNOWN", `${JSON.stringify(type)} is not one of the frozen 10 relation types (DOMAIN_SCHEMA §8, INV-REL-3)`, "/payload/relation_type");
+				break;
+			}
+			const source = p?.source;
+			const target = p?.target;
+			if (!isWellFormedRef(source)) push("INVALID_PAYLOAD", `source must be a well-formed {kind ∈ objectKind, id} typedRef (got ${JSON.stringify(source)})`, "/payload/source");
+			if (!isWellFormedRef(target)) push("INVALID_PAYLOAD", `target must be a well-formed {kind ∈ objectKind, id} typedRef (got ${JSON.stringify(target)})`, "/payload/target");
+			if (isWellFormedRef(source) && isWellFormedRef(target)) {
+				if (!isLegalRelationCombination(type, source.kind, target.kind)) push("RELATION_COMBINATION", `${type} from ${source.kind} to ${target.kind} is not in the frozen §8 combination table (INV-REL-1: TARGET 始终是 SOURCE 的前提/来源/输入/证据/上位目标)`, "/payload/relation_type");
+				if (isSelfLoop(source, target)) push("RELATION_SELF_LOOP", `source and target are the same object (${source.kind} ${source.id}); a RELY_ON premise cannot be itself (INV-REL-1)`, "/payload/source");
+				const dup = findDuplicateEdge(state.relations, source, type, target);
+				if (dup !== void 0) push("RELATION_DUPLICATE", `An edge with the same 5-tuple already exists as relation ${dup.id} (DOMAIN_SCHEMA §8 唯一性 / §15 UNIQUE)`, "/payload/source");
+				const rev = findReverseDuplicateEdge(state.relations, source, type, target);
+				if (rev !== void 0) push("RELATION_REVERSE_DUPLICATE", `The same edge in reverse already exists as relation ${rev.id} (DOMAIN_SCHEMA §8: 禁止同边反向重复)`, "/payload/source");
+				checkOwner(`relation ${id}`, ownerOfEdge(source, target), "/ownerWorkstreamId");
+			}
+			break;
+		}
+		case "RELATION_REMOVED": {
+			const p = event.payload;
+			const id = p?.relation_id;
+			if (typeof id !== "string" || parseId(id)?.kind !== "RELATION") {
+				push("INVALID_ID", `relation_id must be a well-formed REL-<n> id (got ${JSON.stringify(id)})`, "/payload/relation_id");
+				break;
+			}
+			const relation = state.relations.get(id);
+			if (relation === void 0) {
+				push("OBJECT_NOT_FOUND", `Relation ${JSON.stringify(id)} does not exist (catalog §5.5: 存在)`, "/payload/relation_id");
+				break;
+			}
+			if (relation.status !== "ACTIVE") push("WRONG_STATE", `Relation ${id} is ${relation.status}; RELATION_REMOVED requires ACTIVE (REMOVED is terminal, §8)`, "/payload/relation_id");
+			const source = p?.source;
+			const target = p?.target;
+			const type = p?.relation_type;
+			if (!isWellFormedRef(source) || !isWellFormedRef(target) || typeof type !== "string") push("INVALID_PAYLOAD", "source/target must be well-formed typedRefs and relation_type a string (audit redundancy, catalog §5.5)", "/payload/source");
+			else if (!sameRef(source, relation.source) || type !== relation.relation_type || !sameRef(target, relation.target)) push("RELATION_ENDPOINT_MISMATCH", `Recorded source/relation_type/target must match the existing relation (catalog §5.5 audit redundancy); stored: source=${JSON.stringify(relation.source)} relation_type=${relation.relation_type} target=${JSON.stringify(relation.target)}`, "/payload/source");
+			checkOwner(`relation ${id}`, ownerOfEdge(relation.source, relation.target), "/ownerWorkstreamId");
+			break;
+		}
+	}
+	return errors.length === 0 ? { ok: true } : {
+		ok: false,
+		errors
+	};
 }
 //#endregion
 //#region src/host/service/wiring/semantics.ts
@@ -23031,6 +24416,902 @@ function replaceDerivedStateTable(dbPath, states) {
 	}
 	return states.size;
 }
+//#endregion
+//#region src/host/service/semantics/protocol.ts
+/**
+* Run the canonical semantic append (module header for the pipeline).
+*
+* @throws the pre-check / registry / fold error UNTOUCHED (reservations
+*   released) — the caller's error mapper owns the carrier; a commit
+*   failure after a successful append throws the loud manual-
+*   reconciliation error.
+*/
+function canonicalSemanticAppend(deps, spec) {
+	const { allocator, store, projectId } = deps;
+	const reservations = [];
+	if (spec.objectKind !== void 0) reservations.push(allocator.reserve(spec.objectKind, projectId));
+	reservations.push(allocator.reserve("HISTORY_EVENT", projectId));
+	const objectRes = spec.objectKind !== void 0 ? reservations[0] : void 0;
+	const eventRes = reservations[reservations.length - 1];
+	const releaseAll = () => {
+		for (const res of reservations) try {
+			allocator.release(res);
+		} catch {}
+	};
+	const ids = {
+		objectId: objectRes?.id,
+		eventId: eventRes.id
+	};
+	const payload = spec.buildPayload(ids);
+	const event = {
+		eventId: eventRes.id,
+		ownerWorkstreamId: spec.ownerWorkstreamId,
+		eventType: spec.eventType,
+		schemaVersion: 1,
+		occurredAt: spec.occurredAt,
+		actor: spec.actor,
+		payload
+	};
+	try {
+		spec.precheck?.(ids);
+	} catch (e) {
+		releaseAll();
+		throw e;
+	}
+	try {
+		store.appendEvents([event], { validate: spec.validate });
+	} catch (e) {
+		releaseAll();
+		throw e;
+	}
+	try {
+		if (objectRes !== void 0) allocator.commit(objectRes);
+		allocator.commit(eventRes);
+	} catch (e) {
+		const objectPart = objectRes !== void 0 ? ` / object ${objectRes.id}` : "";
+		throw new Error(`${spec.label}: ${spec.eventType} ${eventRes.id} was appended to ${spec.ownerWorkstreamId} but the allocator commit failed${objectPart} — the event is in the log, the id reservation is unconfirmed (manual reconciliation): ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+	}
+	return {
+		objectId: objectRes?.id,
+		eventId: eventRes.id,
+		reservations
+	};
+}
+/** The DTO actor projection (`created_by` → {kind, label?}). */
+function actorDto(a) {
+	if (a === void 0) return void 0;
+	return a.label === void 0 ? { kind: a.kind } : {
+		kind: a.kind,
+		label: a.label
+	};
+}
+/** The ACTIVE edges touching one record (out + in, sorted by relation id). */
+function edgesFor(state, kind, id) {
+	const out = [];
+	for (const row of state.relations.values()) {
+		if (row.status !== "ACTIVE") continue;
+		if (row.source.kind === kind && row.source.id === id) out.push({
+			relationId: row.id,
+			relationType: row.relation_type,
+			direction: "out",
+			other: {
+				kind: row.target.kind,
+				id: row.target.id
+			}
+		});
+		else if (row.target.kind === kind && row.target.id === id) out.push({
+			relationId: row.id,
+			relationType: row.relation_type,
+			direction: "in",
+			other: {
+				kind: row.source.kind,
+				id: row.source.id
+			}
+		});
+	}
+	return out.sort((a, b) => a.relationId < b.relationId ? -1 : a.relationId > b.relationId ? 1 : 0);
+}
+/** One fact row → DTO (status const ACTIVE; ADJ-10). */
+function factDto(state, row) {
+	return {
+		id: row.id,
+		type: "FACT",
+		workstreamId: row.workstream_id,
+		statement: row.statement,
+		status: row.status,
+		recordedAt: row.recorded_at,
+		createdBy: actorDto(row.created_by),
+		references: [...row.references ?? []],
+		relations: edgesFor(state, "FACT", row.id)
+	};
+}
+/** One claim row → DTO (the conflictFlag is the derived PENDING_REVIEW marker). */
+function claimDto(state, row) {
+	const flag = state.conflict.get(row.id);
+	return {
+		id: row.id,
+		type: "CLAIM",
+		workstreamId: row.workstream_id,
+		statement: row.statement,
+		status: row.status,
+		recordedAt: row.recorded_at,
+		createdBy: actorDto(row.created_by),
+		references: [...row.references ?? []],
+		relations: edgesFor(state, "CLAIM", row.id),
+		...flag !== void 0 ? { conflictFlag: {
+			kind: flag.kind,
+			relationIds: [...flag.relationIds]
+		} } : {}
+	};
+}
+/** One artifact row → DTO (BY REFERENCE — no statement; no created_by
+*  column on the frozen ArtifactRow shape, so the DTO omits it). */
+function artifactDto(state, row) {
+	return {
+		id: row.id,
+		type: "ARTIFACT",
+		workstreamId: row.workstream_id,
+		title: row.title,
+		artifactType: row.type,
+		uri: row.uri,
+		status: row.status,
+		recordedAt: row.recorded_at,
+		references: [],
+		relations: edgesFor(state, "ARTIFACT", row.id)
+	};
+}
+/** All derived rows → DTOs (facts, claims, artifacts — zero I/O). */
+function toDtos(state) {
+	const out = [];
+	for (const row of state.facts.values()) out.push(factDto(state, row));
+	for (const row of state.claims.values()) out.push(claimDto(state, row));
+	for (const row of state.artifacts.values()) out.push(artifactDto(state, row));
+	return out;
+}
+/** `relatedObject` match: an ACTIVE edge to the object (either
+*  direction) OR a `references` entry naming it — the reference strings
+*  are free-form (ADJ-12 tool-facing), so both the bare id and the
+*  `KIND:ID` serialization match. */
+function matchesRelated(r, ref) {
+	if (r.relations.some((e) => e.other.kind === ref.kind && e.other.id === ref.id)) return true;
+	const qualified = `${ref.kind}:${ref.id}`;
+	return r.references.some((s) => s === ref.id || s === qualified);
+}
+/**
+* The full `queryRecords` semantics over one derived state (pure).
+* See the module header for the filter/sort/pagination rules.
+*/
+function querySemanticRecords(state, args) {
+	const keyword = args.keyword === void 0 ? void 0 : args.keyword.toLowerCase();
+	const filtered = toDtos(state).filter((r) => {
+		if (args.workstreamId !== void 0 && r.workstreamId !== args.workstreamId) return false;
+		if (args.type !== void 0 && r.type !== args.type) return false;
+		if (args.status !== void 0 && r.status !== args.status) return false;
+		if (keyword !== void 0) {
+			if (!`${r.statement ?? ""} ${r.title ?? ""}`.toLowerCase().includes(keyword)) return false;
+		}
+		if (args.relatedObject !== void 0 && !matchesRelated(r, args.relatedObject)) return false;
+		if (args.timeFrom !== void 0 && r.recordedAt < args.timeFrom) return false;
+		if (args.timeTo !== void 0 && r.recordedAt > args.timeTo) return false;
+		return true;
+	});
+	filtered.sort((a, b) => {
+		if (a.recordedAt !== b.recordedAt) return b.recordedAt - a.recordedAt;
+		return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+	});
+	const limit = Math.min(args.limit ?? 50, 200);
+	const offset = args.offset ?? 0;
+	return {
+		records: filtered.slice(offset, offset + limit),
+		total: filtered.length
+	};
+}
+//#endregion
+//#region src/host/service/semantics/errors.ts
+/**
+* UI-7 (D1) — the semantic records service's error carrier mapping (the
+* plan-writer / dependency carrier discipline, applied at SERVICE level):
+*
+*   - the composed hook's registry half throws a `RunBindingError`
+*     (RB_EVENT_REJECTED) carrying the frozen registry's structured
+*     `EventValidationError[]` (code + path + message) — the FIRST
+*     error's code becomes the carrier code (the codes are the D §13
+*     negative vocabulary: OBJECT_ALREADY_EXISTS / OBJECT_NOT_FOUND /
+*     OWNER_MISMATCH / CROSS_FIELD / RELATION_COMBINATION / …);
+*   - the fold half (the RR-011(b) store seam) and the service's own
+*     pre-check throw a `SemanticDomainError` (code + message — e.g.
+*     RELATION_DUPLICATE / RELATION_REVERSE_DUPLICATE uniqueness,
+*     WRONG_STATE on a double retract, the §5.3–5.5 preconditions) — its
+*     code becomes the carrier;
+*   - EVERYTHING else propagates untouched (fail loud, no re-wrap).
+*
+* The carrier string is `[research-control] <CODE>: <message>` — the RPC
+* face extracts the code from the prefix (same contract as the
+* plan-writer and dependency carriers).
+*/
+function mapSemanticsError(e) {
+	if (e instanceof RunBindingError && e.code === "RB_EVENT_REJECTED") {
+		const first = e.errors !== void 0 && e.errors.length > 0 ? e.errors[0] : void 0;
+		if (first !== void 0) return new Error(`[research-control] ${first.code}: ${first.message}`, { cause: e });
+	}
+	if (e instanceof SemanticDomainError) return new Error(`[research-control] ${e.code}: ${e.message}`, { cause: e });
+	return e;
+}
+//#endregion
+//#region src/host/service/semantics/service.ts
+/**
+* UI-7 (D1–D3) — the seven-write semantic records service (host).
+*
+* The seven writes of the D §13 Records face, persisted ONLY as semantic
+* history events (the §30 red line: records live ONLY in the operational
+* sqlite — `history_event` + the derived `semantics:<projectId>` row;
+* zero `.research` semantic files):
+*
+*   recordFact          FACT_RECORDED            (status const ACTIVE)
+*   recordClaim         CLAIM_RECORDED           (status=ACTIVE)
+*   retractClaim        CLAIM_RETRACTED          (terminal, §13)
+*   registerArtifact    ARTIFACT_REGISTERED      (BY REFERENCE, §13.6)
+*   markArtifactMissing ARTIFACT_MARKED_MISSING  (V1 one-way, §7.3)
+*   addRelation         RELATION_ADDED           (owner DERIVED:
+*   removeRelation        source.ws ?? target.ws, §8/§4 特例)
+*
+* Write path (the canonical protocol — `./protocol.ts`, ADJ-2):
+*
+*   1. RESERVE the object id (if the write creates a new semantic object)
+*      + the HISTORY_EVENT id (shared `IdAllocator`);
+*   2. PRE-CHECK (ADJ-3): `validateSemanticEvent` (the §5.3–5.5
+*      preconditions + the §8/INV-REL rule family) against the DERIVED
+*      semantic state read read-only OUTSIDE the tx; a failure throws a
+*      `SemanticDomainError` (first structured error), releases ALL
+*      reservations and writes NO event row (test-pinned);
+*   3. `appendEvents` with the COMPOSED REGISTRY VALIDATE HOOK (ADJ-4:
+*      `options.validate` = `makeValidateHook(registry, buildContext)` —
+*      the authoritative in-tx layer; the ctx merges the PLAN index with
+*      the semantic maps projected from the derived state, so
+*      `validateEvent` sees the reducer state). Inside the SAME tx, the
+*      RR-011(b) store seam then applies the semantic incremental fold
+*      EXACTLY ONCE, AFTER the registry hook — the service MUST NOT
+*      compose the fold itself (a second fold would re-apply the event
+*      onto the already-updated state and the reducer would reject it
+*      OBJECT_ALREADY_EXISTS);
+*   4. commit both reservations; release on ANY failure.
+*
+* Error discipline (plan-writer / dependency carrier, service level):
+* the structured rejections (the service's pre-check and the registry
+* hook / fold seam — SemanticDomainError / RunBindingError
+* RB_EVENT_REJECTED) are mapped to `[research-control] <CODE>: <msg>` by
+* `mapSemanticsError`; everything else propagates untouched.
+*
+* ADJ-1: the seven writes do NOT write a `management_action` row — the
+* provenance IS the event log itself (the envelope carries the USER
+* actor; the derived rows carry `created_by`).
+*
+* ADJ-12: the method surface is directly callable by the three research
+* tool stubs (fact-record / claim-record / artifact-register) — the
+* `id` and `created_by_run` fields are NOT parameters.
+*
+* The event envelope's actor is `{kind:'USER'}` (the management face's
+* action — the same carrier the plan-writer ledger rows use).
+*/
+/** The USER management actor (the face's action — no user_id in V1;
+*  matches the plan-writer ledger actor carrier). */
+const USER_ACTOR = { kind: "USER" };
+function isRecord(v) {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function asRef(v) {
+	if (!isRecord(v) || typeof v.kind !== "string" || typeof v.id !== "string") return null;
+	return {
+		kind: v.kind,
+		id: v.id
+	};
+}
+var SemanticRecordsService = class {
+	#store;
+	#registry;
+	#allocator;
+	#plans;
+	#projectId;
+	#now;
+	#runs;
+	constructor(options) {
+		if (options.store === void 0 || options.store === null) throw new TypeError("SemanticRecordsService: options.store is required (the event store face)");
+		if (typeof options.store.path !== "string" || options.store.path.length === 0) throw new TypeError("SemanticRecordsService: options.store.path is required (the pre-validation derived-state read)");
+		if (options.registry === void 0 || options.registry === null) throw new TypeError("SemanticRecordsService: options.registry is required (the frozen event registry)");
+		if (options.allocator === void 0 || options.allocator === null) throw new TypeError("SemanticRecordsService: options.allocator is required (the shared IdAllocator face)");
+		if (options.plans === void 0 || options.plans === null || !Array.isArray(options.plans.workstreams)) throw new TypeError("SemanticRecordsService: options.plans is required (the workstream index)");
+		if (typeof options.projectId !== "string" || options.projectId.length === 0) throw new TypeError("SemanticRecordsService: options.projectId is required (a well-formed PRJ id)");
+		this.#store = options.store;
+		this.#registry = options.registry;
+		this.#allocator = options.allocator;
+		this.#plans = options.plans;
+		this.#projectId = options.projectId;
+		this.#now = options.now ?? Date.now;
+		this.#runs = options.runs;
+	}
+	/** recordFact — FACT_RECORDED (D §13.2; status const ACTIVE). */
+	recordFact(args) {
+		try {
+			return this.#recordFactImpl(args);
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** recordClaim — CLAIM_RECORDED (D §13.2; status=ACTIVE). */
+	recordClaim(args) {
+		try {
+			return this.#recordClaimImpl(args);
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** retractClaim — CLAIM_RETRACTED (D §13.2; terminal, §13). */
+	retractClaim(args) {
+		try {
+			return this.#retractClaimImpl(args);
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** registerArtifact — ARTIFACT_REGISTERED (D §13.2/§13.6; BY REFERENCE). */
+	registerArtifact(args) {
+		try {
+			return this.#registerArtifactImpl(args);
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** recordFactAsAgent — FACT_RECORDED emitted by AGENT(run). */
+	recordFactAsAgent(args, caller) {
+		try {
+			return this.#recordFactImpl(args, this.#agentLane(caller, args.workstreamId));
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** recordClaimAsAgent — CLAIM_RECORDED emitted by AGENT(run). */
+	recordClaimAsAgent(args, caller) {
+		try {
+			return this.#recordClaimImpl(args, this.#agentLane(caller, args.workstreamId));
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** registerArtifactAsAgent — ARTIFACT_REGISTERED emitted by AGENT(run). */
+	registerArtifactAsAgent(args, caller) {
+		try {
+			return this.#registerArtifactImpl(args, this.#agentLane(caller, args.workstreamId));
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** Resolve + verify the trusted caller (module block comment above). */
+	#agentLane(caller, ownerWs) {
+		if (caller === null || typeof caller !== "object" || caller.kind !== "AGENT" || typeof caller.run_id !== "string" || caller.run_id.length === 0) throw new SemanticDomainError("INVALID_ENVELOPE", `the agent create lane requires a trusted AGENT actorRef carrying its formal run_id (got ${JSON.stringify(caller)}) — the host resolves it from the calling session, it is never tool input`, "/actor");
+		if (this.#runs === void 0) throw new TypeError("SemanticRecordsService: options.runs (the run-registry port) is required for the agent create lane — composition bug");
+		const run = this.#runs.getRun(caller.run_id);
+		if (run === null) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Run ${JSON.stringify(caller.run_id)} does not exist (catalog §5: actor.run_id 对应 Run 存在) — the caller run is unverifiable`, "/actor/run_id");
+		if (run.workstream_id !== ownerWs) throw new SemanticDomainError("OWNER_MISMATCH", `Run ${JSON.stringify(run.id)} belongs to workstream ${JSON.stringify(run.workstream_id)}, not the target ${JSON.stringify(ownerWs)} (INV-SCI-1 / catalog §4: the agent records on its own run's workstream)`, "/workstream_id");
+		return {
+			actor: {
+				kind: "AGENT",
+				run_id: caller.run_id,
+				...caller.session_id !== void 0 ? { session_id: caller.session_id } : {},
+				...caller.label !== void 0 ? { label: caller.label } : {}
+			},
+			createdByRun: caller.run_id,
+			run: {
+				workstreamId: run.workstream_id,
+				status: run.status
+			}
+		};
+	}
+	/** markArtifactMissing — ARTIFACT_MARKED_MISSING (D §13.2; V1 one-way). */
+	markArtifactMissing(args) {
+		try {
+			return this.#markArtifactMissingImpl(args);
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** addRelation — RELATION_ADDED (D §13.2/§8; owner derived). */
+	addRelation(args) {
+		try {
+			return this.#addRelationImpl(args);
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** removeRelation — RELATION_REMOVED (D §13.2; §5.5 audit mirror). */
+	removeRelation(args) {
+		try {
+			return this.#removeRelationImpl(args);
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	/** queryRecords — the Records READ face (D §13.4 / ADJ-11): the
+	*  derived `semantics:<projectId>` row + a pure in-memory filter.
+	*  NO research-tree load, NO file reads, NO history-timeline access —
+	*  the plan index is never consulted (the query is state-local). */
+	queryRecords(args) {
+		try {
+			return querySemanticRecords(this.#readSemanticState(), args);
+		} catch (e) {
+			throw mapSemanticsError(e);
+		}
+	}
+	#recordFactImpl(args, lane) {
+		const ownerWs = args.workstreamId;
+		const references = [...args.references ?? []];
+		const occurredAt = this.#now();
+		const actor = lane?.actor ?? USER_ACTOR;
+		const stamp = lane !== void 0 ? { created_by_run: lane.createdByRun } : {};
+		const result = canonicalSemanticAppend({
+			allocator: this.#allocator,
+			store: this.#store,
+			projectId: this.#projectId
+		}, {
+			objectKind: "FACT",
+			eventType: "FACT_RECORDED",
+			ownerWorkstreamId: ownerWs,
+			occurredAt,
+			actor,
+			buildPayload: (ids) => ({
+				fact_id: ids.objectId,
+				statement: args.statement,
+				references,
+				...stamp
+			}),
+			precheck: this.#precheck((ids) => ({
+				eventType: "FACT_RECORDED",
+				ownerWorkstreamId: ownerWs,
+				occurredAt,
+				actor,
+				payload: {
+					fact_id: ids.objectId,
+					statement: args.statement,
+					references,
+					...stamp
+				}
+			})),
+			validate: this.#composedValidate(ownerWs, lane),
+			label: "semantics"
+		});
+		return {
+			factId: result.objectId,
+			workstreamId: ownerWs,
+			statement: args.statement,
+			references,
+			status: "ACTIVE",
+			recordedAt: occurredAt,
+			eventId: result.eventId,
+			...lane !== void 0 ? { createdByRun: lane.createdByRun } : {}
+		};
+	}
+	#recordClaimImpl(args, lane) {
+		const ownerWs = args.workstreamId;
+		const references = [...args.references ?? []];
+		const occurredAt = this.#now();
+		const actor = lane?.actor ?? USER_ACTOR;
+		const stamp = lane !== void 0 ? { created_by_run: lane.createdByRun } : {};
+		const result = canonicalSemanticAppend({
+			allocator: this.#allocator,
+			store: this.#store,
+			projectId: this.#projectId
+		}, {
+			objectKind: "CLAIM",
+			eventType: "CLAIM_RECORDED",
+			ownerWorkstreamId: ownerWs,
+			occurredAt,
+			actor,
+			buildPayload: (ids) => ({
+				claim_id: ids.objectId,
+				statement: args.statement,
+				references,
+				...stamp
+			}),
+			precheck: this.#precheck((ids) => ({
+				eventType: "CLAIM_RECORDED",
+				ownerWorkstreamId: ownerWs,
+				occurredAt,
+				actor,
+				payload: {
+					claim_id: ids.objectId,
+					statement: args.statement,
+					references,
+					...stamp
+				}
+			})),
+			validate: this.#composedValidate(ownerWs, lane),
+			label: "semantics"
+		});
+		return {
+			claimId: result.objectId,
+			workstreamId: ownerWs,
+			statement: args.statement,
+			references,
+			status: "ACTIVE",
+			recordedAt: occurredAt,
+			eventId: result.eventId,
+			...lane !== void 0 ? { createdByRun: lane.createdByRun } : {}
+		};
+	}
+	#retractClaimImpl(args) {
+		const claimId = args.claimId;
+		const claim = this.#readSemanticState().claims.get(claimId);
+		if (claim === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Claim ${JSON.stringify(claimId)} does not exist (catalog §5.3: 存在)`, "/payload/claim_id");
+		const ownerWs = claim.workstream_id;
+		const occurredAt = this.#now();
+		return {
+			claimId,
+			status: "RETRACTED",
+			eventId: canonicalSemanticAppend({
+				allocator: this.#allocator,
+				store: this.#store,
+				projectId: this.#projectId
+			}, {
+				eventType: "CLAIM_RETRACTED",
+				ownerWorkstreamId: ownerWs,
+				occurredAt,
+				actor: USER_ACTOR,
+				buildPayload: () => ({
+					claim_id: claimId,
+					...args.reason !== void 0 ? { reason: args.reason } : {}
+				}),
+				precheck: this.#precheck(() => ({
+					eventType: "CLAIM_RETRACTED",
+					ownerWorkstreamId: ownerWs,
+					occurredAt,
+					actor: USER_ACTOR,
+					payload: {
+						claim_id: claimId,
+						...args.reason !== void 0 ? { reason: args.reason } : {}
+					}
+				})),
+				validate: this.#composedValidate(ownerWs),
+				label: "semantics"
+			}).eventId
+		};
+	}
+	#registerArtifactImpl(args, lane) {
+		const ownerWs = args.workstreamId;
+		const occurredAt = this.#now();
+		const actor = lane?.actor ?? USER_ACTOR;
+		const stamp = lane !== void 0 ? { created_by_run: lane.createdByRun } : {};
+		const buildPayload = (ids) => ({
+			artifact_id: ids.objectId,
+			type: args.type,
+			title: args.title,
+			uri: args.uri,
+			...args.contentHash !== void 0 ? { content_hash: args.contentHash } : {},
+			...args.relatedTaskId !== void 0 ? { related_task: args.relatedTaskId } : {},
+			...args.supersedes !== void 0 ? { supersedes: args.supersedes } : {},
+			...stamp
+		});
+		const result = canonicalSemanticAppend({
+			allocator: this.#allocator,
+			store: this.#store,
+			projectId: this.#projectId
+		}, {
+			objectKind: "ARTIFACT",
+			eventType: "ARTIFACT_REGISTERED",
+			ownerWorkstreamId: ownerWs,
+			occurredAt,
+			actor,
+			buildPayload,
+			precheck: this.#precheck((ids) => ({
+				eventType: "ARTIFACT_REGISTERED",
+				ownerWorkstreamId: ownerWs,
+				occurredAt,
+				actor,
+				payload: buildPayload(ids)
+			})),
+			validate: this.#composedValidate(ownerWs, lane),
+			label: "semantics"
+		});
+		return {
+			artifactId: result.objectId,
+			workstreamId: ownerWs,
+			type: args.type,
+			title: args.title,
+			uri: args.uri,
+			status: "REGISTERED",
+			recordedAt: occurredAt,
+			eventId: result.eventId,
+			...lane !== void 0 ? { createdByRun: lane.createdByRun } : {}
+		};
+	}
+	#markArtifactMissingImpl(args) {
+		const artifactId = args.artifactId;
+		const artifact = this.#readSemanticState().artifacts.get(artifactId);
+		if (artifact === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Artifact ${JSON.stringify(artifactId)} does not exist (catalog §5.4: 存在)`, "/payload/artifact_id");
+		const ownerWs = artifact.workstream_id;
+		const occurredAt = this.#now();
+		return {
+			artifactId,
+			status: "MISSING",
+			eventId: canonicalSemanticAppend({
+				allocator: this.#allocator,
+				store: this.#store,
+				projectId: this.#projectId
+			}, {
+				eventType: "ARTIFACT_MARKED_MISSING",
+				ownerWorkstreamId: ownerWs,
+				occurredAt,
+				actor: USER_ACTOR,
+				buildPayload: () => ({
+					artifact_id: artifactId,
+					...args.reason !== void 0 ? { reason: args.reason } : {}
+				}),
+				precheck: this.#precheck(() => ({
+					eventType: "ARTIFACT_MARKED_MISSING",
+					ownerWorkstreamId: ownerWs,
+					occurredAt,
+					actor: USER_ACTOR,
+					payload: {
+						artifact_id: artifactId,
+						...args.reason !== void 0 ? { reason: args.reason } : {}
+					}
+				})),
+				validate: this.#composedValidate(ownerWs),
+				label: "semantics"
+			}).eventId
+		};
+	}
+	#addRelationImpl(args) {
+		const state = this.#readSemanticState();
+		const ownerWs = this.#endpointWsLocal(args.source, state) ?? this.#endpointWsLocal(args.target, state) ?? this.#wsOfRef(args.source, state) ?? this.#wsOfRef(args.target, state);
+		if (ownerWs === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `relation ${JSON.stringify(`${args.source.kind}:${args.source.id}`)} → ${JSON.stringify(`${args.target.kind}:${args.target.id}`)}: no workstream-local endpoint (source.ws ?? target.ws unresolved — 非 workstream-local relation 拒绝创建, catalog §4 特例)`, "/ownerWorkstreamId");
+		const occurredAt = this.#now();
+		const buildPayload = (ids) => ({
+			relation_id: ids.objectId,
+			source: {
+				kind: args.source.kind,
+				id: args.source.id
+			},
+			relation_type: args.relationType,
+			target: {
+				kind: args.target.kind,
+				id: args.target.id
+			}
+		});
+		const result = canonicalSemanticAppend({
+			allocator: this.#allocator,
+			store: this.#store,
+			projectId: this.#projectId
+		}, {
+			objectKind: "RELATION",
+			eventType: "RELATION_ADDED",
+			ownerWorkstreamId: ownerWs,
+			occurredAt,
+			actor: USER_ACTOR,
+			buildPayload,
+			precheck: this.#precheck((ids) => ({
+				eventType: "RELATION_ADDED",
+				ownerWorkstreamId: ownerWs,
+				occurredAt,
+				actor: USER_ACTOR,
+				payload: buildPayload(ids)
+			})),
+			validate: this.#composedValidate(ownerWs),
+			label: "semantics"
+		});
+		return {
+			relationId: result.objectId,
+			source: {
+				kind: args.source.kind,
+				id: args.source.id
+			},
+			relationType: args.relationType,
+			target: {
+				kind: args.target.kind,
+				id: args.target.id
+			},
+			status: "ACTIVE",
+			eventId: result.eventId
+		};
+	}
+	#removeRelationImpl(args) {
+		const relationId = args.relationId;
+		const state = this.#readSemanticState();
+		const row = state.relations.get(relationId);
+		if (row === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Relation ${JSON.stringify(relationId)} does not exist (catalog §5.5: 存在)`, "/payload/relation_id");
+		const ownerWs = this.#endpointWsLocal(row.source, state) ?? this.#endpointWsLocal(row.target, state) ?? this.#wsOfRef(row.source, state) ?? this.#wsOfRef(row.target, state);
+		if (ownerWs === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Relation ${JSON.stringify(relationId)}: no workstream-local endpoint (source.ws ?? target.ws unresolved; catalog §4 特例)`, "/payload/relation_id");
+		const stored = this.#foldOwnerRelations(ownerWs).get(relationId);
+		if (stored === void 0) throw new SemanticDomainError("OBJECT_NOT_FOUND", `Relation ${JSON.stringify(relationId)} does not exist (catalog §5.5: 存在)`, "/payload/relation_id");
+		const occurredAt = this.#now();
+		const buildPayload = () => ({
+			relation_id: relationId,
+			source: {
+				kind: stored.source.kind,
+				id: stored.source.id
+			},
+			relation_type: stored.relationType,
+			target: {
+				kind: stored.target.kind,
+				id: stored.target.id
+			},
+			...args.reason !== void 0 ? { reason: args.reason } : {}
+		});
+		return {
+			relationId,
+			status: "REMOVED",
+			eventId: canonicalSemanticAppend({
+				allocator: this.#allocator,
+				store: this.#store,
+				projectId: this.#projectId
+			}, {
+				eventType: "RELATION_REMOVED",
+				ownerWorkstreamId: ownerWs,
+				occurredAt,
+				actor: USER_ACTOR,
+				buildPayload,
+				precheck: this.#precheck(() => ({
+					eventType: "RELATION_REMOVED",
+					ownerWorkstreamId: ownerWs,
+					occurredAt,
+					actor: USER_ACTOR,
+					payload: buildPayload()
+				})),
+				validate: this.#composedValidate(ownerWs),
+				label: "semantics"
+			}).eventId
+		};
+	}
+	/** Read the project's derived semantic state (the `semantics:<projectId>`
+	*  row, read-only connection; an absent row — a project with no
+	*  semantic events yet — folds to the initial empty state). */
+	#readSemanticState() {
+		const key = semanticStateKey(this.#projectId);
+		const raw = readDerivedState(this.#store).get(key);
+		if (raw === void 0) return initialSemanticState();
+		return jsonToSemanticState(raw, key);
+	}
+	/** The service-level pre-check (ADJ-3): validate the candidate event
+	*  (built with the reserved ids) against the derived state; a
+	*  structured failure throws the FIRST error as a
+	*  `SemanticDomainError` (the service error mapper owns the carrier).
+	*  Throws BEFORE the append ⇒ NO event row is written. */
+	#precheck(buildCandidate) {
+		return (ids) => {
+			const result = validateSemanticEvent(this.#readSemanticState(), buildCandidate(ids), { externalWorkstream: this.#externalWorkstream() });
+			if (!result.ok) {
+				const first = result.errors[0];
+				throw new SemanticDomainError(first.code, first.message, first.path);
+			}
+		};
+	}
+	#buildContext(ownerWs, lane) {
+		const semantic = toObjectContext(this.#readSemanticState());
+		const tasks = /* @__PURE__ */ new Map();
+		const gates = /* @__PURE__ */ new Map();
+		const milestones = /* @__PURE__ */ new Map();
+		const workstreams = /* @__PURE__ */ new Map();
+		for (const ws of this.#plans.workstreams) {
+			workstreams.set(ws.id, {
+				topicId: ws.topicId,
+				lifecycle: ws.taskIds.length + ws.gateIds.length + ws.milestoneIds.length > 0 ? "REALIZED" : "PLANNED"
+			});
+			for (const id of ws.taskIds) tasks.set(id, {
+				workstreamId: ws.id,
+				execution: "PLANNED",
+				validation: "NOT_REQUIRED",
+				acceptanceCriteria: []
+			});
+			for (const id of ws.gateIds) gates.set(id, {
+				workstreamId: ws.id,
+				lastResult: null
+			});
+			for (const id of ws.milestoneIds) milestones.set(id, {
+				workstreamId: ws.id,
+				status: "PLANNED"
+			});
+		}
+		return {
+			workstreams,
+			tasks,
+			runs: lane !== void 0 ? /* @__PURE__ */ new Map([[lane.createdByRun, {
+				workstreamId: lane.run.workstreamId,
+				status: lane.run.status
+			}]]) : /* @__PURE__ */ new Map(),
+			claims: semantic.claims,
+			facts: semantic.facts,
+			artifacts: semantic.artifacts,
+			relations: semantic.relations,
+			gates,
+			milestones,
+			interventions: /* @__PURE__ */ new Map(),
+			topologyEdges: /* @__PURE__ */ new Map()
+		};
+	}
+	/** The composed registry validate hook (ADJ-4: `options.validate`
+	*  MUST be this — the authoritative in-tx layer). */
+	#composedValidate(ownerWs, lane) {
+		return makeValidateHook(this.#registry, () => this.#buildContext(ownerWs, lane));
+	}
+	/** The plan index's endpoint resolver (TASK/GATE/MILESTONE membership;
+	*  a WORKSTREAM endpoint resolves to itself when the workstream is in
+	*  the index). Used by the pre-check's `externalWorkstream` option. */
+	#externalWorkstream() {
+		const plans = this.#plans;
+		return (kind, id) => {
+			switch (kind) {
+				case "WORKSTREAM": return plans.workstreams.some((ws) => ws.id === id) ? id : void 0;
+				case "TASK": return plans.workstreams.find((ws) => ws.taskIds.includes(id))?.id;
+				case "GATE": return plans.workstreams.find((ws) => ws.gateIds.includes(id))?.id;
+				case "MILESTONE": return plans.workstreams.find((ws) => ws.milestoneIds.includes(id))?.id;
+				default: return;
+			}
+		};
+	}
+	/** The §8 owner rule, STATE-LOCAL half — a verbatim mirror of the
+	*  reducer's `endpointWorkstream` (WORKSTREAM → itself, CLAIM/FACT/
+	*  ARTIFACT → the derived row, everything else `undefined`). The fold
+	*  REJECTS any event whose `ownerWorkstreamId` differs from this value
+	*  (reducer RELATION_ADDED/RELATION_REMOVED owner check), so the service
+	*  MUST derive the owner from this half first; the plan-index fallback
+	*  (`#wsOfRef`) is only consulted when the local half resolves nothing
+	*  (then the fold performs no owner check at all). */
+	#endpointWsLocal(ref, state) {
+		switch (ref.kind) {
+			case "WORKSTREAM": return ref.id;
+			case "CLAIM": return state.claims.get(ref.id)?.workstream_id;
+			case "FACT": return state.facts.get(ref.id)?.workstream_id;
+			case "ARTIFACT": return state.artifacts.get(ref.id)?.workstream_id;
+			default: return;
+		}
+	}
+	/** Resolve one endpoint to its workstream: WORKSTREAM → itself (when
+	*  known), CLAIM/FACT/ARTIFACT → the derived row, TASK/GATE/MILESTONE
+	*  → the plan index; `undefined` = not workstream-local / not found. */
+	#wsOfRef(ref, state) {
+		switch (ref.kind) {
+			case "WORKSTREAM": return this.#plans.workstreams.some((ws) => ws.id === ref.id) ? ref.id : void 0;
+			case "CLAIM": return state.claims.get(ref.id)?.workstream_id;
+			case "FACT": return state.facts.get(ref.id)?.workstream_id;
+			case "ARTIFACT": return state.artifacts.get(ref.id)?.workstream_id;
+			case "TASK": return this.#plans.workstreams.find((ws) => ws.taskIds.includes(ref.id))?.id;
+			case "GATE": return this.#plans.workstreams.find((ws) => ws.gateIds.includes(ref.id))?.id;
+			case "MILESTONE": return this.#plans.workstreams.find((ws) => ws.milestoneIds.includes(ref.id))?.id;
+			default: return;
+		}
+	}
+	#foldOwnerRelations(ownerWs) {
+		const edges = /* @__PURE__ */ new Map();
+		for (const ev of this.#store.listRange(ownerWs, 1)) if (ev.eventType === "RELATION_ADDED") {
+			const p = isRecord(ev.payload) ? ev.payload : null;
+			if (p === null || typeof p.relation_id !== "string" || typeof p.relation_type !== "string") continue;
+			const source = asRef(p.source);
+			const target = asRef(p.target);
+			if (source === null || target === null) continue;
+			edges.set(p.relation_id, {
+				status: "ACTIVE",
+				source,
+				relationType: p.relation_type,
+				target
+			});
+		} else if (ev.eventType === "RELATION_REMOVED") {
+			const p = isRecord(ev.payload) ? ev.payload : null;
+			if (p === null || typeof p.relation_id !== "string") continue;
+			const prev = edges.get(p.relation_id);
+			edges.set(p.relation_id, {
+				status: "REMOVED",
+				source: asRef(p.source) ?? prev?.source ?? {
+					kind: "TASK",
+					id: ""
+				},
+				relationType: typeof p.relation_type === "string" ? p.relation_type : prev?.relationType ?? "RELATED_TO",
+				target: asRef(p.target) ?? prev?.target ?? {
+					kind: "TASK",
+					id: ""
+				}
+			});
+		}
+		return edges;
+	}
+};
 //#endregion
 //#region src/host/service/wiring/realize-store.ts
 /**
@@ -23490,7 +25771,7 @@ function createHostWiring(options) {
 								kind: "INBOX_ITEM",
 								id: item.id
 							}]
-						}, USER_ACTOR$1).intervention.id
+						}, USER_ACTOR$2).intervention.id
 					};
 					case "NEXT_ACTION": return {
 						kind: "NEXT_ACTION",
@@ -23498,7 +25779,7 @@ function createHostWiring(options) {
 							statement: fields.statement,
 							...fields.rationale !== void 0 && fields.rationale.length > 0 ? { rationale: fields.rationale } : {},
 							...fields.workstreamId !== void 0 && fields.workstreamId.length > 0 ? { workstreamId: fields.workstreamId } : {}
-						}, USER_ACTOR$1).id
+						}, USER_ACTOR$2).id
 					};
 					case "REPORTING_ITEM": return {
 						kind: "REPORTING_ITEM",
@@ -23632,6 +25913,35 @@ function createHostWiring(options) {
 			milestoneIds,
 			objectiveIds
 		});
+		const readServices = makeToolReadServices({
+			reader,
+			researchRoot,
+			declarativeDir,
+			tables,
+			store,
+			io: new FsTopologyFileIo(),
+			planProvider
+		});
+		const makeSemanticToolService = () => {
+			const tree = loadResearchTree(reader, researchRoot, declarativeDir).tree;
+			const workstreams = [];
+			for (const topic of tree.topics) for (const ws of topic.workstreams) workstreams.push({
+				id: ws.id,
+				topicId: ws.topicId,
+				taskIds: ws.tasks.map((n) => n.id),
+				gateIds: ws.gates.map((n) => n.id),
+				milestoneIds: ws.milestones.map((n) => n.id)
+			});
+			return new SemanticRecordsService({
+				store,
+				registry,
+				allocator,
+				plans: { workstreams },
+				projectId: options.projectId,
+				runs: { getRun: (runId) => runBinding.getRun(runId) },
+				now
+			});
+		};
 		const tools = createResearchTools({
 			planForkCreate: (params) => {
 				const view = planProvider.load(params.workstreamId);
@@ -23654,7 +25964,13 @@ function createHostWiring(options) {
 				...params,
 				trigger: "AGENT_REPORT_REQUIRES_HUMAN"
 			}, actor),
-			nextActionCreate: (params, actor) => actions.createNextAction(params, actor)
+			nextActionCreate: (params, actor) => actions.createNextAction(params, actor),
+			semanticAgentCreate: {
+				recordFact: (args, caller) => makeSemanticToolService().recordFactAsAgent(args, caller),
+				recordClaim: (args, caller) => makeSemanticToolService().recordClaimAsAgent(args, caller),
+				registerArtifact: (args, caller) => makeSemanticToolService().registerArtifactAsAgent(args, caller)
+			},
+			...readServices
 		});
 		const lifecycleReport = reconcileWorkstreamLifecycles({
 			store: rawStore,

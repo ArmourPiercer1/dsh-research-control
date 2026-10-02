@@ -10,8 +10,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, join } from 'node:path'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 import { afterAll } from 'vitest'
 
 import {
@@ -111,9 +111,8 @@ export function rawDb(path: string): DatabaseSync {
  * Real frozen-schema registry (for the TC-HIST-008 write-gate tests)
  * ------------------------------------------------------------------ */
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-/** Research-control-plane root (tests/history-replay → tests → plugin repo → root). */
-export const WR_ROOT = join(HERE, '..', '..', '..')
+/** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
+export const WR_ROOT = resolveTestWorkspaceRoot()
 /** The real frozen history schema dir (read-only contract). */
 export const WR_HISTORY_SCHEMA_DIR = join(WR_ROOT, 'schema', 'history')
 

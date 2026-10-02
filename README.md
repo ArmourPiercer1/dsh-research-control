@@ -99,6 +99,8 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 | `pnpm run test:e2e` | Playwright 真机循环：隔离 smoke home（**绝不**触碰 `~/.dsh` 与 3080），TC-DSH-005/007/008/009/010 + TC-E2E 双相位 + N 轮 load/unload；`--reset` 显式重置种子面 |
 | `pnpm run pack:verify` | 发布门禁冒烟：`pnpm pack` 产物清单核查（files 面完整性 + 开发私有路径零泄漏）+ 解包后 node 实 import 主入口/`./typert`/`./remote` |
 
+四件套在 **standalone checkout（父层无 schema/文档 fixture）** 即可按上序跑通：测试默认读包内冻结快照 `schema/`，显式 `DSH_RESEARCH_WORKSPACE_ROOT` 可指向 canonical 工作区根正本；快照同步（`DSH_SNAPSHOT_SOURCE_ROOT`）与生产 `DSH_RESEARCH_SCHEMA_ROOT` 语义不变——契约与复现步骤见 [docs/G0_REPRODUCIBLE_TEST_ROOT.md](docs/G0_REPRODUCIBLE_TEST_ROOT.md)。
+
 源码布局见 [ARCHITECTURE.md §2.1](ARCHITECTURE.md)；测试策略与机器环境指纹见 TEST_MATRIX.md 与 `tests/` 各套件头注。
 
 ---

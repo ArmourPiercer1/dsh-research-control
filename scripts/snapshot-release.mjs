@@ -57,6 +57,19 @@ import { fileURLToPath } from 'node:url'
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE_ROOT = resolve(process.env['DSH_SNAPSHOT_SOURCE_ROOT'] ?? join(PLUGIN_ROOT, '..'))
+// G0 guard (docs/G0_REPRODUCIBLE_TEST_ROOT.md): the snapshot direction is
+// workspace-root canonical → package copy. Pointing the source AT the package
+// root would clean-then-copy onto itself; the in-package snapshot is already
+// what tests/packs consume by default (skip path below covers a repo-rooted
+// standalone checkout), so refuse the degenerate configuration loudly.
+if (SOURCE_ROOT === PLUGIN_ROOT) {
+  console.error(
+    `[snapshot-release] FATAL: DSH_SNAPSHOT_SOURCE_ROOT resolves to the plugin root itself ` +
+      `(${PLUGIN_ROOT}) — the snapshot would copy onto itself. Unset it (standalone checkouts ` +
+      `loud-skip) or point it at the research workspace root holding the canonical originals.`,
+  )
+  process.exit(1)
+}
 
 /** The 8 workspace-root .md docs snapshotted to the package root (§2.1). */
 const FROZEN_DOCS = [

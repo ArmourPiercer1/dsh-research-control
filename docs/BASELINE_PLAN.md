@@ -94,6 +94,11 @@ G5 integrated acceptance / docs / artifacts（最后，依赖 G1-G4 全部合入
 - **Q0**（工程）：14 个测试 resolver 硬编码 `WR_ROOT=<repo>/..` 且无 env 覆盖（清单见 PROGRESS §2）。
   建议 G0 引入统一 `resolveTestWorkspaceRoot()`（读 `DSH_RESEARCH_WORKSPACE_ROOT`，默认现值）；
   Stage-0 仅以 §4（PROGRESS）准备步骤过渡。
+  **RESOLVED（G0，PR feat/g0-reproducible-test-root）**：`tests/helpers/workspace-root.ts` 落地；
+  默认改为**包内快照**（父层默认达不成 standalone 目标；SI-001 sha256 内容一致保证 canonical 布局语义不变），
+  `DSH_RESEARCH_WORKSPACE_ROOT` 显式覆盖指 canonical 正本。实际唯一 resolver 文件 = 14
+  （§2 清单去重 stale-precheck 后 13，另补 §2 漏计的 `tests/git/tc-git-015.test.ts` URL 变体——由无 fixture
+  隔离实跑捕获）。契约与复现见 `docs/G0_REPRODUCIBLE_TEST_ROOT.md`。
 - ~~**Q1**~~（**已撤销 — 假阻塞**）：PlanFork select/dismiss、canonical plan mutation 等在冻结面
   （`ARCHITECTURE.md:280` INV-PERM-2、`:350` 禁止清单；`PLAN_FORK_SPEC.md:112` §6「SELECT 物化流程（用户，
   GUI 触发）」）中**明确为 USER 专属**，agent 工具面本就不应存在这些操作——属既定 non-goal（§1），

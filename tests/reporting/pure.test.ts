@@ -10,8 +10,8 @@
 
 import Ajv2020 from 'ajv/dist/2020.js'
 import { readFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -25,8 +25,6 @@ import {
   type RptStatus,
   type SevSchedule,
 } from '../../src/host/service/reporting/index.js'
-
-const HERE = dirname(fileURLToPath(import.meta.url))
 
 /* ==================================================================== *
  * §13 状态机 25 格真值表 (冻结表逐字)
@@ -124,7 +122,7 @@ describe('提醒点 (展示用 — 无推送)', () => {
 
 /** 读入冻结 schema (WR 根 schema/operational + common — SI-001 布局). */
 function loadFrozenValidators() {
-  const schemaRoot = resolve(HERE, '..', '..', '..')
+  const schemaRoot = resolveTestWorkspaceRoot()
   const reporting = JSON.parse(readFileSync(join(schemaRoot, 'schema', 'operational', 'reporting.schema.json'), 'utf8'))
   const common = JSON.parse(readFileSync(join(schemaRoot, 'schema', 'common.schema.json'), 'utf8'))
   const ajv = new Ajv2020({ allErrors: true, strict: false })

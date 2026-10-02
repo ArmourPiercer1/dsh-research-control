@@ -23,8 +23,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
-import { isAbsolute, dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, join } from 'node:path'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 import { afterAll } from 'vitest'
 
 import { openDatabase } from '../../src/host/persistence/store/index.js'
@@ -36,9 +36,8 @@ import { IdAllocator } from '../../src/shared/ids/index.js'
 import type { SemanticState } from '../../src/host/domain/semantics/index.js'
 import { DependencyService, type DependencyIdAllocator, type DependencyPlanIndex, type DependencyStorePort } from '../../src/host/service/dependency/index.js'
 
-/** WR root (tests/dependency → tests → plugin repo → WR). */
-const HERE = dirname(fileURLToPath(import.meta.url))
-const WR_ROOT = join(HERE, '..', '..', '..')
+/** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
+const WR_ROOT = resolveTestWorkspaceRoot()
 const WR_HISTORY_SCHEMA_DIR = join(WR_ROOT, 'schema', 'history')
 
 const PROJECT = 'PRJ-1'

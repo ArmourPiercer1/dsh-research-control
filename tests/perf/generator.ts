@@ -42,8 +42,8 @@
  * + ~150 条 fan-out 行（1k 集同为前缀行）。
  */
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, join } from 'node:path'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 
 import type { HistoryEventInput } from '../../src/host/persistence/store/index.js'
 import {
@@ -56,9 +56,8 @@ import {
   type TaskValidation,
 } from '../../src/host/history/registry/index.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-/** WR root (three levels up: tests/perf → tests → plugin repo → WR). */
-export const WR_ROOT = join(HERE, '..', '..', '..')
+/** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
+export const WR_ROOT = resolveTestWorkspaceRoot()
 /** The real frozen history schema dir (read-only contract). */
 export const WR_HISTORY_SCHEMA_DIR = join(WR_ROOT, 'schema', 'history')
 

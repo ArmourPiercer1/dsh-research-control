@@ -27,9 +27,9 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 import { afterAll } from 'vitest'
 
 import { FakeSessionAdapter } from '../runbinding/helpers.js'
@@ -42,11 +42,9 @@ import type {
 } from '../../src/host/service/investigator/index.js'
 import type { UserActorRef } from '../../src/host/service/runbinding/index.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-
-/** WR root (three levels up: tests/wiring → tests → plugin repo → WR). */
-export const WR_ROOT = resolve(HERE, '..', '..', '..')
-/** The real frozen schema root (SI-001: the canonical copy at the WR root). */
+/** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
+export const WR_ROOT = resolveTestWorkspaceRoot()
+/** The real frozen schema root (SI-001 content-identical copy; G0 default = the in-package snapshot). */
 export const WR_SCHEMA_ROOT = join(WR_ROOT, 'schema')
 export const WR_HISTORY_SCHEMA_DIR = join(WR_SCHEMA_ROOT, 'history')
 export const WR_DECLARATIVE_SCHEMA_DIR = join(WR_SCHEMA_ROOT, 'declarative')

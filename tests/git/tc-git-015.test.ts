@@ -8,13 +8,14 @@
  * 版本真源) + AC-13 (无第二套文件版本系统)。
  */
 import { readdirSync, readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as git from '../../src/host/git/index.js'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 import { makeTempRepo, TASK1_PATH, type TempRepo } from './temp-repo.js'
 
-/** 冻结 schema 目录 (WR 根, 只读). tests/git/ → 3 级上 = research-control-plane 根. */
-const SCHEMA_DIR = fileURLToPath(new URL('../../../schema', import.meta.url))
+/** 冻结 schema 目录 (只读). G0: 默认包内快照, `DSH_RESEARCH_WORKSPACE_ROOT` 显式覆盖 — tests/helpers/workspace-root.ts. */
+const SCHEMA_DIR = join(resolveTestWorkspaceRoot(), 'schema')
 
 function walkFiles(dir: string): string[] {
   const out: string[] = []

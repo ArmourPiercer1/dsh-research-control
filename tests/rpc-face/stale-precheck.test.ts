@@ -20,9 +20,9 @@
  */
 
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -30,10 +30,8 @@ import { baseTreeFiles } from '../loader/fixtures.js'
 import { ProductionResearchRpcServices } from '../../src/host/dsh-adapter/host/rpc-services.js'
 import type { HostWiring } from '../../src/host/service/wiring/index.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-
-/** WR root (three levels up: tests/rpc-face → tests → plugin repo → WR). */
-const WR_ROOT = join(HERE, '..', '..', '..')
+/** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
+const WR_ROOT = resolveTestWorkspaceRoot()
 /** The real frozen contract schema ROOT (WR `schema/`). */
 const SCHEMA_ROOT = join(WR_ROOT, 'schema')
 

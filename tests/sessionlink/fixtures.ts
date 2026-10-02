@@ -14,8 +14,8 @@
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, join } from 'node:path'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 import { afterAll } from 'vitest'
 
 import { loadHistoryEventRegistry } from '../../src/host/history/registry/index.js'
@@ -32,10 +32,8 @@ import type {
   SessionSummary,
 } from '../../src/shared/host-adapter-ports.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-
-/** WR root (three levels up: tests/sessionlink → tests → plugin repo → WR). */
-export const WR_ROOT = join(HERE, '..', '..', '..')
+/** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
+export const WR_ROOT = resolveTestWorkspaceRoot()
 /** The real frozen history schema dir (read-only contract). */
 export const WR_HISTORY_SCHEMA_DIR = join(WR_ROOT, 'schema', 'history')
 

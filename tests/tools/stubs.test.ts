@@ -2,7 +2,7 @@
  * WP-3.3 — stub tool behavior (task goal 3: 「未落地的服务以 stub 处理器 +
  * 显式 NOT_IMPLEMENTED 结构化错误交付」).
  *
- * Each of the 9 stub tools must:
+ * Each REMAINING stub must:
  *  1. pass the permission gate first (a forged actor is refused with
  *     TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED — NOT NOT_IMPLEMENTED);
  *  2. validate the frozen wire face (TOOL_INPUT on a bad face — the face
@@ -10,6 +10,10 @@
  *  3. throw ToolError('TOOL_NOT_IMPLEMENTED') with a structured detail
  *     (tool name + the planned replacement service) and NEVER reach the
  *     deps ports (the recording deps throw if touched).
+ *
+ * G4 retired the research_intervention_create / research_next_action_create
+ * entries here (their services landed: tests/tools/intervention-create.test.ts
+ * + tests/tools/next-action-create.test.ts forward against the real services).
  */
 
 import { describe, expect, it } from 'vitest'
@@ -21,8 +25,6 @@ import {
   RESEARCH_CONTEXT_GET,
   RESEARCH_FACT_RECORD,
   RESEARCH_HISTORY_QUERY,
-  RESEARCH_INTERVENTION_CREATE,
-  RESEARCH_NEXT_ACTION_CREATE,
   RESEARCH_PLAN_GET,
   createResearchTools,
 } from '../../src/host/tools/index.js'
@@ -36,8 +38,6 @@ const STUBS: { name: string; args: Record<string, unknown>; writeStub: boolean }
     args: { workstream_id: 'WS-1', type: 'CODE', title: 't', uri: 'a/b.py' },
     writeStub: true,
   },
-  { name: RESEARCH_INTERVENTION_CREATE, args: { title: '需要人工判断：误差预算冲突', detail: 'd' }, writeStub: true },
-  { name: RESEARCH_NEXT_ACTION_CREATE, args: { workstream_id: 'WS-1', statement: 's', rationale: 'r' }, writeStub: true },
   { name: RESEARCH_CONTEXT_GET, args: {}, writeStub: false },
   { name: RESEARCH_PLAN_GET, args: { workstream_id: 'WS-1' }, writeStub: false },
   { name: RESEARCH_HISTORY_QUERY, args: { workstream_id: 'WS-1', order: 'audit', after_seq: 0, limit: 10 }, writeStub: false },

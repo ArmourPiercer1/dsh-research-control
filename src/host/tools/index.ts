@@ -29,11 +29,16 @@
  *    `research_plan_fork_create` parameter face is base-less (INV-PLAN-6);
  *    the type-surface proof lives in tests/tools/inv-plan-3.test.ts.
  *
- * Stub state: 9 of the 11 tools are stubs (NOT_IMPLEMENTED structured
+ * Stub state: 5 of the 11 tools are stubs (NOT_IMPLEMENTED structured
  * error) — their forwarding services have not landed yet (the report's
- * stub table names each replacement WP); 2 are live forwards
- * (research_plan_fork_create → the WP-3.1 eight-step creation chain,
- * research_run_checkpoint → the WP-2.4 recordCheckpoint surface).
+ * stub table names each replacement WP); 6 live forwards as of G4:
+ * research_plan_fork_create → the WP-3.1 eight-step creation chain,
+ * research_run_checkpoint → the WP-2.4 recordCheckpoint surface,
+ * research_intervention_create → the WP-5.1 mechanical lane (the wiring
+ * closes trigger=AGENT_REPORT_REQUIRES_HUMAN; origin/state are not
+ * arguments), research_next_action_create → the independent WP-5.2
+ * ActionsService.createNextAction lane (G4; promote/dismiss stay user-only
+ * with no tool).
  */
 
 export {
@@ -201,7 +206,7 @@ export const READ_TOOL_NAMES: readonly string[] = RESEARCH_TOOL_NAMES.slice(7)
 export const INVESTIGATOR_TOOL_NAMES: readonly string[] = READ_TOOL_NAMES
 
 /**
- * Compose the complete tool face over the two service ports.
+ * Compose the complete tool face over the reviewed service ports.
  * Fail-loud on a malformed deps object (misconfiguration is a
  * composition-time error, not a per-call surprise). The returned
  * definitions are frozen and registered by the host wiring WP (WP-3.6)
@@ -213,8 +218,8 @@ export function createResearchTools(deps: ResearchToolDeps): readonly ResearchTo
     makeFactRecordDefinition(),
     makeClaimRecordDefinition(),
     makeArtifactRegisterDefinition(),
-    makeInterventionCreateDefinition(),
-    makeNextActionCreateDefinition(),
+    makeInterventionCreateDefinition(deps),
+    makeNextActionCreateDefinition(deps),
     makePlanForkCreateDefinition(deps),
     makeRunCheckpointDefinition(deps),
     makeContextGetDefinition(),
@@ -224,15 +229,21 @@ export function createResearchTools(deps: ResearchToolDeps): readonly ResearchTo
   ]
 }
 
-/** Both ports must be functions (fail loud at composition). */
+/** Every reviewed port must be a function (fail loud at composition). */
 function assertDeps(deps: ResearchToolDeps): void {
   if (deps === null || typeof deps !== 'object') {
-    throw new TypeError('createResearchTools: deps must be an object with the two service ports')
+    throw new TypeError('createResearchTools: deps must be an object with the reviewed service ports')
   }
   if (typeof deps.planForkCreate !== 'function') {
     throw new TypeError('createResearchTools: deps.planForkCreate must be the PlanFork creation service (WP-3.1 chain)')
   }
   if (typeof deps.recordCheckpoint !== 'function') {
     throw new TypeError('createResearchTools: deps.recordCheckpoint must be the RunBindingService.recordCheckpoint surface (WP-2.4)')
+  }
+  if (typeof deps.interventionCreate !== 'function') {
+    throw new TypeError('createResearchTools: deps.interventionCreate must be the mechanical intervention creation lane (WP-5.1, trigger pinned by the wiring)')
+  }
+  if (typeof deps.nextActionCreate !== 'function') {
+    throw new TypeError('createResearchTools: deps.nextActionCreate must be the ActionsService.createNextAction surface (WP-5.2)')
   }
 }

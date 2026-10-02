@@ -310,12 +310,63 @@ describe('definition completeness: parameter faces (the host-derived JSON Schema
     expect([...(run.required ?? [])].sort()).toEqual(['id', 'started_at', 'status', 'workstream_id', 'initiated_by'].sort())
     expect(run.properties!.status).toMatchObject({ enum: ['RUNNING', 'FINISHED', 'FAILED', 'CANCELLED'] })
 
+    // G4 attention write tools: the strict success projections (frozen
+    // attention.schema.json rows + the discriminator + the null-or-id event).
+    const iv = byName.get('research_intervention_create')!.output.schema
+    expect(iv.type).toBe('object')
+    expect(iv.additionalProperties).toBe(false)
+    expect([...(iv.required ?? [])].sort()).toEqual(['event_id', 'intervention', 'status'])
+    expect(iv.properties!.status).toMatchObject({ const: 'created' })
+    const ivRec = iv.properties!.intervention!
+    expect(ivRec.additionalProperties).toBe(false)
+    expect([...(ivRec.required ?? [])].sort()).toEqual(
+      ['created_at', 'created_by', 'id', 'origin', 'status', 'title'].sort(),
+    )
+    expect(Object.keys(ivRec.properties!).sort()).toEqual(
+      [
+        'closed_at',
+        'created_at',
+        'created_by',
+        'detail',
+        'id',
+        'origin',
+        'resolution_note',
+        'source_refs',
+        'status',
+        'title',
+        'workstream_ids',
+      ].sort(),
+    )
+    expect(ivRec.properties!.origin).toMatchObject({ enum: ['USER', 'AGENT_REPORT', 'AUTO_FLOODING', 'AUTO_AUDIT'] })
+    expect(ivRec.properties!.status).toMatchObject({ enum: ['OPEN', 'PENDING', 'CLOSED'] })
+    expect(iv.properties!.event_id).toMatchObject({ oneOf: [{ type: 'string' }, { type: 'null' }] })
+
+    const na = byName.get('research_next_action_create')!.output.schema
+    expect(na.additionalProperties).toBe(false)
+    expect([...(na.required ?? [])].sort()).toEqual(['next_action', 'status'])
+    expect(na.properties!.status).toMatchObject({ const: 'created' })
+    const naRec = na.properties!.next_action!
+    expect(naRec.additionalProperties).toBe(false)
+    expect([...(naRec.required ?? [])].sort()).toEqual(['created_at', 'created_by', 'id', 'statement', 'status'])
+    expect(Object.keys(naRec.properties!).sort()).toEqual(
+      [
+        'created_at',
+        'created_by',
+        'id',
+        'promoted_to_task_id',
+        'rationale',
+        'statement',
+        'status',
+        'workstream_id',
+      ].sort(),
+    )
+    expect(naRec.properties!.status).toMatchObject({ enum: ['PROPOSED', 'PROMOTED', 'DISMISSED'] })
+
+    // the REMAINING stubs keep the permissive placeholder (never a success value)
     for (const name of [
       'research_fact_record',
       'research_claim_record',
       'research_artifact_register',
-      'research_intervention_create',
-      'research_next_action_create',
       'research_context_get',
       'research_plan_get',
       'research_history_query',

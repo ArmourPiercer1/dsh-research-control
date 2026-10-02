@@ -109,12 +109,37 @@ describe('TC-DOM-013 layer 2: run requirement on the write set (INV-PERM-1)', ()
 describe('TC-DOM-013 layer 3: the allowed lane (AGENT + run passes the gate on all 11)', () => {
   it.each([...RESEARCH_TOOL_NAMES])('%s serves an AGENT actor with a run (live tools succeed, stubs fail only with NOT_IMPLEMENTED)', async (name) => {
     const tool = tools.find((t) => t.name === name)!
+    // G4: the two attention-write tools are LIVE forwards — success-shaped
+    // service-port overrides let the gate lane show the success value (the
+    // real services + strict outputs are pinned in the per-tool suites).
+    if (name === 'research_intervention_create') {
+      deps.setInterventionCreate((params) => ({
+        intervention: {
+          id: 'IV-1',
+          title: params.title,
+          origin: 'AGENT_REPORT',
+          status: 'OPEN',
+          created_by: { kind: 'AGENT', run_id: 'R-1' },
+          created_at: 1,
+        },
+        eventId: null,
+      }))
+    }
+    if (name === 'research_next_action_create') {
+      deps.setNextActionCreate((params) => ({
+        id: 'NA-1',
+        statement: params.statement,
+        status: 'PROPOSED',
+        created_by: { kind: 'AGENT', run_id: 'R-1' },
+        created_at: 1,
+      }))
+    }
     try {
       const result = (await tool.execute(VALID_ARGS[name], makeExec())) as { status: string }
-      // the 2 live tools
+      // the live tools (G4: 4 of them)
       expect(['created', 'ok']).toContain(result.status)
     } catch (e) {
-      // the 9 stubs: the ONLY failure mode past the gate is NOT_IMPLEMENTED
+      // the stubs: the ONLY failure mode past the gate is NOT_IMPLEMENTED
       await expectToolErrorAsync(
         () => {
           throw e

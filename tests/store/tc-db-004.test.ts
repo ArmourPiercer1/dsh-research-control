@@ -981,6 +981,12 @@ describe('TC-DB-004 (iv): no credential-receiving write face (structural asserti
       recordCheckpoint: () => {
         throw new Error('unused in this test')
       },
+      interventionCreate: () => {
+        throw new Error('unused in this test')
+      },
+      nextActionCreate: () => {
+        throw new Error('unused in this test')
+      },
     })
     expect(tools.map((t) => t.name).sort()).toEqual([...RESEARCH_TOOL_NAMES].sort())
     for (const tool of tools) {

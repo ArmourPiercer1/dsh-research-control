@@ -2,11 +2,17 @@
  * WP-3.3 test infrastructure (tests/tools/).
  *
  * Shared actors, the exec factory (real AbortSignal), the ToolError
- * assertion helper, and recording deps (the two service ports with call
+ * assertion helper, and recording deps (the service ports with call
  * capture — the recording ports THROW if a stub path ever reaches them,
  * so a stub that touches a service is a test failure by construction).
  */
 
+import type {
+  CreateInterventionResult,
+  InterventionCreateParams,
+  MechanicalActorRef,
+} from '../../src/host/service/intervention/index.js'
+import type { ActorRef, CreateNextActionParams, NextActionRecord } from '../../src/host/service/actions/index.js'
 import { ToolError, type ResearchToolDeps, type ResearchToolExec, type ToolActorRef } from '../../src/host/tools/index.js'
 
 /* ------------------------------------------------------------------ *
@@ -105,28 +111,43 @@ export async function expectToolErrorAsync(fn: () => Promise<unknown>, code: str
 export interface RecordingDeps extends ResearchToolDeps {
   readonly planForkCreateCalls: readonly unknown[]
   readonly recordCheckpointCalls: readonly { runId: string; params: { note?: string }; actor: ToolActorRef }[]
+  readonly interventionCreateCalls: readonly { params: InterventionCreateParams; actor: MechanicalActorRef }[]
+  readonly nextActionCreateCalls: readonly { params: CreateNextActionParams; actor: ActorRef }[]
 }
 
 /**
- * Deps with call capture. `planForkCreate`/`recordCheckpoint` must be
- * overridden per-test (they throw by default: a stub path that reaches a
- * service is a test failure by construction).
+ * Deps with call capture. `planForkCreate`/`recordCheckpoint`/
+ * `interventionCreate`/`nextActionCreate` must be overridden per-test (they
+ * throw by default: a stub path that reaches a service is a test failure by
+ * construction).
  */
 export function makeRecordingDeps(): RecordingDeps & {
   setPlanForkCreate(fn: ResearchToolDeps['planForkCreate']): void
   setRecordCheckpoint(fn: ResearchToolDeps['recordCheckpoint']): void
+  setInterventionCreate(fn: (params: InterventionCreateParams, actor: MechanicalActorRef) => CreateInterventionResult): void
+  setNextActionCreate(fn: (params: CreateNextActionParams, actor: ActorRef) => NextActionRecord): void
 } {
   const planForkCreateCalls: unknown[] = []
   const recordCheckpointCalls: { runId: string; params: { note?: string }; actor: ToolActorRef }[] = []
+  const interventionCreateCalls: { params: InterventionCreateParams; actor: MechanicalActorRef }[] = []
+  const nextActionCreateCalls: { params: CreateNextActionParams; actor: ActorRef }[] = []
   let pfImpl: ResearchToolDeps['planForkCreate'] = () => {
     throw new Error('deps.planForkCreate called without a test override (a stub reached the service port)')
   }
   let rcImpl: ResearchToolDeps['recordCheckpoint'] = () => {
     throw new Error('deps.recordCheckpoint called without a test override (a stub reached the service port)')
   }
+  let ivImpl: (params: InterventionCreateParams, actor: MechanicalActorRef) => CreateInterventionResult = () => {
+    throw new Error('deps.interventionCreate called without a test override (a stub reached the service port)')
+  }
+  let naImpl: (params: CreateNextActionParams, actor: ActorRef) => NextActionRecord = () => {
+    throw new Error('deps.nextActionCreate called without a test override (a stub reached the service port)')
+  }
   return {
     planForkCreateCalls,
     recordCheckpointCalls,
+    interventionCreateCalls,
+    nextActionCreateCalls,
     planForkCreate: (params) => {
       planForkCreateCalls.push(params)
       return pfImpl(params)
@@ -135,11 +156,25 @@ export function makeRecordingDeps(): RecordingDeps & {
       recordCheckpointCalls.push({ runId, params, actor: actor as ToolActorRef })
       return rcImpl(runId, params, actor)
     },
+    interventionCreate: (params, actor) => {
+      interventionCreateCalls.push({ params, actor })
+      return ivImpl(params, actor)
+    },
+    nextActionCreate: (params, actor) => {
+      nextActionCreateCalls.push({ params, actor })
+      return naImpl(params, actor)
+    },
     setPlanForkCreate: (fn) => {
       pfImpl = fn
     },
     setRecordCheckpoint: (fn) => {
       rcImpl = fn
+    },
+    setInterventionCreate: (fn) => {
+      ivImpl = fn
+    },
+    setNextActionCreate: (fn) => {
+      naImpl = fn
     },
   }
 }

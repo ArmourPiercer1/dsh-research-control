@@ -30,6 +30,12 @@ import {
   type CreatePlanForkParams,
   type PlanForkRecord,
 } from '../../src/host/domain/planfork/index.js'
+import type { ActorRef, CreateNextActionParams, NextActionRecord } from '../../src/host/service/actions/index.js'
+import type {
+  CreateInterventionResult,
+  InterventionCreateParams,
+  MechanicalActorRef,
+} from '../../src/host/service/intervention/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../../src/host/service/runbinding/index.js'
 import * as toolsModule from '../../src/host/tools/index.js'
 import {
@@ -51,12 +57,18 @@ type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y 
 /** True iff K is NOT a key of T. */
 type Absent<K extends string, T> = [K] extends [keyof T] ? false : true
 
-/** INV-PLAN-3 核心钉: 工具层依赖面恰好两个键 — 无 plan 写口可注入. */
-type T_DepsFaceExact = Expect<Equal<keyof ResearchToolDeps, 'planForkCreate' | 'recordCheckpoint'>>
+/** INV-PLAN-3 核心钉: 工具层依赖面被钉死为**恰好**这个键集 — 任何扩张都是显式
+ *  评审点; plan 写口 (PlanStore/contract writer) 无一可进入. G4 加入注意力写两
+ *  端口 (interventionCreate / nextActionCreate — 均无 plan 写/promote/dismiss 语义). */
+type T_DepsFaceExact = Expect<
+  Equal<keyof ResearchToolDeps, 'planForkCreate' | 'recordCheckpoint' | 'interventionCreate' | 'nextActionCreate'>
+>
 
-/** 正例钉: 两个键都在. */
+/** 正例钉: 键都在 (演进同步). */
 type T_HasPlanForkCreate = Expect<['planForkCreate'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasRecordCheckpoint = Expect<['recordCheckpoint'] extends [keyof ResearchToolDeps] ? true : false>
+type T_HasInterventionCreate = Expect<['interventionCreate'] extends [keyof ResearchToolDeps] ? true : false>
+type T_HasNextActionCreate = Expect<['nextActionCreate'] extends [keyof ResearchToolDeps] ? true : false>
 
 /** Canonical plan 写口 (PlanStore 面) 无一可进入依赖面. */
 type T_NoSavePlan = Expect<Absent<'savePlan', ResearchToolDeps>>
@@ -80,6 +92,14 @@ type T_RcParamsFrozen = Expect<
 >
 type T_RcReturnsRun = Expect<Equal<ReturnType<ResearchToolDeps['recordCheckpoint']>, RunRecord>>
 
+/** G4 注意力写端口逐字钉: 参数 = 冻结服务面, 返回 = 服务结果/记录 — 无 plan 写语义. */
+type T_IvCreateParamsFrozen = Expect<
+  Equal<Parameters<ResearchToolDeps['interventionCreate']>, [InterventionCreateParams, MechanicalActorRef]>
+>
+type T_IvCreateReturnsResult = Expect<Equal<ReturnType<ResearchToolDeps['interventionCreate']>, CreateInterventionResult>>
+type T_NaCreateParamsFrozen = Expect<Equal<Parameters<ResearchToolDeps['nextActionCreate']>, [CreateNextActionParams, ActorRef]>>
+type T_NaCreateReturnsRecord = Expect<Equal<ReturnType<ResearchToolDeps['nextActionCreate']>, NextActionRecord>>
+
 /** PF 参数本身无 base 变体 (INV-PLAN-6 在工具面的类型传递). */
 type T_PfParamsNoBase = Expect<Absent<'base', CreatePlanForkParams>>
 type T_PfParamsNoBasePlanObjects = Expect<Absent<'base_plan_objects', CreatePlanForkParams>>
@@ -92,6 +112,8 @@ const _typeSurface: [
   T_DepsFaceExact,
   T_HasPlanForkCreate,
   T_HasRecordCheckpoint,
+  T_HasInterventionCreate,
+  T_HasNextActionCreate,
   T_NoSavePlan,
   T_NoCreateItem,
   T_NoUpdateItem,
@@ -106,16 +128,21 @@ const _typeSurface: [
   T_PfCreateArityOne,
   T_RcParamsFrozen,
   T_RcReturnsRun,
+  T_IvCreateParamsFrozen,
+  T_IvCreateReturnsResult,
+  T_NaCreateParamsFrozen,
+  T_NaCreateReturnsRecord,
   T_PfParamsNoBase,
   T_PfParamsNoBasePlanObjects,
   T_PfParamsNoBasePlanObjects_Camel,
   T_PfParamsNoBaseGitCommit,
   T_PfParamsNoBaseGitCommit_Camel,
 ] = [
-  true, true, true,
+  true, true, true, true, true,
   true, true, true, true, true, true, true, true, true,
   true, true, true,
   true, true,
+  true, true, true, true,
   true, true, true, true, true,
 ]
 void _typeSurface
@@ -153,15 +180,29 @@ const PLAN_WRITE_PARAM_KEYS = [
 ] as const
 
 describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路径)', () => {
-  it('deps face is exactly two ports (compile-time pin; runtime mirror: the composition accepts only those)', () => {
-    // 运行时镜像: 依赖对象的键集 = 两个端口 (JS 调用者绕过类型的护栏)
+  it('deps face is exactly the pinned ports (compile-time pin; runtime mirror: the composition accepts only those)', () => {
+    // 运行时镜像: 依赖对象的键集 = 钉死的端口 (JS 调用者绕过类型的护栏)
     const deps = makeRecordingDeps()
-    const { planForkCreateCalls, recordCheckpointCalls, setPlanForkCreate, setRecordCheckpoint, ...ports } = deps
+    const {
+      planForkCreateCalls,
+      recordCheckpointCalls,
+      interventionCreateCalls,
+      nextActionCreateCalls,
+      setPlanForkCreate,
+      setRecordCheckpoint,
+      setInterventionCreate,
+      setNextActionCreate,
+      ...ports
+    } = deps
     void planForkCreateCalls
     void recordCheckpointCalls
+    void interventionCreateCalls
+    void nextActionCreateCalls
     void setPlanForkCreate
     void setRecordCheckpoint
-    expect(Object.keys(ports).sort()).toEqual(['planForkCreate', 'recordCheckpoint'])
+    void setInterventionCreate
+    void setNextActionCreate
+    expect(Object.keys(ports).sort()).toEqual(['interventionCreate', 'nextActionCreate', 'planForkCreate', 'recordCheckpoint'])
   })
 
   it('no tool parameter key can name a canonical plan mutation (模型调用语法层)', () => {

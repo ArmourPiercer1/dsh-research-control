@@ -43,6 +43,7 @@ export type {
   AggregateRules,
   ArtifactMarkedMissingPayload,
   ArtifactRegisteredPayload,
+  ArtifactSnapshot,
   ArtifactStatus,
   ArtifactType,
   ClaimRecordedPayload,

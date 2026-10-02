@@ -216,12 +216,30 @@ export class InterventionService {
     })
     // §16 规则 2（operational → 声明式: 写入时校验）: 每个关联 WS 必须
     // 存在于声明式快照（新引用写入失败 = 拒绝）。
-    const workstreams = this.#externalState().workstreams
+    const external = this.#externalState()
+    const workstreams = external.workstreams
     for (const ws of workstreamIds) {
       if (!workstreams.has(ws)) {
         throw new InterventionError({
           code: 'IV_INPUT',
           message: `${operation}: workstream ${ws} does not exist in the declarative snapshot (DOMAIN_SCHEMA §16 规则 2: 写入时校验)`,
+        })
+      }
+    }
+    // G4 · §16 规则 2 同一纪律覆盖 source_refs typedRef（写入的新引用失败 =
+    // 拒绝，两条创建车道共用 — 无事件车道也在场）。校验面 = 注入的校验
+    // maps（生产接线按实际 registry/index 填）；只查冻结 registry 建模的
+    // workstream-local kinds（validate.ts WS_LOCAL_KINDS 同集合）；kind 的
+    // map 未注入 = 冻结 registry 的 V1「not modeled in the V1 snapshot」
+    // shape-only 口径保持 — 不发明更严政策。事件路径仍由冻结 registry 二次
+    // 校验（同一注入面, 双钉, 不互替）。
+    for (const [i, ref] of sourceRefs.entries()) {
+      const refs = this.#sourceRefExistence(ref.kind, external)
+      if (refs === undefined) continue
+      if (!refs.has(ref.id)) {
+        throw new InterventionError({
+          code: 'IV_INPUT',
+          message: `${operation}: source_refs[${i}] references ${ref.kind} ${JSON.stringify(ref.id)} that does not exist (DOMAIN_SCHEMA §16 规则 2: 写入时校验; catalog §5: payload 内引用的对象存在)`,
         })
       }
     }
@@ -365,8 +383,10 @@ export class InterventionService {
    * INTERVENTION_CREATED 的校验 ctx（module header ③）: interventions
    * map = 现行所有行**排除本批新建 IV id**（「新建」检查语义）;
    * workstreams/runs = 注入的外部快照（WS 存在性 + owner 推导 + AGENT
-   * actor.run_id 存在性, catalog §5）; 其余 map 空（validator 对本事件
-   * 只查 interventions/workstreams/runs/source refs — 同 WP-3.5 先例）。
+   * actor.run_id 存在性, catalog §5）; tasks/gates/milestones/claims/
+   * facts/artifacts = 注入的 source_refs 校验面（G4 — validator 对本事件
+   * 的 checkTypedRefs/owner 推导查这些 map, 生产接线按实际 registry/index
+   * 填; 未注入的 map 保持原「空」口径 — 注入面见 InterventionExternalState）。
    */
   #buildEventContext(excludeInterventionId: string): HistoryObjectContext {
     const interventions = new Map<string, InterventionSnapshot>()
@@ -377,16 +397,47 @@ export class InterventionService {
     const external = this.#externalState()
     return {
       workstreams: external.workstreams,
-      tasks: new Map(),
+      tasks: external.tasks ?? new Map(),
       runs: external.runs ?? new Map(),
-      claims: new Map(),
-      facts: new Map(),
-      artifacts: new Map(),
+      claims: external.claims ?? new Map(),
+      facts: external.facts ?? new Map(),
+      artifacts: external.artifacts ?? new Map(),
       relations: new Map(),
-      gates: new Map(),
-      milestones: new Map(),
+      gates: external.gates ?? new Map(),
+      milestones: external.milestones ?? new Map(),
       interventions,
       topologyEdges: new Map(),
+    }
+  }
+
+  /**
+   * G4: source_refs kind → 注入的校验 map（与冻结 registry 的
+   * `WS_LOCAL_KINDS` 同集合 — validate.ts 单一口径, 同步注释在此）。
+   * 未建模 / 未注入 = `undefined` = 跳过存在性（V1 shape-only 口径）。
+   */
+  #sourceRefExistence(
+    kind: string,
+    external: InterventionExternalState,
+  ): { has(id: string): boolean } | undefined {
+    switch (kind) {
+      case 'WORKSTREAM':
+        return external.workstreams
+      case 'TASK':
+        return external.tasks
+      case 'GATE':
+        return external.gates
+      case 'MILESTONE':
+        return external.milestones
+      case 'RUN':
+        return external.runs
+      case 'CLAIM':
+        return external.claims
+      case 'FACT':
+        return external.facts
+      case 'ARTIFACT':
+        return external.artifacts
+      default:
+        return undefined
     }
   }
 

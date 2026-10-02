@@ -60,6 +60,12 @@ import {
   type TriggerRefResolver,
 } from '../../domain/planfork/index.js'
 import type {
+  ArtifactSnapshot,
+  ClaimSnapshot,
+  FactSnapshot,
+  GateSnapshot,
+  MilestoneSnapshot,
+  RunSnapshot,
   TaskSnapshot,
   WorkstreamSnapshot,
 } from '../../history/registry/index.js'
@@ -95,6 +101,7 @@ import {
 import {
   InterventionService,
   InterventionLifecycleStore,
+  type InterventionExternalState,
 } from '../../service/intervention/index.js'
 import {
   InboxService,
@@ -377,6 +384,13 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
   const workstreamList: string[] = []
   const liveWorkstreams = new Map<string, WorkstreamSnapshot>()
   const liveTasks = new Map<string, TaskSnapshot>()
+  // G4 attention-write validation face (existence purpose): the declarative
+  // tree is the 正源 — a gate carries no operational evaluation yet in a tree
+  // snapshot (lastResult null = 未评估, §5.6 PLANNED) and a milestone is
+  // PLANNED until MILESTONE_ACHIEVED (the registry checks existence + owner
+  // WS for source refs, not evaluation state — same discipline as liveTasks).
+  const liveGates = new Map<string, GateSnapshot>()
+  const liveMilestones = new Map<string, MilestoneSnapshot>()
   const milestoneIds = new Set<string>()
   const objectiveIds = new Set<string>()
 
@@ -498,8 +512,11 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
           })
           void liveTasks
         }
-        for (const g of ws.gates) void g
-        for (const m of ws.milestones) milestoneIds.add(m.id)
+        for (const g of ws.gates) liveGates.set(g.id, { workstreamId: ws.id, lastResult: null })
+        for (const m of ws.milestones) {
+          milestoneIds.add(m.id)
+          liveMilestones.set(m.id, { workstreamId: ws.id, status: 'PLANNED' })
+        }
       }
     }
     for (const o of load.tree.objectives) objectiveIds.add(o.id)
@@ -754,13 +771,44 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       runExists: { exists: (runId: string) => tables.getRun(runId) !== null },
       now,
     })
+    // G4: the PRODUCTION attention-write validation context (the mechanical/
+    // agent intervention lane's §16 规则 2 + frozen-registry validation maps).
+    // FRESH reads per creation (the triggerRefResolver discipline — a
+    // creation validates against the state as it is NOW): runs = the run/DS
+    // table (the actor.run_id existence the frozen registry demands + RUN
+    // source refs), claims/facts/artifacts = the RR-011 (b) fold's derived-
+    // state row (the same row the plan-fork trigger resolver reads),
+    // tasks/gates/milestones/workstreams = the boot tree snapshot (rescan
+    // swaps the wiring — same freshness class as liveWorkstreams). A kind
+    // the context does not model keeps the frozen shape-only treatment.
+    const attentionValidationState = (): InterventionExternalState => {
+      const sem = readSemanticState()
+      const runs = new Map<string, RunSnapshot>()
+      for (const row of tables.listAllRuns()) runs.set(row.id, { workstreamId: row.workstream_id, status: row.status })
+      const claims = new Map<string, ClaimSnapshot>()
+      for (const [id, row] of sem.claims) claims.set(id, { workstreamId: row.workstream_id, status: row.status })
+      const facts = new Map<string, FactSnapshot>()
+      for (const [id, row] of sem.facts) facts.set(id, { workstreamId: row.workstream_id })
+      const artifacts = new Map<string, ArtifactSnapshot>()
+      for (const [id, row] of sem.artifacts) artifacts.set(id, { workstreamId: row.workstream_id, status: row.status })
+      return {
+        workstreams: liveWorkstreams,
+        runs,
+        tasks: liveTasks,
+        gates: liveGates,
+        milestones: liveMilestones,
+        claims,
+        facts,
+        artifacts,
+      }
+    }
     const interventionService = new InterventionService({
       store,
       registry,
       lifecycle: new InterventionLifecycleStore({ db: inboxDbFace, interventions }),
       allocator,
       projectId: options.projectId,
-      externalState: () => ({ workstreams: liveWorkstreams }),
+      externalState: attentionValidationState,
       now,
     })
 
@@ -1058,6 +1106,20 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
         return record
       },
       recordCheckpoint: (runId, params, actor) => runBinding.recordCheckpoint(runId, params, actor),
+      // G4 attention-write ports. The intervention lane: the WP-5.1
+      // MECHANICAL service with trigger pinned to AGENT_REPORT_REQUIRES_HUMAN
+      // (the §6 footnote-¹ agent-report lane — the frozen origin/actor-kind
+      // mapping lives in the service types; the tool face carries no
+      // trigger/origin key and the trusted AGENT actor rides through from the
+      // host-resolved session call context).
+      interventionCreate: (params, actor) =>
+        interventionService.createMechanicalIntervention(
+          { ...params, trigger: 'AGENT_REPORT_REQUIRES_HUMAN' },
+          actor,
+        ),
+      // The NextAction lane: the INDEPENDENT WP-5.2 service (creator gate +
+      // §16.3 optional-WS existence check included — no duplication here).
+      nextActionCreate: (params, actor) => actions.createNextAction(params, actor),
     }
     const tools = createResearchTools(toolsDeps)
 

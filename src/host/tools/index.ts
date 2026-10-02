@@ -29,11 +29,14 @@
  *    `research_plan_fork_create` parameter face is base-less (INV-PLAN-6);
  *    the type-surface proof lives in tests/tools/inv-plan-3.test.ts.
  *
- * Stub state: 9 of the 11 tools are stubs (NOT_IMPLEMENTED structured
+ * Stub state: 6 of the 11 tools remain stubs (NOT_IMPLEMENTED structured
  * error) — their forwarding services have not landed yet (the report's
- * stub table names each replacement WP); 2 are live forwards
+ * stub table names each replacement WP); 5 are live forwards
  * (research_plan_fork_create → the WP-3.1 eight-step creation chain,
- * research_run_checkpoint → the WP-2.4 recordCheckpoint surface).
+ * research_run_checkpoint → the WP-2.4 recordCheckpoint surface, and
+ * since G3 the semantic trio research_fact_record /
+ * research_claim_record / research_artifact_register → the narrow AGENT
+ * create lane of the semantics service).
  */
 
 export {
@@ -132,6 +135,8 @@ export {
   ToolError,
   buildTool,
   isToolError,
+  semanticCallerFrom,
+  toSemanticToolServiceError,
   toToolJsonValue,
   type ResearchToolDefinition,
   type ResearchToolDeps,
@@ -210,9 +215,9 @@ export const INVESTIGATOR_TOOL_NAMES: readonly string[] = READ_TOOL_NAMES
 export function createResearchTools(deps: ResearchToolDeps): readonly ResearchToolDefinition[] {
   assertDeps(deps)
   return [
-    makeFactRecordDefinition(),
-    makeClaimRecordDefinition(),
-    makeArtifactRegisterDefinition(),
+    makeFactRecordDefinition(deps),
+    makeClaimRecordDefinition(deps),
+    makeArtifactRegisterDefinition(deps),
     makeInterventionCreateDefinition(),
     makeNextActionCreateDefinition(),
     makePlanForkCreateDefinition(deps),
@@ -234,5 +239,17 @@ function assertDeps(deps: ResearchToolDeps): void {
   }
   if (typeof deps.recordCheckpoint !== 'function') {
     throw new TypeError('createResearchTools: deps.recordCheckpoint must be the RunBindingService.recordCheckpoint surface (WP-2.4)')
+  }
+  const lane = deps.semanticAgentCreate
+  if (
+    lane === null ||
+    typeof lane !== 'object' ||
+    typeof lane.recordFact !== 'function' ||
+    typeof lane.recordClaim !== 'function' ||
+    typeof lane.registerArtifact !== 'function'
+  ) {
+    throw new TypeError(
+      'createResearchTools: deps.semanticAgentCreate must be the narrow semantic agent create lane (G3 — recordFact/recordClaim/registerArtifact)',
+    )
   }
 }

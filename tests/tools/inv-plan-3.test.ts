@@ -31,6 +31,12 @@ import {
   type PlanForkRecord,
 } from '../../src/host/domain/planfork/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../../src/host/service/runbinding/index.js'
+import type {
+  RecordClaimArgs,
+  RecordFactArgs,
+  RegisterArtifactArgs,
+  SemanticAgentActor,
+} from '../../src/host/service/semantics/index.js'
 import * as toolsModule from '../../src/host/tools/index.js'
 import {
   RESEARCH_TOOL_NAMES,
@@ -51,12 +57,27 @@ type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y 
 /** True iff K is NOT a key of T. */
 type Absent<K extends string, T> = [K] extends [keyof T] ? false : true
 
-/** INV-PLAN-3 核心钉: 工具层依赖面恰好两个键 — 无 plan 写口可注入. */
-type T_DepsFaceExact = Expect<Equal<keyof ResearchToolDeps, 'planForkCreate' | 'recordCheckpoint'>>
+/** INV-PLAN-3 核心钉: 工具层依赖面恰好三个键 — 无 plan 写口可注入
+ *  (semanticAgentCreate 是 G3 语义创建窄端口: 只建 fact/claim/artifact,
+ *  参数被冻结语义 args + 必传 trusted caller 逐字钉死, 无任何 plan 语义). */
+type T_DepsFaceExact = Expect<Equal<keyof ResearchToolDeps, 'planForkCreate' | 'recordCheckpoint' | 'semanticAgentCreate'>>
 
-/** 正例钉: 两个键都在. */
+/** 正例钉: 三个键都在. */
 type T_HasPlanForkCreate = Expect<['planForkCreate'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasRecordCheckpoint = Expect<['recordCheckpoint'] extends [keyof ResearchToolDeps] ? true : false>
+type T_HasSemanticAgentCreate = Expect<['semanticAgentCreate'] extends [keyof ResearchToolDeps] ? true : false>
+
+/** G3 语义创建端口逐字钉: 每个方法 = (冻结语义 args, 必传 trusted caller),
+ *  返回 = 服务结果; caller 类型 AGENT 硬约束 (USER 在类型面不可传入). */
+type T_SemanticFactParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['recordFact']>, [RecordFactArgs, SemanticAgentActor]>
+>
+type T_SemanticClaimParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['recordClaim']>, [RecordClaimArgs, SemanticAgentActor]>
+>
+type T_SemanticArtifactParams = Expect<
+  Equal<Parameters<ResearchToolDeps['semanticAgentCreate']['registerArtifact']>, [RegisterArtifactArgs, SemanticAgentActor]>
+>
 
 /** Canonical plan 写口 (PlanStore 面) 无一可进入依赖面. */
 type T_NoSavePlan = Expect<Absent<'savePlan', ResearchToolDeps>>
@@ -153,15 +174,16 @@ const PLAN_WRITE_PARAM_KEYS = [
 ] as const
 
 describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路径)', () => {
-  it('deps face is exactly two ports (compile-time pin; runtime mirror: the composition accepts only those)', () => {
-    // 运行时镜像: 依赖对象的键集 = 两个端口 (JS 调用者绕过类型的护栏)
+  it('deps face is exactly three ports (compile-time pin; runtime mirror: the composition accepts only those)', () => {
+    // 运行时镜像: 依赖对象的键集 = 三个端口 (JS 调用者绕过类型的护栏)
     const deps = makeRecordingDeps()
-    const { planForkCreateCalls, recordCheckpointCalls, setPlanForkCreate, setRecordCheckpoint, ...ports } = deps
+    const { planForkCreateCalls, recordCheckpointCalls, setPlanForkCreate, setRecordCheckpoint, setSemanticAgentCreate, ...ports } = deps
     void planForkCreateCalls
     void recordCheckpointCalls
     void setPlanForkCreate
     void setRecordCheckpoint
-    expect(Object.keys(ports).sort()).toEqual(['planForkCreate', 'recordCheckpoint'])
+    void setSemanticAgentCreate
+    expect(Object.keys(ports).sort()).toEqual(['planForkCreate', 'recordCheckpoint', 'semanticAgentCreate'])
   })
 
   it('no tool parameter key can name a canonical plan mutation (模型调用语法层)', () => {

@@ -1,0 +1,45 @@
+
+ RUN  v4.1.11 <repo>/.worktrees/g3
+
+ ✓ tests/runbinding/event-loop.test.ts (14 tests) 753ms
+ ✓ tests/runbinding/run-crud.test.ts (12 tests) 777ms
+ ✓ tests/runbinding/bind-flow.test.ts (18 tests) 903ms
+ ✓ tests/tools/plan-fork-create.test.ts (30 tests) 933ms
+ ✓ tests/runbinding/checkpoint-boundary.test.ts (6 tests) 405ms
+ ✓ tests/runbinding/discovery.test.ts (12 tests) 642ms
+ ✓ tests/tools/run-checkpoint.test.ts (10 tests) 570ms
+ ✓ tests/runbinding/permissions.test.ts (8 tests) 374ms
+ ✓ tests/runbinding/state-machine.test.ts (40 tests) 296ms
+ ✓ tests/runbinding/frozen-shape.test.ts (6 tests) 269ms
+ ✓ tests/semantics-records/query-records.test.ts (15 tests) 253ms
+ ✓ tests/semantics-records/relation.test.ts (13 tests) 167ms
+stdout | tests/discovery/host-tools-semantic-write.test.ts
+[research-control][startup-integrity] git boundary: pass — dirty working tree (1 dirty path(s), 1 under .research/) — reads unaffected; the checkpoint commits only .research/** (TC-GIT-001)
+
+stdout | tests/discovery/host-tools-semantic-write.test.ts
+[research-control][startup-integrity] git boundary: pass — dirty working tree (1 dirty path(s), 1 under .research/) — reads unaffected; the checkpoint commits only .research/** (TC-GIT-001)
+
+stdout | tests/discovery/host-tools-semantic-write.test.ts
+[research-control][startup-integrity] git boundary: pass — dirty working tree (1 dirty path(s), 1 under .research/) — reads unaffected; the checkpoint commits only .research/** (TC-GIT-001)
+
+ ✓ tests/semantics-records/artifact.test.ts (8 tests) 131ms
+ ✓ tests/semantics-records/canonical-protocol.test.ts (4 tests) 114ms
+ ✓ tests/semantics-records/agent-create.test.ts (10 tests) 135ms
+ ✓ tests/semantics-records/retract-claim.test.ts (4 tests) 125ms
+ ✓ tests/discovery/host-tools-semantic-write.test.ts (3 tests) 1343ms
+     ✓ fact/claim/artifact succeed on the bound run; events + rows carry AGENT actor/run provenance  477ms
+ ✓ tests/tools/definitions.test.ts (20 tests) 15ms
+ ✓ tests/tools/permissions.test.ts (35 tests) 9ms
+ ✓ tests/semantics-records/record-fact.test.ts (4 tests) 135ms
+ ✓ tests/semantics-records/record-claim.test.ts (3 tests) 130ms
+ ✓ tests/tools/semantic-create.test.ts (11 tests) 9ms
+ ✓ tests/tools/inv-plan-3.test.ts (5 tests) 9ms
+ ✓ tests/tools/stubs.test.ts (21 tests) 7ms
+ ✓ tests/tools/trusted-boundary.test.ts (5 tests) 6ms
+
+ Test Files  25 passed (25)
+      Tests  317 passed (317)
+   Start at  06:46:52
+   Duration  3.69s (transform 3.16s, setup 0ms, import 6.94s, tests 8.51s, environment 1ms)
+
+exit=0

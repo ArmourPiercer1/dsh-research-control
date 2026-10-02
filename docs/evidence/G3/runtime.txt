@@ -1,0 +1,2 @@
+node=v24.21.0 pnpm=11.7.0 vitest=vitest/4.1.11 linux-x64 node-v24.21.0 tsc=Version 7.0.2
+sha=899d49d33fc29fd44a5d3907b4bcd3204f9ba859

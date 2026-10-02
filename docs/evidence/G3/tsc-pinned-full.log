@@ -1,0 +1,42 @@
+src/client/dsh-adapter/settings-card.tsx(177,60): error TS2352: Conversion of type 'ResearchSettingsSection' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'ResearchSettingsSection'.
+src/client/views/shell/investigator-page.tsx(55,8): error TS2307: Cannot find module '../../shared/analysis-command.js' or its corresponding type declarations.
+tests/discovery/host-commands-reinit.test.ts(141,21): error TS2345: Argument of type '{ readonly name: string; readonly description: string; readonly input?: { readonly hint: string; readonly images?: boolean | undefined; } | undefined; readonly recordInput?: boolean | undefined; readonly handler: (invocation: { ...; }) => Promise<...> | CommandOutcome; }' is not assignable to parameter of type 'RegisteredCommand'.
+  The types returned by 'handler(...)' are incompatible between these types.
+    Type 'Promise<CommandOutcome> | CommandOutcome' is not assignable to type 'Promise<CommandOutcome>'.
+      Type '{ readonly kind: "success"; readonly text?: string | undefined; }' is missing the following properties from type 'Promise<CommandOutcome>': then, catch, [Symbol.toStringTag], finally
+tests/rpc-face/rpc-face.test.ts(81,9): error TS2740: Type '{ getDashboard(): Promise<DashboardSnapshot>; getProject(): ProjectSnapshot; getTopic(a: GetTopicArgs): TopicSnapshot; ... 21 more ...; restoreDeclarativeFile(a: RestoreDeclarativeFileArgs): Promise<...>; }' is missing the following properties from type 'ResearchRpcServices': setCurrentFocus, getCurrentFocus, createTopic, createWorkstream, and 4 more.
+tests/views-shell/investigator-page.test.tsx(152,12): error TS18047: 'container' is possibly 'null'.
+tests/views-shell/missing-modal.test.tsx(138,8): error TS2739: Type '{ sessionId: string; loadPlaneState: () => Promise<GetResearchPlaneStateResult>; loadHubOverview: Mock<() => Promise<HubOverviewResult>>; ... 8 more ...; ackMissingReminder: (args: AckMissingReminderArgs) => Promise<...>; }' is missing the following properties from type 'ResearchShellProps': readInvestigatorTransient, loadAnalysisRecords, saveAnalysisRecord
+tests/views-shell/onboarding.test.tsx(218,8): error TS2739: Type '{ sessionId: string | undefined; loadPlaneState: () => Promise<GetResearchPlaneStateResult>; loadHubOverview: Mock<() => Promise<HubOverviewResult>>; ... 10 more ...; inspectProjectDirectory?: ((args: InspectProjectDirectoryArgs) => Promise<...>) | undefined; }' is missing the following properties from type 'ResearchShellProps': readInvestigatorTransient, loadAnalysisRecords, saveAnalysisRecord
+tests/views-shell/settings-page.test.tsx(89,5): error TS2322: Type '(args: RescanArgs) => Promise<PlaneStateSummary>' is not assignable to type 'Mock<Constructable | Procedure>'.
+  Type '(args: RescanArgs) => Promise<PlaneStateSummary>' is not assignable to type 'MockInstance<Constructable | Procedure> & { (...args: any[]): any; new (...args: any[]): any; } & {}'.
+    Type '(args: RescanArgs) => Promise<PlaneStateSummary>' is not assignable to type 'MockInstance<Constructable | Procedure>'.
+tests/views-shell/settings-page.test.tsx(90,5): error TS2322: Type '(args: BindProjectArgs) => Promise<BindProjectResult>' is not assignable to type 'Mock<Constructable | Procedure>'.
+  Type '(args: BindProjectArgs) => Promise<BindProjectResult>' is not assignable to type 'MockInstance<Constructable | Procedure> & { (...args: any[]): any; new (...args: any[]): any; } & {}'.
+    Type '(args: BindProjectArgs) => Promise<BindProjectResult>' is not assignable to type 'MockInstance<Constructable | Procedure>'.
+tests/views-shell/settings-page.test.tsx(91,5): error TS2322: Type '(args: SetHubArgs) => Promise<SetHubResult>' is not assignable to type 'Mock<Constructable | Procedure>'.
+  Type '(args: SetHubArgs) => Promise<SetHubResult>' is not assignable to type 'MockInstance<Constructable | Procedure> & { (...args: any[]): any; new (...args: any[]): any; } & {}'.
+    Type '(args: SetHubArgs) => Promise<SetHubResult>' is not assignable to type 'MockInstance<Constructable | Procedure>'.
+tests/views-shell/settings-page.test.tsx(92,5): error TS2322: Type '(args: UnbindProjectArgs) => Promise<UnbindProjectResult>' is not assignable to type 'Mock<Constructable | Procedure>'.
+  Type '(args: UnbindProjectArgs) => Promise<UnbindProjectResult>' is not assignable to type 'MockInstance<Constructable | Procedure> & { (...args: any[]): any; new (...args: any[]): any; } & {}'.
+    Type '(args: UnbindProjectArgs) => Promise<UnbindProjectResult>' is not assignable to type 'MockInstance<Constructable | Procedure>'.
+tests/views-shell/settings-page.test.tsx(93,5): error TS2322: Type '(args: RestoreProjectArgs) => Promise<RestoreProjectResult>' is not assignable to type 'Mock<Constructable | Procedure>'.
+  Type '(args: RestoreProjectArgs) => Promise<RestoreProjectResult>' is not assignable to type 'MockInstance<Constructable | Procedure> & { (...args: any[]): any; new (...args: any[]): any; } & {}'.
+    Type '(args: RestoreProjectArgs) => Promise<RestoreProjectResult>' is not assignable to type 'MockInstance<Constructable | Procedure>'.
+tests/views-shell/settings-page.test.tsx(94,5): error TS2322: Type '(() => void) | (MockInstance<Constructable | Procedure> & (new (...args: any[]) => any) & {})' is not assignable to type 'Mock<Constructable | Procedure>'.
+  Type '() => void' is not assignable to type 'Mock<Constructable | Procedure>'.
+    Type '() => void' is not assignable to type 'MockInstance<Constructable | Procedure> & { (...args: any[]): any; new (...args: any[]): any; } & {}'.
+      Type '() => void' is not assignable to type 'MockInstance<Constructable | Procedure>'.
+tests/views-shell/settings-page.test.tsx(116,9): error TS2322: Type 'Mock<Constructable | Procedure>' is not assignable to type '() => void'.
+  Type 'MockInstance<Constructable | Procedure> & (new (...args: any[]) => any) & {}' is not assignable to type '() => void'.
+    Type 'MockInstance<Constructable | Procedure> & (new (...args: any[]) => any) & {}' provides no match for the signature '(): void'.
+tests/views-shell/settings-page.test.tsx(298,19): error TS2740: Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 131 more.
+tests/views-shell/settings-page.test.tsx(361,19): error TS2740: Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 131 more.
+tests/views-shell/settings-page.test.tsx(362,19): error TS2740: Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 131 more.
+tests/views-shell/settings-page.test.tsx(412,19): error TS2740: Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 131 more.
+tests/views-shell/settings-page.test.tsx(523,19): error TS2740: Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 131 more.
+tests/views-shell/settings-page.test.tsx(558,19): error TS2740: Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 131 more.
+tests/views-shell/settings-page.test.tsx(566,19): error TS2740: Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 131 more.
+tsc_exit=1
+PINNED_TSC_ZERO_DIFF_LINE_BY_LINE

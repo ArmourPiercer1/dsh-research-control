@@ -10,7 +10,8 @@
  *  2. RUN REQUIREMENT — every write tool × an AGENT actor without run_id
  *     is refused with TOOL_RUN_REQUIRED (INV-PERM-1 run attribution);
  *  3. ALLOWED LANE — an AGENT actor with a run passes the gate on all 11
- *     tools (the 2 live tools serve; the 9 stubs fail ONLY with
+ *     tools (the live tools — plan-fork / checkpoint / the G3 semantic
+ *     trio — serve; the remaining stubs fail ONLY with
  *     NOT_IMPLEMENTED — the gate is the sole permission layer);
  *  4. NO TOOL OUTSIDE THE MATRIX — the §7.2 forbidden-operation list and
  *     the §6 ❌ rows have no tool: the name set is exactly the 11 and no
@@ -33,7 +34,7 @@ import { NON_AGENT_ACTORS, expectToolErrorAsync, makeExec, makeRecordingDeps } f
 import { openRecord } from '../planfork/fixtures.js'
 
 const deps = makeRecordingDeps()
-// The 2 live tools get fixed success impls so the PERMISSION GATE is the
+// The 5 live tools get fixed success impls so the PERMISSION GATE is the
 // only variable under test (the forwarding fidelity is a separate suite).
 deps.setPlanForkCreate((params) => ({ ...openRecord(), created_by_run: params.createdByRun }))
 deps.setRecordCheckpoint((runId) => ({
@@ -44,6 +45,39 @@ deps.setRecordCheckpoint((runId) => ({
   started_at: 1,
   last_checkpoint_at: 1,
 }))
+deps.setSemanticAgentCreate({
+  recordFact: (args, caller) => ({
+    factId: 'F-1',
+    workstreamId: args.workstreamId,
+    statement: args.statement,
+    references: [],
+    status: 'ACTIVE',
+    recordedAt: 1,
+    eventId: 'H-1',
+    createdByRun: caller.run_id,
+  }),
+  recordClaim: (args, caller) => ({
+    claimId: 'C-1',
+    workstreamId: args.workstreamId,
+    statement: args.statement,
+    references: [],
+    status: 'ACTIVE',
+    recordedAt: 1,
+    eventId: 'H-2',
+    createdByRun: caller.run_id,
+  }),
+  registerArtifact: (args, caller) => ({
+    artifactId: 'A-1',
+    workstreamId: args.workstreamId,
+    type: args.type,
+    title: args.title,
+    uri: args.uri,
+    status: 'REGISTERED',
+    recordedAt: 1,
+    eventId: 'H-3',
+    createdByRun: caller.run_id,
+  }),
+})
 const tools = createResearchTools(deps)
 
 /** One accepted minimal argument set per tool (passes the wire face). */
@@ -111,10 +145,10 @@ describe('TC-DOM-013 layer 3: the allowed lane (AGENT + run passes the gate on a
     const tool = tools.find((t) => t.name === name)!
     try {
       const result = (await tool.execute(VALID_ARGS[name], makeExec())) as { status: string }
-      // the 2 live tools
+      // the live tools (plan-fork, checkpoint, + the G3 semantic trio)
       expect(['created', 'ok']).toContain(result.status)
     } catch (e) {
-      // the 9 stubs: the ONLY failure mode past the gate is NOT_IMPLEMENTED
+      // the 6 stubs: the ONLY failure mode past the gate is NOT_IMPLEMENTED
       await expectToolErrorAsync(
         () => {
           throw e

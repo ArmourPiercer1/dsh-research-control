@@ -351,7 +351,7 @@ import {
   DshVersionError,
   sweepStaleTmp,
 } from '../../service/sessionlink/index.js'
-import { isToolError, type ResearchToolDefinition, type ToolJsonValue } from '../../tools/index.js'
+import { isToolError, type ToolJsonValue } from '../../tools/index.js'
 import {
   DiscoverError,
   discoverPlane,
@@ -1605,9 +1605,10 @@ export class ResearchControlService extends TypertRemoteService {
    * port's `reinitPlane` option in `[Service.init]`): re-runs the FULL
    * {@link #initResearchPlane} — §4 discovery AND the per-project
    * rewiring — and swaps the fresh state IN PLACE, so the NEXT RPC call
-   * (any of the 22) reads the fresh `plane` / `projectWirings` /
-   * `projectRpcs` fields (the read port's lazy getters see them too —
-   * no re-composition, the T3.2a comment's contract).
+   * (any of the 58 + the ping) reads the fresh `plane` /
+   * `projectWirings` / `projectRpcs` fields (the read port's lazy
+   * getters see them too — no re-composition, the T3.2a comment's
+   * contract).
    *
    * Ordering (the reinitPlane contract — 「on throw the previous state
    * is left in place and the throw rejects the mutation」): the FRESH
@@ -1621,19 +1622,26 @@ export class ResearchControlService extends TypertRemoteService {
    * ports before store connections, the fiber-unmount order (every
    * `close()` is idempotent) — and the fields swapped.
    *
-   * Known boundary (the T3.x tool-face decision, design §13): the 11
-   * agent tools register ONCE in `[Service.init]` and capture their
-   * data-face closures from that wiring; a re-init that replaces the
-   * sole wiring (e.g. a rescan on a single-project plane) leaves the
-   * registered tool closures on the closed old wiring while
-   * `#runResearchTool` resolves the actor against the NEW `#wiring`
-   * (fail-loud at use time, no silent data path — the db-adapter's
-   * closed-connection guard turns such a call into the actionable
-   * `WIRING_CLOSED` message instead of a raw driver error). Tool
-   * re-registration is a T3.x scope, like the tools' multi-project
-   * face.
+   * The agent TOOL channels live on the SAME live side as everything
+   * else (G1 — the trusted-boundary/lifecycle repair that closed the
+   * former known boundary): the 11 tools still register ONCE in
+   * `[Service.init]` (the frozen single-registration face — no
+   * re-registration per mutation), but `#runResearchTool` resolves
+   * BOTH the actor and the executable definition from the LIVE
+   * `#wiring` on every call (the `() => this.#wiring` getter — the
+   * same discipline as `requireRpc` and the command channels). A
+   * re-init that replaces the sole wiring therefore NEVER strands a
+   * registered tool on the closed old wiring: the next call dispatches
+   * into the FRESH wiring's tools (their deps composed from the new
+   * store), and a plane that leaves the single-project shape fails
+   * loud with the clear no-wiring `TOOL_INTERNAL`. The fail-loud
+   * `WIRING_CLOSED` closed-connection class is unreachable from the
+   * tool dispatch surface by construction (it stays only as the
+   * db-adapter's last-resort guard). The tools' multi-project face
+   * remains T3.x scope (design §12.1: the frozen parameter face
+   * carries no projectId).
    *
-   * The user-facing COMMAND channels are NOT on this stale side: the
+   * The user-facing COMMAND channels are on the same live side: the
    * one-click (`/research-investigate`) and the three analysis
    * data-face commands register ONCE too, but their handlers re-resolve
    * the wiring LIVE on every invocation (the `() => this.#wiring`
@@ -1972,7 +1980,13 @@ export class ResearchControlService extends TypertRemoteService {
             [...def.output.render(args, value as ToolJsonValue)],
         },
         execute: async (args: unknown, exec: ToolRunContext): Promise<unknown> =>
-          this.#runResearchTool(def, args, exec as unknown as ToolRunContextSlice),
+          // G1 live dispatch: the registration owns only the FROZEN
+          // surface (name/description/parameters/output). The executable
+          // definition is re-resolved from the CURRENT `#wiring` per call
+          // (`#runResearchTool`) — a plane-mutation re-init swaps the
+          // wiring and the next call follows, never a stale closure on
+          // the closed old wiring.
+          this.#runResearchTool(def.name, args, exec as unknown as ToolRunContextSlice),
       }
       tools.register(toolDefinition)
     }
@@ -1980,10 +1994,15 @@ export class ResearchControlService extends TypertRemoteService {
   }
 
   /**
-   * One research tool call: resolve the frozen AGENT actorRef from the
-   * calling session, run the plugin `ResearchToolDefinition.execute`
-   * (the built-in tool gates — actor/run/shape/abort — do their work),
-   * and map failures into the host `ToolFailure.info` contract:
+   * One research tool call (G1 live dispatch — the name is the only
+   * fact kept from the registration): resolve the CURRENT `#wiring`, take
+   * the executable definition from ITS `tools` face (the registration
+   * closure never carries data-face state across a re-init), resolve the
+   * frozen AGENT actorRef from the calling session (identity is
+   * host-owned — never read from `args`), run the plugin
+   * `ResearchToolDefinition.execute` (the built-in tool gates —
+   * actor/run/shape/abort — do their work), and map failures into the
+   * host `ToolFailure.info` contract:
    *  - a plugin `ToolError` → `ResearchToolHostError` (extends
    *    `HarnessError`) with the SAME `code` — the registry's `errorInfo`
    *    extracts `info: {name, code}` only from `HarnessError` instances,
@@ -1994,7 +2013,7 @@ export class ResearchControlService extends TypertRemoteService {
    *  - anything else → `TOOL_INTERNAL` (never a raw unstructured leak).
    */
   async #runResearchTool(
-    def: ResearchToolDefinition,
+    name: string,
     args: unknown,
     exec: ToolRunContextSlice,
   ): Promise<unknown> {
@@ -2002,7 +2021,7 @@ export class ResearchControlService extends TypertRemoteService {
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new ResearchToolHostError(
         'TOOL_CALLER_UNRESOLVED',
-        `${def.name}: cannot resolve the calling session (exec.agent.sessionId absent) — ` +
+        `${name}: cannot resolve the calling session (exec.agent.sessionId absent) — ` +
           'research tools are agent-session tools only',
       )
     }
@@ -2010,7 +2029,19 @@ export class ResearchControlService extends TypertRemoteService {
     if (wiring === undefined) {
       throw new ResearchToolHostError(
         'TOOL_INTERNAL',
-        `${def.name}: the research plane is not initialized (spike mode)`,
+        `${name}: the research plane is not initialized (spike mode)`,
+      )
+    }
+    // The LIVE definition (G1): the frozen §7.2 face means every wiring
+    // exposes exactly the same 11 names — a miss is a composition-
+    // invariant break, fail loud, never a silent fall back to the
+    // registration-time closure (that is exactly the stale-wiring class).
+    const def = wiring.tools.find((t) => t.name === name)
+    if (def === undefined) {
+      throw new ResearchToolHostError(
+        'TOOL_INTERNAL',
+        `${name}: the live wiring exposes no such tool (composition invariant broken — ` +
+          'registration and dispatch must see the same frozen face)',
       )
     }
     // The run of this session (when one exists): the write tools then
@@ -2025,9 +2056,15 @@ export class ResearchControlService extends TypertRemoteService {
       return await def.execute(args, { signal: exec.signal, actor })
     } catch (e) {
       if (isToolError(e)) {
-        throw new ResearchToolHostError(`${e.code}: ${e.message}`, e.code, { cause: e })
+        // The ctor is (code, message, options) — the machine code FIRST:
+        // the registry's errorInfo rides `code` to the model side, so a
+        // sentence-valued code breaks routing (and `.message` would
+        // degrade to the bare code). `cause` rides through the standard
+        // ErrorOptions (HarnessError forwards them to Error — verified
+        // against the pinned runtime, no invented interface).
+        throw new ResearchToolHostError(e.code, `${e.code}: ${e.message}`, { cause: e })
       }
-      throw toHostError(def, e)
+      throw toHostError(name, e)
     }
   }
 }
@@ -2047,10 +2084,12 @@ function isUsableSchemaRoot(p: string): boolean {
   )
 }
 
-/** Map an unexpected (non-`ToolError`) throw to the host error contract. */
-function toHostError(def: ResearchToolDefinition, e: unknown): ResearchToolHostError {
+/** Map an unexpected (non-`ToolError`) throw to the host error contract
+ *  (ctor is `(code, message, options)` — the machine code `TOOL_INTERNAL`
+ *  FIRST, the sentence in `message`, same shape as the ToolError mapping). */
+function toHostError(name: string, e: unknown): ResearchToolHostError {
   const message = e instanceof Error ? e.message : String(e)
-  return new ResearchToolHostError(`TOOL_INTERNAL: ${def.name}: unexpected failure: ${message}`, 'TOOL_INTERNAL', { cause: e })
+  return new ResearchToolHostError('TOOL_INTERNAL', `TOOL_INTERNAL: ${name}: unexpected failure: ${message}`, { cause: e })
 }
 
 /**

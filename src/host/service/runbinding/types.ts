@@ -185,6 +185,12 @@ export type RunBindingErrorCode =
   | 'RB_RUN_NOT_FOUND'
   /** Run state machine: the operation requires RUNNING (§13 L549). */
   | 'RB_RUN_NOT_RUNNING'
+  /** G1 trusted boundary: an AGENT checkpoint reporter must carry its
+   *  OWN formal run_id and it must equal the target run (the checkpoint
+   *  report is run-attributed self-reporting — ARCHITECTURE §6 row
+   *  「Run 生命周期事件」, INV-PERM-1). Cross-run note-taking and
+   *  unattributed AGENT reporters belong to the USER lane. */
+  | 'RB_CHECKPOINT_FOREIGN_RUN'
   /** The DSH session already has a formal run (one DS : one run, §6.2). */
   | 'RB_SESSION_ALREADY_BOUND'
   /** The DSH session already has a DiscoveredSession row (any state) —

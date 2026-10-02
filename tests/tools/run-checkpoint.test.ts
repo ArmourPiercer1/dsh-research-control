@@ -8,6 +8,13 @@
  * WP-2.4 harness: real research.sqlite, real registry, real tables), so
  * the forwarding is proven end-to-end: args → service → row update →
  * the returned frozen run row.
+ *
+ * G1 (trusted boundary): the service enforces the AGENT same-run gate
+ * (caller run_id === target run_id, BASELINE_PLAN §2c) — the positive
+ * fixtures therefore carry the run's OWN id (a foreign fixture run_id
+ * would be a cross-run report, refused with RB_CHECKPOINT_FOREIGN_RUN →
+ * TOOL_SERVICE; pinned below). The USER lane and the existence-first
+ * ordering are unchanged.
  */
 
 import { afterAll, describe, expect, it } from 'vitest'
@@ -39,8 +46,11 @@ describe('research_run_checkpoint: forwarding to the real recordCheckpoint surfa
   it('a checkpoint report updates the run row and returns the frozen record', async () => {
     const { harness, deps, tool } = setup()
     const { run } = harness.service.registerRun({ workstreamId: 'WS-1' })
+    // G1 same-run gate: the reporter carries ITS OWN run (the canonical
+    // R-81 fixture actor would be a cross-run report).
+    const own = { ...AGENT, run_id: run.id }
 
-    const result = (await tool.execute({ run_id: run.id, note: '误差预算复算脚本完成' }, makeExec({ actor: AGENT }))) as {
+    const result = (await tool.execute({ run_id: run.id, note: '误差预算复算脚本完成' }, makeExec({ actor: own }))) as {
       status: string
       run: Record<string, unknown>
     }
@@ -53,7 +63,7 @@ describe('research_run_checkpoint: forwarding to the real recordCheckpoint surfa
     expect(deps.recordCheckpointCalls).toHaveLength(1)
     expect(deps.recordCheckpointCalls[0].runId).toBe(run.id)
     expect(deps.recordCheckpointCalls[0].params).toEqual({ note: '误差预算复算脚本完成' })
-    expect(deps.recordCheckpointCalls[0].actor).toMatchObject({ kind: 'AGENT', run_id: 'R-81' })
+    expect(deps.recordCheckpointCalls[0].actor).toMatchObject({ kind: 'AGENT', run_id: run.id })
     // the row really moved (the service state, not just the return value)
     const stored = harness.service.getRun(run.id)!
     expect(stored.last_checkpoint_note).toBe('误差预算复算脚本完成')
@@ -62,8 +72,9 @@ describe('research_run_checkpoint: forwarding to the real recordCheckpoint surfa
   it('note is optional (omitted → no note forwarded, at set)', async () => {
     const { harness, deps, tool } = setup()
     const { run } = harness.service.registerRun({ workstreamId: 'WS-1' })
+    const own = { ...AGENT, run_id: run.id }
 
-    const result = (await tool.execute({ run_id: run.id }, makeExec({ actor: AGENT }))) as {
+    const result = (await tool.execute({ run_id: run.id }, makeExec({ actor: own }))) as {
       status: string
       run: Record<string, unknown>
     }
@@ -71,6 +82,23 @@ describe('research_run_checkpoint: forwarding to the real recordCheckpoint surfa
     expect(deps.recordCheckpointCalls[0].params).toEqual({})
     expect(result.run.last_checkpoint_at).toBeTypeOf('number')
     expect(harness.service.getRun(run.id)!.last_checkpoint_note).toBeUndefined()
+  })
+
+  it('a cross-run report (AGENT of run A → run B) is refused TOOL_SERVICE + RB_CHECKPOINT_FOREIGN_RUN', async () => {
+    const { harness, deps, tool } = setup()
+    const a = harness.service.registerRun({ workstreamId: 'WS-1' })
+    const b = harness.service.registerRun({ workstreamId: 'WS-2' })
+
+    const error = await expectToolErrorAsync(
+      () => tool.execute({ run_id: b.run.id, note: '跨 run 伪造' }, makeExec({ actor: { ...AGENT, run_id: a.run.id } })),
+      'TOOL_SERVICE',
+    )
+    expect(error.detail).toMatchObject({ serviceCode: 'RB_CHECKPOINT_FOREIGN_RUN' })
+    // the service was reached once (the gate lives at the trusted
+    // boundary, not in a tool-side pre-filter) and the foreign row stayed
+    // untouched.
+    expect(deps.recordCheckpointCalls).toHaveLength(1)
+    expect(harness.service.getRun(b.run.id)!.last_checkpoint_at).toBeUndefined()
   })
 
   it('an unknown run surfaces the service code (RB_RUN_NOT_FOUND) as TOOL_SERVICE', async () => {

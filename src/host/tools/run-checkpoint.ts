@@ -41,7 +41,9 @@ export const RUN_CHECKPOINT_PARAMETERS: ToolParameters = {
   run_id: {
     type: 'string',
     required: true,
-    description: 'The id (R-<n>) of the formal run to report a checkpoint for — normally your own run.',
+    description:
+      'The id (R-<n>) of the formal run to report a checkpoint for — it must be your own run ' +
+      '(the report is verified against the run your session is attributed to).',
   },
   note: {
     type: 'string',

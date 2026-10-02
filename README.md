@@ -7,7 +7,7 @@ Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic /
 运行时面：
 
 - **Host service `ctx.researchControl`** — 58 个一元 RPC + 1 个 spike ping（`researchControl.*`，纯 JSON DTO：13 条冻结 V1 只增不改（请求增可选 `projectId` 多项目路由）+ 9 条 V2 plane 增量 + 36 条 V2-UI GUI 管理增量；面总数以 Typert manifest 59 invocations 为机器断言，见 `scripts/pack-verify.mjs:208`）+ 启动完整性检查（DB/树/Git/一致性四检查，在 `[Service.init]` 实例化服务之前的 integrity gate 运行：不可恢复损坏 fail-loud 阻断启动、fiber 到不了 ACTIVE；可恢复损坏 loud 告警 + 自动处置（启动对账自动收敛）；部分损坏的 `.research` 树由 gate 分类为 §10 只读表面（暴露 `readSurface: 'readonly'` 旗、唯一树写路径 honor 它）——但 V1 的 WIRING_TREE 步保持「任何 load 错误即启动失败」从严策略，**部分坏树在 V1 仍 fail-loud 拒绝启动**（无一键「只读降级模式」，见「已知局限」）；Git 冲突/缺失拒绝 managed mode 与 checkpoint）；
-- **11 个 `research_*` agent 工具**（ARCHITECTURE §7.2：7 可写 + 4 只读；权限矩阵内置）；
+- **11 个 `research_*` agent 工具**（ARCHITECTURE §7.2：7 可写 + 4 只读；权限矩阵内置；**仅在单项目平面注册**——工具冻结面不携带 projectId，多项目平面 loud warn 且不注册含糊绑定，数据面经 `#wiring` 单项目字段无歧义解析，见 `docs/BASELINE_PLAN.md` §1 与 `src/host/dsh-adapter/host/index.ts:113-133` 区注）；
 - **Web UI** — `conversation.view` 整 tab（V2：中枢控制台四页 总览/重要事件/调查员/设置 + 收窄项目视图 + 引导卡；项目视图内保留 Cockpit 三区 + Plan/Topology 图 + History 时间线 + Drill-down）+ `shell.overlay`；
 - **只读 Investigator** — 从 Intervention 一键启动独立只读会话（专用 preset + `/permission read-only`，INV-PERM-3 三层保障）；
 - **持久化** — `node:sqlite` operational store（V2 布局：受管项目 `<hubDir>/projects/<project-id>/research.sqlite`、单工作区 `<treeDir>/state/research.sqlite`，库随项目走一次只有一份；WAL + 单调 `user_version`；旧路径 `$DSH_HOME/research-control/<id>/` 退役、仅日志提示）+ 对 `.research/` 声明式树与 Git 的谨慎消费（checkpoint 仅提交 `.research/**`）。
@@ -111,11 +111,11 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 
 #### 模型看到的内容
 
-插件加载后，11 个 `research_*` 工具注册进会话全局工具层：7 个可写（`research_fact_record` / `research_claim_record` / `research_artifact_register` / `research_intervention_create` / `research_next_action_create` / `research_plan_fork_create` / `research_run_checkpoint`）+ 4 个只读（`research_context_get` / `research_plan_get` / `research_history_query` / `research_contract_read`）。模型看到每个工具的名称、描述与参数 JSON Schema（宿主 system-prompt 组装进工具块）；每次调用得到一个单一 canonical JSON 值（`output.schema` 声明）或结构化错误（含 `code`）。插件的 History 行、DB、文件树不直接可见——模型只能通过这 11 个工具（以及用户的 GUI/RPC 面）触达研究数据。当前构建中 9/11 个工具的 handler 是**桩**：参数校验后返回结构化 `TOOL_NOT_IMPLEMENTED` 错误（错误 `detail` 指明计划中的服务）；`research_plan_fork_create` 与 `research_run_checkpoint` 是活转发（见「已知局限与延后工作」）。
+插件加载后，11 个 `research_*` 工具注册进会话全局工具层：7 个可写（`research_fact_record` / `research_claim_record` / `research_artifact_register` / `research_intervention_create` / `research_next_action_create` / `research_plan_fork_create` / `research_run_checkpoint`）+ 4 个只读（`research_context_get` / `research_plan_get` / `research_history_query` / `research_contract_read`）。模型看到每个工具的名称、描述与参数 JSON Schema（宿主 system-prompt 组装进工具块）；每次调用得到一个单一 canonical JSON 值（`output.schema` 声明）或结构化错误（含 `code`）。插件的 History 行、DB、文件树不直接可见——模型只能通过这 11 个工具（以及用户的 GUI/RPC 面）触达研究数据。**11/11 已全部实转发**（G0–G4 各组闭环 + G5 真实 registry 端到端验收；注册前提 = 单项目平面，见「运行时面」）：注册经宿主 registry 的真实 schema 门，成功输出经宿主真实 output validator；端到端闭环用法（读现状 → 记录 fact/claim/artifact → 上报 intervention/next action → 发起 PlanFork 提案 → 用户 GUI SELECT/排序等决策 → own-run checkpoint）见 [docs/TOOLS_TRACEABILITY.md §4 用户指南](docs/TOOLS_TRACEABILITY.md)。身份永远由宿主从会话解析（args 无身份键，注入即 `TOOL_INPUT`）；写面要求会话绑定 formal run（无 run = Investigator 只读身份）。
 
 #### Token 影响
 
-11 份工具 Schema 构成每会话一个**固定**前缀块（大小由定义决定，会话内不变）。每次工具调用向会话历史追加一条 tool-call 记录 + 一条 canonical JSON 结果（或结构化错误），并参与此后所有模型请求；结果大小随请求范围变化（`research_history_query` 等分页工具按页返回，页内行数有界）。桩工具的结果是小型恒定错误对象。
+11 份工具 Schema 构成每会话一个**固定**前缀块（大小由定义决定，会话内不变）。每次工具调用向会话历史追加一条 tool-call 记录 + 一条 canonical JSON 结果（或结构化错误），并参与此后所有模型请求；结果大小随请求范围变化（`research_history_query` 等分页工具按页返回，页内行数有界；context/plan/contract 为单主体完整返回）。
 
 #### KV Cache 影响
 
@@ -139,7 +139,10 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 
 ## 已知局限与延后工作
 
-- **9/11 工具 handler 为桩** — 注册面（name/description/parameters/output 契约）完整且被测试冻结，但 `research_fact_record` / `research_claim_record` / `research_artifact_register` / `research_intervention_create` / `research_next_action_create` / `research_context_get` / `research_plan_get` / `research_history_query` / `research_contract_read` 的调用返回 `TOOL_NOT_IMPLEMENTED`（`detail.plannedService` 指明目标服务）；对应 service 层多数已存在（WP-1.3/2.3/2.4/5.1/5.2），缺的是工具 handler → service 的接线 WP。模型体验上 = 「工具可见、调用即得结构化未实现错误」。
+- **11/11 工具已实转发**（G0–G5 收口）——桩面已在 G2（4 读）/G3（语义三写）/G4（注意力两写）退役，`tests/tools/stubs.test.ts` 保留为无桩活性防火墙；G5 在真实 `@deepseek-ai/dsh-tools` `ToolRuntime` registry 上端到端验收全部 11 工具的成功输出（真实注册门 + 真实 output validator），追溯与真实/模拟分层见 [docs/TOOLS_TRACEABILITY.md](docs/TOOLS_TRACEABILITY.md)；组说明见 [docs/G1](docs/G1_TRUSTED_BOUNDARY.md)/[G2](docs/G2_READONLY_TOOLS.md)/[G3](docs/G3_SEMANTIC_WRITE_TOOLS.md)/[G4](docs/G4_ATTENTION_WRITE_TOOLS.md)。
+- **tsc known-fail 基线** — `docs/BASELINE_TSC_BASELINE.md` 的 21 错/40 行历史债务仍在（独立小 PR 清偿）；11 工具门禁以「逐行 diff 为空」判定无新增，**不声称全零错误**。
+- **性能门时序波动** — `test:perf` 的 TC-PERF-006 为已知时序敏感项，重压机器上偶发；如实记录复跑，不调阈值。
+- **UI e2e 证据边界** — 18 条 UI journeys 与 `test:e2e` 仅在此前 UI 轮跑过；G5 为测试/文档轮，**本轮未执行 e2e**（NOT_RUN ≠ 失败，也非对后续授权的预设；见 TOOLS_TRACEABILITY §1 分层表）。
 - **未公开发布** — `0.1.0` + `private: true`，未上 npm 公共注册表，license 未定；当前分发面 = 本地 tarball（`pnpm pack`）或 git checkout / git host（`lib/` 预构建随树提交，两种 git 路径均开箱即用，无需 allowBuilds）。
 - **宿主无兼容承诺** — DSH 为 pre-release（「rename or repackage freely」）；本包以 peer 精确 pin `0.1.2-alpha.3`（`package.json` peer/dep/devDep 全量重锚；见 HEAD `0fa2b1a1` train 适配）+ 自持 `minDshVersion` fail-loud 门（默认下限 `0.1.0-rc.8`，`index.ts:12`）+ TC-DSH-008 compatibility smoke 承接升级风险，不提供跨宿主版本兼容。
 - **e2e 证据面** — 全绿证据基于隔离 smoke home（独立 DSH_HOME + 独立端口 + `--reset` 种子重置），非真实用户 profile 的长期运行；宿主侧长时行为（WAL checkpoint、profile 多 bundle 组合漂移）未覆盖。

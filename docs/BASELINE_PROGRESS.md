@@ -105,3 +105,12 @@ fresh build 对已提交产物产生两类**机器特异** diff，Stage-0 一律
 | **e2e（Playwright 18 spec）** | 文件存在、历史有绿证据 | **本次 NOT_RUN**——需启动隔离 DSH_HOME/独立端口宿主实例，超出本次只读调查授权；**不代表本次验证**，仅〔声称〕历史 live 记录（提交信息）+ 文件在场〔实证〕 |
 | 文档正源（V2 设计、计划书、SI-001 裁决） | **缺口**（在作者工作区根，未入库） | 〔实证〕find 全树；README L3 引用无法在库内解析 |
 | GitHub 协作面（**baseline 调查时点 2026-10-02 快照**） | 该时点：0 issues、0 PRs、无 `.github/` CI workflow、HEAD 无 check runs | 〔实跑〕`gh issue/pr list --state all` 均 `[]`。**注**：本 PR #1（Stage-0）在该快照之后创建，非该时点数据；后续 review 亦可能新增，非静态事实 |
+
+### 6.1 后续更新（G2–G5 合并后，2026-10）
+
+§6 是 Stage-0 调查时点快照；11 工具行此后由后续 PR 组推进：G2 退役 4 读桩、G3 退役语义三写桩、
+G4 退役注意力两写桩 → **11/11 实转发**；G5 在真实 `@deepseek-ai/dsh-tools` `ToolRuntime`
+registry（真实注册门 + 真实 output validator）上完成 11 工具端到端成功输出验收 + rescan/restart
+连续性 + 权限边界矩阵。现状与验收追溯见 `docs/TOOLS_TRACEABILITY.md`；组说明见
+`docs/G1..G4_*.md`；G5 的验收追溯（真实/模拟分层、逐项证据、门禁摘要、用户指南）在
+`docs/TOOLS_TRACEABILITY.md`。tsc 债务行不变（known-fail 基线，逐行 diff 判定）。

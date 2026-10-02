@@ -6,12 +6,14 @@
 
 ## 1. 问题（根因，实证于 BASELINE_PROGRESS §2）
 
-13 个测试 resolver 文件（BASELINE_PROGRESS §2 的「14 处」清单按 grep 重复计了
-`tests/rpc-face/stale-precheck.test.ts` 一次；`tests/loader/path.test.ts:54` 是纯
-路径单测非 resolver）把「仓库父目录」当作科研 workspace root 读取 `schema/`：
-`WR_ROOT = resolve/join(HERE,'..','..','..')`。standalone checkout 父层没有该
-fixture 时全量测试 ENOENT/`WIRING_INTEGRITY` 失败（BASELINE §4 的父层 fixture
-准备步骤只是过渡，不是可复现条件）。
+14 个测试 resolver 文件把「仓库父目录」当作科研 workspace root 读取 `schema/`：
+`WR_ROOT = resolve/join(HERE,'..','..','..')`（13 个），另有 1 个 URL 变体
+`tests/git/tc-git-015.test.ts` 的 `SCHEMA_DIR = new URL('../../../schema')`——
+后者不在 PROGRESS §2 清单内（该清单重复计了一次
+`tests/rpc-face/stale-precheck.test.ts`；`tests/loader/path.test.ts:54` 是纯
+路径单测非 resolver；第 14 个由本轮**无 fixture 隔离实跑**捕获）。standalone
+checkout 父层没有该 fixture 时全量测试 ENOENT/`WIRING_INTEGRITY` 失败
+（BASELINE §4 的父层 fixture 准备步骤只是过渡，不是可复现条件）。
 
 ## 2. G0 契约（测试面）
 
@@ -68,5 +70,9 @@ pack/快照刷新仍用 `DSH_SNAPSHOT_SOURCE_ROOT=<workspace-root>`。
   （本 PR 不触碰基线报错的任何文件；判定规则见该文件，禁止以计数巧合判定）。
 - e2e（Playwright）：**NOT_RUN** —— 需启动隔离宿主实例，超出本会话授权；
   `e2e-run.sh` 的 resolver 改动仅静态口径，未被本轮实跑覆盖。
+- perf 真实波动：最终 SHA 隔离首跑 TC-PERF-006 一次 ratio 16.9x（阈 <15x，非 schema
+  解析路径）；同树 quiet 复跑 21/21 + 单文件复跑 6/6 通过（`iso-fix-05-perf.log`
+  失败与 `iso-fix-05b/05c` 重试均在 `.g0-logs/`，不隐藏）。属计时敏感面的环境波动
+  记录，未降门禁；是否加 CI 重试策略归后续（BASELINE §5/Q3 域外）。
 - 机器特异面（`lib/client.js` region 注释、`SNAPSHOT.md` 时间戳）不入库
   （BASELINE_PROGRESS §5 纪律不变）；本文档与日志不写机器绝对路径结论。

@@ -91,7 +91,9 @@ import {
 } from '../hierarchy/index.js'
 import {
   FsPlanFileWriter,
+  FsTopologyFileIo,
 } from '../fs/index.js'
+import { makeToolReadServices } from './read-services.js'
 import {
   InterventionService,
   InterventionLifecycleStore,
@@ -1031,6 +1033,21 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       objectiveIds,
     })
 
+    // G2 (§2d) — the four READ services (context / plan / history /
+    // contract), composed from the read faces of the primitives above
+    // (runbinding tables, the QueryStore read surface, the canonical
+    // plan provider, fresh loader trees, the contract READ kernel).
+    // service/wiring/read-services.ts — read-only by construction.
+    const readServices = makeToolReadServices({
+      reader,
+      researchRoot,
+      declarativeDir,
+      tables,
+      store,
+      io: new FsTopologyFileIo(),
+      planProvider,
+    })
+
     const toolsDeps: ResearchToolDeps = {
       // The SYNCHRONOUS tool port: the eight-step domain chain with the
       // content-addressed capture (module: content-hash-capture.ts — the
@@ -1058,6 +1075,7 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
         return record
       },
       recordCheckpoint: (runId, params, actor) => runBinding.recordCheckpoint(runId, params, actor),
+      ...readServices,
     }
     const tools = createResearchTools(toolsDeps)
 

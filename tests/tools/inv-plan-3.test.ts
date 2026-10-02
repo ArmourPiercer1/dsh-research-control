@@ -4,10 +4,13 @@
  * 本 WP 交付工具面半边).
  *
  * 编译期 (类型面, tsc/typecheck 消费者生效):
- *  - `keyof ResearchToolDeps` 被钉死为恰好两个键 (planForkCreate /
+ *  - 依赖面的**写面**被钉死为恰好两个键 (planForkCreate /
  *    recordCheckpoint) — 任何 canonical plan 写口 (PlanStore 的
  *    savePlan/createItem/updateItem/insertItemAt/moveItem/removeItem/
  *    addItem 或 contract writer) 想进入工具层依赖面 ⇒ 编译失败;
+ *    (G2 §2d 起依赖面共六个键: 上述两写口 + 四个只读端口
+ *    contextGet/planGet/historyQuery/contractRead — 每个只读端口的
+ *    返回类型被逐字钉为投影 DTO, 签名里没有任何写参数/写返回;)
  *  - 两个端口的签名被逐字钉死: planForkCreate 的参数是冻结 §4
  *    `CreatePlanForkParams` (其无 base 由 WP-3.1 的 absent-key 断言传递
  *    证明), 返回值是 PlanFork 记录 (不是 plan); recordCheckpoint 的参数
@@ -31,6 +34,13 @@ import {
   type PlanForkRecord,
 } from '../../src/host/domain/planfork/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../../src/host/service/runbinding/index.js'
+import type {
+  ToolHistoryPage,
+  ToolHistoryQuery,
+  ToolMergeContractView,
+  ToolSessionContext,
+  ToolWorkstreamPlanView,
+} from '../../src/host/tools/read-ports.js'
 import * as toolsModule from '../../src/host/tools/index.js'
 import {
   RESEARCH_TOOL_NAMES,
@@ -51,10 +61,21 @@ type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y 
 /** True iff K is NOT a key of T. */
 type Absent<K extends string, T> = [K] extends [keyof T] ? false : true
 
-/** INV-PLAN-3 核心钉: 工具层依赖面恰好两个键 — 无 plan 写口可注入. */
-type T_DepsFaceExact = Expect<Equal<keyof ResearchToolDeps, 'planForkCreate' | 'recordCheckpoint'>>
+/** INV-PLAN-3 核心钉 (G2 §2d 后): 依赖面 = 两个写口 + 四个只读端口,
+ *  键集恰此六个 — 任何 canonical plan 写口都不在其中. */
+type T_DepsFaceExact = Expect<
+  Equal<
+    keyof ResearchToolDeps,
+    | 'planForkCreate'
+    | 'recordCheckpoint'
+    | 'contextGet'
+    | 'planGet'
+    | 'historyQuery'
+    | 'contractRead'
+  >
+>
 
-/** 正例钉: 两个键都在. */
+/** 正例钉: 六个键都在. */
 type T_HasPlanForkCreate = Expect<['planForkCreate'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasRecordCheckpoint = Expect<['recordCheckpoint'] extends [keyof ResearchToolDeps] ? true : false>
 
@@ -79,6 +100,16 @@ type T_RcParamsFrozen = Expect<
   Equal<Parameters<ResearchToolDeps['recordCheckpoint']>, [string, { note?: string }, UserOrAgentActorRef]>
 >
 type T_RcReturnsRun = Expect<Equal<ReturnType<ResearchToolDeps['recordCheckpoint']>, RunRecord>>
+
+/** G2 §2d 只读端口逐字钉: 参数只有 id 字符串, 返回只有投影 DTO —— 四个
+ *  签名都不携带任何 plan/contract/history 写语义 (INV-PLAN-3 读面半边). */
+type T_ContextGetFrozen = Expect<Equal<ResearchToolDeps['contextGet'], (sessionId: string) => ToolSessionContext>>
+type T_PlanGetFrozen = Expect<Equal<ResearchToolDeps['planGet'], (workstreamId: string) => ToolWorkstreamPlanView>>
+type T_HistoryQueryFrozen = Expect<Equal<ResearchToolDeps['historyQuery'], (query: ToolHistoryQuery) => ToolHistoryPage>>
+type T_ContractReadFrozen = Expect<Equal<ResearchToolDeps['contractRead'], (edgeId: string) => ToolMergeContractView>>
+/** planGet 的返回是 READ VIEW (ToolWorkstreamPlanView), 不是 PlanStore/PlanDoc:
+ *  写方法在返回类型上不可达 (投影 DTO 无任何方法成员). */
+type T_PlanGetReturnsView = Expect<Equal<ReturnType<ResearchToolDeps['planGet']>['ordered_items'], readonly string[]>>
 
 /** PF 参数本身无 base 变体 (INV-PLAN-6 在工具面的类型传递). */
 type T_PfParamsNoBase = Expect<Absent<'base', CreatePlanForkParams>>
@@ -106,6 +137,11 @@ const _typeSurface: [
   T_PfCreateArityOne,
   T_RcParamsFrozen,
   T_RcReturnsRun,
+  T_ContextGetFrozen,
+  T_PlanGetFrozen,
+  T_HistoryQueryFrozen,
+  T_ContractReadFrozen,
+  T_PlanGetReturnsView,
   T_PfParamsNoBase,
   T_PfParamsNoBasePlanObjects,
   T_PfParamsNoBasePlanObjects_Camel,
@@ -116,6 +152,7 @@ const _typeSurface: [
   true, true, true, true, true, true, true, true, true,
   true, true, true,
   true, true,
+  true, true, true, true, true,
   true, true, true, true, true,
 ]
 void _typeSurface
@@ -153,15 +190,45 @@ const PLAN_WRITE_PARAM_KEYS = [
 ] as const
 
 describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路径)', () => {
-  it('deps face is exactly two ports (compile-time pin; runtime mirror: the composition accepts only those)', () => {
-    // 运行时镜像: 依赖对象的键集 = 两个端口 (JS 调用者绕过类型的护栏)
+  it('deps face is the frozen six-port set (compile-time pin; runtime mirror: the composition accepts only those)', () => {
+    // 运行时镜像: 依赖对象的键集 = 两个写口 + 四个 G2 只读端口 (JS 调用者
+    // 绕过类型的护栏时, 写词汇依然不可达 — 只有六个端口键).
     const deps = makeRecordingDeps()
-    const { planForkCreateCalls, recordCheckpointCalls, setPlanForkCreate, setRecordCheckpoint, ...ports } = deps
+    const {
+      planForkCreateCalls,
+      recordCheckpointCalls,
+      contextGetCalls,
+      planGetCalls,
+      historyQueryCalls,
+      contractReadCalls,
+      setPlanForkCreate,
+      setRecordCheckpoint,
+      setContextGet,
+      setPlanGet,
+      setHistoryQuery,
+      setContractRead,
+      ...ports
+    } = deps
     void planForkCreateCalls
     void recordCheckpointCalls
+    void contextGetCalls
+    void planGetCalls
+    void historyQueryCalls
+    void contractReadCalls
     void setPlanForkCreate
     void setRecordCheckpoint
-    expect(Object.keys(ports).sort()).toEqual(['planForkCreate', 'recordCheckpoint'])
+    void setContextGet
+    void setPlanGet
+    void setHistoryQuery
+    void setContractRead
+    expect(Object.keys(ports).sort()).toEqual([
+      'contextGet',
+      'contractRead',
+      'historyQuery',
+      'planForkCreate',
+      'planGet',
+      'recordCheckpoint',
+    ])
   })
 
   it('no tool parameter key can name a canonical plan mutation (模型调用语法层)', () => {

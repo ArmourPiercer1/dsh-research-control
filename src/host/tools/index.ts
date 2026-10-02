@@ -25,15 +25,18 @@
  *    is exactly the §7.2 list and tests/tools/permissions.test.ts audits
  *    the §7.2 forbidden list + the matrix rows against it (INV-PERM-2);
  *  - the Agent has NO canonical-plan write path (INV-PLAN-3): the deps
- *    face (`ResearchToolDeps`) is exactly two ports and the
+ *    face (`ResearchToolDeps`) carries no plan writer (two write ports +
+ *    the four G2 §2d READ ports, each a pure projection) and the
  *    `research_plan_fork_create` parameter face is base-less (INV-PLAN-6);
  *    the type-surface proof lives in tests/tools/inv-plan-3.test.ts.
  *
- * Stub state: 9 of the 11 tools are stubs (NOT_IMPLEMENTED structured
+ * Stub state: 5 of the 11 tools are stubs (NOT_IMPLEMENTED structured
  * error) — their forwarding services have not landed yet (the report's
- * stub table names each replacement WP); 2 are live forwards
+ * stub table names each replacement WP); 6 are live forwards
  * (research_plan_fork_create → the WP-3.1 eight-step creation chain,
- * research_run_checkpoint → the WP-2.4 recordCheckpoint surface).
+ * research_run_checkpoint → the WP-2.4 recordCheckpoint surface, and
+ * since G2 §2d all four read tools → their §2d service compositions in
+ * `service/wiring/read-services.ts`).
  */
 
 export {
@@ -56,6 +59,7 @@ export {
   CONTEXT_GET_OUTPUT_SCHEMA,
   CONTEXT_GET_PARAMETERS,
   RESEARCH_CONTEXT_GET,
+  parseContextGetArgs,
   makeContextGetDefinition,
 } from './context-get.js'
 export {
@@ -63,6 +67,7 @@ export {
   CONTRACT_READ_OUTPUT_SCHEMA,
   CONTRACT_READ_PARAMETERS,
   RESEARCH_CONTRACT_READ,
+  parseContractReadArgs,
   makeContractReadDefinition,
 } from './contract-read.js'
 export {
@@ -75,9 +80,12 @@ export {
 export {
   HISTORY_ORDERS,
   HISTORY_QUERY_ARG_KEYS,
+  HISTORY_QUERY_DEFAULT_LIMIT,
+  HISTORY_QUERY_MAX_LIMIT,
   HISTORY_QUERY_OUTPUT_SCHEMA,
   HISTORY_QUERY_PARAMETERS,
   RESEARCH_HISTORY_QUERY,
+  parseHistoryQueryArgs,
   makeHistoryQueryDefinition,
 } from './history-query.js'
 export {
@@ -112,8 +120,22 @@ export {
   PLAN_GET_OUTPUT_SCHEMA,
   PLAN_GET_PARAMETERS,
   RESEARCH_PLAN_GET,
+  parsePlanGetArgs,
   makePlanGetDefinition,
 } from './plan-get.js'
+export {
+  ToolReadServiceError,
+  mapReadServiceError,
+  type ToolHistoryPage,
+  type ToolHistoryQuery,
+  type ToolMergeContractView,
+  type ToolReadServiceErrorCode,
+  type ToolSessionContext,
+  type ToolTaskRef,
+  type ToolTopologyEdgeRef,
+  type ToolWorkstreamPlanView,
+  type ToolWorkstreamRef,
+} from './read-ports.js'
 export {
   RESEARCH_RUN_CHECKPOINT,
   RUN_CHECKPOINT_ARG_KEYS,
@@ -201,9 +223,9 @@ export const READ_TOOL_NAMES: readonly string[] = RESEARCH_TOOL_NAMES.slice(7)
 export const INVESTIGATOR_TOOL_NAMES: readonly string[] = READ_TOOL_NAMES
 
 /**
- * Compose the complete tool face over the two service ports.
- * Fail-loud on a malformed deps object (misconfiguration is a
- * composition-time error, not a per-call surprise). The returned
+ * Compose the complete tool face over the service ports (two write +
+ * four G2 read). Fail-loud on a malformed deps object (misconfiguration
+ * is a composition-time error, not a per-call surprise). The returned
  * definitions are frozen and registered by the host wiring WP (WP-3.6)
  * — one `defineTool` adaptation per definition.
  */
@@ -217,22 +239,27 @@ export function createResearchTools(deps: ResearchToolDeps): readonly ResearchTo
     makeNextActionCreateDefinition(),
     makePlanForkCreateDefinition(deps),
     makeRunCheckpointDefinition(deps),
-    makeContextGetDefinition(),
-    makePlanGetDefinition(),
-    makeHistoryQueryDefinition(),
-    makeContractReadDefinition(),
+    makeContextGetDefinition(deps),
+    makePlanGetDefinition(deps),
+    makeHistoryQueryDefinition(deps),
+    makeContractReadDefinition(deps),
   ]
 }
 
-/** Both ports must be functions (fail loud at composition). */
+/** All six ports must be functions (fail loud at composition). */
 function assertDeps(deps: ResearchToolDeps): void {
   if (deps === null || typeof deps !== 'object') {
-    throw new TypeError('createResearchTools: deps must be an object with the two service ports')
+    throw new TypeError('createResearchTools: deps must be an object with the six service ports')
   }
   if (typeof deps.planForkCreate !== 'function') {
     throw new TypeError('createResearchTools: deps.planForkCreate must be the PlanFork creation service (WP-3.1 chain)')
   }
   if (typeof deps.recordCheckpoint !== 'function') {
     throw new TypeError('createResearchTools: deps.recordCheckpoint must be the RunBindingService.recordCheckpoint surface (WP-2.4)')
+  }
+  for (const port of ['contextGet', 'planGet', 'historyQuery', 'contractRead'] as const) {
+    if (typeof deps[port] !== 'function') {
+      throw new TypeError(`createResearchTools: deps.${port} must be the G2 §2d read service (service/wiring/read-services.ts)`)
+    }
   }
 }

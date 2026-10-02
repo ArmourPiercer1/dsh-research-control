@@ -15,8 +15,9 @@
  * `actorRef` (common.schema.json `$defs/actorRef` mirror)).
  *
  * Layer (ARCHITECTURE §2.2): tools are the TOP layer — they forward to
- * SERVICES and never to the domain directly. The only dependencies are the
- * two `ResearchToolDeps` service ports below; everything else (frozen
+ * SERVICES and never to the domain directly. The only dependencies are
+ * the `ResearchToolDeps` service ports below (G1-era: the two write
+ * ports; G2 §2d adds the four READ ports); everything else (frozen
  * records, parameter shapes) is data. `domain/` and `service/` are imported
  * for TYPE SURFACES ONLY (no service instantiation in this layer).
  *
@@ -32,9 +33,10 @@
  *    the §7.2 list and `tests/tools/permissions.test.ts` audits the
  *    forbidden-operation list (INV-PERM-2) against the name set;
  *  - the Agent has NO canonical-plan write path (INV-PLAN-3): the deps
- *    face is exactly two ports (proven at the type surface in
- *    `tests/tools/inv-plan-3.test.ts`) and no tool parameter can express a
- *    plan mutation.
+ *    face carries NO plan writer (proven at the type surface in
+ *    `tests/tools/inv-plan-3.test.ts` — the write lane is still exactly
+ *    the two original ports, the G2 additions are pure READ ports) and
+ *    no tool parameter can express a plan mutation.
  *
  * Error contract: handlers THROW `ToolError` (never return an error value)
  * — the host registry materializes a thrown body as a failed tool result,
@@ -44,6 +46,13 @@
 
 import type { CreatePlanForkParams, PlanForkRecord } from '../domain/planfork/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../service/runbinding/index.js'
+import type {
+  ToolHistoryPage,
+  ToolHistoryQuery,
+  ToolMergeContractView,
+  ToolSessionContext,
+  ToolWorkstreamPlanView,
+} from './read-ports.js'
 
 /* ------------------------------------------------------------------ *
  * Lossless JSON (the wire/value vocabulary of the tool face)
@@ -338,17 +347,23 @@ export function isToolError(error: unknown): error is ToolError {
  * ------------------------------------------------------------------ */
 
 /**
- * The two service ports the real (non-stub) tools forward to.
+ * The service ports the real (non-stub) tools forward to: the two write
+ * ports (WP-3.1 creation chain + WP-2.4 checkpoint) and the four G2 §2d
+ * READ ports (context/plan/history/contract — each a pure projection,
+ * none carries a write argument or a mutating return).
  *
  * TYPE-SURFACE PROOF of INV-PLAN-3 (Agent 无 canonical plan 写路径):
  * this interface is the complete dependency face of the tool layer —
  * `tests/tools/inv-plan-3.test.ts` pins `keyof ResearchToolDeps` to
- * EXACTLY these two keys, so any canonical-plan writer (PlanStore's
- * savePlan/insertItemAt/moveItem/removeItem/… or a contract writer) can
- * never be injected into the tool face without a compile error. The
- * `planForkCreate` port's parameter is the frozen §4 `CreatePlanForkParams`
- * (no `base*` key — WP-3.1's own absent-key type assertions), and its
- * return is a PlanFork RECORD, never a plan.
+ * EXACTLY these six keys (write: the original two; read: G2's four, each
+ * with a pinned read-only signature), so any canonical-plan writer
+ * (PlanStore's savePlan/insertItemAt/moveItem/removeItem/… or a contract
+ * writer) can never be injected into the tool face without a compile
+ * error. The `planForkCreate` port's parameter is the frozen §4
+ * `CreatePlanForkParams` (no `base*` key — WP-3.1's own absent-key type
+ * assertions), and its return is a PlanFork RECORD, never a plan; the
+ * `planGet` port returns a READ VIEW of the canonical plan, never the
+ * PlanStore surface.
  */
 export interface ResearchToolDeps {
   /**
@@ -369,6 +384,35 @@ export interface ResearchToolDeps {
     params: { note?: string },
     actor: UserOrAgentActorRef,
   ) => RunRecord
+  /**
+   * G2 (§2d) research_context_get — the read service resolving the CALLING
+   * session's research context (runbinding single binding + declarative
+   * loader join; `service/wiring/read-services.ts`). Read port: returns a
+   * projection, carries no write surface.
+   */
+  readonly contextGet: (sessionId: string) => ToolSessionContext
+  /**
+   * G2 (§2d) research_plan_get — the WP-1.3 `PlanStore.loadPlan`
+   * composition for ONE workstream (order VERBATIM, INV-PLAN-1; a missing
+   * workstream throws the structured `ToolReadServiceError`). Read-only
+   * by construction — INV-PLAN-3's agent NO-WRITE lane is unchanged.
+   */
+  readonly planGet: (workstreamId: string) => ToolWorkstreamPlanView
+  /**
+   * G2 (§2d) research_history_query — the WP-2.3 `queryEvents` seq-cursor
+   * face (frozen pagination protocol; the tool resolves the page-size
+   * policy before the port). The port's store face is read-narrowed
+   * (`QueryStore` — no append path by type surface).
+   */
+  readonly historyQuery: (query: ToolHistoryQuery) => ToolHistoryPage
+  /**
+   * G2 (§2d) research_contract_read — the WP-1.4 `MergeContractStore.readContract`
+   * composition for ONE topology edge (content byte-for-byte; a TE id
+   * naming no edge is the structured `EDGE_NOT_FOUND`). Contract WRITES
+   * stay outside the tool face (ARCHITECTURE §6 脚注 ²: file editing in
+   * the workspace is the lane) — this port exposes the read only.
+   */
+  readonly contractRead: (edgeId: string) => ToolMergeContractView
 }
 
 /* ------------------------------------------------------------------ *

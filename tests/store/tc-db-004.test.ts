@@ -970,6 +970,7 @@ describe('TC-DB-004 (iv): no credential-receiving write face (structural asserti
       'next-action-create.ts',
       'plan-fork-create.ts',
       'plan-get.ts',
+      'read-ports.ts', // G2 §2d — pure DTO/error surface (zero I/O), inventoried here
       'run-checkpoint.ts',
       'stub.ts',
       'types.ts',
@@ -979,6 +980,20 @@ describe('TC-DB-004 (iv): no credential-receiving write face (structural asserti
         throw new Error('unused in this test')
       },
       recordCheckpoint: () => {
+        throw new Error('unused in this test')
+      },
+      // G2 §2d read ports (the composition now requires all six — none
+      // is exercised here; the read fidelity suites own that).
+      contextGet: () => {
+        throw new Error('unused in this test')
+      },
+      planGet: () => {
+        throw new Error('unused in this test')
+      },
+      historyQuery: () => {
+        throw new Error('unused in this test')
+      },
+      contractRead: () => {
         throw new Error('unused in this test')
       },
     })

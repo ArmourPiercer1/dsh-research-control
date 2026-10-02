@@ -316,13 +316,39 @@ describe('definition completeness: parameter faces (the host-derived JSON Schema
       'research_artifact_register',
       'research_intervention_create',
       'research_next_action_create',
-      'research_context_get',
-      'research_plan_get',
-      'research_history_query',
-      'research_contract_read',
     ]) {
       const schema = byName.get(name)!.output.schema
       expect(schema.additionalProperties, `${name} stub schema permissive`).toBe(true)
+    }
+
+    // G2 §2d — the four read tools retired their stub placeholders for
+    // STRICT canonical shapes (each a closed root object, status const
+    // 'ok'; the full value-level codec proof lives in
+    // tests/tools/read-tools.test.ts via the real @deepseek-ai/dsh-tools
+    // validator — this is the cheap shape pin).
+    for (const [name, required] of [
+      ['research_context_get', ['status', 'session_id', 'bound']],
+      ['research_plan_get', ['status', 'workstream_id', 'title', 'topic_id', 'present', 'consistent', 'ordered_items']],
+      ['research_history_query', ['status', 'workstream_id', 'order', 'limit', 'events', 'next_after_seq', 'exhausted']],
+      ['research_contract_read', ['status', 'edge', 'content', 'path']],
+    ] as const) {
+      const schema = byName.get(name)!.output.schema
+      expect(schema.type, name).toBe('object')
+      expect(schema.additionalProperties, `${name} read schema closed`).toBe(false)
+      expect([...(schema.required ?? [])].sort(), `${name} required`).toEqual([...required].sort())
+      expect(schema.properties!.status, `${name} status const`).toMatchObject({ type: 'string', const: 'ok' })
+    }
+    // the history page carries the frozen cursor protocol fields
+    const hq = byName.get('research_history_query')!.output.schema
+    expect(hq.properties!.order).toMatchObject({ enum: ['semantic', 'audit'] })
+    expect(hq.properties!.events).toMatchObject({ type: 'array' })
+    expect(hq.properties!.events!.items!.additionalProperties).toBe(false)
+    // single-subject faces carry NO pagination/truncation surface
+    for (const name of ['research_context_get', 'research_plan_get', 'research_contract_read']) {
+      const props = byName.get(name)!.output.schema.properties!
+      for (const forbidden of ['next_after_seq', 'exhausted', 'truncated', 'total', 'offset', 'page']) {
+        expect(props, `${name} must not expose a ${forbidden} field`).not.toHaveProperty(forbidden)
+      }
     }
   })
 })

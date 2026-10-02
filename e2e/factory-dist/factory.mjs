@@ -7030,6 +7030,48 @@ function stringifyCanonical(value) {
 //#endregion
 //#region src/host/history/replay/query.ts
 /**
+* Query ONE owner workstream's event log in semantic or audit order with
+* seq-cursor pagination (see the module header for the full protocol).
+* Pure read: no writes, no seq assignment, no validation — the store's
+* read face (`listRange`) is the only I/O.
+*/
+function queryEvents(store, ownerWorkstreamId, options = {}) {
+	const ws = assertWorkstreamId$1(ownerWorkstreamId);
+	const order = options.order ?? "semantic";
+	assertOrder(order);
+	const afterSeq = options.afterSeq ?? 0;
+	assertCursor(afterSeq, "afterSeq");
+	const beforeSeq = options.beforeSeq;
+	if (beforeSeq !== void 0) {
+		assertCursor(beforeSeq, "beforeSeq");
+		if (beforeSeq <= afterSeq + 1) throw new ReplayInputError(`queryEvents: beforeSeq (${String(beforeSeq)}) must be > afterSeq + 1 (${String(afterSeq + 1)}) — it is the exclusive upper bound and the window must hold at least one seq`);
+	}
+	const limit = options.limit;
+	if (limit !== void 0) assertCursor(limit, "limit");
+	let upper;
+	if (beforeSeq !== void 0) upper = beforeSeq - 1;
+	if (limit !== void 0) upper = upper === void 0 ? afterSeq + limit : Math.min(upper, afterSeq + limit);
+	const fromSeq = afterSeq + 1;
+	const rows = upper === void 0 ? store.listRange(ws, fromSeq) : store.listRange(ws, fromSeq, upper);
+	let exhausted;
+	let nextAfterSeq;
+	if (upper === void 0) {
+		exhausted = true;
+		nextAfterSeq = null;
+	} else if (rows.length === upper - afterSeq) {
+		exhausted = false;
+		nextAfterSeq = upper;
+	} else {
+		exhausted = true;
+		nextAfterSeq = null;
+	}
+	return {
+		events: order === "semantic" ? semanticOrder(rows) : rows,
+		nextAfterSeq,
+		exhausted
+	};
+}
+/**
 * Collect ALL events of the listed workstreams and merge them into one
 * deterministic total order (`semantic` = occurredAt, eventSeq, owner, id;
 * `audit` = eventSeq, owner, id — the WP-2.2 total orders, TC-HIST-005).
@@ -7051,6 +7093,12 @@ function assertWorkstreamId$1(value) {
 }
 function assertOrder(order) {
 	if (order !== "semantic" && order !== "audit") throw new ReplayInputError(`query order must be "semantic" or "audit" (got ${JSON.stringify(String(order))})`);
+}
+/** Cursor/limit values: non-negative safe integers (afterSeq may be 0 =
+*  from the beginning; beforeSeq/limit must be >= 1 via their own rules). */
+function assertCursor(value, what) {
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new ReplayInputError(`${what} must be a non-negative safe integer (got ${String(value)})`);
+	if (what !== "afterSeq" && value < 1) throw new ReplayInputError(`${what} must be a positive safe integer (got ${String(value)})`);
 }
 //#endregion
 //#region src/host/history/replay/rebuild.ts
@@ -12181,10 +12229,178 @@ var HierarchyService = class {
 //#endregion
 //#region src/host/domain/topology/types.ts
 /**
+* WP-1.4 — topology + merge-contract service: types (domain layer).
+*
+* Frozen contracts implemented here (read-only):
+*  - DOMAIN_SCHEMA.md §3.1 (TopologyEdge, `topology.yaml`), §3.2 (MergeContract,
+*    `merges/<TE-id>/contract.md`), §1.1 (ID rules), §13 (state machines,
+*    L540-560 — the TE lifecycle row reuses the `WsLifecycle` machine, L548),
+*    §14 (layout), §16.1 (declarative→declarative reference integrity);
+*  - HISTORY_EVENT_CATALOG.md §5.8 (拓扑实现: TOPOLOGY_FORK/MERGE_REALIZED —
+*    realized FORK edge `inputs` 恰为 1, MERGE edge `outputs` 恰为 1);
+*  - schema/declarative/topology.schema.json + schema/common.schema.json.
+*
+* Layer rules (ARCHITECTURE.md §2.2 rule 1, same pattern as the WP-1.1
+* loader): this module is pure domain logic — it performs no I/O of its own.
+* Every byte goes through the injected {@link TopologyFileIo} (implemented by
+* the service layer in a later WP, or by an in-memory fake in tests). No DSH
+* imports (INV-PERM-5), no git imports, no node builtins.
+*
+* Boundary notes (WP-1.4 brief):
+*  - NO HistoryEvent is written anywhere in this module: `validateRealize`
+*    and the transition executor only VALIDATE and mutate the declarative
+*    `topology.yaml`; TOPOLOGY_FORK/MERGE_REALIZED event emission is Phase 2.
+*  - The plan is READ-ONLY for this module: the workstream registry and the
+*    edge-id snapshot are injected (they come from the loaded ResearchTree).
+*/
+/**
 * Suffix for the temp file the store's atomic-write protocol uses
 * (`<target>.dshrc-tmp`). Exported so tests can observe the protocol.
 */
 const TMP_FILE_SUFFIX = ".dshrc-tmp";
+/** One structured error of the topology/contract service. Always THROWN (the
+*  service-facing counterpart of the loader's aggregated error list). */
+var TopologyStoreError = class extends Error {
+	code;
+	/** Root-relative POSIX path (`'topics/TPC-1/topology.yaml'`, `'merges/TE-2/contract.md'`), when applicable. */
+	file;
+	/** The topology edge the error is about, when applicable. */
+	teId;
+	/** JSON-pointer-style path inside the document, when applicable. */
+	path;
+	constructor(code, message, extra) {
+		super(message);
+		this.name = "TopologyStoreError";
+		this.code = code;
+		if (extra?.file !== void 0) this.file = extra.file;
+		if (extra?.teId !== void 0) this.teId = extra.teId;
+		if (extra?.path !== void 0) this.path = extra.path;
+	}
+};
+/** Fail loud when `teId` is not a well-formed TE id (frozen §1.1 registry). */
+function assertWellFormedTeId(teId) {
+	if (!idMatchesKind(teId, "TOPOLOGY_EDGE")) throw new TopologyStoreError("INVALID_ID", `${JSON.stringify(teId)} is not a well-formed topology edge id — expected TE-<positive integer> (DOMAIN_SCHEMA §1.1)`);
+}
+//#endregion
+//#region src/host/domain/topology/contract.ts
+/**
+* WP-1.4 — MergeContract (`merges/<TE-id>/contract.md`, DOMAIN_SCHEMA §3.2)
+* + the realize pre-validator (`validateRealize`, HISTORY_EVENT_CATALOG §5.8).
+*
+* §3.2 contract rules (implemented verbatim):
+*  - 纯 Markdown 自由内容 — the file is stored byte-for-byte; the plugin
+*    performs NO content validation (no schema, no field check; 「插件不检查
+*    contract 满足度、不因此阻塞或提示」);
+*  - 归属由路径决定 — the directory name IS the TE id; the only path-level
+*    checks are (a) the directory name is a well-formed TE id (§1.1) and
+*    (b) that TE id names an existing topology edge (loader §16.1(h) analog);
+*  - 可选 YAML front-matter (`title`, `updated_at`) — not parsed, not
+*    validated, not touched;
+*  - 无 ContractRevision — version history/diff/restore belong to Git
+*    (INV-GIT-8, WP-1.2's restoreFile/ logFile); this module has no
+*    revision machinery and never deletes a contract.
+*
+* `edgeIds` is a CONSTRUCTION-TIME SNAPSHOT (the read-only boundary: the
+* caller assembles it from the loaded ResearchTree —
+* `tree.topics.flatMap(t => t.topology?.topology.edges.map(e => e.id) ?? [])`).
+* A contract write is checked against the snapshot it was built with; the
+* service layer rebuilds the store when the topology changes.
+*
+* Layer rules: all I/O through the injected `TopologyFileIo` (loader pattern);
+* no HistoryEvent is written (realize event emission is Phase 2); the plan
+* and other declarative files are read-only for this module.
+*/
+function ioMessage(cause) {
+	return cause instanceof Error ? cause.message : String(cause);
+}
+/**
+* Atomic write protocol: write the FULL new content to `<path>.dshrc-tmp`,
+* then `rename` it into place (atomic on POSIX). On a failed rename the temp
+* file is unlinked (best effort — a cleanup failure does not mask the
+* original error) and the error propagates. On success the target always
+* holds a complete document: the previous content is either fully present
+* (write/rename failed) or fully replaced (rename succeeded) — never a
+* mix (tests/topology/atomic-write.test.ts).
+*/
+function atomicWrite(io, path, rel, content) {
+	const tmp = path + TMP_FILE_SUFFIX;
+	try {
+		io.writeFile(tmp, content);
+	} catch (cause) {
+		throw new TopologyStoreError("WRITE", `atomic write of ${rel}: temp-file write failed: ${ioMessage(cause)}`, { file: rel });
+	}
+	try {
+		io.rename(tmp, path);
+	} catch (cause) {
+		try {
+			io.unlink(tmp);
+		} catch {}
+		throw new TopologyStoreError("WRITE", `atomic write of ${rel}: rename into place failed: ${ioMessage(cause)}`, { file: rel });
+	}
+}
+/**
+* Read/write access to `.research/merges/<TE-id>/contract.md` (§3.2).
+* Content is free Markdown, stored byte-for-byte (no validation, no
+* parsing, no revision tracking — INV-GIT-8).
+*/
+var MergeContractStore = class {
+	io;
+	researchRoot;
+	edgeIdSet;
+	constructor(options) {
+		this.io = options.io;
+		this.researchRoot = options.researchRoot;
+		this.edgeIdSet = new Set(options.edgeIds);
+	}
+	/** `.research/merges/<TE-id>/contract.md` (absolute, as given to io). */
+	contractPath(teId) {
+		return pjoin(this.researchRoot, "merges", teId, "contract.md");
+	}
+	/** Root-relative POSIX path (loader error-location convention). */
+	relPath(teId) {
+		return `merges/${teId}/contract.md`;
+	}
+	/**
+	* Read the contract content (raw Markdown, byte-for-byte).
+	* @throws INVALID_ID — teId is not a well-formed TE id;
+	*         READ       — io failure;
+	*         CONTRACT_NOT_FOUND — the file does not exist.
+	*/
+	readContract(teId) {
+		assertWellFormedTeId(teId);
+		let text;
+		try {
+			text = this.io.readFile(this.contractPath(teId));
+		} catch (cause) {
+			throw new TopologyStoreError("READ", `read of ${this.relPath(teId)} failed: ${ioMessage(cause)}`, {
+				teId,
+				file: this.relPath(teId)
+			});
+		}
+		if (text === null) throw new TopologyStoreError("CONTRACT_NOT_FOUND", `merge contract for ${teId} does not exist (${this.relPath(teId)}, DOMAIN_SCHEMA §3.2)`, {
+			teId,
+			file: this.relPath(teId)
+		});
+		return text;
+	}
+	/**
+	* Write the contract content (full replacement, atomic — §3.2 free
+	* Markdown is stored verbatim; optional front-matter is not parsed).
+	* @throws INVALID_ID           — teId is not a well-formed TE id;
+	*         CONTRACT_TE_UNKNOWN  — teId names no existing topology edge
+	*                                (snapshot, §16.1(h));
+	*         WRITE                — atomic-write failure (previous content intact).
+	*/
+	writeContract(teId, content) {
+		assertWellFormedTeId(teId);
+		if (!this.edgeIdSet.has(teId)) throw new TopologyStoreError("CONTRACT_TE_UNKNOWN", `merge contract for ${teId} references a topology edge that does not exist (DOMAIN_SCHEMA §3.2/§16.1)`, {
+			teId,
+			file: this.relPath(teId)
+		});
+		atomicWrite(this.io, this.contractPath(teId), this.relPath(teId), content);
+		return content;
+	}
+};
 //#endregion
 //#region src/host/service/fs/fs-plan-writer.ts
 /**
@@ -12237,6 +12453,333 @@ var FsPlanFileWriter = class {
 		}
 	}
 };
+//#endregion
+//#region src/host/service/fs/fs-topology-io.ts
+/**
+* WP-2.6 (rider 2, G1 观察③) — the production real-fs `TopologyFileIo`.
+*
+* The four primitives the WP-1.4 store composes into its atomic-write
+* protocol (`writeFile` tmp → `rename` → best-effort `unlink`; the store
+* owns the composition — `contract.ts` `atomicWrite`), implemented on
+* node:fs with EXACTLY the read-contract of the loader's
+* `ResearchFileReader` (WP-1.1: `readFile` returns `null` when the path is
+* missing, throws on I/O failure) — verbatim the protocol the WP-1.7 crash
+* tests proved on real files (`tests/atomic/crash-fs.ts`
+* `RealFsTopologyIo`, TC-DB-001):
+*
+*  - `readFile`  — `ENOENT` ⇒ `null` (missing file, not an error); any
+*    other errno (EACCES, EISDIR, …) ⇒ the original error propagates;
+*  - `writeFile` — parent-directory creation is THIS layer's duty (the
+*    port contract), then a full-content write (never a patch);
+*  - `rename`    — `renameSync` (atomic on POSIX, same-directory);
+*  - `unlink`    — `unlinkSync`; throws when the path does not exist
+*    (the port contract — the store's best-effort cleanup swallows it).
+*/
+/** `true` for the errno that means "the path does not exist" (readFile → null). */
+function isEnoent(cause) {
+	return cause instanceof Error && cause.code === "ENOENT";
+}
+/** The production real-fs `TopologyFileIo` (module doc = the contract). */
+var FsTopologyFileIo = class {
+	/** Read a file; `null` when the path does not exist; throws on I/O failure. */
+	readFile(path) {
+		try {
+			return readFileSync(path, "utf8");
+		} catch (cause) {
+			if (isEnoent(cause)) return null;
+			throw cause;
+		}
+	}
+	/** Write a file (full content). Parent-directory creation included. Throws on I/O failure. */
+	writeFile(path, content) {
+		mkdirSync(dirname(path), { recursive: true });
+		writeFileSync(path, content, "utf8");
+	}
+	/** Rename (move) one path to another; atomic on POSIX. Throws on failure. */
+	rename(from, to) {
+		renameSync(from, to);
+	}
+	/** Delete a file. Throws when the path does not exist or on I/O failure. */
+	unlink(path) {
+		unlinkSync(path);
+	}
+};
+//#endregion
+//#region src/host/tools/types.ts
+/**
+* Project a service record into a lossless-JSON value (structural deep
+* copy — the host registry does the same materialization; a service
+* record interface carries no string index signature, so the copy is
+* the type-safe bridge, not a cast). Only lossless-JSON record shapes
+* (the frozen snake_case rows) flow through here.
+* @param value - a plain JSON-shaped value (frozen records, arrays, scalars).
+* @returns the projected ToolJsonValue.
+*/
+function toToolJsonValue(value) {
+	if (value === null || typeof value !== "object") return value;
+	if (Array.isArray(value)) return value.map((item) => toToolJsonValue(item));
+	const out = {};
+	for (const [key, child] of Object.entries(value)) out[key] = toToolJsonValue(child);
+	return out;
+}
+/** One structured tool failure (thrown; never returned as a success value). */
+var ToolError = class extends Error {
+	/** The taxonomy code above. */
+	code;
+	/** Structured extras (service code/step/path, the tool name, the planned service). */
+	detail;
+	constructor(code, message, options) {
+		super(message, options?.cause !== void 0 ? { cause: options.cause } : void 0);
+		this.name = "ToolError";
+		this.code = code;
+		if (options?.detail !== void 0) this.detail = options.detail;
+	}
+};
+/**
+* Assemble one tool: wraps `handle` with the built-in permission gate
+* (allowedActorKinds → run requirement → abort checks around the body).
+* The static definition is frozen on creation (HMR-safe, host convention:
+* registration is an effect, the definition is data).
+*/
+function buildTool(build) {
+	if (build.requiresRun !== (build.access === "write")) throw new Error(`tool "${build.name}": requiresRun must equal (access === 'write') — the §6 matrix gives the agent NO write lane without a formal run (INV-PERM-1) and NO run requirement for reads`);
+	const allowedActorKinds = ["AGENT"];
+	const definition = {
+		name: build.name,
+		description: build.description,
+		access: build.access,
+		allowedActorKinds,
+		requiresRun: build.requiresRun,
+		parameters: build.parameters,
+		output: build.output,
+		execute: async (args, exec) => {
+			const { name, requiresRun, handle } = build;
+			if (!allowedActorKinds.includes(exec.actor.kind)) throw new ToolError("TOOL_ACTOR_FORBIDDEN", `${name}: actor kind ${JSON.stringify(exec.actor.kind)} is not allowed — this is an agent-facing tool (allowed kinds: ${allowedActorKinds.join(", ")})`);
+			const runId = requiresRun ? exec.actor.run_id : void 0;
+			if (requiresRun && (typeof runId !== "string" || runId.length === 0)) throw new ToolError("TOOL_RUN_REQUIRED", `${name}: an AGENT actor on the write set must carry its formal run_id (INV-PERM-1: every agent write is attributed to a run)`);
+			if (exec.signal.aborted) throw new ToolError("TOOL_ABORTED", `${name}: aborted before dispatch`);
+			const value = await handle(args, {
+				signal: exec.signal,
+				actor: exec.actor,
+				runId
+			});
+			if (exec.signal.aborted) throw new ToolError("TOOL_ABORTED", `${name}: aborted after dispatch`);
+			return value;
+		}
+	};
+	freezeToolDefinition(definition);
+	return definition;
+}
+/** Deep-freeze the static parts (parameters/output); the execute closure stays intact. */
+function freezeToolDefinition(definition) {
+	deepFreeze(definition.parameters);
+	deepFreeze(definition.output.schema);
+	Object.freeze(definition);
+}
+/** Recursively freeze plain JSON-ish data (functions pass through untouched). */
+function deepFreeze(value) {
+	if (value === null || typeof value !== "object") return;
+	Object.freeze(value);
+	for (const child of Object.values(value)) deepFreeze(child);
+}
+//#endregion
+//#region src/host/tools/read-ports.ts
+/** A thrown value carrying a stable machine code (the service error
+*  families the read ports may surface: ToolReadServiceError, ReplayError,
+*  TopologyStoreError, … — duck-typed on `code` so the mapping never
+*  needs per-service imports; a `ToolError` passes through untouched). */
+function codedError(cause) {
+	if (cause instanceof ToolError) return null;
+	if (cause instanceof Error) {
+		const code = cause.code;
+		if (typeof code === "string") return {
+			code,
+			message: cause.message
+		};
+	}
+	return null;
+}
+/**
+* Map any forwarding failure onto the structured tool carrier (the
+* `RB_CHECKPOINT_FOREIGN_RUN` precedent): `ToolError('TOOL_SERVICE')`
+* with `detail.serviceCode` when the cause carries a stable code, bare
+* `TOOL_SERVICE` (message verbatim) otherwise. A `ToolError` (e.g. the
+* already-validated TOOL_INPUT surface) is never re-wrapped.
+*/
+function mapReadServiceError(toolName, cause) {
+	if (cause instanceof ToolError) return cause;
+	const coded = codedError(cause);
+	return new ToolError("TOOL_SERVICE", `${toolName}: ${cause instanceof Error ? cause.message : String(cause)}`, coded === null ? {
+		cause,
+		detail: { tool: toolName }
+	} : {
+		cause,
+		detail: {
+			tool: toolName,
+			serviceCode: coded.code
+		}
+	});
+}
+/** One structured read-service failure (the tool maps it to TOOL_SERVICE). */
+var ToolReadServiceError = class extends Error {
+	code;
+	constructor(code, message, options) {
+		super(message, options);
+		this.name = "ToolReadServiceError";
+		this.code = code;
+	}
+};
+//#endregion
+//#region src/host/service/wiring/read-services.ts
+/**
+* G2 (§2d) — the composed READ services behind the four agent read ports.
+*
+* `makeToolReadServices` assembles the four narrow ports the read tools
+* forward to, from the live wiring primitives (the BASELINE_PLAN §2d
+* compositions):
+*
+*  - contextGet  — runbinding (`getRunBySessionId`, the single binding)
+*    + the declarative loader (a FRESH tree load resolves the
+*    workstream/task identity — fresh per call, the hierarchy-service
+*    precedent: the FILE is the truth, no cache);
+*  - planGet     — the WP-1.3 `PlanStore.loadPlan` composition (the
+*    wiring's canonical `planProvider`) + the loader join for the title;
+*  - historyQuery — the WP-2.3 `queryEvents` seq-cursor face verbatim,
+*    gated by the real workstream-existence check (a missing WS is a
+*    missing OBJECT, not an empty page); the QueryStore face makes a
+*    write path unreachable by TYPE SURFACE (no `appendEvents`);
+*  - contractRead — the WP-1.4 `MergeContractStore.readContract` kernel
+*    (byte-for-byte Markdown) + the tree edge snapshot gate (the
+*    §16.1(h) ownership-by-path boundary: a TE id naming no edge is
+*    EDGE_NOT_FOUND; an existing edge without contract.md is the ADJ-7
+*    VALUE face — `content: null`, absence as data).
+*
+* READ-ONLY BY CONSTRUCTION: every primitive consumed here is a read
+* face (`Pick`-narrowed tables/store, the loader reader, the contract
+* READ path). Errors thrown here are the structured
+* `ToolReadServiceError` family (tool-mapped to TOOL_SERVICE +
+* detail.serviceCode); kernel/service errors (TopologyStoreError,
+* ReplayError, …) propagate untouched — the tool layer owns their code
+* mapping. No DSH imports (INV-PERM-5).
+*/
+function makeToolReadServices(input) {
+	const { reader, researchRoot, declarativeDir, tables, store, io, planProvider } = input;
+	/** Fresh declarative tree, fail-loud (the hierarchy-service discipline:
+	*  every read resolves against the FILE as it is NOW). */
+	const freshTree = (operation) => {
+		const result = loadResearchTree(reader, researchRoot, declarativeDir);
+		if (result.errors.length > 0) throw new ToolReadServiceError("DECLARATIVE_TREE_UNAVAILABLE", `${operation}: the declarative tree failed to load — ${result.errors.slice(0, 3).map((e) => `[${e.code}] ${e.file || "<root>"}: ${e.message}`).join("; ")}`);
+		return result.tree;
+	};
+	const findWorkstream = (tree, workstreamId) => {
+		for (const topic of tree.topics) {
+			const ws = topic.workstreams.find((w) => w.id === workstreamId);
+			if (ws !== void 0) return ws;
+		}
+		return null;
+	};
+	const edgesOf = (tree) => tree.topics.flatMap((topic) => (topic.topology?.topology.edges ?? []).map((edge) => ({
+		id: edge.id,
+		topicId: topic.id,
+		operation: edge.operation,
+		lifecycle: edge.lifecycle,
+		inputs: edge.inputs,
+		outputs: edge.outputs,
+		...edge.note !== void 0 ? { note: edge.note } : {}
+	})));
+	return {
+		contextGet(sessionId) {
+			const run = tables.getRunBySessionId(sessionId);
+			if (run === null) return {
+				session_id: sessionId,
+				bound: false
+			};
+			const tree = freshTree("research_context_get");
+			const ws = findWorkstream(tree, run.workstream_id);
+			const task = run.task_id === void 0 ? void 0 : ws?.tasks.find((t) => t.id === run.task_id) ?? null;
+			return {
+				session_id: sessionId,
+				bound: true,
+				run,
+				workstream: {
+					id: run.workstream_id,
+					title: ws?.doc?.title ?? null,
+					topic_id: ws?.topicId ?? null
+				},
+				...run.task_id !== void 0 ? { task: {
+					id: run.task_id,
+					title: task?.doc?.title ?? null
+				} } : {}
+			};
+		},
+		planGet(workstreamId) {
+			const view = planProvider.load(workstreamId);
+			if (!view.workstream_exists) throw new ToolReadServiceError("WS_NOT_FOUND", `research_plan_get: workstream ${workstreamId} does not exist (no workstream directory under any topic — DOMAIN_SCHEMA §14)`);
+			const tree = freshTree("research_plan_get");
+			const ws = findWorkstream(tree, workstreamId);
+			return {
+				workstream: {
+					id: workstreamId,
+					title: ws?.doc?.title ?? null
+				},
+				topic_id: ws?.topicId ?? null,
+				present: view.present,
+				consistent: view.consistent,
+				...view.problem !== void 0 ? { problem: view.problem } : {},
+				ordered_items: view.ordered_items
+			};
+		},
+		historyQuery(query) {
+			const tree = freshTree("research_history_query");
+			if (findWorkstream(tree, query.workstreamId) === null) throw new ToolReadServiceError("WS_NOT_FOUND", `research_history_query: workstream ${query.workstreamId} does not exist (no workstream directory under any topic — DOMAIN_SCHEMA §14)`);
+			const order = query.order ?? "semantic";
+			const page = queryEvents(store, query.workstreamId, {
+				order,
+				...query.afterSeq !== void 0 ? { afterSeq: query.afterSeq } : {},
+				...query.beforeSeq !== void 0 ? { beforeSeq: query.beforeSeq } : {},
+				limit: query.limit
+			});
+			return {
+				workstream_id: query.workstreamId,
+				order,
+				limit: query.limit,
+				events: page.events,
+				next_after_seq: page.nextAfterSeq,
+				exhausted: page.exhausted
+			};
+		},
+		contractRead(edgeId) {
+			const contractStore = new MergeContractStore({
+				io,
+				researchRoot,
+				edgeIds: []
+			});
+			let content;
+			try {
+				content = contractStore.readContract(edgeId);
+			} catch (cause) {
+				if (cause instanceof TopologyStoreError && cause.code === "CONTRACT_NOT_FOUND") content = null;
+				else throw cause;
+			}
+			const tree = freshTree("research_contract_read");
+			const edge = edgesOf(tree).find((e) => e.id === edgeId);
+			if (edge === void 0) throw new ToolReadServiceError("EDGE_NOT_FOUND", `research_contract_read: ${edgeId} names no topology edge (the loaded tree carries no such edge — DOMAIN_SCHEMA §3.1/§3.2)`);
+			return {
+				edge: {
+					id: edge.id,
+					topic_id: edge.topicId,
+					operation: edge.operation,
+					lifecycle: edge.lifecycle,
+					inputs: edge.inputs,
+					outputs: edge.outputs,
+					...edge.note !== void 0 ? { note: edge.note } : {}
+				},
+				content,
+				path: `merges/${edgeId}/contract.md`
+			};
+		}
+	};
+}
 //#endregion
 //#region src/host/service/intervention/types.ts
 /**
@@ -18463,84 +19006,6 @@ function startedAtOf(mapping, sessionId) {
 	});
 }
 //#endregion
-//#region src/host/tools/types.ts
-/**
-* Project a service record into a lossless-JSON value (structural deep
-* copy — the host registry does the same materialization; a service
-* record interface carries no string index signature, so the copy is
-* the type-safe bridge, not a cast). Only lossless-JSON record shapes
-* (the frozen snake_case rows) flow through here.
-* @param value - a plain JSON-shaped value (frozen records, arrays, scalars).
-* @returns the projected ToolJsonValue.
-*/
-function toToolJsonValue(value) {
-	if (value === null || typeof value !== "object") return value;
-	if (Array.isArray(value)) return value.map((item) => toToolJsonValue(item));
-	const out = {};
-	for (const [key, child] of Object.entries(value)) out[key] = toToolJsonValue(child);
-	return out;
-}
-/** One structured tool failure (thrown; never returned as a success value). */
-var ToolError = class extends Error {
-	/** The taxonomy code above. */
-	code;
-	/** Structured extras (service code/step/path, the tool name, the planned service). */
-	detail;
-	constructor(code, message, options) {
-		super(message, options?.cause !== void 0 ? { cause: options.cause } : void 0);
-		this.name = "ToolError";
-		this.code = code;
-		if (options?.detail !== void 0) this.detail = options.detail;
-	}
-};
-/**
-* Assemble one tool: wraps `handle` with the built-in permission gate
-* (allowedActorKinds → run requirement → abort checks around the body).
-* The static definition is frozen on creation (HMR-safe, host convention:
-* registration is an effect, the definition is data).
-*/
-function buildTool(build) {
-	if (build.requiresRun !== (build.access === "write")) throw new Error(`tool "${build.name}": requiresRun must equal (access === 'write') — the §6 matrix gives the agent NO write lane without a formal run (INV-PERM-1) and NO run requirement for reads`);
-	const allowedActorKinds = ["AGENT"];
-	const definition = {
-		name: build.name,
-		description: build.description,
-		access: build.access,
-		allowedActorKinds,
-		requiresRun: build.requiresRun,
-		parameters: build.parameters,
-		output: build.output,
-		execute: async (args, exec) => {
-			const { name, requiresRun, handle } = build;
-			if (!allowedActorKinds.includes(exec.actor.kind)) throw new ToolError("TOOL_ACTOR_FORBIDDEN", `${name}: actor kind ${JSON.stringify(exec.actor.kind)} is not allowed — this is an agent-facing tool (allowed kinds: ${allowedActorKinds.join(", ")})`);
-			const runId = requiresRun ? exec.actor.run_id : void 0;
-			if (requiresRun && (typeof runId !== "string" || runId.length === 0)) throw new ToolError("TOOL_RUN_REQUIRED", `${name}: an AGENT actor on the write set must carry its formal run_id (INV-PERM-1: every agent write is attributed to a run)`);
-			if (exec.signal.aborted) throw new ToolError("TOOL_ABORTED", `${name}: aborted before dispatch`);
-			const value = await handle(args, {
-				signal: exec.signal,
-				actor: exec.actor,
-				runId
-			});
-			if (exec.signal.aborted) throw new ToolError("TOOL_ABORTED", `${name}: aborted after dispatch`);
-			return value;
-		}
-	};
-	freezeToolDefinition(definition);
-	return definition;
-}
-/** Deep-freeze the static parts (parameters/output); the execute closure stays intact. */
-function freezeToolDefinition(definition) {
-	deepFreeze(definition.parameters);
-	deepFreeze(definition.output.schema);
-	Object.freeze(definition);
-}
-/** Recursively freeze plain JSON-ish data (functions pass through untouched). */
-function deepFreeze(value) {
-	if (value === null || typeof value !== "object") return;
-	Object.freeze(value);
-	for (const child of Object.values(value)) deepFreeze(child);
-}
-//#endregion
 //#region src/host/tools/args.ts
 /**
 * Wire-boundary argument parsing for the agent tool face (WP-3.3).
@@ -18840,14 +19305,21 @@ function makeClaimRecordDefinition() {
 //#endregion
 //#region src/host/tools/context-get.ts
 /**
-* research_context_get (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_context_get (G2 §2d — LIVE forwarding, the stub retired).
 *
 * Parameter face: NONE — the tool reports the research context bound to
 * the CALLING session (workstream, task, Run binding): there is no
-* argument because there is no other subject to ask about (the session's
-* own binding IS the context; the DSH session identity comes from the
-* call context, never from arguments).
+* argument because there is no other subject to ask about (the session
+* identity comes from the call context, never from arguments).
+*
+* Forwards to `ResearchToolDeps.contextGet` — the runbinding single
+* binding (`getRunBySessionId`) + the declarative loader join. One
+* session maps to at most one formal Run (§6.2), so the FULL structured
+* subject returns: the frozen run row verbatim plus the declarative
+* identity (titles resolve from the tree; an unresolvable declaration
+* reports `null`, never a fabrication). An UNBOUND session is the honest
+* empty result (`bound: false`) — reads never require a run, so the
+* Investigator preset can ask this question before any registration.
 */
 /** Frozen §7.2 name. */
 const RESEARCH_CONTEXT_GET = "research_context_get";
@@ -18855,52 +19327,248 @@ const RESEARCH_CONTEXT_GET = "research_context_get";
 const CONTEXT_GET_ARG_KEYS = [];
 /** The tool's model-facing parameter face (no parameters). */
 const CONTEXT_GET_PARAMETERS = {};
+/** A nullable string leaf (declarative joins report `null` when the
+*  declaration is unresolvable — absence as data, never invented). */
+const NULLABLE_STRING = { oneOf: [{ type: "string" }, { type: "null" }] };
+/** The canonical output contract: the single binding's full subject (the
+*  frozen `Run` row — run.schema.json `$defs/Run` — verbatim, plus the
+*  declarative workstream/task join). */
+const CONTEXT_GET_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"session_id",
+		"bound"
+	],
+	properties: {
+		status: {
+			type: "string",
+			const: "ok"
+		},
+		session_id: { type: "string" },
+		bound: { type: "boolean" },
+		run: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"workstream_id",
+				"status",
+				"initiated_by",
+				"started_at"
+			],
+			properties: {
+				id: { type: "string" },
+				workstream_id: { type: "string" },
+				task_id: { type: "string" },
+				dsh_session_id: { type: "string" },
+				status: {
+					type: "string",
+					enum: [
+						"RUNNING",
+						"FINISHED",
+						"FAILED",
+						"CANCELLED"
+					]
+				},
+				intent: { type: "string" },
+				initiated_by: { type: "object" },
+				started_at: { type: "integer" },
+				ended_at: { type: "integer" },
+				summary: { type: "string" },
+				last_checkpoint_at: { type: "integer" },
+				last_checkpoint_note: { type: "string" }
+			}
+		},
+		workstream: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"title",
+				"topic_id"
+			],
+			properties: {
+				id: { type: "string" },
+				title: NULLABLE_STRING,
+				topic_id: NULLABLE_STRING
+			}
+		},
+		task: {
+			type: "object",
+			additionalProperties: false,
+			required: ["id", "title"],
+			properties: {
+				id: { type: "string" },
+				title: NULLABLE_STRING
+			}
+		}
+	}
+};
+/** Validate the frozen NO-ARG face (TOOL_INPUT on any deviation). */
 function parseContextGetArgs(args) {
 	checkKeySet(assertArgsObject(args, RESEARCH_CONTEXT_GET), CONTEXT_GET_ARG_KEYS, RESEARCH_CONTEXT_GET);
 }
-function makeContextGetDefinition() {
-	return makeStubDefinition({
+function makeContextGetDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_CONTEXT_GET,
 		description: "Get the research context bound to the current session: the workstream, the task (if any), and the formal Run binding.",
 		access: "read",
+		requiresRun: false,
 		parameters: CONTEXT_GET_PARAMETERS,
-		plannedService: "the research-context query service (runbinding + declarative loader composition; host wiring WP-3.6) — not yet landed (stub; see report)",
-		parseArgs: parseContextGetArgs
+		output: {
+			schema: CONTEXT_GET_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: v.bound === true ? `Session ${v.session_id} is bound to run ${v.run?.id} on workstream ${v.run?.workstream_id}${v.task !== void 0 ? ` (task ${v.task.id})` : ""}.` : `Session ${v.session_id} is not bound to a research context (no formal run yet).`
+				}];
+			}
+		},
+		handle: async (args, ctx) => {
+			parseContextGetArgs(args);
+			const sessionId = ctx.actor.session_id;
+			if (typeof sessionId !== "string" || sessionId.length === 0) throw new ToolError("TOOL_ACTOR_FORBIDDEN", `${RESEARCH_CONTEXT_GET}: the calling actor carries no session_id — this tool's subject IS the calling session and its identity is host-resolved, never input`);
+			try {
+				return {
+					status: "ok",
+					...toToolJsonValue(deps.contextGet(sessionId))
+				};
+			} catch (cause) {
+				throw mapReadServiceError(RESEARCH_CONTEXT_GET, cause);
+			}
+		}
 	});
 }
 //#endregion
 //#region src/host/tools/contract-read.ts
 /**
-* research_contract_read (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_contract_read (G2 §2d — LIVE forwarding, the stub retired).
 *
-* Parameter face: `edge_id` — the topology edge (TE-<n>) whose merge
-* contract (`contract.md`) is read. The agent may EDIT contracts only by
-* direct file editing inside the workspace (ARCHITECTURE §6 脚注 ²: the
-* plugin neither blocks nor prompts it — there is deliberately NO
-* contract-write tool; the read is the structured lane). Read-only by
-* construction.
+* Parameter face: `edge_id` — the tool reads the merge contract of ONE
+* cross-workstream edge (MERGE/FORK, DOMAIN_SCHEMA §3.1) at its
+* path-fixed location `merges/<TE-id>/contract.md` (§3.2; INV-GIT-8:
+* content ownership by path, no field copy).
+*
+* Forwards to `ResearchToolDeps.contractRead` — the WP-1.4
+* `MergeContractStore.readContract` kernel (Markdown stored/read
+* byte-for-byte) composed with the declarative edge snapshot (the tree
+* is the edge identity authority, §3.1). Single edge → the FULL
+* structured subject (edge identity + content + path), no pagination or
+* truncation surface:
+*  - a TE id that is malformed → the kernel's structured `INVALID_ID`;
+*  - a WELL-FORMED TE id naming no topology edge → `EDGE_NOT_FOUND`
+*    (the ownership-by-path file must anchor to a real edge, §16.1(h) —
+*    a missing object is a structured error, never an empty result);
+*  - an edge that exists WITHOUT a contract.md → the ADJ-7 VALUE face:
+*    `content: null`, absence as data (the value has no existence
+*    independent of the path — the path is the identity).
+* Contract WRITING stays outside the tool face (ARCHITECTURE §6 脚注 ²).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_CONTRACT_READ = "research_contract_read";
 /** The frozen tool parameter key set. */
 const CONTRACT_READ_ARG_KEYS = ["edge_id"];
 /** The tool's model-facing parameter face (frozen 1 key). */
-const CONTRACT_READ_PARAMETERS = { edge_id: str("The topology edge id (TE-<n>) whose merge contract to read.", true) };
+const CONTRACT_READ_PARAMETERS = { edge_id: str("The cross-workstream topology edge (TE id) whose merge contract to read.", true) };
+/** The canonical output contract: ONE edge's identity + its contract
+*  bytes (`content: null` = the edge exists but has no contract.md yet). */
+const CONTRACT_READ_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"edge",
+		"content",
+		"path"
+	],
+	properties: {
+		status: {
+			type: "string",
+			const: "ok"
+		},
+		edge: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"topic_id",
+				"operation",
+				"lifecycle",
+				"inputs",
+				"outputs"
+			],
+			properties: {
+				id: { type: "string" },
+				topic_id: { type: "string" },
+				operation: {
+					type: "string",
+					enum: ["FORK", "MERGE"]
+				},
+				lifecycle: {
+					type: "string",
+					enum: [
+						"PLANNED",
+						"REALIZED",
+						"VOID"
+					]
+				},
+				inputs: {
+					type: "array",
+					items: { type: "string" }
+				},
+				outputs: {
+					type: "array",
+					items: { type: "string" }
+				},
+				note: { type: "string" }
+			}
+		},
+		content: { oneOf: [{ type: "string" }, { type: "null" }] },
+		path: { type: "string" }
+	}
+};
+/** Validate + parse the frozen 1-key wire face. */
 function parseContractReadArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_CONTRACT_READ);
 	checkKeySet(obj, CONTRACT_READ_ARG_KEYS, RESEARCH_CONTRACT_READ);
 	requireKey(obj, "edge_id", RESEARCH_CONTRACT_READ);
 	if (typeof obj["edge_id"] !== "string" || obj["edge_id"].length === 0) throw new ToolError("TOOL_INPUT", "/edge_id: must be a non-empty string");
+	return { edge_id: obj["edge_id"] };
 }
-function makeContractReadDefinition() {
-	return makeStubDefinition({
+function makeContractReadDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_CONTRACT_READ,
-		description: "Read the merge contract (contract.md) of a topology edge — the agreed integration conditions between workstreams. Read-only (editing happens by direct file edit in the workspace, not through a tool).",
+		description: "Read the merge contract (contract.md) of one cross-workstream topology edge. Read-only: contract content is edited in the workspace, never through an agent tool.",
 		access: "read",
+		requiresRun: false,
 		parameters: CONTRACT_READ_PARAMETERS,
-		plannedService: "the contract-read service (WP-1.4 MergeContractStore.readContract composition; host wiring WP-3.6) — not yet landed (stub; see report)",
-		parseArgs: parseContractReadArgs
+		output: {
+			schema: CONTRACT_READ_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: v.content === null ? `Edge ${v.edge.id} has no merge contract yet (${v.path} does not exist).` : `Merge contract of edge ${v.edge.id} (${v.path}): ${v.content.length} character(s).`
+				}];
+			}
+		},
+		handle: async (args, _ctx) => {
+			const parsed = parseContractReadArgs(args);
+			try {
+				const view = deps.contractRead(parsed.edge_id);
+				return {
+					status: "ok",
+					edge: toToolJsonValue(view.edge),
+					content: toToolJsonValue(view.content),
+					path: view.path
+				};
+			} catch (cause) {
+				throw mapReadServiceError(RESEARCH_CONTRACT_READ, cause);
+			}
+		}
 	});
 }
 //#endregion
@@ -18953,8 +19621,7 @@ function makeFactRecordDefinition() {
 //#endregion
 //#region src/host/tools/history-query.ts
 /**
-* research_history_query (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_history_query (G2 §2d — LIVE forwarding, the stub retired).
 *
 * Parameter face — a faithful projection of the WP-2.3 read-only query
 * surface (`queryEvents`, seq-cursor pagination, §8 「History 按页面/时间
@@ -18964,6 +19631,17 @@ function makeFactRecordDefinition() {
 * `before_seq` (exclusive upper bound), `limit` (page size, ≥ 1).
 * Read-only by construction — History mutation/delete has NO tool
 * (INV-PERM-2; the matrix row 「History update/delete ❌ ❌ ❌ ❌」).
+*
+* PAGE-SIZE POLICY (BASELINE_PLAN §5 Q2 — the small ruling, THIS tool
+* only): no frozen document names a default or a maximum (verified:
+* `QueryHistoryArgsSchema` leaves `limit` unbounded; TEST_MATRIX names
+* no numbers), so the tool boundary resolves `limit ?? 100` and REFUSES
+* `limit > 1000` with TOOL_INPUT — never a silent clamp (the caller
+* learns the cap and pages with the frozen cursor instead). The applied
+* page size is echoed on every page (`limit`). Everything else is the
+* WP-2.3 protocol verbatim: windows PARTITION the seq axis, rows are
+* never truncated mid-window, `next_after_seq`/`exhausted` are
+* self-terminating.
 */
 /** Frozen §7.2 name. */
 const RESEARCH_HISTORY_QUERY = "research_history_query";
@@ -18977,6 +19655,9 @@ const HISTORY_QUERY_ARG_KEYS = [
 	"before_seq",
 	"limit"
 ];
+/** Q2 (this tool only): maximum page size — above it the call is REFUSED
+*  (TOOL_INPUT), never silently truncated. */
+const HISTORY_QUERY_MAX_LIMIT = 1e3;
 /** The tool's model-facing parameter face (frozen 5 keys). */
 const HISTORY_QUERY_PARAMETERS = {
 	workstream_id: str("The workstream (WS id) whose ResearchHistory to query (the event-log owner).", true),
@@ -18995,27 +19676,153 @@ const HISTORY_QUERY_PARAMETERS = {
 	},
 	limit: {
 		type: "integer",
-		description: "Page size in events (caps the window)."
+		description: `Page size in events (100 when omitted; maximum ${HISTORY_QUERY_MAX_LIMIT} — larger calls are refused, page with after_seq instead).`
 	}
 };
+/** The frozen event envelope (`HistoryEventRecord`, camelCase carrier —
+*  the same DTO face the frozen `queryHistory` RPC row serves). */
+const HISTORY_EVENT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"eventId",
+		"ownerWorkstreamId",
+		"eventType",
+		"schemaVersion",
+		"occurredAt",
+		"actor",
+		"payload",
+		"eventSeq",
+		"recordedAt"
+	],
+	properties: {
+		eventId: { type: "string" },
+		ownerWorkstreamId: { type: "string" },
+		eventType: { type: "string" },
+		schemaVersion: { type: "integer" },
+		occurredAt: { type: "integer" },
+		actor: {
+			type: "object",
+			additionalProperties: false,
+			required: ["kind"],
+			properties: {
+				kind: { type: "string" },
+				user_id: { type: "string" },
+				run_id: { type: "string" },
+				session_id: { type: "string" },
+				label: { type: "string" }
+			}
+		},
+		source: { oneOf: [{
+			type: "object",
+			additionalProperties: false,
+			required: ["kind"],
+			properties: {
+				kind: { type: "string" },
+				session_id: { type: "string" },
+				path: { type: "string" },
+				commit_oid: { type: "string" },
+				interaction_id: { type: "string" },
+				note: { type: "string" }
+			}
+		}, { type: "null" }] },
+		payload: {
+			type: "object",
+			additionalProperties: true
+		},
+		eventSeq: { type: "integer" },
+		recordedAt: { type: "integer" }
+	}
+};
+/** The canonical output contract: ONE page of the frozen seq-cursor
+*  protocol (rows verbatim; `next_after_seq`/`exhausted` as WP-2.3). */
+const HISTORY_QUERY_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"workstream_id",
+		"order",
+		"limit",
+		"events",
+		"next_after_seq",
+		"exhausted"
+	],
+	properties: {
+		status: {
+			type: "string",
+			const: "ok"
+		},
+		workstream_id: { type: "string" },
+		order: {
+			type: "string",
+			enum: [...HISTORY_ORDERS]
+		},
+		limit: { type: "integer" },
+		events: {
+			type: "array",
+			items: HISTORY_EVENT_SCHEMA
+		},
+		next_after_seq: { oneOf: [{ type: "integer" }, { type: "null" }] },
+		exhausted: { type: "boolean" }
+	}
+};
+/** Validate + parse the frozen 5-key wire face into the port query
+*  (the page-size policy resolves HERE: default applied, max REFUSED). */
 function parseHistoryQueryArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_HISTORY_QUERY);
 	checkKeySet(obj, HISTORY_QUERY_ARG_KEYS, RESEARCH_HISTORY_QUERY);
 	requireKey(obj, "workstream_id", RESEARCH_HISTORY_QUERY);
 	if (typeof obj["workstream_id"] !== "string" || obj["workstream_id"].length === 0) throw new ToolError("TOOL_INPUT", "/workstream_id: must be a non-empty string");
-	if (obj["order"] !== void 0) assertEnum(obj["order"], "/order", HISTORY_ORDERS);
-	assertOptionalInteger(obj, "after_seq", { min: 0 });
-	assertOptionalInteger(obj, "before_seq", { min: 1 });
-	assertOptionalInteger(obj, "limit", { min: 1 });
+	const order = obj["order"] !== void 0 ? assertEnum(obj["order"], "/order", HISTORY_ORDERS) : void 0;
+	const afterSeq = assertOptionalInteger(obj, "after_seq", { min: 0 });
+	const beforeSeq = assertOptionalInteger(obj, "before_seq", { min: 1 });
+	const limit = assertOptionalInteger(obj, "limit", {
+		min: 1,
+		max: HISTORY_QUERY_MAX_LIMIT
+	});
+	return {
+		workstreamId: obj["workstream_id"],
+		...order !== void 0 ? { order } : {},
+		...afterSeq !== void 0 ? { afterSeq } : {},
+		...beforeSeq !== void 0 ? { beforeSeq } : {},
+		limit: limit ?? 100
+	};
 }
-function makeHistoryQueryDefinition() {
-	return makeStubDefinition({
+function makeHistoryQueryDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_HISTORY_QUERY,
 		description: "Query a workstream ResearchHistory (the append-only research event log) with seq-cursor pagination. Read-only: the log cannot be mutated or deleted from any agent surface.",
 		access: "read",
+		requiresRun: false,
 		parameters: HISTORY_QUERY_PARAMETERS,
-		plannedService: "the history-query service (WP-2.3 queryEvents composition; host wiring WP-3.6) — not yet landed (stub; see report)",
-		parseArgs: parseHistoryQueryArgs
+		output: {
+			schema: HISTORY_QUERY_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: `${String(v.events.length)} event(s) of ${v.workstream_id} (${v.order} order, page size ${String(v.limit)})` + (v.exhausted ? " — log exhausted." : ` — next page after seq ${String(v.next_after_seq)}.`)
+				}];
+			}
+		},
+		handle: async (args, _ctx) => {
+			const query = parseHistoryQueryArgs(args);
+			try {
+				const page = deps.historyQuery(query);
+				return {
+					status: "ok",
+					workstream_id: page.workstream_id,
+					order: page.order,
+					limit: page.limit,
+					events: toToolJsonValue([...page.events]),
+					next_after_seq: toToolJsonValue(page.next_after_seq),
+					exhausted: page.exhausted
+				};
+			} catch (cause) {
+				throw mapReadServiceError(RESEARCH_HISTORY_QUERY, cause);
+			}
+		}
 	});
 }
 //#endregion
@@ -19593,13 +20400,24 @@ function makePlanForkCreateDefinition(deps) {
 //#endregion
 //#region src/host/tools/plan-get.ts
 /**
-* research_plan_get (WP-3.3) — STUB (the forwarding service has not
-* landed yet; the report's stub table names the replacement).
+* research_plan_get (G2 §2d — LIVE forwarding, the stub retired).
 *
 * Parameter face: `workstream_id` — the tool reads the workstream's
 * canonical Future Plan (the stable ordered G/T/M sequence,
 * `plan.yaml`). Read-only by construction (INV-PLAN-3: the agent has no
 * plan write path at any surface; the read is the only lane).
+*
+* Forwards to `ResearchToolDeps.planGet` — the WP-1.3
+* `PlanStore.loadPlan` composition (the wiring's canonical provider,
+* fresh per call). One workstream → the FULL subject: `ordered_items`
+* VERBATIM in file order (INV-PLAN-1 — never sorted, deduped or
+* truncated; the plan is bounded by construction), plus the presence /
+* §4.4-consistency facts (`consistent: false` reports the first
+* `problem` instead of repairing it — the FILE stays the truth) and the
+* declarative identity (title/topic, `null` when unresolvable). A
+* missing workstream is a missing OBJECT (structured
+* `TOOL_SERVICE/WS_NOT_FOUND`); a missing `plan.yaml` on a real
+* workstream is the honest empty plan (`present: false`, `[]`).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_PLAN_GET = "research_plan_get";
@@ -19607,20 +20425,80 @@ const RESEARCH_PLAN_GET = "research_plan_get";
 const PLAN_GET_ARG_KEYS = ["workstream_id"];
 /** The tool's model-facing parameter face (frozen 1 key). */
 const PLAN_GET_PARAMETERS = { workstream_id: str("The workstream (WS id) whose canonical future plan to read.", true) };
+/** The canonical output contract: ONE workstream's full canonical plan
+*  (no pagination/truncation surface — the subject is bounded). */
+const PLAN_GET_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"workstream_id",
+		"title",
+		"topic_id",
+		"present",
+		"consistent",
+		"ordered_items"
+	],
+	properties: {
+		status: {
+			type: "string",
+			const: "ok"
+		},
+		workstream_id: { type: "string" },
+		title: { oneOf: [{ type: "string" }, { type: "null" }] },
+		topic_id: { oneOf: [{ type: "string" }, { type: "null" }] },
+		present: { type: "boolean" },
+		consistent: { type: "boolean" },
+		problem: { type: "string" },
+		ordered_items: {
+			type: "array",
+			items: { type: "string" }
+		}
+	}
+};
+/** Validate + parse the frozen 1-key wire face. */
 function parsePlanGetArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_PLAN_GET);
 	checkKeySet(obj, PLAN_GET_ARG_KEYS, RESEARCH_PLAN_GET);
 	requireKey(obj, "workstream_id", RESEARCH_PLAN_GET);
 	if (typeof obj["workstream_id"] !== "string" || obj["workstream_id"].length === 0) throw new ToolError("TOOL_INPUT", "/workstream_id: must be a non-empty string");
+	return { workstream_id: obj["workstream_id"] };
 }
-function makePlanGetDefinition() {
-	return makeStubDefinition({
+function makePlanGetDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_PLAN_GET,
 		description: "Read a workstream canonical future plan: the stable ordered sequence of Goals / Tasks / Gates / Milestones (plan.yaml). Read-only.",
 		access: "read",
+		requiresRun: false,
 		parameters: PLAN_GET_PARAMETERS,
-		plannedService: "the canonical-plan query service (WP-1.3 PlanStore.loadPlan composition; host wiring WP-3.6) — not yet landed (stub; see report)",
-		parseArgs: parsePlanGetArgs
+		output: {
+			schema: PLAN_GET_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				return [{
+					type: "text",
+					text: v.present ? `Canonical plan of ${v.workstream_id}: ${String(v.ordered_items.length)} item(s) in canonical order${v.consistent ? "" : " (INCONSISTENT plan — see the structured result)"}.` : `Workstream ${v.workstream_id} exists but has no canonical plan (plan.yaml absent).`
+				}];
+			}
+		},
+		handle: async (args, _ctx) => {
+			const parsed = parsePlanGetArgs(args);
+			try {
+				const view = deps.planGet(parsed.workstream_id);
+				return {
+					status: "ok",
+					workstream_id: view.workstream.id,
+					title: toToolJsonValue(view.workstream.title),
+					topic_id: toToolJsonValue(view.topic_id),
+					present: view.present,
+					consistent: view.consistent,
+					...view.problem !== void 0 ? { problem: view.problem } : {},
+					ordered_items: toToolJsonValue([...view.ordered_items])
+				};
+			} catch (cause) {
+				throw mapReadServiceError(RESEARCH_PLAN_GET, cause);
+			}
+		}
 	});
 }
 //#endregion
@@ -19774,9 +20652,9 @@ const RESEARCH_TOOL_NAMES = [
 RESEARCH_TOOL_NAMES.slice(0, 7);
 RESEARCH_TOOL_NAMES.slice(7);
 /**
-* Compose the complete tool face over the two service ports.
-* Fail-loud on a malformed deps object (misconfiguration is a
-* composition-time error, not a per-call surprise). The returned
+* Compose the complete tool face over the service ports (two write +
+* four G2 read). Fail-loud on a malformed deps object (misconfiguration
+* is a composition-time error, not a per-call surprise). The returned
 * definitions are frozen and registered by the host wiring WP (WP-3.6)
 * — one `defineTool` adaptation per definition.
 */
@@ -19790,17 +20668,23 @@ function createResearchTools(deps) {
 		makeNextActionCreateDefinition(),
 		makePlanForkCreateDefinition(deps),
 		makeRunCheckpointDefinition(deps),
-		makeContextGetDefinition(),
-		makePlanGetDefinition(),
-		makeHistoryQueryDefinition(),
-		makeContractReadDefinition()
+		makeContextGetDefinition(deps),
+		makePlanGetDefinition(deps),
+		makeHistoryQueryDefinition(deps),
+		makeContractReadDefinition(deps)
 	];
 }
-/** Both ports must be functions (fail loud at composition). */
+/** All six ports must be functions (fail loud at composition). */
 function assertDeps(deps) {
-	if (deps === null || typeof deps !== "object") throw new TypeError("createResearchTools: deps must be an object with the two service ports");
+	if (deps === null || typeof deps !== "object") throw new TypeError("createResearchTools: deps must be an object with the six service ports");
 	if (typeof deps.planForkCreate !== "function") throw new TypeError("createResearchTools: deps.planForkCreate must be the PlanFork creation service (WP-3.1 chain)");
 	if (typeof deps.recordCheckpoint !== "function") throw new TypeError("createResearchTools: deps.recordCheckpoint must be the RunBindingService.recordCheckpoint surface (WP-2.4)");
+	for (const port of [
+		"contextGet",
+		"planGet",
+		"historyQuery",
+		"contractRead"
+	]) if (typeof deps[port] !== "function") throw new TypeError(`createResearchTools: deps.${port} must be the G2 §2d read service (service/wiring/read-services.ts)`);
 }
 //#endregion
 //#region src/host/service/investigator/types.ts
@@ -23293,7 +24177,16 @@ function createHostWiring(options) {
 				if (check.error !== void 0) logger?.warn("flooding", `onPlanForkCreated after tool creation of ${record.id}: [${check.error.code}] ${check.error.message}`);
 				return record;
 			},
-			recordCheckpoint: (runId, params, actor) => runBinding.recordCheckpoint(runId, params, actor)
+			recordCheckpoint: (runId, params, actor) => runBinding.recordCheckpoint(runId, params, actor),
+			...makeToolReadServices({
+				reader,
+				researchRoot,
+				declarativeDir,
+				tables,
+				store,
+				io: new FsTopologyFileIo(),
+				planProvider
+			})
 		});
 		const lifecycleReport = reconcileWorkstreamLifecycles({
 			store: rawStore,

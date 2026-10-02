@@ -97,10 +97,15 @@ EVIDENCE_DIR="$SMOKE_ROOT/evidence"
 # WP-4.6: the smoke workspace is the research repo root (the factory writes
 # its `.research/` tree here) and carries the DSH sessions the GUI operates.
 E2E_REPO="$SMOKE_ROOT/ws"
-# SI-001: the frozen schema/ root lives at the WORKSPACE ROOT. The installed
-# plugin cannot walk far enough up from the profile's node_modules to find it,
-# so the host service is pointed at it explicitly via DSH_RESEARCH_SCHEMA_ROOT.
-E2E_SCHEMA_ROOT="$(cd "$REPO_DIR/.." && pwd)/schema"
+# SI-001: the installed plugin cannot walk far enough up from the profile's
+# node_modules to find the frozen schema/, so the host service is pointed at
+# it explicitly via DSH_RESEARCH_SCHEMA_ROOT (set at the server launch below).
+# G0 (docs/G0_REPRODUCIBLE_TEST_ROOT.md): the default is the COMMITTED
+# in-package snapshot `$REPO_DIR/schema` — an SI-001 content-identical mirror
+# of the workspace-root canonical — so a standalone checkout (nothing above
+# the repo) runs too; an explicit DSH_RESEARCH_SCHEMA_ROOT in the caller's
+# env wins, to point at the canonical originals on purpose.
+E2E_SCHEMA_ROOT="${DSH_RESEARCH_SCHEMA_ROOT:-$(cd "$REPO_DIR/schema" && pwd)}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$SMOKE_ROOT/pw-browsers}"
 EXPECTED_DSH_VERSION="0.1.0-rc.8"
 CYCLES="${E2E_CYCLES:-2}"

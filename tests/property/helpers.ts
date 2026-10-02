@@ -43,9 +43,9 @@
  *      → the property's assertion block).
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
-import { isAbsolute, join, resolve, dirname } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 import { afterAll } from 'vitest'
 import fc from 'fast-check'
 
@@ -61,10 +61,8 @@ import {
   type ResearchStore,
 } from '../../src/host/persistence/store/index.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-
-/** WR root (three levels up: tests/property → tests → plugin repo → WR). */
-export const WR_ROOT = resolve(HERE, '..', '..', '..')
+/** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
+export const WR_ROOT = resolveTestWorkspaceRoot()
 /** The real frozen history schema dir (registry source). */
 export const WR_HISTORY_SCHEMA_DIR = join(WR_ROOT, 'schema', 'history')
 

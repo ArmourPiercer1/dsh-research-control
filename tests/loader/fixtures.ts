@@ -9,17 +9,15 @@
  *   the mutation base for the TC-DOM-027 negative cases.
  */
 import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { resolveTestWorkspaceRoot } from '../helpers/workspace-root.js'
 
 import type { LoadResult } from '../../src/host/domain/loader/index.js'
 import { loadResearchTree } from '../../src/host/domain/loader/index.js'
 import { MemoryReader } from './memory-reader.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-
-/** WR root (three levels up: tests/loader → tests → plugin repo → WR). */
-export const WR_ROOT = join(HERE, '..', '..', '..')
+/** Workspace root for frozen schema assets (G0: in-repo snapshot by default; `DSH_RESEARCH_WORKSPACE_ROOT` explicit override — tests/helpers/workspace-root.ts). */
+export const WR_ROOT = resolveTestWorkspaceRoot()
 /** The real frozen declarative schema dir (read-only contract). */
 export const WR_SCHEMA_DIR = join(WR_ROOT, 'schema', 'declarative')
 

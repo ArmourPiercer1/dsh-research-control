@@ -164,20 +164,44 @@ describe('TC-DOM-013 layer 2: run requirement on the write set (INV-PERM-1)', ()
 })
 
 describe('TC-DOM-013 layer 3: the allowed lane (AGENT + run passes the gate on all 11)', () => {
-  it.each([...RESEARCH_TOOL_NAMES])('%s serves an AGENT actor with a run (live tools succeed, stubs fail only with NOT_IMPLEMENTED)', async (name) => {
+  it.each([...RESEARCH_TOOL_NAMES])('%s serves an AGENT actor with a run (ZERO stubs: every tool must succeed on the allowed lane)', async (name) => {
     const tool = tools.find((t) => t.name === name)!
+    // G4: the two attention-write tools are LIVE forwards — success-shaped
+    // service-port overrides let the gate lane show the success value (the
+    // real services + strict outputs are pinned in the per-tool suites).
+    if (name === 'research_intervention_create') {
+      deps.setInterventionCreate((params) => ({
+        intervention: {
+          id: 'IV-1',
+          title: params.title,
+          origin: 'AGENT_REPORT',
+          status: 'OPEN',
+          created_by: { kind: 'AGENT', run_id: 'R-1' },
+          created_at: 1,
+          workstream_ids: [],
+          source_refs: [],
+        },
+        eventId: null,
+      }))
+    }
+    if (name === 'research_next_action_create') {
+      deps.setNextActionCreate((params) => ({
+        id: 'NA-1',
+        statement: params.statement,
+        status: 'PROPOSED',
+        created_by: { kind: 'AGENT', run_id: 'R-1' },
+        created_at: 1,
+      }))
+    }
     try {
       const result = (await tool.execute(VALID_ARGS[name], makeExec())) as { status: string }
-      // the 9 live tools (plan-fork, checkpoint, the G3 semantic trio, the 4 G2 reads)
+      // all 11 tools are live (G4 merge): the allowed lane SUCCEEDS
       expect(['created', 'ok']).toContain(result.status)
     } catch (e) {
-      // the 2 attention-lane stubs: the ONLY failure mode past the gate is NOT_IMPLEMENTED
-      await expectToolErrorAsync(
-        () => {
-          throw e
-        },
-        'TOOL_NOT_IMPLEMENTED',
-      )
+      // ZERO stubs remain — a gated-in call answering NOT_IMPLEMENTED (or
+      // any other failure) is now a contract violation, never a tolerated
+      // mode (the historical tolerance died with the last stub).
+      throw new Error(`${name}: the allowed lane must succeed at zero stubs — got ${String(e)}`)
     }
   })
 })

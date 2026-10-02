@@ -48,6 +48,12 @@
  */
 
 import type { CreatePlanForkParams, PlanForkRecord } from '../domain/planfork/index.js'
+import type { ActorRef, CreateNextActionParams, NextActionRecord } from '../service/actions/index.js'
+import type {
+  CreateInterventionResult,
+  InterventionCreateParams,
+  MechanicalActorRef,
+} from '../service/intervention/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../service/runbinding/index.js'
 import type {
   RecordClaimArgs,
@@ -411,13 +417,16 @@ export function toSemanticToolServiceError(toolName: string, cause: unknown): To
  * TYPE-SURFACE PROOF of INV-PLAN-3 (Agent 无 canonical plan 写路径):
  * this interface is the complete dependency face of the tool layer —
  * `tests/tools/inv-plan-3.test.ts` pins `keyof ResearchToolDeps` to
- * EXACTLY these seven keys (write surface: planForkCreate /
+ * EXACTLY these nine keys (write surface: planForkCreate /
  * recordCheckpoint / semanticAgentCreate — the G3 lane is semantic
- * CREATE with typed AGENT callers, never a plan mutation; read: G2's
- * four, each with a pinned read-only signature), so any canonical-plan
- * writer (PlanStore's savePlan/insertItemAt/moveItem/removeItem/… or a
- * contract writer) can never be injected into the tool face without a
- * compile error. The `planForkCreate` port's parameter is the frozen §4
+ * CREATE with typed AGENT callers, never a plan mutation — plus the two
+ * G4 attention-write ports (interventionCreate / nextActionCreate: the
+ * §6 mechanical-AGENT report + independent NextAction lanes, never a
+ * plan mutation); read: G2's four, each with a pinned read-only
+ * signature), so any canonical-plan writer (PlanStore's
+ * savePlan/insertItemAt/moveItem/removeItem/… or a contract writer) can
+ * never be injected into the tool face without a compile error. The
+ * `planForkCreate` port's parameter is the frozen §4
  * `CreatePlanForkParams` (no `base*` key — WP-3.1's own absent-key type
  * assertions), and its return is a PlanFork RECORD, never a plan; the
  * `planGet` port returns a READ VIEW of the canonical plan, never the
@@ -442,6 +451,28 @@ export interface ResearchToolDeps {
     params: { note?: string },
     actor: UserOrAgentActorRef,
   ) => RunRecord
+  /**
+   * G4 · research_intervention_create — the WP-5.1 mechanical creation lane
+   * (`InterventionService.createMechanicalIntervention`): the wiring closes
+   * `trigger` to `AGENT_REPORT_REQUIRES_HUMAN` (the frozen §6 「运行时明确
+   * 要求人工判断的 Agent report」lane — origin=AGENT_REPORT + AGENT actor,
+   * MECHANICAL_TRIGGER_ORIGIN/ACTOR_KIND mapping in the service types — the
+   * tool face carries NO trigger/origin key). The actor is the trusted AGENT
+   * actorRef from the call context; WP-3.6 composes it from the live wiring.
+   */
+  readonly interventionCreate: (
+    params: InterventionCreateParams,
+    actor: MechanicalActorRef,
+  ) => CreateInterventionResult
+  /**
+   * G4 · research_next_action_create — the WP-5.2 independent creation lane
+   * (`ActionsService.createNextAction` — NOT the intervention service): the
+   * service owns the creator gate (USER|AGENT, AGENT must carry a formal
+   * R id) and the optional-WS existence check (§16.3), so the tool
+   * duplicates NO validation. PROMOTE/DISMISS stay user-only and have no
+   * tool (§6 矩阵「NextAction PROMOTE/DISMISS ✅/❌」).
+   */
+  readonly nextActionCreate: (params: CreateNextActionParams, actor: ActorRef) => NextActionRecord
   /**
    * G3 — research_fact_record / research_claim_record / research_artifact_register:
    * the narrow AGENT create lane of the semantic records service. The

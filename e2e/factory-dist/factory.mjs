@@ -12522,6 +12522,13 @@ function toToolJsonValue(value) {
 	for (const [key, child] of Object.entries(value)) out[key] = toToolJsonValue(child);
 	return out;
 }
+/** All 4 frozen actor kinds (mirrors the domain/registry spellings). */
+const TOOL_ACTOR_KINDS = [
+	"USER",
+	"AGENT",
+	"PLUGIN",
+	"SYSTEM"
+];
 /** One structured tool failure (thrown; never returned as a success value). */
 var ToolError = class extends Error {
 	/** The taxonomy code above. */
@@ -13238,11 +13245,20 @@ var InterventionService = class {
 				id: ref.id
 			};
 		});
-		const workstreams = this.#externalState().workstreams;
+		const external = this.#externalState();
+		const workstreams = external.workstreams;
 		for (const ws of workstreamIds) if (!workstreams.has(ws)) throw new InterventionError({
 			code: "IV_INPUT",
 			message: `${operation}: workstream ${ws} does not exist in the declarative snapshot (DOMAIN_SCHEMA §16 规则 2: 写入时校验)`
 		});
+		for (const [i, ref] of sourceRefs.entries()) {
+			const refs = this.#sourceRefExistence(ref.kind, external);
+			if (refs === void 0) continue;
+			if (!refs.has(ref.id)) throw new InterventionError({
+				code: "IV_INPUT",
+				message: `${operation}: source_refs[${i}] references ${ref.kind} ${JSON.stringify(ref.id)} that does not exist (DOMAIN_SCHEMA §16 规则 2: 写入时校验; catalog §5: payload 内引用的对象存在)`
+			});
+		}
 		const createdAt = this.#now();
 		const origin = derived.origin;
 		const actor = toActorRef(derived.actor);
@@ -13323,7 +13339,9 @@ var InterventionService = class {
 	* payload 的 `source_refs` 以**显式 WORKSTREAM ref（owner WS）打头**
 	* （与 record.workstream_ids[0] 冗余一致, 非新信息）, 后跟记录本身的
 	* source_refs; 记录行保持参数原样（§9.2: workstream_ids 独立承载 WS
-	* 关联）。owner WS ref 已在记录 source_refs 内打头时不重复。
+	* 关联）。锚点是**位置性**的（PR5 评审修正）: 无论调用方 source_refs 顺序
+	* 如何, payload 恒以 WORKSTREAM:<owner> 打头, 该 ref 的调用方重复项折入
+	* 锚点（去重不丢 ref）, 其余 ref 保持相对顺序。
 	*/
 	#buildCreatedEvent(eventId, input) {
 		if (typeof eventId !== "string" || !/^H-[1-9][0-9]*$/.test(eventId)) throw new InterventionError({
@@ -13338,10 +13356,10 @@ var InterventionService = class {
 			code: "IV_INPUT",
 			message: `buildCreatedEvent: occurredAt must be a non-negative safe integer epoch ms (got ${String(input.occurredAt)})`
 		});
-		const payloadRefs = input.sourceRefs.some((ref) => ref.kind === "WORKSTREAM" && ref.id === input.ownerWs) ? [...input.sourceRefs] : [{
+		const payloadRefs = [{
 			kind: "WORKSTREAM",
 			id: input.ownerWs
-		}, ...input.sourceRefs];
+		}, ...input.sourceRefs.filter((ref) => !(ref.kind === "WORKSTREAM" && ref.id === input.ownerWs))];
 		return {
 			eventId,
 			ownerWorkstreamId: input.ownerWs,
@@ -13361,8 +13379,10 @@ var InterventionService = class {
 	* INTERVENTION_CREATED 的校验 ctx（module header ③）: interventions
 	* map = 现行所有行**排除本批新建 IV id**（「新建」检查语义）;
 	* workstreams/runs = 注入的外部快照（WS 存在性 + owner 推导 + AGENT
-	* actor.run_id 存在性, catalog §5）; 其余 map 空（validator 对本事件
-	* 只查 interventions/workstreams/runs/source refs — 同 WP-3.5 先例）。
+	* actor.run_id 存在性, catalog §5）; tasks/gates/milestones/claims/
+	* facts/artifacts = 注入的 source_refs 校验面（G4 — validator 对本事件
+	* 的 checkTypedRefs/owner 推导查这些 map, 生产接线按实际 registry/index
+	* 填; 未注入的 map 保持原「空」口径 — 注入面见 InterventionExternalState）。
 	*/
 	#buildEventContext(excludeInterventionId) {
 		const interventions = /* @__PURE__ */ new Map();
@@ -13373,17 +13393,35 @@ var InterventionService = class {
 		const external = this.#externalState();
 		return {
 			workstreams: external.workstreams,
-			tasks: /* @__PURE__ */ new Map(),
+			tasks: external.tasks ?? /* @__PURE__ */ new Map(),
 			runs: external.runs ?? /* @__PURE__ */ new Map(),
-			claims: /* @__PURE__ */ new Map(),
-			facts: /* @__PURE__ */ new Map(),
-			artifacts: /* @__PURE__ */ new Map(),
+			claims: external.claims ?? /* @__PURE__ */ new Map(),
+			facts: external.facts ?? /* @__PURE__ */ new Map(),
+			artifacts: external.artifacts ?? /* @__PURE__ */ new Map(),
 			relations: /* @__PURE__ */ new Map(),
-			gates: /* @__PURE__ */ new Map(),
-			milestones: /* @__PURE__ */ new Map(),
+			gates: external.gates ?? /* @__PURE__ */ new Map(),
+			milestones: external.milestones ?? /* @__PURE__ */ new Map(),
 			interventions,
 			topologyEdges: /* @__PURE__ */ new Map()
 		};
+	}
+	/**
+	* G4: source_refs kind → 注入的校验 map（与冻结 registry 的
+	* `WS_LOCAL_KINDS` 同集合 — validate.ts 单一口径, 同步注释在此）。
+	* 未建模 / 未注入 = `undefined` = 跳过存在性（V1 shape-only 口径）。
+	*/
+	#sourceRefExistence(kind, external) {
+		switch (kind) {
+			case "WORKSTREAM": return external.workstreams;
+			case "TASK": return external.tasks;
+			case "GATE": return external.gates;
+			case "MILESTONE": return external.milestones;
+			case "RUN": return external.runs;
+			case "CLAIM": return external.claims;
+			case "FACT": return external.facts;
+			case "ARTIFACT": return external.artifacts;
+			default: return;
+		}
 	}
 	/**
 	* §13 迁移（仅用户显式修改）:
@@ -19158,48 +19196,6 @@ function jsonType(value) {
 //#endregion
 //#region src/host/tools/stub.ts
 /**
-* The stub tool factory (WP-3.3): tools whose forwarding service has not
-* landed yet (the Phase-3/Phase-5 service WPs — see the report's stub
-* table). A stub keeps the FULL frozen tool face (name / description /
-* parameters — so the model-facing schema never changes when the service
-* lands) and a handler that:
-*   1. passes the built-in permission gate (actor kind + run requirement);
-*   2. validates the wire arguments against the frozen face (TOOL_INPUT);
-*   3. throws `ToolError('TOOL_NOT_IMPLEMENTED')` with the planned service
-*      named in `detail.plannedService` (WP-3.4/3.5/3.6 et al. replace the
-*      stub with a forwarding handler and delete the code path).
-*/
-/** Permissive output schema: a stub never produces a success value (it throws). */
-const STUB_OUTPUT_SCHEMA = {
-	type: "object",
-	description: "placeholder — a stub tool never returns a success value (it throws NOT_IMPLEMENTED)",
-	additionalProperties: true
-};
-/** Build one stub tool definition (the gate + arg validation + NOT_IMPLEMENTED). */
-function makeStubDefinition(spec) {
-	return buildTool({
-		name: spec.name,
-		description: spec.description,
-		access: spec.access,
-		requiresRun: spec.access === "write",
-		parameters: spec.parameters,
-		output: {
-			schema: STUB_OUTPUT_SCHEMA,
-			render: (_args, value) => [{
-				type: "text",
-				text: JSON.stringify(value)
-			}]
-		},
-		handle: async (args, _ctx) => {
-			spec.parseArgs(args);
-			throw new ToolError("TOOL_NOT_IMPLEMENTED", `${spec.name}: not wired in this build yet (${spec.plannedService})`, { detail: {
-				tool: spec.name,
-				plannedService: spec.plannedService
-			} });
-		}
-	});
-}
-/**
 * The shared parameter helpers for the stub faces (the frozen field tables
 * of the semantic/event payloads — see each tool module's JSDoc).
 */
@@ -20128,16 +20124,34 @@ function makeHistoryQueryDefinition(deps) {
 //#endregion
 //#region src/host/tools/intervention-create.ts
 /**
-* research_intervention_create (WP-3.3) — STUB (the forwarding service has
-* not landed yet; the report's stub table names the replacement).
+* research_intervention_create (WP-3.3 face; G4: the stub retires into the
+* real forward) — the agent's human-attention report.
 *
 * Parameter face — frozen INTERVENTION_CREATED payload / DOMAIN_SCHEMA
 * §9.2, restricted to the agent's matrix lane: the agent CREATES
 * interventions (origin is fixed to AGENT_REPORT — the matrix footnote
-* 「运行时明确要求人工判断的 Agent report」), but may NEVER touch their
+* 「运行时明确要求人工判断的 Agent report」 — by the wiring-closed
+* `AGENT_REPORT_REQUIRES_HUMAN` mechanical trigger, see
+* `ResearchToolDeps.interventionCreate`), but may NEVER touch their
 * state (OPEN/PENDING/CLOSED is user-only, INV-PERM-4 — no state tool
 * exists). `origin` is therefore NOT an argument; the `created_by` actor
-* comes from the call context.
+* comes from the call context (trusted: the gate's formal run + the host-
+* resolved session actor — identity is never read from args).
+*
+* Forwarding (event-first, row-second — the WP-5.1 pipeline is the single
+* write path): the handler maps the frozen 4-key wire face onto
+* `InterventionCreateParams` and calls the injected mechanical-creation
+* port. The §16 规则 2 write-time checks (workstream existence, source_refs
+* typedRef existence over the real validation context) and the frozen
+* registry event validation live at the SERVICE — the tool duplicates
+* none; service failures keep their machine code in
+* `detail.serviceCode` (the `[CODE]`-in-message convention rides the message).
+*
+* The success value is the created frozen record (attention.schema.json
+* `$defs/Intervention`, additionalProperties:false) plus `event_id` — the
+* INTERVENTION_CREATED id, `null` exactly when the intervention carries no
+* workstream association and therefore emits NO event (TC-DOM-023, CATALOG
+* §5.7).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_INTERVENTION_CREATE = "research_intervention_create";
@@ -20206,6 +20220,80 @@ const INTERVENTION_CREATE_PARAMETERS = {
 		description: "Optional references to the triggering objects."
 	}
 };
+/** The canonical output contract (frozen `$defs/Intervention` + the event id). */
+const INTERVENTION_CREATE_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: [
+		"status",
+		"intervention",
+		"event_id"
+	],
+	properties: {
+		status: { const: "created" },
+		intervention: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"title",
+				"origin",
+				"status",
+				"created_by",
+				"created_at"
+			],
+			properties: {
+				id: { type: "string" },
+				title: { type: "string" },
+				detail: { type: "string" },
+				origin: { enum: [
+					"USER",
+					"AGENT_REPORT",
+					"AUTO_FLOODING",
+					"AUTO_AUDIT"
+				] },
+				workstream_ids: {
+					type: "array",
+					items: { type: "string" }
+				},
+				source_refs: {
+					type: "array",
+					items: {
+						type: "object",
+						additionalProperties: false,
+						required: ["kind", "id"],
+						properties: {
+							kind: { type: "string" },
+							id: { type: "string" }
+						}
+					}
+				},
+				status: { enum: [
+					"OPEN",
+					"PENDING",
+					"CLOSED"
+				] },
+				created_by: {
+					type: "object",
+					additionalProperties: false,
+					required: ["kind"],
+					properties: {
+						kind: { enum: [...TOOL_ACTOR_KINDS] },
+						user_id: { type: "string" },
+						run_id: { type: "string" },
+						session_id: { type: "string" },
+						label: { type: "string" }
+					}
+				},
+				created_at: { type: "integer" },
+				closed_at: { type: "integer" },
+				resolution_note: { type: "string" }
+			}
+		},
+		event_id: { oneOf: [{ type: "string" }, { type: "null" }] }
+	}
+};
+/** Validate + parse the frozen 4-key wire face. */
 function parseInterventionCreateArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_INTERVENTION_CREATE);
 	checkKeySet(obj, INTERVENTION_CREATE_ARG_KEYS, RESEARCH_INTERVENTION_CREATE);
@@ -20213,40 +20301,101 @@ function parseInterventionCreateArgs(args) {
 	if (typeof obj["title"] !== "string" || obj["title"].length === 0) throw new ToolError("TOOL_INPUT", "/title: must be a non-empty string");
 	const detail = obj["detail"];
 	if (detail !== void 0 && (typeof detail !== "string" || detail.length === 0)) throw new ToolError("TOOL_INPUT", "/detail: must be a non-empty string");
-	assertOptionalStringArray(obj, "workstream_ids");
-	const sourceRefs = obj["source_refs"];
-	if (sourceRefs !== void 0) {
-		if (!Array.isArray(sourceRefs)) throw new ToolError("TOOL_INPUT", "/source_refs: must be an array");
-		sourceRefs.forEach((ref, i) => {
+	const workstreamIds = assertOptionalStringArray(obj, "workstream_ids");
+	let sourceRefs;
+	const rawRefs = obj["source_refs"];
+	if (rawRefs !== void 0) {
+		if (!Array.isArray(rawRefs)) throw new ToolError("TOOL_INPUT", "/source_refs: must be an array");
+		sourceRefs = rawRefs.map((ref, i) => {
 			const r = assertObject(ref, `/source_refs/${i}`);
 			checkKeySet(r, ["kind", "id"], "a source ref", `/source_refs/${i}`);
 			assertEnum(r["kind"], `/source_refs/${i}/kind`, OBJECT_KINDS);
 			if (typeof r["id"] !== "string" || r["id"].length === 0) throw new ToolError("TOOL_INPUT", `/source_refs/${i}/id: must be a non-empty string`);
+			return {
+				kind: r["kind"],
+				id: r["id"]
+			};
 		});
 	}
+	return {
+		title: obj["title"],
+		...detail !== void 0 ? { detail } : {},
+		...workstreamIds !== void 0 ? { workstream_ids: workstreamIds } : {},
+		...sourceRefs !== void 0 ? { source_refs: sourceRefs } : {}
+	};
 }
-function makeInterventionCreateDefinition() {
-	return makeStubDefinition({
+function makeInterventionCreateDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_INTERVENTION_CREATE,
 		description: "Raise an item that requires a human decision or attention (it lands as an OPEN intervention the user manages). Use only when the work genuinely needs human judgment — the plugin never raises one for scientific conflicts on its own, and you cannot change an intervention's state after creating it.",
 		access: "write",
+		requiresRun: true,
 		parameters: INTERVENTION_CREATE_PARAMETERS,
-		plannedService: "the intervention service (INTERVENTION_CREATED; WP-5.1 lifecycle) — not yet landed (stub; see report)",
-		parseArgs: parseInterventionCreateArgs
+		output: {
+			schema: INTERVENTION_CREATE_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				const tail = v.event_id === null ? "no workstream association — no History event" : `History event ${v.event_id}`;
+				return [{
+					type: "text",
+					text: `Intervention ${v.intervention.id} raised (${v.intervention.status}) — ${tail}`
+				}];
+			}
+		},
+		handle: async (args, ctx) => {
+			const parsed = parseInterventionCreateArgs(args);
+			const actor = {
+				kind: "AGENT",
+				run_id: ctx.runId,
+				...ctx.actor.label !== void 0 ? { label: ctx.actor.label } : {}
+			};
+			const params = {
+				title: parsed.title,
+				...parsed.detail !== void 0 ? { detail: parsed.detail } : {},
+				...parsed.workstream_ids !== void 0 ? { workstream_ids: parsed.workstream_ids } : {},
+				...parsed.source_refs !== void 0 ? { source_refs: parsed.source_refs } : {}
+			};
+			try {
+				const result = deps.interventionCreate(params, actor);
+				return {
+					status: "created",
+					intervention: toToolJsonValue(result.intervention),
+					event_id: result.eventId
+				};
+			} catch (cause) {
+				if (cause instanceof InterventionError) throw new ToolError("TOOL_SERVICE", `${RESEARCH_INTERVENTION_CREATE}: [${cause.code}] ${cause.message}`, {
+					cause,
+					detail: { serviceCode: cause.code }
+				});
+				throw new ToolError("TOOL_SERVICE", `${RESEARCH_INTERVENTION_CREATE}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+			}
+		}
 	});
 }
 //#endregion
 //#region src/host/tools/next-action-create.ts
 /**
-* research_next_action_create (WP-3.3) — STUB (the forwarding service has
-* not landed yet; the report's stub table names the replacement).
+* research_next_action_create (WP-3.3 face; G4: the stub retires into the
+* real forward) — the agent's lightweight "possibly worth doing" proposal.
 *
 * Parameter face — DOMAIN_SCHEMA §9.3 NextAction, restricted to the
 * agent's matrix lane: the agent CREATES NextActions (status defaults to
 * PROPOSED — not an argument), but may NEVER PROMOTE (→ Task) or DISMISS
-* them (user-only, the matrix row 「NextAction PROMOTE/DISMISS ✅/❌」 —
+* them (user-only, the matrix row 「NextAction PROMOTE/DISMISS ✅/❌/❌/❌」 —
 * no such tool exists). `id` / `created_by` / `created_at` come from the
 * service and the call context.
+*
+* Forwarding: the INDEPENDENT WP-5.2 lane `ActionsService.createNextAction`
+* (NOT the intervention service — BASELINE_PLAN §2b names two different
+* services). The service already owns this lane's complete validation set —
+* the creator gate (`assertNextActionCreator`: USER|AGENT, an AGENT must
+* carry a formal R id) and the optional-WS existence check against the live
+* declarative tree (§16.3, ACT_INPUT) — so the tool reuses it and duplicates
+* NOTHING. There is no History event by contract (the frozen 20-event
+* catalog has no NA event — the row IS the record).
+*
+* The success value is the created PROPOSED row (frozen attention.schema.json
+* `$defs/NextAction`, additionalProperties:false).
 */
 /** Frozen §7.2 name. */
 const RESEARCH_NEXT_ACTION_CREATE = "research_next_action_create";
@@ -20262,22 +20411,108 @@ const NEXT_ACTION_CREATE_PARAMETERS = {
 	statement: str("The lightweight \"possibly worth doing\" action, in one line (not a Task).", true),
 	rationale: str("Optional: why it is worth considering.")
 };
+/** The canonical output contract (frozen `$defs/NextAction`). */
+const NEXT_ACTION_CREATE_OUTPUT_SCHEMA = {
+	type: "object",
+	additionalProperties: false,
+	required: ["status", "next_action"],
+	properties: {
+		status: { const: "created" },
+		next_action: {
+			type: "object",
+			additionalProperties: false,
+			required: [
+				"id",
+				"statement",
+				"status",
+				"created_by",
+				"created_at"
+			],
+			properties: {
+				id: { type: "string" },
+				workstream_id: { type: "string" },
+				statement: { type: "string" },
+				rationale: { type: "string" },
+				status: { enum: [
+					"PROPOSED",
+					"PROMOTED",
+					"DISMISSED"
+				] },
+				promoted_to_task_id: { type: "string" },
+				created_by: {
+					type: "object",
+					additionalProperties: false,
+					required: ["kind"],
+					properties: {
+						kind: { enum: [...TOOL_ACTOR_KINDS] },
+						user_id: { type: "string" },
+						run_id: { type: "string" },
+						session_id: { type: "string" },
+						label: { type: "string" }
+					}
+				},
+				created_at: { type: "integer" }
+			}
+		}
+	}
+};
+/** Validate + parse the frozen 3-key wire face. */
 function parseNextActionCreateArgs(args) {
 	const obj = assertArgsObject(args, RESEARCH_NEXT_ACTION_CREATE);
 	checkKeySet(obj, NEXT_ACTION_CREATE_ARG_KEYS, RESEARCH_NEXT_ACTION_CREATE);
 	requireKey(obj, "statement", RESEARCH_NEXT_ACTION_CREATE);
 	if (typeof obj["statement"] !== "string" || obj["statement"].length === 0) throw new ToolError("TOOL_INPUT", "/statement: must be a non-empty string");
-	assertOptionalString(obj, "workstream_id");
-	assertOptionalString(obj, "rationale");
+	const workstreamId = assertOptionalString(obj, "workstream_id");
+	const rationale = assertOptionalString(obj, "rationale");
+	return {
+		statement: obj["statement"],
+		...workstreamId !== void 0 ? { workstream_id: workstreamId } : {},
+		...rationale !== void 0 ? { rationale } : {}
+	};
 }
-function makeNextActionCreateDefinition() {
-	return makeStubDefinition({
+function makeNextActionCreateDefinition(deps) {
+	return buildTool({
 		name: RESEARCH_NEXT_ACTION_CREATE,
 		description: "Propose a lightweight next action that may be worth doing (NOT a Task). The user decides: they promote it into a formal Task or dismiss it — you cannot do either.",
 		access: "write",
+		requiresRun: true,
 		parameters: NEXT_ACTION_CREATE_PARAMETERS,
-		plannedService: "the next-action service (PROPOSED row; WP-5.2 lifecycle) — not yet landed (stub; see report)",
-		parseArgs: parseNextActionCreateArgs
+		output: {
+			schema: NEXT_ACTION_CREATE_OUTPUT_SCHEMA,
+			render: (_args, value) => {
+				const v = value;
+				const ws = v.next_action.workstream_id !== void 0 ? ` (workstream ${v.next_action.workstream_id})` : "";
+				return [{
+					type: "text",
+					text: `Next action ${v.next_action.id} proposed${ws} — the user decides: promote to Task or dismiss`
+				}];
+			}
+		},
+		handle: async (args, ctx) => {
+			const parsed = parseNextActionCreateArgs(args);
+			const actor = {
+				kind: "AGENT",
+				run_id: ctx.runId,
+				...ctx.actor.label !== void 0 ? { label: ctx.actor.label } : {}
+			};
+			const params = {
+				statement: parsed.statement,
+				...parsed.rationale !== void 0 ? { rationale: parsed.rationale } : {},
+				...parsed.workstream_id !== void 0 ? { workstreamId: parsed.workstream_id } : {}
+			};
+			try {
+				return {
+					status: "created",
+					next_action: toToolJsonValue(deps.nextActionCreate(params, actor))
+				};
+			} catch (cause) {
+				if (cause instanceof ActionsError) throw new ToolError("TOOL_SERVICE", `${RESEARCH_NEXT_ACTION_CREATE}: [${cause.code}] ${cause.message}`, {
+					cause,
+					detail: { serviceCode: cause.code }
+				});
+				throw new ToolError("TOOL_SERVICE", `${RESEARCH_NEXT_ACTION_CREATE}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+			}
+		}
 	});
 }
 //#endregion
@@ -20953,9 +21188,10 @@ RESEARCH_TOOL_NAMES.slice(0, 7);
 RESEARCH_TOOL_NAMES.slice(7);
 /**
 * Compose the complete tool face over the service ports (two write
-* ports + the G3 semantic create lane + the four G2 read ports).
-* Fail-loud on a malformed deps object (misconfiguration
-* is a composition-time error, not a per-call surprise). The returned
+* ports + the G3 semantic create lane + the four G2 read ports + the
+* two G4 attention-write ports). Fail-loud on a malformed deps object
+* (misconfiguration is a composition-time error, not a per-call
+* surprise). The returned
 * definitions are frozen and registered by the host wiring WP (WP-3.6)
 * — one `defineTool` adaptation per definition.
 */
@@ -20965,8 +21201,8 @@ function createResearchTools(deps) {
 		makeFactRecordDefinition(deps),
 		makeClaimRecordDefinition(deps),
 		makeArtifactRegisterDefinition(deps),
-		makeInterventionCreateDefinition(),
-		makeNextActionCreateDefinition(),
+		makeInterventionCreateDefinition(deps),
+		makeNextActionCreateDefinition(deps),
 		makePlanForkCreateDefinition(deps),
 		makeRunCheckpointDefinition(deps),
 		makeContextGetDefinition(deps),
@@ -20975,11 +21211,13 @@ function createResearchTools(deps) {
 		makeContractReadDefinition(deps)
 	];
 }
-/** Every port (write surface + lane methods + the four reads) must be a function (fail loud at composition). */
+/** Every reviewed port (write surface + lane methods + the four reads + the attention pair) must be a function (fail loud at composition). */
 function assertDeps(deps) {
-	if (deps === null || typeof deps !== "object") throw new TypeError("createResearchTools: deps must be an object with the six service ports");
+	if (deps === null || typeof deps !== "object") throw new TypeError("createResearchTools: deps must be an object with the reviewed service ports");
 	if (typeof deps.planForkCreate !== "function") throw new TypeError("createResearchTools: deps.planForkCreate must be the PlanFork creation service (WP-3.1 chain)");
 	if (typeof deps.recordCheckpoint !== "function") throw new TypeError("createResearchTools: deps.recordCheckpoint must be the RunBindingService.recordCheckpoint surface (WP-2.4)");
+	if (typeof deps.interventionCreate !== "function") throw new TypeError("createResearchTools: deps.interventionCreate must be the mechanical intervention creation lane (WP-5.1, trigger pinned by the wiring)");
+	if (typeof deps.nextActionCreate !== "function") throw new TypeError("createResearchTools: deps.nextActionCreate must be the ActionsService.createNextAction surface (WP-5.2)");
 	const lane = deps.semanticAgentCreate;
 	if (lane === null || typeof lane !== "object" || typeof lane.recordFact !== "function" || typeof lane.recordClaim !== "function" || typeof lane.registerArtifact !== "function") throw new TypeError("createResearchTools: deps.semanticAgentCreate must be the narrow semantic agent create lane (G3 — recordFact/recordClaim/registerArtifact)");
 	for (const port of [
@@ -25427,6 +25665,83 @@ function createHostWiring(options) {
 			runExists: { exists: (runId) => tables.getRun(runId) !== null },
 			now
 		});
+		const freshDeclarativeValidationMaps = () => {
+			const fresh = loadResearchTree(reader, researchRoot, declarativeDir);
+			if (fresh.errors.length > 0) logger?.warn("wiring", `attention validation: declarative tree read is DEGRADED \u2014 nodes of rejected files stay unresolved and new refs to them are refused: ` + fresh.errors.map((e) => `[${e.code}] ${e.file || "<root>"}`).join("; "));
+			const workstreams = /* @__PURE__ */ new Map();
+			const tasks = /* @__PURE__ */ new Map();
+			const gates = /* @__PURE__ */ new Map();
+			const milestones = /* @__PURE__ */ new Map();
+			for (const topic of fresh.tree.topics) for (const ws of topic.workstreams) {
+				const doc = ws.doc;
+				if (doc === null) continue;
+				workstreams.set(ws.id, {
+					topicId: topic.id,
+					lifecycle: doc.lifecycle
+				});
+				for (const t of ws.tasks) {
+					if (t.doc === null) continue;
+					const ac = t.doc.acceptance_criteria;
+					tasks.set(t.id, {
+						workstreamId: ws.id,
+						execution: "PLANNED",
+						validation: ac.length > 0 ? "PENDING" : "NOT_REQUIRED",
+						acceptanceCriteria: ac
+					});
+				}
+				for (const g of ws.gates) {
+					if (g.doc === null) continue;
+					gates.set(g.id, {
+						workstreamId: ws.id,
+						lastResult: null
+					});
+				}
+				for (const m of ws.milestones) {
+					if (m.doc === null) continue;
+					milestones.set(m.id, {
+						workstreamId: ws.id,
+						status: "PLANNED"
+					});
+				}
+			}
+			return {
+				workstreams,
+				tasks,
+				gates,
+				milestones
+			};
+		};
+		const attentionValidationState = () => {
+			const sem = readSemanticState();
+			const declarative = freshDeclarativeValidationMaps();
+			const runs = /* @__PURE__ */ new Map();
+			for (const row of tables.listAllRuns()) runs.set(row.id, {
+				workstreamId: row.workstream_id,
+				status: row.status
+			});
+			const claims = /* @__PURE__ */ new Map();
+			for (const [id, row] of sem.claims) claims.set(id, {
+				workstreamId: row.workstream_id,
+				status: row.status
+			});
+			const facts = /* @__PURE__ */ new Map();
+			for (const [id, row] of sem.facts) facts.set(id, { workstreamId: row.workstream_id });
+			const artifacts = /* @__PURE__ */ new Map();
+			for (const [id, row] of sem.artifacts) artifacts.set(id, {
+				workstreamId: row.workstream_id,
+				status: row.status
+			});
+			return {
+				workstreams: declarative.workstreams,
+				runs,
+				tasks: declarative.tasks,
+				gates: declarative.gates,
+				milestones: declarative.milestones,
+				claims,
+				facts,
+				artifacts
+			};
+		};
 		const interventionService = new InterventionService({
 			store,
 			registry,
@@ -25436,7 +25751,7 @@ function createHostWiring(options) {
 			}),
 			allocator,
 			projectId: options.projectId,
-			externalState: () => ({ workstreams: liveWorkstreams }),
+			externalState: attentionValidationState,
 			now
 		});
 		const inbox = new InboxService({
@@ -25645,6 +25960,11 @@ function createHostWiring(options) {
 				return record;
 			},
 			recordCheckpoint: (runId, params, actor) => runBinding.recordCheckpoint(runId, params, actor),
+			interventionCreate: (params, actor) => interventionService.createMechanicalIntervention({
+				...params,
+				trigger: "AGENT_REPORT_REQUIRES_HUMAN"
+			}, actor),
+			nextActionCreate: (params, actor) => actions.createNextAction(params, actor),
 			semanticAgentCreate: {
 				recordFact: (args, caller) => makeSemanticToolService().recordFactAsAgent(args, caller),
 				recordClaim: (args, caller) => makeSemanticToolService().recordClaimAsAgent(args, caller),

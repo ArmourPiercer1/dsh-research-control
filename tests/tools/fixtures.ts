@@ -2,11 +2,17 @@
  * WP-3.3 test infrastructure (tests/tools/).
  *
  * Shared actors, the exec factory (real AbortSignal), the ToolError
- * assertion helper, and recording deps (the two service ports with call
+ * assertion helper, and recording deps (the service ports with call
  * capture — the recording ports THROW if a stub path ever reaches them,
  * so a stub that touches a service is a test failure by construction).
  */
 
+import type {
+  CreateInterventionResult,
+  InterventionCreateParams,
+  MechanicalActorRef,
+} from '../../src/host/service/intervention/index.js'
+import type { ActorRef, CreateNextActionParams, NextActionRecord } from '../../src/host/service/actions/index.js'
 import { ToolError, type ResearchToolDeps, type ResearchToolExec, type ToolActorRef } from '../../src/host/tools/index.js'
 import type {
   ToolHistoryQuery,
@@ -111,6 +117,8 @@ export async function expectToolErrorAsync(fn: () => Promise<unknown>, code: str
 export interface RecordingDeps extends ResearchToolDeps {
   readonly planForkCreateCalls: readonly unknown[]
   readonly recordCheckpointCalls: readonly { runId: string; params: { note?: string }; actor: ToolActorRef }[]
+  readonly interventionCreateCalls: readonly { params: InterventionCreateParams; actor: MechanicalActorRef }[]
+  readonly nextActionCreateCalls: readonly { params: CreateNextActionParams; actor: ActorRef }[]
   /** G2 read ports — call capture (the forwarding-fidelity surface). */
   readonly contextGetCalls: readonly string[]
   readonly planGetCalls: readonly string[]
@@ -119,14 +127,17 @@ export interface RecordingDeps extends ResearchToolDeps {
 }
 
 /**
- * Deps with call capture. `planForkCreate`/`recordCheckpoint` must be
- * overridden per-test (they throw by default: a stub path that reaches a
- * service is a test failure by construction). The four G2 read ports are
- * the same firewall pattern: overridden per-test, throw otherwise.
+ * Deps with call capture. `planForkCreate`/`recordCheckpoint`/
+ * `interventionCreate`/`nextActionCreate` must be overridden per-test (they
+ * throw by default: a stub path that reaches a service is a test failure by
+ * construction). The four G2 read ports and the G3 semantic lane are the
+ * same firewall pattern: overridden per-test, throw otherwise.
  */
 export function makeRecordingDeps(): RecordingDeps & {
   setPlanForkCreate(fn: ResearchToolDeps['planForkCreate']): void
   setRecordCheckpoint(fn: ResearchToolDeps['recordCheckpoint']): void
+  setInterventionCreate(fn: (params: InterventionCreateParams, actor: MechanicalActorRef) => CreateInterventionResult): void
+  setNextActionCreate(fn: (params: CreateNextActionParams, actor: ActorRef) => NextActionRecord): void
   setSemanticAgentCreate(fns: Partial<ResearchToolDeps['semanticAgentCreate']>): void
   setContextGet(fn: (sessionId: string) => ToolSessionContext): void
   setPlanGet(fn: (workstreamId: string) => ToolWorkstreamPlanView): void
@@ -135,6 +146,8 @@ export function makeRecordingDeps(): RecordingDeps & {
 } {
   const planForkCreateCalls: unknown[] = []
   const recordCheckpointCalls: { runId: string; params: { note?: string }; actor: ToolActorRef }[] = []
+  const interventionCreateCalls: { params: InterventionCreateParams; actor: MechanicalActorRef }[] = []
+  const nextActionCreateCalls: { params: CreateNextActionParams; actor: ActorRef }[] = []
   const contextGetCalls: string[] = []
   const planGetCalls: string[] = []
   const historyQueryCalls: ToolHistoryQuery[] = []
@@ -144,6 +157,12 @@ export function makeRecordingDeps(): RecordingDeps & {
   }
   let rcImpl: ResearchToolDeps['recordCheckpoint'] = () => {
     throw new Error('deps.recordCheckpoint called without a test override (a stub reached the service port)')
+  }
+  let ivImpl: (params: InterventionCreateParams, actor: MechanicalActorRef) => CreateInterventionResult = () => {
+    throw new Error('deps.interventionCreate called without a test override (a stub reached the service port)')
+  }
+  let naImpl: (params: CreateNextActionParams, actor: ActorRef) => NextActionRecord = () => {
+    throw new Error('deps.nextActionCreate called without a test override (a stub reached the service port)')
   }
   let ctxImpl: (sessionId: string) => ToolSessionContext = () => {
     throw new Error('deps.contextGet called without a test override (a read tool reached its port un-wired)')
@@ -166,6 +185,8 @@ export function makeRecordingDeps(): RecordingDeps & {
   return {
     planForkCreateCalls,
     recordCheckpointCalls,
+    interventionCreateCalls,
+    nextActionCreateCalls,
     contextGetCalls,
     planGetCalls,
     historyQueryCalls,
@@ -177,6 +198,14 @@ export function makeRecordingDeps(): RecordingDeps & {
     recordCheckpoint: (runId, params, actor) => {
       recordCheckpointCalls.push({ runId, params, actor: actor as ToolActorRef })
       return rcImpl(runId, params, actor)
+    },
+    interventionCreate: (params, actor) => {
+      interventionCreateCalls.push({ params, actor })
+      return ivImpl(params, actor)
+    },
+    nextActionCreate: (params, actor) => {
+      nextActionCreateCalls.push({ params, actor })
+      return naImpl(params, actor)
     },
     semanticAgentCreate: {
       recordFact: (args, caller) => saFact(args, caller),
@@ -204,6 +233,12 @@ export function makeRecordingDeps(): RecordingDeps & {
     },
     setRecordCheckpoint: (fn) => {
       rcImpl = fn
+    },
+    setInterventionCreate: (fn) => {
+      ivImpl = fn
+    },
+    setNextActionCreate: (fn) => {
+      naImpl = fn
     },
     setSemanticAgentCreate: (fns) => {
       if (fns.recordFact !== undefined) saFact = fns.recordFact

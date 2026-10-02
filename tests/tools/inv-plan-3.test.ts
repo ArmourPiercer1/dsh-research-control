@@ -35,6 +35,12 @@ import {
   type CreatePlanForkParams,
   type PlanForkRecord,
 } from '../../src/host/domain/planfork/index.js'
+import type { ActorRef, CreateNextActionParams, NextActionRecord } from '../../src/host/service/actions/index.js'
+import type {
+  CreateInterventionResult,
+  InterventionCreateParams,
+  MechanicalActorRef,
+} from '../../src/host/service/intervention/index.js'
 import type { RunRecord, UserOrAgentActorRef } from '../../src/host/service/runbinding/index.js'
 import type {
   RecordClaimArgs,
@@ -69,11 +75,13 @@ type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y 
 /** True iff K is NOT a key of T. */
 type Absent<K extends string, T> = [K] extends [keyof T] ? false : true
 
-/** INV-PLAN-3 核心钉 (G3+G2 后): 工具层依赖面恰七个键 — 无 canonical
+/** INV-PLAN-3 核心钉 (G3+G2+G4 后): 工具层依赖面恰九个键 — 无 canonical
  *  plan 写口可注入 (写面 = planForkCreate / recordCheckpoint /
  *  semanticAgentCreate: G3 语义创建窄端口只建 fact/claim/artifact, 参数
  *  被冻结语义 args + 必传 trusted caller 逐字钉死, 无任何 plan 语义;
- *  读面 = G2 四个只读端口, 签名逐一钉为投影 DTO). */
+ *  G4 注意力写两端口 interventionCreate / nextActionCreate — 均无 plan
+ *  写/promote/dismiss 语义; 读面 = G2 四个只读端口, 签名逐一钉为投影
+ *  DTO). */
 type T_DepsFaceExact = Expect<
   Equal<
     keyof ResearchToolDeps,
@@ -84,12 +92,16 @@ type T_DepsFaceExact = Expect<
     | 'planGet'
     | 'historyQuery'
     | 'contractRead'
+    | 'interventionCreate'
+    | 'nextActionCreate'
   >
 >
 
-/** 正例钉: 七个键都在. */
+/** 正例钉: 九个键都在 (演进同步). */
 type T_HasPlanForkCreate = Expect<['planForkCreate'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasRecordCheckpoint = Expect<['recordCheckpoint'] extends [keyof ResearchToolDeps] ? true : false>
+type T_HasInterventionCreate = Expect<['interventionCreate'] extends [keyof ResearchToolDeps] ? true : false>
+type T_HasNextActionCreate = Expect<['nextActionCreate'] extends [keyof ResearchToolDeps] ? true : false>
 type T_HasSemanticAgentCreate = Expect<['semanticAgentCreate'] extends [keyof ResearchToolDeps] ? true : false>
 
 /** G3 语义创建端口逐字钉: 每个方法 = (冻结语义 args, 必传 trusted caller),
@@ -126,6 +138,13 @@ type T_RcParamsFrozen = Expect<
 >
 type T_RcReturnsRun = Expect<Equal<ReturnType<ResearchToolDeps['recordCheckpoint']>, RunRecord>>
 
+/** G4 注意力写端口逐字钉: 参数 = 冻结服务面, 返回 = 服务结果/记录 — 无 plan 写语义. */
+type T_IvCreateParamsFrozen = Expect<
+  Equal<Parameters<ResearchToolDeps['interventionCreate']>, [InterventionCreateParams, MechanicalActorRef]>
+>
+type T_IvCreateReturnsResult = Expect<Equal<ReturnType<ResearchToolDeps['interventionCreate']>, CreateInterventionResult>>
+type T_NaCreateParamsFrozen = Expect<Equal<Parameters<ResearchToolDeps['nextActionCreate']>, [CreateNextActionParams, ActorRef]>>
+type T_NaCreateReturnsRecord = Expect<Equal<ReturnType<ResearchToolDeps['nextActionCreate']>, NextActionRecord>>
 /** G2 §2d 只读端口逐字钉: 参数只有 id 字符串, 返回只有投影 DTO —— 四个
  *  签名都不携带任何 plan/contract/history 写语义 (INV-PLAN-3 读面半边). */
 type T_ContextGetFrozen = Expect<Equal<ResearchToolDeps['contextGet'], (sessionId: string) => ToolSessionContext>>
@@ -148,6 +167,8 @@ const _typeSurface: [
   T_DepsFaceExact,
   T_HasPlanForkCreate,
   T_HasRecordCheckpoint,
+  T_HasInterventionCreate,
+  T_HasNextActionCreate,
   T_NoSavePlan,
   T_NoCreateItem,
   T_NoUpdateItem,
@@ -162,6 +183,10 @@ const _typeSurface: [
   T_PfCreateArityOne,
   T_RcParamsFrozen,
   T_RcReturnsRun,
+  T_IvCreateParamsFrozen,
+  T_IvCreateReturnsResult,
+  T_NaCreateParamsFrozen,
+  T_NaCreateReturnsRecord,
   T_ContextGetFrozen,
   T_PlanGetFrozen,
   T_HistoryQueryFrozen,
@@ -173,10 +198,11 @@ const _typeSurface: [
   T_PfParamsNoBaseGitCommit,
   T_PfParamsNoBaseGitCommit_Camel,
 ] = [
-  true, true, true,
+  true, true, true, true, true,
   true, true, true, true, true, true, true, true, true,
   true, true, true,
   true, true,
+  true, true, true, true,
   true, true, true, true, true,
   true, true, true, true, true,
 ]
@@ -215,19 +241,24 @@ const PLAN_WRITE_PARAM_KEYS = [
 ] as const
 
 describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路径)', () => {
-  it('deps face is the frozen seven-port set (compile-time pin; runtime mirror: the composition accepts only those)', () => {
-    // 运行时镜像: 依赖对象的键集 = 三个写面键 + 四个 G2 只读端口 (JS 调用者
-    // 绕过类型的护栏时, plan 写词汇依然不可达 — 只有这七个端口键).
+  it('deps face is the frozen nine-port set (compile-time pin; runtime mirror: the composition accepts only those)', () => {
+    // 运行时镜像: 依赖对象的键集 = 三个写面键 + G4 注意力写两端口 + 四个 G2
+    // 只读端口 (JS 调用者绕过类型的护栏时, plan 写词汇依然不可达 — 只有这
+    // 九个端口键).
     const deps = makeRecordingDeps()
     const {
       planForkCreateCalls,
       recordCheckpointCalls,
+      interventionCreateCalls,
+      nextActionCreateCalls,
       contextGetCalls,
       planGetCalls,
       historyQueryCalls,
       contractReadCalls,
       setPlanForkCreate,
       setRecordCheckpoint,
+      setInterventionCreate,
+      setNextActionCreate,
       setSemanticAgentCreate,
       setContextGet,
       setPlanGet,
@@ -237,12 +268,16 @@ describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路�
     } = deps
     void planForkCreateCalls
     void recordCheckpointCalls
+    void interventionCreateCalls
+    void nextActionCreateCalls
     void contextGetCalls
     void planGetCalls
     void historyQueryCalls
     void contractReadCalls
     void setPlanForkCreate
     void setRecordCheckpoint
+    void setInterventionCreate
+    void setNextActionCreate
     void setSemanticAgentCreate
     void setContextGet
     void setPlanGet
@@ -252,6 +287,8 @@ describe('INV-PLAN-3 — 工具面类型证明 (Agent 无 canonical plan 写路�
       'contextGet',
       'contractRead',
       'historyQuery',
+      'interventionCreate',
+      'nextActionCreate',
       'planForkCreate',
       'planGet',
       'recordCheckpoint',

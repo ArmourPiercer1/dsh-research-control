@@ -60,6 +60,12 @@ import {
   type TriggerRefResolver,
 } from '../../domain/planfork/index.js'
 import type {
+  ArtifactSnapshot,
+  ClaimSnapshot,
+  FactSnapshot,
+  GateSnapshot,
+  MilestoneSnapshot,
+  RunSnapshot,
   TaskSnapshot,
   WorkstreamSnapshot,
 } from '../../history/registry/index.js'
@@ -97,6 +103,7 @@ import { makeToolReadServices } from './read-services.js'
 import {
   InterventionService,
   InterventionLifecycleStore,
+  type InterventionExternalState,
 } from '../../service/intervention/index.js'
 import {
   InboxService,
@@ -757,13 +764,124 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
       runExists: { exists: (runId: string) => tables.getRun(runId) !== null },
       now,
     })
+    // G4: the PRODUCTION attention-write validation context (the mechanical/
+    // agent intervention lane's §16 规则 2 + frozen-registry validation maps).
+    // FRESH reads per creation (the triggerRefResolver discipline — a
+    // creation validates against the state as it is NOW): runs = the run/DS
+    // table (the actor.run_id existence the frozen registry demands + RUN
+    // source refs), claims/facts/artifacts = the RR-011 (b) fold's derived-
+    // state row (the same row the plan-fork trigger resolver reads). A kind
+    // the context does not model keeps the frozen shape-only treatment.
+    //
+    // PR5 review 第二轮: the DECLARATIVE side is read FRESH per creation (the
+    // hierarchy lane's precedent — `loadResearchTree` per call, no cache: a
+    // just-created node is visible to the next read without a restart/rescan;
+    // the GUI plan-editor/NextAction-promote face writes the tree WITHOUT
+    // rewiring this wiring). PR5 review 第三轮: the CURRENT tree is the ONLY
+    // declarative answer — NO boot-snapshot fallback (that would let a ref to
+    // a node deleted/corrupted after boot pass as it was at boot, violating
+    // DOMAIN_SCHEMA §16: unresolved new refs are REFUSED). The loader's existing
+    // file-level semantics do the work: a missing or rejected file keeps its
+    // node absent (`doc: null`) ⇒ absent from these maps ⇒ unresolved ⇒ the
+    // creation is rejected (IV_INPUT, zero writes); surviving files keep
+    // validating normally (no blanket fail-closed, no invented lax mode, no
+    // invalidation bus). A degraded read is surfaced on the log; the no-WS /
+    // no-ref lane references nothing to resolve and stays contract-compliant
+    // either way (the service consumes these maps only for what is referenced
+    // — §16.4/§16.3; the TC-DOM-023 no-event lane needs no declarative ctx).
+    const freshDeclarativeValidationMaps = (): {
+      workstreams: ReadonlyMap<string, WorkstreamSnapshot>
+      tasks: ReadonlyMap<string, TaskSnapshot>
+      gates: ReadonlyMap<string, GateSnapshot>
+      milestones: ReadonlyMap<string, MilestoneSnapshot>
+    } => {
+      const fresh = loadResearchTree(reader, researchRoot, declarativeDir)
+      if (fresh.errors.length > 0) {
+        logger?.warn(
+          'wiring',
+          `attention validation: declarative tree read is DEGRADED \u2014 nodes of rejected files stay unresolved and new refs to them are refused: ` +
+            fresh.errors.map((e) => `[${e.code}] ${e.file || '<root>'}`).join('; '),
+        )
+      }
+      const workstreams = new Map<string, WorkstreamSnapshot>()
+      const tasks = new Map<string, TaskSnapshot>()
+      const gates = new Map<string, GateSnapshot>()
+      const milestones = new Map<string, MilestoneSnapshot>()
+      for (const topic of fresh.tree.topics) {
+        for (const ws of topic.workstreams) {
+          const doc = ws.doc
+          if (doc === null) continue
+          workstreams.set(ws.id, { topicId: topic.id, lifecycle: doc.lifecycle })
+          for (const t of ws.tasks) {
+            if (t.doc === null) continue
+            const ac = t.doc.acceptance_criteria
+            tasks.set(t.id, {
+              workstreamId: ws.id,
+              execution: 'PLANNED',
+              validation: ac.length > 0 ? 'PENDING' : 'NOT_REQUIRED',
+              acceptanceCriteria: ac,
+            })
+          }
+          // PR5 review 第四轮: EVERY tree-node kind carries the same guard —
+          // the loader keeps a node whose file is missing/schema-rejected
+          // present with `doc: null` (loader contract: "a failed file is
+          // rejected, its node stays doc: null"), and a null doc must never
+          // answer existence (tasks skipped it above; gates/milestones must
+          // not differ — a corrupted G-1/M-1 file is unresolved, not resolvable).
+          for (const g of ws.gates) {
+            if (g.doc === null) continue
+            gates.set(g.id, { workstreamId: ws.id, lastResult: null })
+          }
+          for (const m of ws.milestones) {
+            if (m.doc === null) continue
+            milestones.set(m.id, { workstreamId: ws.id, status: 'PLANNED' })
+          }
+        }
+      }
+      return { workstreams, tasks, gates, milestones }
+    }
+    // Pre-release audit (PR5 第四轮), every map kind this context answers with,
+    // once and for all: the FOUR loader-derived kinds — workstream, task,
+    // gate, milestone — all now require a VALID, CURRENT doc (a null doc from
+    // a missing/rejected file never answers existence; a rejected WS doc also
+    // un-owns its children — refs needing owner context cannot resolve either).
+    // The remaining existence kinds are STORE-derived, not file-derived, and
+    // row existence IS the current authority by construction (their write
+    // paths are the validators): run = the run/DS table row; claim/fact/
+    // artifact = the RR-011 (b) fold's derived-state rows (built only from
+    // registry-validated events). The service's existence switch covers
+    // exactly these 8 kinds; any further kind keeps the frozen shape-only
+    // treatment (undefined ⇒ not existence-checked here). No other kind
+    // resolves through loader nodes.
+    const attentionValidationState = (): InterventionExternalState => {
+      const sem = readSemanticState()
+      const declarative = freshDeclarativeValidationMaps()
+      const runs = new Map<string, RunSnapshot>()
+      for (const row of tables.listAllRuns()) runs.set(row.id, { workstreamId: row.workstream_id, status: row.status })
+      const claims = new Map<string, ClaimSnapshot>()
+      for (const [id, row] of sem.claims) claims.set(id, { workstreamId: row.workstream_id, status: row.status })
+      const facts = new Map<string, FactSnapshot>()
+      for (const [id, row] of sem.facts) facts.set(id, { workstreamId: row.workstream_id })
+      const artifacts = new Map<string, ArtifactSnapshot>()
+      for (const [id, row] of sem.artifacts) artifacts.set(id, { workstreamId: row.workstream_id, status: row.status })
+      return {
+        workstreams: declarative.workstreams,
+        runs,
+        tasks: declarative.tasks,
+        gates: declarative.gates,
+        milestones: declarative.milestones,
+        claims,
+        facts,
+        artifacts,
+      }
+    }
     const interventionService = new InterventionService({
       store,
       registry,
       lifecycle: new InterventionLifecycleStore({ db: inboxDbFace, interventions }),
       allocator,
       projectId: options.projectId,
-      externalState: () => ({ workstreams: liveWorkstreams }),
+      externalState: attentionValidationState,
       now,
     })
 
@@ -1107,6 +1225,20 @@ export function createHostWiring(options: HostWiringOptions): HostWiring {
         return record
       },
       recordCheckpoint: (runId, params, actor) => runBinding.recordCheckpoint(runId, params, actor),
+      // G4 attention-write ports. The intervention lane: the WP-5.1
+      // MECHANICAL service with trigger pinned to AGENT_REPORT_REQUIRES_HUMAN
+      // (the §6 footnote-¹ agent-report lane — the frozen origin/actor-kind
+      // mapping lives in the service types; the tool face carries no
+      // trigger/origin key and the trusted AGENT actor rides through from the
+      // host-resolved session call context).
+      interventionCreate: (params, actor) =>
+        interventionService.createMechanicalIntervention(
+          { ...params, trigger: 'AGENT_REPORT_REQUIRES_HUMAN' },
+          actor,
+        ),
+      // The NextAction lane: the INDEPENDENT WP-5.2 service (creator gate +
+      // §16.3 optional-WS existence check included — no duplication here).
+      nextActionCreate: (params, actor) => actions.createNextAction(params, actor),
       // G3 — the narrow semantic AGENT create lane (the three research_*
       // write tools). Per-call construction mirrors the RPC Records face
       // (rpc-services #makeSemanticRecordsService): a FRESH tree load for

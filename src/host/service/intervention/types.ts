@@ -62,8 +62,14 @@
 
 import type {
   ActorRef,
+  ArtifactSnapshot,
+  ClaimSnapshot,
+  FactSnapshot,
+  GateSnapshot,
   HistoryEventRegistry,
+  MilestoneSnapshot,
   RunSnapshot,
+  TaskSnapshot,
   TypedRef,
   WorkstreamSnapshot,
 } from '../../history/registry/index.js'
@@ -211,14 +217,30 @@ export function isInterventionError(error: unknown): error is InterventionError 
  * Ports + options（DI 面 — 同 WP-2.4 / WP-3.5 模式）
  * ------------------------------------------------------------------ */
 
-/** 事件校验上下文的外部（声明式侧 + Run 表）快照面 — 同 WP-3.5
+/** 事件校验上下文的外部（声明式侧 + Run 表 + 语义面）快照面 — 同 WP-3.5
  *  `FloodingExternalState`, 加 runs 缝（AGENT 发射事件的 actor.run_id
- *  存在性校验需要, catalog §5 通用校验）。 */
+ *  存在性校验需要, catalog §5 通用校验）。
+ *
+ *  G4（注意力写面）: 可选的 source_refs typedRef 校验 maps（冻结 registry 的
+ *  workstream-local 集合 = TASK/GATE/MILESTONE/RUN/CLAIM/FACT/ARTIFACT +
+ *  WORKSTREAM — validate.ts `WS_LOCAL_KINDS`, 两处口径一致）。生产接线按
+ *  实际 registry/index 填这些 map（runs=run 表、claims/facts/artifacts=语义
+ *  派生状态、tasks/gates/milestones=声明式树）; 缺省 = 未注入 = 该 kind 维持
+ *  冻结 registry 的 V1 口径（「non-WS-local kinds are not modeled in the V1
+ *  snapshot」的 shape-only 半边 = 不发明更严政策）。写入时存在性预校验
+ *  (§16 规则 2) 与事件 registry 校验共用同一注入面。 */
 export interface InterventionExternalState {
   readonly workstreams: ReadonlyMap<string, WorkstreamSnapshot>
   /** Run 快照缝（R id → 快照）; 缺省 = 空（AGENT 发射 + WS 关联的事件
    *  将过不了 registry 校验 — fail loud, 不静默放行）。 */
   readonly runs?: ReadonlyMap<string, RunSnapshot>
+  /** source_refs typedRef 校验缝（G4; 见接口头注 — 注入即校验, 缺省 = 不建模）。 */
+  readonly tasks?: ReadonlyMap<string, TaskSnapshot>
+  readonly gates?: ReadonlyMap<string, GateSnapshot>
+  readonly milestones?: ReadonlyMap<string, MilestoneSnapshot>
+  readonly claims?: ReadonlyMap<string, ClaimSnapshot>
+  readonly facts?: ReadonlyMap<string, FactSnapshot>
+  readonly artifacts?: ReadonlyMap<string, ArtifactSnapshot>
 }
 
 /** `InterventionService` 构造选项（宿主接线 WP 组装）。 */

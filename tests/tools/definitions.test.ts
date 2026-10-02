@@ -310,6 +310,58 @@ describe('definition completeness: parameter faces (the host-derived JSON Schema
     expect([...(run.required ?? [])].sort()).toEqual(['id', 'started_at', 'status', 'workstream_id', 'initiated_by'].sort())
     expect(run.properties!.status).toMatchObject({ enum: ['RUNNING', 'FINISHED', 'FAILED', 'CANCELLED'] })
 
+    // G4 attention write tools: the strict success projections (frozen
+    // attention.schema.json rows + the discriminator + the null-or-id event).
+    const iv = byName.get('research_intervention_create')!.output.schema
+    expect(iv.type).toBe('object')
+    expect(iv.additionalProperties).toBe(false)
+    expect([...(iv.required ?? [])].sort()).toEqual(['event_id', 'intervention', 'status'])
+    expect(iv.properties!.status).toMatchObject({ const: 'created' })
+    const ivRec = iv.properties!.intervention!
+    expect(ivRec.additionalProperties).toBe(false)
+    expect([...(ivRec.required ?? [])].sort()).toEqual(
+      ['created_at', 'created_by', 'id', 'origin', 'status', 'title'].sort(),
+    )
+    expect(Object.keys(ivRec.properties!).sort()).toEqual(
+      [
+        'closed_at',
+        'created_at',
+        'created_by',
+        'detail',
+        'id',
+        'origin',
+        'resolution_note',
+        'source_refs',
+        'status',
+        'title',
+        'workstream_ids',
+      ].sort(),
+    )
+    expect(ivRec.properties!.origin).toMatchObject({ enum: ['USER', 'AGENT_REPORT', 'AUTO_FLOODING', 'AUTO_AUDIT'] })
+    expect(ivRec.properties!.status).toMatchObject({ enum: ['OPEN', 'PENDING', 'CLOSED'] })
+    expect(iv.properties!.event_id).toMatchObject({ oneOf: [{ type: 'string' }, { type: 'null' }] })
+
+    const na = byName.get('research_next_action_create')!.output.schema
+    expect(na.additionalProperties).toBe(false)
+    expect([...(na.required ?? [])].sort()).toEqual(['next_action', 'status'])
+    expect(na.properties!.status).toMatchObject({ const: 'created' })
+    const naRec = na.properties!.next_action!
+    expect(naRec.additionalProperties).toBe(false)
+    expect([...(naRec.required ?? [])].sort()).toEqual(['created_at', 'created_by', 'id', 'statement', 'status'])
+    expect(Object.keys(naRec.properties!).sort()).toEqual(
+      [
+        'created_at',
+        'created_by',
+        'id',
+        'promoted_to_task_id',
+        'rationale',
+        'statement',
+        'status',
+        'workstream_id',
+      ].sort(),
+    )
+    expect(naRec.properties!.status).toMatchObject({ enum: ['PROPOSED', 'PROMOTED', 'DISMISSED'] })
+
     // G3: the semantic trio — strict success shapes (created rows)
     for (const [name, key, status] of [
       ['research_fact_record', 'fact', 'ACTIVE'],
@@ -330,13 +382,14 @@ describe('definition completeness: parameter faces (the host-derived JSON Schema
       expect(row.properties!.created_by_run).toMatchObject({ type: 'string' })
     }
 
-    for (const name of [
-      'research_intervention_create',
-      'research_next_action_create',
-    ]) {
+    // ZERO stubs remain (G3 trio + G2 four reads + G4 attention pair all
+    // retired their placeholders): NO tool may answer the permissive
+    // shape anymore — every one of the 11 output contracts is closed.
+    for (const name of RESEARCH_TOOL_NAMES) {
       const schema = byName.get(name)!.output.schema
-      expect(schema.additionalProperties, `${name} stub schema permissive`).toBe(true)
+      expect(schema.additionalProperties, `${name} closed (zero stubs)`).toBe(false)
     }
+
 
     // G2 §2d — the four read tools retired their stub placeholders for
     // STRICT canonical shapes (each a closed root object, status const
@@ -370,8 +423,11 @@ describe('definition completeness: parameter faces (the host-derived JSON Schema
   })
 })
 
+/** the assertDeps message for a missing read port is `deps.<port> must…` */
+const port2rx = (port: string): string => `deps\\.${port} must`
+
 describe('definition completeness: composition (createResearchTools)', () => {
-  it('fail-loud on a malformed deps object', () => {
+  it('fail-loud on a malformed deps object (nine-port union face, check-order pinned port by port)', () => {
     expect(() => createResearchTools(null as never)).toThrow(TypeError)
     expect(() => createResearchTools({ recordCheckpoint: () => ({} as never) } as never)).toThrow(
       /planForkCreate/,
@@ -379,12 +435,61 @@ describe('definition completeness: composition (createResearchTools)', () => {
     expect(() => createResearchTools({ planForkCreate: () => ({} as never) } as never)).toThrow(
       /recordCheckpoint/,
     )
+    const lane = {
+      recordFact: () => ({} as never),
+      recordClaim: () => ({} as never),
+      registerArtifact: () => ({} as never),
+    }
     expect(() =>
       createResearchTools({
         planForkCreate: () => ({} as never),
         recordCheckpoint: () => ({} as never),
       } as never),
+    ).toThrow(/interventionCreate/)
+    expect(() =>
+      createResearchTools({
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+        interventionCreate: () => ({} as never),
+      } as never),
+    ).toThrow(/nextActionCreate/)
+    expect(() =>
+      createResearchTools({
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+        interventionCreate: () => ({} as never),
+        nextActionCreate: () => ({} as never),
+      } as never),
     ).toThrow(/semanticAgentCreate/)
+    // each G2 read port individually: the loop names the first missing one,
+    // so supply every other key and omit exactly that port
+    for (const missing of ['contextGet', 'planGet', 'historyQuery', 'contractRead'] as const) {
+      const deps: Record<string, unknown> = {
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+        interventionCreate: () => ({} as never),
+        nextActionCreate: () => ({} as never),
+        semanticAgentCreate: lane,
+      }
+      for (const port of ['contextGet', 'planGet', 'historyQuery', 'contractRead'] as const) {
+        if (port !== missing) deps[port] = () => ({} as never)
+      }
+      expect(() => createResearchTools(deps as never), missing).toThrow(new RegExp(port2rx(missing)))
+    }
+    // positive mirror: the complete nine-port face composes without throwing
+    expect(() =>
+      createResearchTools({
+        planForkCreate: () => ({} as never),
+        recordCheckpoint: () => ({} as never),
+        interventionCreate: () => ({} as never),
+        nextActionCreate: () => ({} as never),
+        semanticAgentCreate: lane,
+        contextGet: () => ({} as never),
+        planGet: () => ({} as never),
+        historyQuery: () => ({} as never),
+        contractRead: () => ({} as never),
+      } as never),
+    ).not.toThrow()
   })
 
   it('composes the 11 definitions in the frozen §7.2 order (registration-ready)', () => {

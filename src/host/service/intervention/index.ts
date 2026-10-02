@@ -32,6 +32,9 @@ export {
   type UpdateInterventionStateResult,
   type UserActorRef,
 } from './types.js'
+// G4: 工具面 typedRef 词汇（common.schema.json $defs/typedRef 的 registry 镜像 —
+// 经本模块 types.ts 消费；重导出使工具层无需直接 import history 层）。
+export type { TypedRef } from '../../history/registry/index.js'
 
 // §13 状态机服务面（冻结表单一来源在 WP-3.5; 门面重导出）。
 export {

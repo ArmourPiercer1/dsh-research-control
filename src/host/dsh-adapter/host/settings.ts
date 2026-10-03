@@ -85,6 +85,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
+import { parse as parseYamlDocument } from 'yaml'
 import {
   DEFAULT_HUB_DIR,
   DEFAULT_PROJECT_TREE_DIR,
@@ -234,21 +235,27 @@ export interface DirNameFieldLayer {
  *  and the service-Config fallback — see the matrix on
  *  {@link resolveResearchDirNames}). */
 export interface ResearchDirResolutionOptions {
-  /** The parsed 0.1 `settings.yaml` section (the host legacy importer
-   *  cannot carry it: `LEGACY_SECTION_ENTRIES` only knows
-   *  ui-developer-tools/ui-onboarding/shell (rc.2 settings index:200-
-   *  206), the unmapped `dsh-research-control` section hits
-   *  `update('dsh-research-control')` → `No configurable plugin entry`
-   *  (settings index:377) and survives ONLY in the renamed `.imported`
-   *  file. The layer here is the plugin's own explicit migration read,
-   *  synchronous at boot so the FIRST upgrade boot's discovery already
-   *  resolves the custom names (no manual rescan, no restart). */
+  /** The BOOT OVERLAY — the parsed 0.1 `settings.yaml` section, supplied
+   *  ONLY while the one-shot migration is PENDING (the profile user layer
+   *  carries no {@link RESEARCH_SETTINGS_MIGRATION_MARKER}). Pending lasts
+   *  exactly one boot: the synchronous read serves the first upgraded
+   *  boot's discovery (no manual rescan/restart), the atomic
+   *  {@link migrateLegacyResearchSettings} then persists fields + marker
+   *  through the host's own `ConfigEditor.edit`, and from then on the
+   *  legacy document is PERMANENTLY out of the authority layers — a later
+   *  reset back to a default stays default and never resurrects the old
+   *  name (the file itself survives as a lazy backup; nothing rewrites or
+   *  deletes it). The host legacy importer cannot carry this section:
+   *  `LEGACY_SECTION_ENTRIES` only knows ui-developer-tools/
+   *  ui-onboarding/shell (rc.2 settings index:200-206); the unmapped
+   *  `dsh-research-control` section survives only in the renamed
+   *  `.imported` file. */
   readonly legacy?: DirNameFieldLayer | undefined
   /** The raw profile user layer at boot (configEditor `override`) —
    *  during the boot window the served descriptor is absent and the
    *  Config fallback CANNOT tell a user-set default apart from an
-   *  unset field; this layer can (empty ⇒ nobody set anything ⇒ legacy
-   *  may supply). */
+   *  unset field; this layer can (empty ⇒ nobody set anything ⇒ the
+   *  pending overlay may supply). */
   readonly userOverride?: DirNameFieldLayer | undefined
   /** This plugin's OWN profile entry id (custom installs carry a
    *  different one; the descriptor key follows the entry, the legacy
@@ -393,68 +400,55 @@ function pickDirField(
 }
 
 /**
- * PURE parser for the plugin's own section inside a 0.1
- * `settings.yaml` document (the explicit-migration read). SCOPED by
- * design: it extracts ONLY the `dsh-research-control:` section's
- * `projectTreeDir` / `hubDir` scalars — block style
- * (`  projectTreeDir: .my-tree`, quotes optional, ` #` comments
- * stripped) and the flow inline form (`{ projectTreeDir: ".x" }`) —
- * and nothing else. A host YAML library is deliberately NOT pulled
- * into the plugin for one frozen two-key section; anything this parser
- * cannot read stays untouched in the file (loud skip, never a silent
- * half-migration — the read layer simply has no legacy candidate, and
- * the document remains for manual rescue).
+ * Read the plugin's own section inside a 0.1 `settings.yaml` document
+ * (the explicit-migration read) with the REAL YAML parser — the repo's
+ * existing `yaml` dependency (direct dep, already used in
+ * `src/host/service/**`). The previous hand-rolled line parser was
+ * retired: it stripped ` #` as a comment and corrupted perfectly legal
+ * quoted names (`".research #1"`), and could not express escapes, folded
+ * scalars or flow style — the serializer round-trip cases below pin the
+ * replacement.
  *
- * @returns the section's recognized fields, or `undefined` when the
- *  document carries no research section (fresh installs, already-migrated
- *  homes with the section deleted, or an unrelated settings.yaml).
+ * SCOPED by design: extract ONLY the `dsh-research-control` section's
+ * `projectTreeDir` / `hubDir` entries (structure/type check — every
+ * candidate still passes the SAME per-field `validateDirName` when
+ * consumed); nothing else is read, and the file itself is NEVER written
+ * or renamed (original bytes stay; the file is a lazy backup).
+ *
+ * @returns `section` = the recognized fields (values unvalidated by the
+ *  directory-name rule on purpose — same per-field semantics as every
+ *  other layer), `undefined` when the document carries no research
+ *  section; `malformed` = the document (or its research section) is not
+ *  the shape a 0.1 settings file has — then the migration writes NOTHING
+ *  (loud skip; the document remains for manual rescue).
  */
-export function parseLegacyResearchSection(text: string): DirNameFieldLayer | undefined {
-  const lines = text.split(/\r?\n/)
-  const header = lines.findIndex((line) => /^dsh-research-control:[ \t]*(.*)$/.test(line))
-  if (header < 0) return undefined
-  const inline = (lines[header]!.match(/^dsh-research-control:[ \t]*(.*)$/) ?? [])[1]?.trim() ?? ''
-  const section: Record<string, string> = {}
-  const take = (raw: string): { key: string; value: string } | undefined => {
-    const match = raw.match(/^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:[ \t]*(.*?)[ \t]*$/)
-    if (match === null || match[1] === undefined) return undefined
-    let value = match[2] ?? ''
-    const comment = value.indexOf(' #')
-    if (comment >= 0) value = value.slice(0, comment)
-    value = value.trim()
-    if (
-      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
-      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
-    ) {
-      value = value.slice(1, -1)
-    }
-    return { key: match[1], value }
+export function parseLegacyResearchSection(text: string): {
+  readonly section: DirNameFieldLayer | undefined
+  readonly malformed: boolean
+} {
+  let document: unknown
+  try {
+    document = parseYamlDocument(text)
+  } catch {
+    return { section: undefined, malformed: true }
   }
-  if (inline.startsWith('{')) {
-    for (const pair of inline.matchAll(/([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:[ \t]*("[^"]*"|'[^']*'|[^,{}]+)/g)) {
-      const key = pair[1] ?? ''
-      let value = (pair[2] ?? '').trim()
-      if (
-        (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
-        (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
-      ) {
-        value = value.slice(1, -1)
-      }
-      section[key] = value
-    }
-  } else {
-    for (const line of lines.slice(header + 1)) {
-      if (/^[ \t]*$/.test(line) || /^[ \t]*#/.test(line)) continue
-      if (!/^[ \t]+/.test(line)) break // dedent — next top-level section
-      const entry = take(line)
-      if (entry !== undefined) section[entry.key] = entry.value
-    }
+  // An empty document parses to undefined/null — a valid "no sections"
+  // file, not a malformed one.
+  if (document === undefined || document === null) return { section: undefined, malformed: false }
+  if (typeof document !== 'object' || Array.isArray(document)) {
+    return { section: undefined, malformed: true }
   }
-  const out: Record<string, string> = {}
+  const section = (document as Record<string, unknown>)[RESEARCH_SETTINGS_NAMESPACE]
+  if (section === undefined) return { section: undefined, malformed: false }
+  if (typeof section !== 'object' || section === null || Array.isArray(section)) {
+    return { section: undefined, malformed: true }
+  }
+  const out: Record<string, unknown> = {}
   for (const key of ['projectTreeDir', 'hubDir'] as const) {
-    if (section[key] !== undefined) out[key] = section[key]!
+    const value = (section as Record<string, unknown>)[key]
+    if (value !== undefined) out[key] = value
   }
-  return Object.keys(out).length === 0 ? undefined : out
+  return { section: Object.keys(out).length === 0 ? undefined : out, malformed: false }
 }
 
 /* ------------------------------------------------------------------ *
@@ -572,12 +566,20 @@ export function getResearchDirNames(
   fallback?: ResearchDirNamesFallback | undefined,
 ): ResearchDirNames {
   const settings = readSettingsService(ctx)
+  // The legacy document is a BOOT OVERLAY, never a permanent layer: it is
+  // consulted ONLY while the one-shot migration is pending (no completion
+  // marker in the user layer). After completion the read authority is the
+  // live Config/describe stack alone — a reset back to a default stays
+  // default and cannot resurrect the legacy name (the file is a lazy
+  // backup, not a layer).
+  const pending = isMigrationPending(ctx)
+  const legacy = pending ? readLegacyResearchSection(ctx).section : undefined
   return resolveResearchDirNames(
     settings,
     (message) => console.warn(`[research-control] ${message}`),
     fallback,
     {
-      legacy: readLegacyResearchSection(ctx),
+      legacy,
       userOverride: readOwnUserOverrideLayer(ctx),
       entryId: resolveOwnSettingsEntryId(ctx),
     },
@@ -585,99 +587,188 @@ export function getResearchDirNames(
 }
 
 /* ------------------------------------------------------------------ *
- * Legacy 0.1 settings.yaml migration (the host importer cannot carry
- * this section — see ResearchDirResolutionOptions.legacy for the
- * rc.2 source evidence). Read layer: SYNCHRONOUS at boot so the first
- * upgrade boot's discovery already resolves the custom names; persist
- * layer: the public settings write face, once, never overwriting the
- * user layer.
+ * Legacy 0.1 settings.yaml migration — ONE boot migration (reviewer
+ * simplification ruling).
+ *
+ * Model: the legacy document is consulted ONLY while the migration is
+ * PENDING — the profile user layer carries no completion marker
+ * ({@link RESEARCH_SETTINGS_MIGRATION_MARKER}). The synchronous read
+ * turns the pending section into the BOOT OVERLAY (so the first upgraded
+ * boot's discovery already resolves the custom names — no manual
+ * rescan/restart), and the persist step completes the migration through
+ * the host's OWN public write face, `ConfigEditor.edit`: file lock,
+ * profile reconcile, and the `current` re-read all happen INSIDE the
+ * edit critical section (boot/config-editor/src/index.ts:87-135), so the
+ * merge can never clobber a value a concurrent writer committed first
+ * (the pre-fix `settings.update` read-then-write TOCTOU), and the fields
+ * plus the completion marker land ATOMICALLY in one write. Once the
+ * marker exists the legacy document is permanently out of every
+ * authority layer — a later reset to a default stays default, and the
+ * file survives untouched as a lazy backup. No hand-rolled YAML, no
+ * revision bookkeeping of our own: the host editor owns lock/re-read/
+ * atomic-write/reconcile/rollback and we reuse it.
  * ------------------------------------------------------------------ */
 
+/** The internal completion marker: a NON-volatile Config field (never in
+ *  the editable form), written by {@link migrateLegacyResearchSettings}
+ *  in the SAME `ConfigEditor.edit` call as the migrated fields. Its
+ *  presence (a number — the completion timestamp) in the raw user layer
+ *  is the ONLY pending/completed authority. Mirrored in the host service
+ *  `static Config` (host/index.ts — the schema must declare every key a
+ *  config may carry). */
+export const RESEARCH_SETTINGS_MIGRATION_MARKER = 'legacyMigrationCompletedAt'
+
 /** Structural slice of the host config-editor service (optional
- *  `ctx.get` face — same discipline as the settings service). Only the
- *  per-entry composition layers are read; nothing is written here. */
-interface ConfigEditorLike {
-  configuration(): readonly {
-    fiber: unknown
-    options: { readonly id?: string }
-    override?: unknown
-  }[]
+ *  `ctx.get` face — same discipline as the settings service). The row
+ *  shape is the REAL one: `configuration(): Array<{ entry, inherited,
+ *  override }>` (boot/config-editor/src/index.ts:49; consumed exactly
+ *  this way by the host settings service at settings/src/index.ts:304),
+ *  and `edit(entry, change)` takes the SAME live Loader `Entry` object
+ *  the row carries (it identity-checks it against the current entries
+ *  and re-reads `current` under the file lock — index.ts:87-135). */
+interface ConfigEditorRow {
+  readonly entry: {
+    readonly options?: { readonly id?: string; readonly name?: string }
+    readonly fiber?: unknown
+    readonly id?: string
+  }
+  readonly inherited: Record<string, unknown>
+  readonly override: Record<string, unknown>
 }
 
-/** Per-process cache of the parsed legacy section (per home). */
-let legacyCache: { readonly home: string; readonly section: DirNameFieldLayer | undefined } | undefined
-let legacyWarned = false
+interface ConfigEditorLike {
+  configuration(): readonly ConfigEditorRow[]
+  edit(
+    entry: ConfigEditorRow['entry'],
+    change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void>
+}
 
-/** Locate this plugin's OWN profile entry through the config editor's
- *  composition (fiber identity — exact, custom-entry-id safe). */
-function findOwnConfigEntry(ctx: Context): { id?: string; override?: unknown } | undefined {
-  let editor: ConfigEditorLike | undefined
+function readConfigEditor(ctx: Context): ConfigEditorLike | undefined {
+  let editor: unknown
   try {
-    editor = (ctx as unknown as { get: (name: string) => unknown }).get('configEditor') as
-      | ConfigEditorLike
-      | undefined
+    editor = (ctx as unknown as { get: (name: string) => unknown }).get('configEditor')
   } catch {
     return undefined
   }
-  if (editor === undefined || typeof editor.configuration !== 'function') return undefined
+  if (typeof editor !== 'object' || editor === null) return undefined
+  const candidate = editor as ConfigEditorLike
+  return typeof candidate.configuration === 'function' && typeof candidate.edit === 'function'
+    ? candidate
+    : undefined
+}
+
+/** Locate this plugin's OWN configuration row. Identity comes FIRST:
+ *  the row whose `entry.fiber` is OUR fiber (exact, survives any custom
+ *  entry id — `dsh plugin add` installs under one id but operators may
+ *  rename it). Id/name matching are fallbacks for contexts where the
+ *  fiber is not exposed (unit doubles); the row itself (and its LIVE
+ *  `entry`) is returned verbatim because `edit` demands the very Entry
+ *  object the loader handed out. */
+function findOwnConfigRow(ctx: Context): ConfigEditorRow | undefined {
+  const editor = readConfigEditor(ctx)
+  if (editor === undefined) return undefined
+  const ownFiber = (ctx as unknown as { fiber?: unknown }).fiber
+  let rows: readonly ConfigEditorRow[]
   try {
-    const entries = editor.configuration()
-    const own = entries.find((row) => row.fiber === (ctx as unknown as { fiber?: unknown }).fiber)
-    if (own !== undefined) return { id: own.options?.id, override: own.override }
-    const named = entries.find((row) => row.options?.id === RESEARCH_SETTINGS_ENTRY_ID)
-    return named === undefined ? undefined : { id: named.options?.id, override: named.override }
+    rows = editor.configuration()
   } catch {
     return undefined
   }
+  if (ownFiber !== undefined) {
+    const byFiber = rows.find((row) => row?.entry?.fiber === ownFiber)
+    if (byFiber !== undefined) return byFiber
+  }
+  const byId = rows.filter((row) => row?.entry?.options?.id === RESEARCH_SETTINGS_ENTRY_ID)
+  if (byId.length === 1) return byId[0]
+  // custom entry ids: the ONE row whose user layer already speaks our
+  // field pair (ambiguity → no row, never a guess).
+  const ours = rows.filter(
+    (row) => row?.override !== null && typeof row?.override === 'object' && 'projectTreeDir' in row.override,
+  )
+  return ours.length === 1 ? ours[0] : undefined
 }
 
 /** This plugin's live profile entry id (custom installs differ; the
  *  frozen constant is the fallback when the editor cannot answer). */
 export function resolveOwnSettingsEntryId(ctx: Context): string {
-  return findOwnConfigEntry(ctx)?.id ?? RESEARCH_SETTINGS_ENTRY_ID
+  return findOwnConfigRow(ctx)?.entry?.options?.id ?? RESEARCH_SETTINGS_ENTRY_ID
 }
 
 /** The raw profile user layer (configEditor `override`) for our entry —
  *  the boot-window authority that distinguishes a user-SET default from
  *  an unset field (the merged Config cannot). */
 export function readOwnUserOverrideLayer(ctx: Context): DirNameFieldLayer | undefined {
-  const override = findOwnConfigEntry(ctx)?.override
+  const override = findOwnConfigRow(ctx)?.override
   if (typeof override === 'object' && override !== null) return override as DirNameFieldLayer
   return undefined
 }
 
+/** True while the one-shot 0.1 → 0.2 migration has NOT completed: the
+ *  raw user layer carries no numeric completion marker. While pending,
+ *  the read path may use the boot overlay; once completed it must not. */
+export function isMigrationPending(ctx: Context): boolean {
+  const override = findOwnConfigRow(ctx)?.override
+  return typeof override?.[RESEARCH_SETTINGS_MIGRATION_MARKER] !== 'number'
+}
+
+/** Per-process cache of the parsed legacy document (per home). */
+let legacyCache:
+  | { readonly home: string; readonly section: DirNameFieldLayer | undefined; readonly malformed: boolean }
+  | undefined
+let legacyWarned = false
+
 /**
- * Read + parse the 0.1 `settings.yaml` research section (cached per
- * home, warn-once on read failure). Prefers the live document (before
- * the host's post-loader rename), falls back to the host-renamed
- * `.imported` file (the rename is the host importer's own documented
- * artifact — the values survive only there). Never writes, never
- * renames: the file lifecycle stays host-owned (old values PRESERVED).
+ * Read + parse the 0.1 `settings.yaml` research section with the real
+ * YAML parser (cached per home, warn-once on malformed/read failure).
+ * Prefers the live document (before the host's post-loader rename),
+ * falls back to the host-renamed `.imported` file (an already-imported
+ * home is a REQUIRED migration case: the values survive only there).
+ * Never writes, never renames: the file stays a lazy backup.
  */
-export function readLegacyResearchSection(ctx: Context): DirNameFieldLayer | undefined {
+export function readLegacyResearchSection(
+  ctx: Context,
+): { readonly section: DirNameFieldLayer | undefined; readonly malformed: boolean } {
   const home = (ctx as unknown as { profileContext?: { home?: string } }).profileContext?.home
-  if (typeof home !== 'string' || home.length === 0) return undefined
-  if (legacyCache !== undefined && legacyCache.home === home) return legacyCache.section
+  if (typeof home !== 'string' || home.length === 0) return { section: undefined, malformed: false }
+  if (legacyCache !== undefined && legacyCache.home === home) {
+    return { section: legacyCache.section, malformed: legacyCache.malformed }
+  }
   let section: DirNameFieldLayer | undefined
+  let malformed = false
   try {
     const path = existsSync(join(home, 'settings.yaml'))
       ? join(home, 'settings.yaml')
       : existsSync(join(home, 'settings.yaml.imported'))
         ? join(home, 'settings.yaml.imported')
         : undefined
-    if (path !== undefined) section = parseLegacyResearchSection(readFileSync(path, 'utf8'))
+    if (path !== undefined) {
+      const parsed = parseLegacyResearchSection(readFileSync(path, 'utf8'))
+      section = parsed.section
+      malformed = parsed.malformed
+      if (malformed && !legacyWarned) {
+        legacyWarned = true
+        console.warn(
+          `[research-control] the legacy settings document at ${path} is not a readable YAML ` +
+            'mapping (or its dsh-research-control section is not a mapping) — the migration ' +
+            'writes NOTHING and the legacy names are NOT overlaid this boot; fix the file (or ' +
+            'set the names in DSH 设置 → 插件) and restart (warned once)',
+        )
+      }
+    }
   } catch (error: unknown) {
+    malformed = true
     if (!legacyWarned) {
       legacyWarned = true
       console.warn(
         '[research-control] the legacy settings document could not be read — the 0.1 custom ' +
-          `directory names stay in the file (nothing is lost, nothing is overwritten): ` +
+          'directory names stay in the file (nothing is lost, nothing is overwritten): ' +
           `${error instanceof Error ? error.message : String(error)}`,
       )
     }
   }
-  legacyCache = { home, section }
-  return section
+  legacyCache = { home, section, malformed }
+  return { section, malformed }
 }
 
 /** Test seam: drop the per-process legacy cache (module state). */
@@ -687,61 +778,89 @@ export function resetLegacyResearchCacheForTests(): void {
 }
 
 /**
- * Persist the legacy section through the PUBLIC settings write face —
- * ONCE per process, scheduled at activation, awaited only by tests via
- * the returned promise when the ctx exposes an already-settled loader.
+ * Complete the ONE-shot 0.1 → 0.2 migration — scheduled at activation,
+ * persisted through the host's OWN `ConfigEditor.edit` (its callback
+ * runs after the file lock + profile reconcile with a FRESH `current`,
+ * so the merge is race-free: a value a concurrent writer committed
+ * first is present in `current` and never overwritten). Fields AND the
+ * completion marker land in the same write (atomic completion: a
+ * crash between them cannot leave "half-migrated and re-migratable").
+ *
  * Rules (reviewer-fixed):
- *  - a field the USER layer already sets is NEVER overwritten;
- *  - only fields present in the legacy section AND valid are written;
- *  - the legacy file itself is preserved untouched;
- *  - failure = loud warn — the READ layer already served this boot, so
- *    a persist failure costs durability, never correctness.
+ *  - runs ONLY while pending (no marker); a completed home never
+ *    re-migrates, so a post-migration reset cannot resurrect old names;
+ *  - a field the current user layer already sets is NEVER overwritten;
+ *  - only legacy fields that are valid directory names are written;
+ *  - a malformed legacy document writes nothing (already warned);
+ *  - the legacy file itself is preserved untouched (lazy backup);
+ *  - failure = loud warn — the boot overlay already served THIS boot,
+ *    so a persist failure costs durability, never this-boot correctness,
+ *    and the migration retries next boot (still pending).
  */
 export function migrateLegacyResearchSettings(
   ctx: Context,
   options?: { readonly settle?: () => Promise<unknown> } | undefined,
 ): Promise<void> {
   const legacy = readLegacyResearchSection(ctx)
-  if (legacy === undefined) return Promise.resolve()
-  const settings = readSettingsService(ctx)
-  if (settings === undefined || typeof settings.update !== 'function') {
+  if (legacy.malformed || legacy.section === undefined) return Promise.resolve()
+  if (!isMigrationPending(ctx)) return Promise.resolve()
+  const editor = readConfigEditor(ctx)
+  if (editor === undefined) {
     console.warn(
-      '[research-control] the legacy 0.1 directory names are being honored through the ' +
-        'settings.yaml read layer, but no public settings write face is available to persist ' +
-        'them into the profile user layer — the migration will retry next boot',
+      '[research-control] the legacy 0.1 directory names are being honored through the boot ' +
+        'overlay, but the host config editor (ConfigEditor) is unavailable to persist them ' +
+        'atomically — the migration will retry next boot',
     )
     return Promise.resolve()
   }
   const settle =
-    options?.settle
+    options?.settle?.()
     ?? (ctx as unknown as { root?: { loader?: { await?: () => Promise<unknown> } } }).root?.loader?.await?.()
   const persist = async (): Promise<void> => {
     if (settle !== undefined) await settle
-    const entryId = resolveOwnSettingsEntryId(ctx)
-    let user: DirNameFieldLayer | undefined = readOwnUserOverrideLayer(ctx)
-    const entry = findResearchEntry(settings.describe(), entryId)
-    if (entry !== undefined && typeof entry.user === 'object' && entry.user !== null) {
-      user = entry.user as DirNameFieldLayer
+    // Re-check pending AFTER settlement (a concurrent activation in the
+    // same process may already have completed the migration).
+    if (!isMigrationPending(ctx)) return
+    const row = findOwnConfigRow(ctx)
+    if (row === undefined) {
+      console.warn(
+        '[research-control] the legacy settings migration cannot find this profile entry ' +
+          'through ConfigEditor.configuration() — retrying next boot (nothing written)',
+      )
+      return
     }
-    const patch: Record<string, string> = {}
-    for (const field of ['projectTreeDir', 'hubDir'] as const) {
-      const value = legacy[field]
-      if (typeof value !== 'string' || validateDirName(value) !== null) continue
-      if (user !== undefined && user[field] !== undefined) continue // never overwrite the user layer
-      patch[field] = value
-    }
-    if (Object.keys(patch).length === 0) return
-    await settings.update!(entryId, patch)
+    const entryId = row.entry?.options?.id ?? RESEARCH_SETTINGS_ENTRY_ID
+    const legacySection = legacy.section!
+    const wroteFields: string[] = []
+    await editor.edit(row.entry, (current: Record<string, unknown>) => {
+      // `current` is the LIVE, reconciled user layer inside the editor's
+      // critical section — this re-read is what closes the TOCTOU.
+      const next: Record<string, unknown> = { ...current }
+      for (const field of ['projectTreeDir', 'hubDir'] as const) {
+        const value = legacySection[field]
+        if (typeof value !== 'string' || validateDirName(value) !== null) continue
+        if (current[field] !== undefined) continue // never overwrite the user layer (fresh read)
+        next[field] = value
+        wroteFields.push(field)
+      }
+      // completion lands in the SAME write as the fields (atomic).
+      next[RESEARCH_SETTINGS_MIGRATION_MARKER] = Date.now()
+      return next
+    })
     console.log(
-      `[research-control] migrated the 0.1 settings.yaml section ${JSON.stringify(patch)} into ` +
-        `the profile user layer of entry "${entryId}" through the public settings face (the ` +
-        'legacy file is kept untouched; later boots read the user layer)',
+      `[research-control] 0.1 settings migration complete: ${JSON.stringify(
+        wroteFields,
+      )} carried from settings.yaml into the profile user layer of entry "${entryId}" ` +
+        `+ completion marker "${RESEARCH_SETTINGS_MIGRATION_MARKER}" — one atomic ` +
+        'ConfigEditor.edit (the legacy file stays as a backup and exits the authority layers ' +
+        'for good)',
     )
   }
   return persist().catch((error: unknown) => {
     console.warn(
-      '[research-control] the legacy settings migration could not persist this run (the read ' +
-        `layer still honored the legacy names this boot): ${error instanceof Error ? error.message : String(error)}`,
+      '[research-control] the legacy settings migration could not persist this run (the boot ' +
+        `overlay still honored the legacy names this boot, and the migration retries next ` +
+        `boot): ${error instanceof Error ? error.message : String(error)}`,
     )
   })
 }

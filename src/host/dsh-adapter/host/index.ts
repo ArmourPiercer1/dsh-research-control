@@ -410,6 +410,16 @@ export interface Config {
   readonly projectTreeDir?: string
   /** §7.5 「管理中心目录名」 — the hub directory name (default `.research-control`). */
   readonly hubDir?: string
+  /**
+   * Internal completion marker of the ONE-shot 0.1→0.2 settings migration
+   * (`RESEARCH_SETTINGS_MIGRATION_MARKER` in `./settings.ts`): written by
+   * the migration through the host's own `ConfigEditor.edit` in the SAME
+   * atomic write as the migrated fields. Its presence means the legacy
+   * `settings.yaml(.imported)` is permanently out of the read authority
+   * (the boot overlay is pending-window only); its absence means pending.
+   * NOT `.volatile()` → never enters the editable form or the plugin card.
+   */
+  readonly legacyMigrationCompletedAt?: number
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -531,6 +541,12 @@ export class ResearchControlService extends TypertRemoteService {
       .description('管理中心目录名（工作区根级子目录；默认 .research-control）')
       .default('.research-control')
       .volatile(),
+    // Internal migration completion (see the Config interface doc; the
+    // settings module writes it — never the form, never the card: the
+    // marker is non-volatile so volatileForm excludes it).
+    legacyMigrationCompletedAt: s
+      .number()
+      .description('内部字段：0.1 settings.yaml 一次性迁移完成时间戳（迁移器写入；请勿手工编辑）'),
   })
 
   /**
@@ -793,11 +809,13 @@ export class ResearchControlService extends TypertRemoteService {
     // the namespace is registered would warn about a not-registered
     // section.
     registerResearchSettings(this.ctx)
-    // 0.1 → 0.2 explicit migration (reviewer P1): the host importer cannot carry our
-    // section (LEGACY_SECTION_ENTRIES is fixed), so we persist the legacy dir names into
-    // the profile user layer via the PUBLIC settings face. Deferred (awaits loader
-    // settlement — no activation deadlock); the SYNCHRONOUS read layer already served the
-    // first-boot discovery, so durability is the only thing this call gates.
+    // 0.1 → 0.2 ONE-SHOT migration (reviewer P1 + simplification ruling): the host
+    // importer cannot carry our section (LEGACY_SECTION_ENTRIES is fixed), so the
+    // plugin completes the migration itself — fields + completion marker in ONE
+    // atomic ConfigEditor.edit (the host's own public write face: lock, reconcile,
+    // fresh `current` inside the critical section). Deferred (awaits loader
+    // settlement — no activation deadlock); the pending-window boot overlay already
+    // served the first-boot discovery, so durability is the only thing this gates.
     void migrateLegacyResearchSettings(this.ctx)
 
     // (d) G1 分诊 — startup sweep of stale crash residue (W9 front line).

@@ -537,6 +537,16 @@ interface Config {
   readonly projectTreeDir?: string;
   /** §7.5 「管理中心目录名」 — the hub directory name (default `.research-control`). */
   readonly hubDir?: string;
+  /**
+   * Internal completion marker of the ONE-shot 0.1→0.2 settings migration
+   * (`RESEARCH_SETTINGS_MIGRATION_MARKER` in `./settings.ts`): written by
+   * the migration through the host's own `ConfigEditor.edit` in the SAME
+   * atomic write as the migrated fields. Its presence means the legacy
+   * `settings.yaml(.imported)` is permanently out of the read authority
+   * (the boot overlay is pending-window only); its absence means pending.
+   * NOT `.volatile()` → never enters the editable form or the plugin card.
+   */
+  readonly legacyMigrationCompletedAt?: number;
 }
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -570,10 +580,12 @@ declare class ResearchControlService extends TypertRemoteService {
     minDshVersion: s<string, string, "defined">;
     projectTreeDir: s<string, string, "volatile-defined">;
     hubDir: s<string, string, "volatile-defined">;
+    legacyMigrationCompletedAt: s<number, number, "plain">;
   }>>, Schemastery.ObjectT<NoInfer<{
     minDshVersion: s<string, string, "defined">;
     projectTreeDir: s<string, string, "volatile-defined">;
     hubDir: s<string, string, "volatile-defined">;
+    legacyMigrationCompletedAt: s<number, number, "plain">;
   }>>, "plain">;
   /**
    * V2-T2.2 (design §4 step 6): the discovered plane state — set in

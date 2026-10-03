@@ -19,7 +19,11 @@
  * `tests/host-investigate-command.test.ts`.
  */
 
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { stringify } from 'yaml'
 import type s from '@deepseek-ai/schemastery'
 
 import { ResearchControlService } from '../../src/host/dsh-adapter/host/index.js'
@@ -38,6 +42,8 @@ import {
   findResearchEntry,
   migrateLegacyResearchSettings,
   resetLegacyResearchCacheForTests,
+  isMigrationPending,
+  RESEARCH_SETTINGS_MIGRATION_MARKER,
   validateDirName,
   type ResearchDirNames,
   type ResearchSettings,
@@ -474,8 +480,12 @@ describe('getResearchDirNames — the live discovery read (THE name source for T
  * 0.1 → 0.2 legacy settings.yaml migration (reviewer P1)
  * ------------------------------------------------------------------ */
 
-describe('parseLegacyResearchSection — the scoped 0.1 section parser', () => {
-  it('block style with quoted and bare values + comments', () => {
+describe('parseLegacyResearchSection — the scoped 0.1 section reader (REAL yaml parser)', () => {
+  /* The hand-rolled line parser is retired (reviewer defect: it stripped
+   * ` #` as a comment and corrupted legal quoted names). Every case
+   * below exercises the `yaml` library semantics a real serializer
+   * produces — quoted "#" names, escapes, flow style, round-trips. */
+  it('block style: quoted/bare scalars, comment lines, unrelated keys/sections scoped out', () => {
     const out = parseLegacyResearchSection([
       'ui-onboarding:',
       '  seen: true',
@@ -487,24 +497,67 @@ describe('parseLegacyResearchSection — the scoped 0.1 section parser', () => {
       'shell:',
       '  mode: workspace-write',
     ].join('\n'))
-    expect(out).toEqual({ projectTreeDir: '.legacy-tree', hubDir: '.legacy hub' })
+    expect(out).toEqual({ section: { projectTreeDir: '.legacy-tree', hubDir: '.legacy hub' }, malformed: false })
+  })
+
+  it('REGRESSION: a quoted name containing " #" survives VERBATIM (the hand parser truncated it)', () => {
+    const out = parseLegacyResearchSection('dsh-research-control:\n  hubDir: ".research #1"\n')
+    expect(out.section).toEqual({ hubDir: '.research #1' })
+  })
+
+  it('REGRESSION: trailing comment after a QUOTED value does not truncate the quoted text', () => {
+    const out = parseLegacyResearchSection('dsh-research-control:\n  hubDir: ".hub-x" # renamed by user\n')
+    expect(out.section).toEqual({ hubDir: '.hub-x' })
+  })
+
+  it('escaped text (serializer output) parses to the real value', () => {
+    const out = parseLegacyResearchSection('dsh-research-control:\n  hubDir: "a\\"quoted\\" name"\n')
+    expect(out.section).toEqual({ hubDir: 'a"quoted" name' })
+  })
+
+  it('yaml.stringify round-trip (real serializer → real parser, exotic-but-legal names)', () => {
+    const document = {
+      'dsh-research-control': { projectTreeDir: '.research #1', hubDir: '.hub: with colon' },
+      'ui-onboarding': { seen: true },
+    }
+    const out = parseLegacyResearchSection(stringify(document))
+    expect(out).toEqual({
+      section: { projectTreeDir: '.research #1', hubDir: '.hub: with colon' },
+      malformed: false,
+    })
   })
 
   it('flow inline style', () => {
     const out = parseLegacyResearchSection('dsh-research-control: { projectTreeDir: ".x", hubDir: .y }')
-    expect(out).toEqual({ projectTreeDir: '.x', hubDir: '.y' })
+    expect(out.section).toEqual({ projectTreeDir: '.x', hubDir: '.y' })
   })
 
-  it('no research section → undefined (fresh installs, unrelated documents)', () => {
-    expect(parseLegacyResearchSection('ui-onboarding:\n  seen: true\n')).toBeUndefined()
+  it('no research section → no section, NOT malformed (fresh installs, unrelated documents)', () => {
+    expect(parseLegacyResearchSection('ui-onboarding:\n  seen: true\n')).toEqual({ section: undefined, malformed: false })
+    expect(parseLegacyResearchSection('')).toEqual({ section: undefined, malformed: false })
   })
 
-  it('research section WITHOUT either field → undefined (nothing to migrate)', () => {
-    expect(parseLegacyResearchSection('dsh-research-control:\n  other: 1\n')).toBeUndefined()
+  it('research section WITHOUT either field → undefined section (nothing to migrate)', () => {
+    expect(parseLegacyResearchSection('dsh-research-control:\n  other: 1\n')).toEqual({ section: undefined, malformed: false })
   })
 
-  it('trailing document (section at EOF, no dedent line)', () => {
-    expect(parseLegacyResearchSection('x:\n  a: 1\ndsh-research-control:\n  hubDir: .hub')!.hubDir).toBe('.hub')
+  it('trailing document (section at EOF, no trailing newline)', () => {
+    expect(parseLegacyResearchSection('x:\n  a: 1\ndsh-research-control:\n  hubDir: .hub').section!.hubDir).toBe('.hub')
+  })
+
+  it('MALFORMED YAML → malformed flag (the migration must write NOTHING on such a file)', () => {
+    expect(parseLegacyResearchSection('dsh-research-control:\n\tbroken: [\n  unbalanced'))
+      .toEqual({ section: undefined, malformed: true })
+  })
+
+  it('research section not a mapping → malformed', () => {
+    expect(parseLegacyResearchSection('dsh-research-control: just-a-string')).toEqual({ section: undefined, malformed: true })
+  })
+
+  it('field present but wrong TYPE passes through to the per-field rule (not a parse failure)', () => {
+    const out = parseLegacyResearchSection('dsh-research-control:\n  hubDir: [a, b]\n')
+    expect(out.malformed).toBe(false)
+    expect(out.section).toEqual({ hubDir: ['a', 'b'] }) // validateDirName rejects it at consumption
   })
 })
 
@@ -592,33 +645,235 @@ describe('layered resolution (user > legacy > served > config > default — revi
   })
 })
 
-describe('migrateLegacyResearchSettings — persistence guards (the E2E persist/restart/idempotency proof is the REAL host upgrade fixture)', () => {
-  it('a legacy file WITHOUT the profile home (no profileContext) → silent no-op', async () => {
-    resetLegacyResearchCacheForTests()
-    const updates: unknown[] = []
-    const ctx = {
-      fiber: { uid: 1 },
-      get: (name: string) =>
-        name === 'settings'
-          ? { describe: () => [{ ns: 'research-control', value: {}, user: {} }], update: async (ns: string, patch: object) => { updates.push({ ns, patch }) } }
-          : undefined,
+describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host ConfigEditor.edit)', () => {
+  /* The fake editor below is DELIBERATELY strict about the real contract
+   * (boot/config-editor/src/index.ts:49 + :87-135): configuration()
+   * rows are { entry, inherited, override }, and edit(entry, change)
+   * identity-checks the LIVE entry (a rebuilt look-alike throws) and
+   * hands `change` a fresh clone of the CURRENT stored config — the
+   * same in-critical-section re-read the host performs. Same-shape
+   * shortcuts therefore cannot produce a green here. */
+  interface FakeEntry {
+    options: { id?: string; config?: Record<string, unknown> }
+    fiber: unknown
+  }
+  interface FakeRow {
+    entry: FakeEntry
+    inherited: Record<string, unknown>
+    override: Record<string, unknown>
+  }
+  interface Fixture {
+    readonly home: string
+    readonly row: FakeRow
+    readonly edits: Array<Record<string, unknown>>
+    readonly ctx: unknown
+    dispose(): void
+  }
+  const LEGACY_DOC =
+    'ui-onboarding:\n  seen: true\ndsh-research-control:\n  projectTreeDir: .legacy-tree\n  hubDir: .legacy-hub\n'
+
+  function makeFixture(options?: {
+    legacy?: string
+    fileName?: string
+    userConfig?: Record<string, unknown>
+    entryId?: string
+    noEditor?: boolean
+  }): Fixture {
+    const home = mkdtempSync(join(tmpdir(), 'rc-legacy-'))
+    if (options?.legacy !== undefined) {
+      writeFileSync(join(home, options.fileName ?? 'settings.yaml'), options.legacy)
     }
-    await migrateLegacyResearchSettings(ctx as never, { settle: async () => {} })
-    expect(updates).toEqual([])
+    const fiber = { uid: 11 }
+    const row: FakeRow = {
+      entry: { options: { id: options?.entryId ?? RESEARCH_SETTINGS_ENTRY_ID, config: structuredClone(options?.userConfig ?? {}) }, fiber },
+      inherited: {},
+      override: structuredClone(options?.userConfig ?? {}),
+    }
+    const edits: Array<Record<string, unknown>> = []
+    const editor = {
+      configuration: () => [row],
+      edit: async (
+        entry: FakeEntry,
+        change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+      ): Promise<void> => {
+        if (entry !== row.entry) {
+          throw new Error('ConfigEditor.edit: entry identity violated (rebuilt look-alike passed)')
+        }
+        const current = structuredClone(row.entry.options.config ?? {})
+        const next = change(current, row.inherited)
+        row.entry.options.config = next
+        row.override = structuredClone(next)
+        edits.push(next)
+      },
+    }
+    const ctx = {
+      fiber,
+      profileContext: { home },
+      get: (name: string) => (name === 'configEditor' && options?.noEditor !== true ? editor : undefined),
+    }
+    resetLegacyResearchCacheForTests()
+    return {
+      home,
+      row,
+      edits,
+      ctx,
+      dispose: () => rmSync(home, { recursive: true, force: true }),
+    }
+  }
+
+  it('pending (no marker) + legacy section → ONE edit writing fields + completion marker atomically', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC })
+    try {
+      expect(isMigrationPending(f.ctx as never)).toBe(true)
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1)
+      const written = f.edits[0]!
+      expect(written.projectTreeDir).toBe('.legacy-tree')
+      expect(written.hubDir).toBe('.legacy-hub')
+      expect(typeof written[RESEARCH_SETTINGS_MIGRATION_MARKER]).toBe('number')
+      expect(isMigrationPending(f.ctx as never)).toBe(false)
+    } finally {
+      f.dispose()
+    }
   })
 
-  it('an invalid legacy field is never persisted (validation guards the write face too)', () => {
-    // The parser keeps the raw value; the PERSIST rule (mirrored in the
-    // module) drops fields failing validateDirName — pinned here on the
-    // parser+validator composition so a drift is caught in unit scope.
-    const section = parseLegacyResearchSection('dsh-research-control:\n  projectTreeDir: a/b\n  hubDir: .ok')
-    expect(section).toEqual({ projectTreeDir: 'a/b', hubDir: '.ok' })
-    const persisted: Record<string, string> = {}
-    for (const field of ['projectTreeDir', 'hubDir'] as const) {
-      const value = section?.[field]
-      if (typeof value !== 'string' || validateDirName(value) !== null) continue
-      persisted[field] = value
+  it('an EXPLICIT user value is never clobbered (per field); the missing one migrates', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC, userConfig: { projectTreeDir: '.user-tree' } })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1)
+      expect(f.edits[0]!.projectTreeDir).toBe('.user-tree')
+      expect(f.edits[0]!.hubDir).toBe('.legacy-hub')
+    } finally {
+      f.dispose()
     }
-    expect(persisted).toEqual({ hubDir: '.ok' })
+  })
+
+  it('TOCTOU closed: a value a CONCURRENT writer commits before the edit is present in the in-callback re-read and wins', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC })
+    try {
+      // The settle seam stands in for the host file lock: by the time
+      // edit() runs, a concurrent settings write has landed a NEWER
+      // hubDir in the stored config. The migration reads `current`
+      // INSIDE the callback, so it sees — and keeps — the newer value.
+      await migrateLegacyResearchSettings(f.ctx as never, {
+        settle: async () => {
+          f.row.entry.options.config = { ...(f.row.entry.options.config ?? {}), hubDir: '.concurrent-newer' }
+        },
+      })
+      expect(f.edits).toHaveLength(1)
+      expect(f.edits[0]!.hubDir).toBe('.concurrent-newer')
+      expect(f.edits[0]!.projectTreeDir).toBe('.legacy-tree')
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('COMPLETED (marker present) → migration is a permanent no-op (no edit at all)', async () => {
+    const f = makeFixture({
+      legacy: LEGACY_DOC,
+      userConfig: { hubDir: '.renamed-after-migration', [RESEARCH_SETTINGS_MIGRATION_MARKER]: 1700000000000 },
+    })
+    try {
+      expect(isMigrationPending(f.ctx as never)).toBe(false)
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(0)
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('RESET AFTER MIGRATION does not resurrect the legacy name (the legacy file exits authority)', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      // The user now RESETS both names back to the defaults (the user
+      // layer keeps the marker — ConfigEditor.edit deletes the config
+      // key only when the WHOLE section equals the inherited defaults,
+      // and the marker is exactly what keeps the row alive).
+      f.row.entry.options.config = { [RESEARCH_SETTINGS_MIGRATION_MARKER]: f.edits[0]![RESEARCH_SETTINGS_MIGRATION_MARKER] }
+      f.row.override = { ...f.row.entry.options.config }
+      resetLegacyResearchCacheForTests()
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1) // no second write
+      // And a fresh boot's read resolves DEFAULTS, never the legacy file:
+      const names = getResearchDirNames(f.ctx as never)
+      expect(names).toEqual({ treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR })
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('the legacy FILE ITSELF is never rewritten (lazy backup; original bytes intact)', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(readFileSync(join(f.home, 'settings.yaml'), 'utf8')).toBe(LEGACY_DOC)
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('already-imported home: settings.yaml.imported is consulted (REQUIRED real case)', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC, fileName: 'settings.yaml.imported' })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits[0]!.hubDir).toBe('.legacy-hub')
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('custom entry id: identity is the FIBER, the id follows the row (edit gets the live entry)', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC, entryId: 'rc-custom' })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1) // identity check inside edit passed
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('MALFORMED legacy document → NOTHING is written, migration skipped', async () => {
+    const f = makeFixture({ legacy: 'dsh-research-control:\n\tbroken: [\n  unbalanced' })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(0)
+      expect(readFileSync(join(f.home, 'settings.yaml'), 'utf8')).toContain('broken')
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('no config editor → loud warn, boot stays pending (overlay keeps THIS boot correct)', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC, noEditor: true })
+    const warns: unknown[] = []
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args) => void warns.push(args.join(' ')))
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(0)
+      expect(warns.some((w) => String(w).includes('ConfigEditor'))).toBe(true)
+      expect(isMigrationPending(f.ctx as never)).toBe(true)
+    } finally {
+      spy.mockRestore()
+      f.dispose()
+    }
+  })
+
+  it('an invalid legacy field is never persisted (the per-field rule guards the write path too)', async () => {
+    const f = makeFixture({ legacy: 'dsh-research-control:\n  projectTreeDir: a/b\n  hubDir: .ok\n' })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1)
+      expect(f.edits[0]!.projectTreeDir).toBeUndefined()
+      expect(f.edits[0]!.hubDir).toBe('.ok')
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('a legacy file WITHOUT the profile home (no profileContext) → silent no-op', async () => {
+    resetLegacyResearchCacheForTests()
+    await migrateLegacyResearchSettings({ fiber: {}, get: () => undefined } as never, { settle: async () => {} })
   })
 })

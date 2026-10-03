@@ -1,1 +1,37 @@
 - insert: [{ id: research-control, name: 'dsh-research-control' }]
+# R3 (reviewer ruling) — the investigator preset declaration rides the
+# host's OWN declarative mechanism: a companion `@deepseek-ai/dsh-agent-preset`
+# row (packages/preset/agent-preset — `static inject = ['agentPresets']` +
+# `yield await ctx.agentPresets.register(config)` in its init). Cordis's
+# inject-dependency graph IS the real optional-service lifecycle: the row
+# activates only once the registry exists (late appearance at boot — the
+# loader may start this plugin first) and re-activates when the registry
+# row is replaced (unload/reload) — so the declaration exists on EVERY
+# registry generation and persisted investigator sessions RESUME on a cold
+# start without any new launch. A deployment without the registry leaves
+# this row waiting (non-required — the plugin still loads; launch fails
+# loud IVL_PRESET, and the launcher's own register-on-miss covers a
+# hand-removed row). Register-only: the row never resolves/lists at
+# activation (the registry's activation audit awaits loader settlement —
+# deadlock discipline, agent-preset-registry/src/index.ts:117-134).
+#
+# LOCKSTEP: `config` below MUST equal `investigatorPresetDefinition()`
+# (src/host/service/investigator/preset.ts) — pinned by
+# tests/g5-real-registry/investigator-companion-patch.test.ts; the
+# launcher's readDocument closed-set gate audits the composition text at
+# every launch regardless of who declared it.
+- insert:
+    - id: research-investigator-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: research-investigator
+        name: 'Investigator (read-only)'
+        description: 'Read-only research investigator — closed read-only tool composition (dsh-research-control).'
+        order: 100
+        plugins:
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false

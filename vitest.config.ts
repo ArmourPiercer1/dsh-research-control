@@ -52,6 +52,6 @@ export default defineConfig({
     // The maintenance-branch reference clone and its run logs are never test
     // targets: without these, the pristine DSH checkout under .dsh-ref/ would
     // add its 2000+ specs to this suite's default include glob.
-    exclude: [...defaultExclude, 'e2e/**', '.dsh-ref/**', '.maint-logs/**'],
+    exclude: [...defaultExclude, 'e2e/**', '.dsh-ref/**', '.maint-logs/**', '.maint-tmp/**'],
   },
 })

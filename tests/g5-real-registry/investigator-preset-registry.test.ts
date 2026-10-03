@@ -132,11 +132,13 @@ describe('0.2 真实 agent-preset-registry — launcher ensure 流', () => {
       () => undefined,
       (error: unknown) => error,
     )
-    // 本环境无 tool-bash/fs-search 包 ⇒ 真注册表 activation 诚实报
-    // broken（"never started"）— 适配器拒启动（IVL_PRESET_BROKEN），
-    // 零会话创建。
+    // 本 context 只有注册表所需的 4 个服务, 不提供 tool-bash/fs-search
+    // 注入的宿主面（tools/shell/systemPrompt/…）⇒ 真注册表 activation
+    // 诚实报 broken（"waiting for …"）— 适配器拒启动（IVL_PRESET_BROKEN），
+    // 零会话创建。（完整正例（真激活+enforcement）见
+    // investigator-lifecycle.test.ts。）
     expect(caught !== undefined && isInvestigatorLaunchError(caught) && caught.code).toBe('IVL_PRESET_BROKEN')
-    expect((caught as Error).message).toContain('never started')
+    expect((caught as Error).message).toMatch(/waiting for|never started/)
     expect(h.minted).toHaveLength(0)
 
     // 声明真实落入名册（list 含行 + broken 诊断）。

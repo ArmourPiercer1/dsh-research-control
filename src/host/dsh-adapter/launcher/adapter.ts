@@ -93,7 +93,6 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import {
-  INVESTIGATOR_DENIED_TOOL_NAMES,
   INVESTIGATOR_PRESET_ID,
   READ_ONLY_PERMISSION_PRESET,
   assertReadonlyLaunchRequest,
@@ -104,6 +103,7 @@ import {
   type InvestigatorLaunchResult,
 } from '../../service/investigator/index.js'
 import { InvestigatorLaunchError } from '../../service/investigator/index.js'
+import { restrictInvestigatorCtx } from './restriction-watch.js'
 import type {
   AgentCtxLike,
   AgentLike,
@@ -248,9 +248,11 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
     this.restrictInvestigatorTools(agentCtx)
   }
 
-  /** 本 agent 的只读工具面（restriction 层 — Gate P7 二）。 */
+  /** 本 agent 的只读工具面（restriction 层 — Gate P7 二; 与 resume watch
+   *  经 per-scoped-ctx WeakSet 去重 — `agent/created` 稍后串行派发时看到
+   *  同一 ctx, 不重复 append）。 */
   private restrictInvestigatorTools(agentCtx: AgentCtxLike): void {
-    agentCtx.tools.restrict({ deny: [...INVESTIGATOR_DENIED_TOOL_NAMES] })
+    restrictInvestigatorCtx(agentCtx as unknown as { tools: { restrict(filter: { deny?: readonly string[] }): unknown } })
   }
 
   /**
@@ -296,63 +298,18 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
    * 闭集解析。
    * @returns the preset id the session will run under.
    */
-  /**
-   * R3（reviewer P1 回归）— 激活期声明（eager, register-ONLY）。
-   *
-   * 0.2 名册是 memory-only：冷启动 / 插件 reload 后名册为空, 而已持久化
-   *  investigator 会话的 resume 走
-   *  `session-controller/src/agent.ts → composeAgent → presets.resolve(saved)`
-   *  — resolve 先于任何新 launch。lazy 注册（只在 launchInvestigator 里
-   *  ensure）意味着旧会话在「下一次新 launch」之前永远开不起来 — 本方法
-   *  把声明前移到插件 activation, 经 `ctx.effect` 挂 fiber 生命周期
-   *  （卸载 = 真 unregister, reload = 干净重声明）。
-   *
-   * 死锁纪律（checkout agent-preset-registry/src/index.ts:117-134：激活
-   *  审计会 await loader settlement）：本方法只 register — 绝不
-   *  resolve/list; 读面（resolve/list/readDocument）只在用户动作
-   *  （launch/resume, 必然晚于 activation）时执行。
-   *
-   * @returns `'registered'`（本实例声明并挂上生命周期）| `'present'`
-   *  （名册已有 — duplicate, 他方 lease）| `'no-roster'`（该部署无注册表
-   *  — 插件照常可加载, launch 时仍 fail-loud IVL_PRESET）。
-   */
-  async declarePresetAtActivation(): Promise<'registered' | 'present' | 'no-roster'> {
-    const roster = this.#ctx.get('agentPresets') as AgentPresetsLike | undefined
-    if (roster === undefined || typeof roster.register !== 'function') {
-      return 'no-roster'
-    }
-    if (this.#presetRegistered) {
-      // 闩 = 缓存, 激活期无读面可核实（死锁纪律）— 保留声明现状即可。
-      return 'present'
-    }
-    try {
-      await this.#ctx.effect(
-        () => roster.register(investigatorPresetDefinition()),
-        'research-control/investigator-preset',
-      )
-      this.#presetRegistered = true
-      this.lastPresetEnsure = 'registered'
-      return 'registered'
-    } catch (error: unknown) {
-      if (error instanceof Error && error.message.includes('Duplicate agent preset')) {
-        // 他方已声明（并发 activation / 宿主行）— 视作 present；内容由
-        // launch 期 readDocument 闭集门统一把关。
-        this.#presetRegistered = true
-        this.lastPresetEnsure = 'present'
-        return 'present'
-      }
-      // activation 不因 preset 声明失败而崩解插件（launch 时还会再试并
-      // fail-loud）；大声记录, 不静默。
-      console.warn(
-        `[research-control] declarePresetAtActivation: the investigator preset declaration ` +
-          `failed at activation: ${error instanceof Error ? error.message : String(error)} — ` +
-          'persisted investigator sessions cannot RESUME until a later launch re-declares it ' +
-          '(retried at every launch)',
-      )
-      return 'no-roster'
-    }
-  }
-
+  // R3（reviewer 终审）— 激活期声明改走宿主自己的声明式机制: bundle 的
+  // cordis.patch.yml 携带 companion 行 `research-investigator-preset`
+  // （`@deepseek-ai/dsh-agent-preset`：`static inject = ['agentPresets']`
+  // + init 里 `yield await ctx.agentPresets.register(config)`）。cordis 的
+  // inject 依赖图就是 optional service 出现/替换的真实生命周期：注册表晚
+  // 出现 → 本行延后激活；注册表 unload/reload → 行随依赖图重建并重声明
+  // （每一代注册表都带声明, 持久化 investigator 会话冷启动即可 resume,
+  // 无需新 launch）。此前的一次性 `declarePresetAtActivation` 已退役 —
+  // 它只查一次且与 companion 行竞争（行不 catch Duplicate, 会把自己的
+  // 声明期让给对方后静默失联）。本适配器的 registerPresetDeclaration 只
+  // 作最后兜底（行被手工删除时 launch 期补声明）；闩由 resolveOrEnsure
+  // 的真实 not-found 观测清除（幸存者恢复）。
   private async resolveOrEnsure(roster: AgentPresetsLike, presetId: string): Promise<string> {
     let resolved: AgentPresetLike
     try {

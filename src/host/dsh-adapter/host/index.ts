@@ -369,7 +369,12 @@ import {
   type HostWiring,
   type HostWiringLogger,
 } from '../../service/wiring/index.js'
-import { HostAgentLauncherAdapter, type LauncherHostContext } from '../launcher/index.js'
+import {
+  HostAgentLauncherAdapter,
+  installInvestigatorRestrictionWatch,
+  type LauncherHostContext,
+  type RestrictionWatchContext,
+} from '../launcher/index.js'
 import { registerAnalysisCommands } from './analysis-commands.js'
 import { registerInvestigationCommand } from './investigate-command.js'
 import { getResearchDirNames, migrateLegacyResearchSettings, registerResearchSettings } from './settings.js'
@@ -1889,16 +1894,36 @@ export class ResearchControlService extends TypertRemoteService {
     // ctx (reads `agents` through `ctx.get` at launch time) — one
     // instance shared by every project wiring.
     const launcherAdapter = new HostAgentLauncherAdapter(this.ctx as unknown as LauncherHostContext)
-    // R3 (reviewer P1 regression) — the investigator preset declaration is
-    // ACTIVATION-owned (register-only via ctx.effect; NO resolve/list here —
-    // the registry's activation audit awaits loader settlement and would
-    // deadlock). 0.2 rosters are memory-only: without this, a cold start /
-    // reload leaves persisted investigator sessions un-resumable
-    // (composeAgent → presets.resolve(saved) runs before any new launch).
-    void launcherAdapter.declarePresetAtActivation().then((status) => {
-      if (status === 'no-roster') return
-      console.log(`[research-control] investigator preset declared at activation (${status}) — persisted investigator sessions can resume without a new launch`)
+    // Security gate (reviewer deny-7 lifecycle) — the restriction cannot be
+    // owned by the LAUNCH alone: the host's resume setup only does
+    // selection+mount (api/session-controller/src/agent.ts:391-395), and
+    // preset rows carry no restriction hook, so the global research WRITE
+    // tools would be visible to a RESUMED investigator. The `agent/created`
+    // serial event (dispatched post-setup, pre-work — core/agent
+    // src/index.ts:176/:550) is the public seam: every investigator agent —
+    // startup OR resume — gets deny-7 here; applying it failing THROWS, and
+    // the host rolls the creation back (fail-closed, INV-PERM-3). Dedupe:
+    // the launch-time setup applied the same restriction on the same
+    // scoped-ctx object (WeakSet). Disposer rides the fiber (unload = the
+    // watch is gone with the plugin).
+    this.ctx.effect(() => {
+      const disposeWatch = installInvestigatorRestrictionWatch(this.ctx as unknown as RestrictionWatchContext)
+      return (): void => {
+        disposeWatch()
+      }
     })
+    // R3 (reviewer final ruling) — the investigator preset declaration is
+    // owned by the bundle's companion `@deepseek-ai/dsh-agent-preset` row
+    // (cordis.patch.yml): its `inject: ['agentPresets']` rides cordis's
+    // dependency graph, which IS the optional-service appearance/replacement
+    // lifecycle (late registry at boot → deferred activation; registry
+    // unload/reload → the row re-declares on the new generation, so resumed
+    // sessions never hit a missing preset without a new launch). A previous
+    // one-shot activation-time declare was retired — it checked the roster
+    // exactly once and raced the companion row (which does not tolerate a
+    // Duplicate). The launcher keeps a register-on-miss fallback for a
+    // hand-removed row; the launch-time readDocument closed-set gate audits
+    // the composition regardless of who declared it.
     try {
       for (const project of planeState.projects) {
         // Design §3.3 (V2-T2.4): the database follows the project — the

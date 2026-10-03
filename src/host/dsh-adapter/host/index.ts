@@ -371,9 +371,7 @@ import {
 } from '../../service/wiring/index.js'
 import {
   HostAgentLauncherAdapter,
-  installInvestigatorRestrictionWatch,
   type LauncherHostContext,
-  type RestrictionWatchContext,
 } from '../launcher/index.js'
 import { registerAnalysisCommands } from './analysis-commands.js'
 import { registerInvestigationCommand } from './investigate-command.js'
@@ -1912,24 +1910,14 @@ export class ResearchControlService extends TypertRemoteService {
     // ctx (reads `agents` through `ctx.get` at launch time) — one
     // instance shared by every project wiring.
     const launcherAdapter = new HostAgentLauncherAdapter(this.ctx as unknown as LauncherHostContext)
-    // Security gate (reviewer deny-7 lifecycle) — the restriction cannot be
-    // owned by the LAUNCH alone: the host's resume setup only does
-    // selection+mount (api/session-controller/src/agent.ts:391-395), and
-    // preset rows carry no restriction hook, so the global research WRITE
-    // tools would be visible to a RESUMED investigator. The `agent/created`
-    // serial event (dispatched post-setup, pre-work — core/agent
-    // src/index.ts:176/:550) is the public seam: every investigator agent —
-    // startup OR resume — gets deny-7 here; applying it failing THROWS, and
-    // the host rolls the creation back (fail-closed, INV-PERM-3). Dedupe:
-    // the launch-time setup applied the same restriction on the same
-    // scoped-ctx object (WeakSet). Disposer rides the fiber (unload = the
-    // watch is gone with the plugin).
-    this.ctx.effect(() => {
-      const disposeWatch = installInvestigatorRestrictionWatch(this.ctx as unknown as RestrictionWatchContext)
-      return (): void => {
-        disposeWatch()
-      }
-    })
+    // R3 (reviewer convergence) — the deny-7 LIFECYCLE question (resume
+    // setup does no restrict; blank select fires no `agent/created`) is
+    // answered by the preset GENERATION itself: the closed composition's
+    // safety row registers the guard + visibility on the standing preset
+    // scope, which every joined agent (create / cold resume / blank
+    // recompose) inherits through its scope parent, detaching on leave.
+    // The retired design (global `agent/created` watch + WeakSet + preset
+    // identity guessing) is replaced — see src/host/investigator-safety.
     // R3 (reviewer final ruling) — the investigator preset declaration is
     // owned by the bundle's companion `@deepseek-ai/dsh-agent-preset` row
     // (cordis.patch.yml): its `inject: ['agentPresets']` rides cordis's

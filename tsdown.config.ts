@@ -133,6 +133,9 @@ const hostConfig: UserConfig = {
     index: './src/host/index.ts',
     'typert.host': './src/host/dsh-adapter/host/typert.artifact.ts',
     'typert.remote-client': './src/client/dsh-adapter/remote/contribution.ts',
+    // R3 — the investigator SAFETY row (mounted INSIDE the closed preset
+    // composition; resolves as the package subpath below).
+    'investigator-safety': './src/host/dsh-adapter/investigator-safety/index.ts',
   },
   outDir: './lib',
   format: 'esm',

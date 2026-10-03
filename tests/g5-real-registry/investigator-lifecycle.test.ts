@@ -1,25 +1,37 @@
 /**
- * Review item 2 (pinned 0.2.0-rc.2, no LLM, no paid calls) — POSITIVE real
- * register→mount→launch lifecycle through the REAL adapter, with real
- * enforcement, plus the RESUME-shape denial proof.
+ * R3 (reviewer convergence) — REAL lifecycle for the investigator SAFETY
+ * row (pinned 0.2.0-rc.2, no LLM, no paid calls).
+ *
+ * The retired design patched deny-7 from OUTSIDE (a global `agent/created`
+ * watch + WeakSet + preset identity guessing) and MISSED the host's real
+ * lifecycles (cold resume runs setup = selection+mount only; a blank
+ * `select`/`recompose` fires no `agent/created`). The convergence: the
+ * closed composition's FIRST row is the dedicated safety plugin; agents are
+ * parented to the preset's STANDING scope (agent-preset-registry
+ * `standingMountFor`), so guard + visibility are inherited by every joined
+ * agent — create, cold resume, blank recompose — and DETACH on leave.
  *
  * REAL: cordis Context + event dispatch, `ToolRuntime` (@deepseek-ai/dsh-tools),
  * `createScope` (dsh-scope), `AgentRegistry.create` routing (dsh-agent),
  * TypertRegistry / PluginLoader / SessionProjectionRegistry /
- * AgentPresetRegistry, and the REAL preset rows `@deepseek-ai/dsh-tool-bash`
- * + `@deepseek-ai/dsh-tool-fs-search` (activated and mounted — bash/glob/grep
- * enter the agent surface), plus the adapter's own `launchInvestigator`
- * (resolveOrEnsure → agents.create(setupInvestigator = mount+restrict) →
- * `/permission read-only` settle → followup).
+ * AgentPresetRegistry, the REAL preset rows `@deepseek-ai/dsh-tool-bash` +
+ * `@deepseek-ai/dsh-tool-fs-search` (activated and mounted), the REAL
+ * `dsh-research-control/investigator-safety` row CLASS (mounted through the
+ * loader's `internal.import` seam — on the bench the same row resolves as
+ * the installed package subpath; the unit harness supplies the class
+ * through the host-shaped internal loader, mirroring app-boot's
+ * HostResolvedRootInclude), the adapter's own `launchInvestigator`
+ * (mount → `/permission read-only` settle → followup), and REAL
+ * ToolRuntime dispatch (guard + restriction evaluated by the registry).
  *
- * FAKE (disclosed — host-app faces the pinned packages do not ship
- * standalone; the same seam investigator-restricted.test.ts discloses):
- * systemPrompt (3-member face), shell ({sandboxMode: undefined} — skips the
- * sandboxPolicy requirement, tool-bash index.ts:218-220), shellEnv/subprocess
- * (never touched at activation), commands (recorder), and the AgentLoop
- * FACTORY BODY (real `createScope` + `setup(scope.ctx, agent)` +
- * serial `agent/created` dispatch mirroring core/agent src/index.ts:550 —
- * not the LLM/session loop).
+ * FAKE (disclosed): systemPrompt (3-member face), the shell executor face
+ * ({sandboxMode: 'workspace-write'} — a WRITABLE deployment default, the
+ * reviewer's standing condition), shellEnv/subprocess (never touched),
+ * sandboxPolicy (a mode map keyed by session: `/permission read-only`
+ * commits like the durable `sandbox/mode` event does), commands (recorder
+ * + mode commit), and the AgentLoop FACTORY BODY (real `createScope` +
+ * `setup(scope.ctx, agent)` + serial `agent/created` dispatch mirroring
+ * core/agent src/index.ts:550 — not the LLM/session loop).
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -32,7 +44,8 @@ import { default as PluginLoader } from '@deepseek-ai/cordis-plugin-loader'
 import { default as SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import { default as AgentPresetRegistry } from '@deepseek-ai/dsh-agent-preset-registry'
 
-import { HostAgentLauncherAdapter, installInvestigatorRestrictionWatch, restrictInvestigatorCtx } from '../../src/host/dsh-adapter/launcher/index.js'
+import { HostAgentLauncherAdapter } from '../../src/host/dsh-adapter/launcher/index.js'
+import InvestigatorSafety from '../../src/host/dsh-adapter/investigator-safety/index.js'
 import type { InvestigatorLaunchRequest } from '../../src/host/service/investigator/index.js'
 import {
   INVESTIGATOR_DENIED_TOOL_NAMES,
@@ -66,42 +79,60 @@ async function boot() {
     section: (_s: unknown) => ({ dispose: () => {} }),
     getSectionOrder: (_n: string) => 0,
   })
-  root.provide('shell', { sandboxMode: undefined })
+  // WRITABLE deployment default (the reviewer's standing condition): the
+  // executor DOES sandbox (defined mode) — the session override is what
+  // makes an investigator read-only.
+  root.provide('shell', { sandboxMode: 'workspace-write' })
   root.provide('shellEnv', { collect: () => ({}) })
   root.provide('subprocess', { spawn: async () => ({ exitCode: 0, stdout: '', stderr: '' }) })
+  // Session-scoped mode map — the fake stands in for the durable
+  // `sandbox/mode` event log (permissionPresets writes durable events; a
+  // resumed session's log already carries read-only). NOT a per-selection
+  // sneaky write: entries appear only through the /permission command.
+  const sessionModes = new Map<string, string>()
+  root.provide('sandboxPolicy', {
+    defaultMode: 'workspace-write',
+    resolve: (request: { session?: { id?: string } }) => ({
+      mode: request.session?.id === undefined ? undefined : sessionModes.get(request.session.id) ?? 'workspace-write',
+    }),
+  })
   root.provide('commands', {
-    async execute(_agent: unknown, line: string) {
+    async execute(agent: unknown, line: string) {
       order.push(`permission:${line}`)
+      if (line === `/permission ${READ_ONLY_PERMISSION_PRESET}`) {
+        const sessionId = (agent as { session?: { id?: string } })?.session?.id
+        if (sessionId !== undefined) sessionModes.set(sessionId, 'read-only')
+      }
       return { commandId: 'cmd-1', result: { kind: 'success', text: 'ok' } }
     },
   })
   const runtime = new ToolRuntime(root, { mode: 'native' })
   await root.plugin(TypertRegistry)
   await root.plugin(PluginLoader)
+  // Host-shaped internal import (app-boot HostResolvedRootInclude): the
+  // preset subtree resolves `dsh-research-control/investigator-safety`
+  // through this seam — on the bench the INSTALLED package's exports
+  // subpath resolves natively; the unit mounts the same class.
+  const internalImport = async (name: string): Promise<unknown> => {
+    if (name === 'dsh-research-control/investigator-safety') return InvestigatorSafety
+    return await import(/* @vite-ignore */ name)
+  }
+  ;(root as unknown as { loader: { internal?: unknown } }).loader.internal = { import: internalImport }
   await root.plugin(SessionProjectionRegistry)
   await root.plugin(AgentPresetRegistry, { default: 'standard' })
   const roster = root.get('agentPresets') as {
     resolve(id?: string): Promise<{ id: string; broken?: string }>
     mount(ctx: unknown, id?: string): Promise<unknown>
+    recompose(ctx: unknown, id: string): Promise<unknown>
     register(definition: unknown): Promise<() => Promise<void>>
     readDocument(id: string): Promise<{ content: string }>
   }
-  // Wrap mount + restrict so the ORDER and the restrict COUNT are observable
-  // without touching production code (the watch dedupe rides the same call).
   const realMount = roster.mount.bind(roster)
   roster.mount = (async (ctx: unknown, id?: string) => {
     await realMount(ctx, id)
     order.push('mount')
   }) as typeof roster.mount
-  // NOTE: `runtime.restrict` is NOT wrapped — the scoped call goes through
-  // cordis's proxy which binds the agent scope; a plain reassignment loses
-  // that and ToolRuntime.restrict throws "requires a scoped context". The
-  // restriction's correctness is proven by its EFFECT (writes refused) + the
-  // mount→permission→followup order; per-ctx dedupe is a unit concern
-  // (dedupe test at the bottom of this file).
 
-  // Disclosed factory seam (see header): real createScope, setup call site,
-  // serial `agent/created` dispatch mirroring core/agent src/index.ts:550.
   const registry = new AgentRegistry(root)
   type Minted = {
     agent: { id: string; session: { id: string; meta?: Record<string, unknown> }; followups: unknown[]; followup(m: unknown): void; [k: string]: unknown }
@@ -127,7 +158,6 @@ async function boot() {
       agent.ctx = scope.ctx
       await options.setup?.(scope.ctx, agent)
       minted.push({ agent, scope })
-      // agent/created fires after setup completes, before any work runs.
       await (root as unknown as {
         serial(carrier: unknown, name: string, payload: unknown): Promise<unknown>
       }).serial(scope.ctx, 'agent/created', { agent, source: options.meta?.source ?? 'startup' })
@@ -153,29 +183,30 @@ async function boot() {
     },
   }
   const adapter = new HostAgentLauncherAdapter(patched as never)
-  const watchCtx = () => ({
-    get: (name: string) => (root as unknown as { get(n: string): unknown }).get(name),
-    on: (event: string, listener: (p: { agent: unknown }) => void, opts?: { global?: boolean }) =>
-      (root as unknown as { on(n: string, l: unknown, o?: unknown): () => void }).on(event, listener, opts),
-  })
-  return { root, roster, runtime, registry, adapter, watchCtx, order, minted }
+  return { root, roster, runtime, registry, adapter, order, minted, sessionModes }
 }
 
-async function executeTool(runtime: ToolRuntime, name: string, agent: unknown) {
+interface DispatchResult {
+  isError: boolean
+  value?: unknown
+  error?: { info?: { code?: string }; code?: string }
+  content?: Array<{ type: string; text?: string }>
+}
+
+async function executeTool(runtime: ToolRuntime, name: string, agent: unknown, args: unknown = {}): Promise<DispatchResult> {
   return await (runtime as unknown as {
-    execute(exec: unknown): Promise<{
-      isError: boolean
-      value?: unknown
-      error?: { info?: { code?: string }; code?: string }
-    }>
+    execute(exec: unknown): Promise<DispatchResult>
   }).execute({
     callId: ToolCallId(`lifecycle-${name}-${Math.random()}`),
     name,
-    arguments: {},
+    arguments: args,
     signal: new AbortController().signal,
     agent,
   })
 }
+
+const refusalText = (r: DispatchResult): string =>
+  r.content?.map((c) => c.text ?? '').join(' ') ?? r.error?.info?.code ?? r.error?.code ?? ''
 
 const REQUEST: InvestigatorLaunchRequest = {
   presetId: INVESTIGATOR_PRESET_ID,
@@ -186,22 +217,27 @@ const REQUEST: InvestigatorLaunchRequest = {
 
 let h: Awaited<ReturnType<typeof boot>> | undefined
 let unregister: (() => Promise<void>) | undefined
+let unregisterPlain: (() => Promise<void>) | undefined
 
 afterEach(async () => {
   await unregister?.().catch(() => undefined)
   unregister = undefined
+  await unregisterPlain?.().catch(() => undefined)
+  unregisterPlain = undefined
   await h?.root.fiber.dispose()
   h = undefined
 })
 
-describe('review item 2 — real register→mount→launch lifecycle (adapter-driven)', () => {
-  it('POSITIVE: REAL rows activate & mount; adapter order mount→restrict→/permission→followup; 7 writes ENFORCED; dispose unwinds', async () => {
+describe('R3 — preset-generation safety row, real register→mount→launch lifecycle', () => {
+  it('POSITIVE: rows + SAFETY row mount; order mount→/permission→followup (no adapter restrict); visibility + GUARD enforcement incl. UNREGISTERED writer and bash WIDENING; writable default REFUSES work', async () => {
     h = await boot()
-    const watchDisposer = installInvestigatorRestrictionWatch(h.watchCtx() as never)
-    for (const name of [...WRITE7, ...READ4]) h.runtime.register(stubTool(name))
+    // Register only SIX writers — the seventh is never registered anywhere.
+    for (const name of [...WRITE7.slice(1), ...READ4]) h.runtime.register(stubTool(name))
     unregister = await h.roster.register(investigatorPresetDefinition())
-    // THE crux: the real rows activate (packages resolve from the worktree).
     const resolved = await h.roster.resolve(INVESTIGATOR_PRESET_ID)
+    // THE crux: real rows (bash/glob/grep + the safety row) activate —
+    // `broken` undefined proves the SAFETY row resolved, activated and
+    // registered its guard/visibility inside the generation.
     expect(resolved).toEqual({ id: INVESTIGATOR_PRESET_ID })
 
     const result = await h.adapter.launchInvestigator(REQUEST)
@@ -209,118 +245,126 @@ describe('review item 2 — real register→mount→launch lifecycle (adapter-dr
     const agent = h.minted[0]?.agent
     expect(agent, 'agent minted').toBeDefined()
 
-    // Order, end to end (adapter-owned, not replayed).
+    // Order end to end: the adapter setup is mount-ONLY now (R3) — the
+    // deny-7 layers belong to the generation the mount joined.
     expect(h.order).toEqual(['mount', `permission:/permission ${READ_ONLY_PERMISSION_PRESET}`, 'followup'])
-    // Setup ran mount THEN restrict synchronously (module order); /permission
-    // and followup are strictly after agents.create returned. The agent/created
-    // watch then fired on the SAME scoped ctx and deduped (restrictInvestigatorCtx
-    // returns false) — see the dedupe unit test below for that primitive.
-    expect(restrictInvestigatorCtx(agent!.ctx as never), 'launch setup already restricted this scoped ctx').toBe(false)
-    watchDisposer()
-    // The task was queued verbatim, once.
     expect(agent?.followups).toHaveLength(1)
     expect((agent?.followups[0] as { content?: Array<{ text?: string }> }).content?.[0]?.text).toBe(REQUEST.task)
 
-    // Visible surface: preset rows mounted + 4 reads kept, 7 writes gone.
+    // Visibility (generation-owned restrict masks the PRESENT writers —
+    // including the unregistered seventh, which is absent by definition).
     const visible = (h.runtime as unknown as { schemas(a: unknown): Array<{ name: string }> }).schemas(agent).map((s) => s.name)
     for (const mounted of ['bash', 'glob', 'grep']) expect(visible, `mounted ${mounted}`).toContain(mounted)
     for (const read of READ4) expect(visible, `read ${read}`).toContain(read)
     for (const write of WRITE7) expect(visible, `write ${write} hidden`).not.toContain(write)
 
-    // ENFORCEMENT at execute: reads run, writes refused with UNKNOWN_TOOL.
+    // Execution: the 4 readers run (the /permission flow committed the
+    // read-only session mode; the guard live-reads it per admission).
     for (const name of READ4) {
       const ran = await executeTool(h.runtime, name, agent)
       expect(ran.isError, `read ${name} runs`).toBe(false)
       expect(ran.value).toEqual({ ok: true })
     }
+    // All 7 writers are DENIED whether registered or not: six hidden
+    // registered writers refused (guard/registry), the UNREGISTERED
+    // seventh refused too — the guard matches NAMES, not registrations.
     for (const name of WRITE7) {
       const refused = await executeTool(h.runtime, name, agent)
       expect(refused.isError, `write ${name} refused`).toBe(true)
-      expect(refused.error?.info?.code ?? refused.error?.code, `write ${name} code`).toBe('UNKNOWN_TOOL')
+      expect(refusalText(refused), `write ${name} reason mentions guard or hidden`).toMatch(/investigator guard|UNKNOWN_TOOL/)
     }
+    // bash IS visible (preset row) but a sandbox WIDENING request is
+    // refused by the guard BEFORE the body (never executed).
+    const widening = await executeTool(h.runtime, 'bash', agent, { command: 'true', sandbox_permissions: 'workspace-write' })
+    expect(widening.isError, 'widening refused').toBe(true)
+    expect(refusalText(widening)).toContain('WIDENING')
 
-    // CONTROL: an unrestricted scoped agent runs the same write tool.
+    // CONTROL: a foreign scoped agent (never joined the preset) runs the
+    // same writer — the generation's guard cannot reach its chain.
     const control: Record<string, unknown> = { id: 'ctrl', session: { id: 'ctrl' } }
     const controlScope = createScope(h.root, control)
     try {
-      const open = await executeTool(h.runtime, WRITE7[0]!, control)
+      const open = await executeTool(h.runtime, WRITE7[1]!, control)
       expect(open.isError).toBe(false)
     } finally {
       await controlScope.dispose()
     }
 
-    // Dispose: the factory handle unwinds the agent scope without throwing.
-    // (Scoped-tool teardown is host-internal; the plugin-meaningful dispose
-    // semantics — ctx.effect registration lease ⇒ unload = real unregister,
-    // clean re-register — are pinned in investigator-preset-registry.test.ts.)
+    // WRITABLE DEFAULT (the reviewer's refusal case): an investigator agent
+    // created under the writable deployment default WITHOUT the launcher's
+    // /permission step — no session override exists → the guard FAILS
+    // CLOSED on every tool: work is explicitly refused, not silently run.
+    const unconfined = await h.registry.create({
+      sessionId: 'investigator-writable-default',
+      meta: { cwd: '/ws', agentPreset: INVESTIGATOR_PRESET_ID, source: 'startup' },
+      setup: (agentCtx: Context) => h!.roster.mount(agentCtx, INVESTIGATOR_PRESET_ID),
+    } as never)
+    const unconfinedAgent = unconfined.agent as unknown as Record<string, unknown>
+    const refusal = await executeTool(h.runtime, READ4[0]!, unconfinedAgent)
+    expect(refusal.isError, 'writable default refuses even a reader').toBe(true)
+    expect(refusalText(refusal)).toContain('not "read-only"')
+    await unconfined.dispose()
+
     await expect(h.minted[0]?.scope.dispose()).resolves.toBeUndefined()
   }, 30000)
 
-  it('RESUME shape (host setup = mount only): the agent/created watch restores deny-7; WITHOUT the watch the gap is real (existing-debt evidence)', async () => {
+  it('cold resume + blank select + leave: ONE generation policy covers mount-only resume, recompose covers blank select, leave detaches', async () => {
     h = await boot()
     for (const name of [...WRITE7, ...READ4]) h.runtime.register(stubTool(name))
     unregister = await h.roster.register(investigatorPresetDefinition())
+    unregisterPlain = await h.roster.register({
+      id: 'plain-control',
+      name: 'Plain control',
+      description: 'control preset without the safety row (leave-target)',
+      plugins: [{ id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash' }],
+    })
 
-    // ── Gap WITHOUT the watch (the pre-fix / launch-time-only behavior —
-    // marks the EXISTING DEBT honestly: host resume setup only does
-    // selection+mount, api/session-controller/src/agent.ts:391-395):
-    const bare = await h.registry.create({
-      sessionId: 'investigator-resume-bare',
+    // ── COLD RESUME, host setup verbatim (selection + mount, NO adapter,
+    // NO launch — api/session-controller agent.ts:391-395). The session's
+    // durable mode log already says read-only (launcher-origin PRESERVED):
+    h.sessionModes.set('investigator-cold-resume', 'read-only')
+    const resumed = await h.registry.create({
+      sessionId: 'investigator-cold-resume',
       meta: { cwd: '/ws', agentPreset: INVESTIGATOR_PRESET_ID, source: 'resume' },
       setup: (agentCtx: Context) => h!.roster.mount(agentCtx, INVESTIGATOR_PRESET_ID),
     } as never)
-    const bareAgent = bare.agent as unknown as Record<string, unknown>
-    const bareVisible = (h.runtime as unknown as { schemas(a: unknown): Array<{ name: string }> }).schemas(bareAgent).map((s) => s.name)
-    for (const read of READ4) expect(bareVisible, `bare read ${read}`).toContain(read)
-    for (const write of WRITE7) expect(bareVisible, `bare write ${write} VISIBLE without watch`).toContain(write)
-    const bareWrite = await executeTool(h.runtime, WRITE7[0]!, bareAgent)
-    expect(bareWrite.isError, 'write EXECUTES without the watch — the debt').toBe(false)
-    await bare.dispose()
-
-    // ── WITH the watch (the fix): same mount-only resume → watch applies
-    // deny-7 at agent/created → 4 reads work, all 7 writes refused.
-    const watchDisposer = installInvestigatorRestrictionWatch(h.watchCtx() as never)
-    try {
-      const fixed = await h.registry.create({
-        sessionId: 'investigator-resume-fixed',
-        meta: { cwd: '/ws', agentPreset: INVESTIGATOR_PRESET_ID, source: 'resume' },
-        setup: (agentCtx: Context) => h!.roster.mount(agentCtx, INVESTIGATOR_PRESET_ID),
-      } as never)
-      const fixedAgent = fixed.agent as unknown as Record<string, unknown>
-      const fixedVisible = (h.runtime as unknown as { schemas(a: unknown): Array<{ name: string }> }).schemas(fixedAgent).map((s) => s.name)
-      for (const read of READ4) expect(fixedVisible, `watched read ${read}`).toContain(read)
-      for (const write of WRITE7) expect(fixedVisible, `watched write ${write} hidden`).not.toContain(write)
-      for (const name of READ4) expect((await executeTool(h.runtime, name, fixedAgent)).isError).toBe(false)
-      for (const name of WRITE7) {
-        const refused = await executeTool(h.runtime, name, fixedAgent)
-        expect(refused.isError, `watched write ${name} refused`).toBe(true)
-        expect(refused.error?.info?.code ?? refused.error?.code).toBe('UNKNOWN_TOOL')
-      }
-      await fixed.dispose()
-
-      // A FOREIGN (non-investigator) session through agent/created is untouched.
-      const foreign = await h.registry.create({
-        sessionId: 'standard-resume',
-        meta: { cwd: '/ws', agentPreset: 'standard', source: 'resume' },
-        setup: async () => {},
-      } as never)
-      const foreignVisible = (h.runtime as unknown as { schemas(a: unknown): Array<{ name: string }> }).schemas(foreign.agent as unknown as Record<string, unknown>).map((s) => s.name)
-      for (const write of WRITE7) expect(foreignVisible, `foreign write ${write} untouched`).toContain(write)
-      await foreign.dispose()
-    } finally {
-      watchDisposer()
+    const resumedAgent = resumed.agent as unknown as Record<string, unknown>
+    for (const name of READ4) {
+      expect((await executeTool(h.runtime, name, resumedAgent)).isError, `resume read ${name} runs`).toBe(false)
     }
-  }, 30000)
-})
+    for (const name of WRITE7) {
+      const refused = await executeTool(h.runtime, name, resumedAgent)
+      expect(refused.isError, `resume write ${name} refused`).toBe(true)
+      expect(refusalText(refused)).toMatch(/investigator guard|UNKNOWN_TOOL/)
+    }
 
-describe('review item 2 — dedupe primitive (per-scoped-ctx WeakSet)', () => {
-  it('restrictInvestigatorCtx applies once, then no-ops on the same ctx; different ctx re-applies', () => {
-    let calls = 0
-    const mk = () => ({ tools: { restrict: () => { calls += 1 } } })
-    const ctxA = mk()
-    expect(restrictInvestigatorCtx(ctxA as never)).toBe(true)
-    expect(restrictInvestigatorCtx(ctxA as never)).toBe(false)
-    expect(restrictInvestigatorCtx(mk() as never)).toBe(true)
-    expect(calls).toBe(2)
-  })
+    // ── BLANK SELECT (registry.recompose — fires NO `agent/created`, the
+    // retired watch never saw it). A blank agent starts guard-free…
+    const blank = await h.registry.create({
+      sessionId: 'investigator-blank',
+      meta: { cwd: '/ws', source: 'startup' },
+      setup: async () => {},
+    } as never)
+    const blankAgent = blank.agent as unknown as Record<string, unknown>
+    expect((await executeTool(h.runtime, WRITE7[0]!, blankAgent)).isError, 'blank agent: writer runs (no preset yet)').toBe(false)
+    // …the select recomposes into the investigator generation…
+    await h.roster.recompose(blankAgent.ctx, INVESTIGATOR_PRESET_ID)
+    const afterSelect = await executeTool(h.runtime, WRITE7[0]!, blankAgent)
+    expect(afterSelect.isError, 'after blank select: writer refused').toBe(true)
+    // …and under the WRITABLE default (no /permission ran for this blank
+    // session) the whole scope fails closed — explicit refusal, no work.
+    const reader = await executeTool(h.runtime, READ4[0]!, blankAgent)
+    expect(reader.isError, 'after blank select: even readers refuse under writable default').toBe(true)
+    expect(refusalText(reader)).toContain('not "read-only"')
+
+    // ── LEAVE: recompose to another generation → the investigator guard
+    // is OFF the scope chain — writers run again WITHOUT any cleanup call
+    // on our side (auto-detach; nothing to unwatch, nothing leaked).
+    await h.roster.recompose(blankAgent.ctx, 'plain-control')
+    const afterLeave = await executeTool(h.runtime, WRITE7[0]!, blankAgent)
+    expect(afterLeave.isError, 'after leave: writer runs again (generation detached)').toBe(false)
+
+    await blank.dispose()
+    await resumed.dispose()
+  }, 30000)
 })

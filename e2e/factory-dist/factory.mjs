@@ -21386,6 +21386,28 @@ function investigationTask(context) {
 }
 //#endregion
 //#region src/host/service/investigator/preset.ts
+/**
+* The audited config face — the ONE upstream-required key the fs-search
+* row must carry（pin 版 dsh@0.2.0-rc.2 `dsh-tool-fs-search`: required,
+* no fallback — the upstream `standard`/`code` presets set it to `false`
+* verbatim; checkout the shipped `standard` / `code` preset rows）. Pure
+* read-presentation ordering（over-cap glob pages: `false` keeps the
+* modification-time-ordered head）— no write-capability face.
+*/
+/**
+* R3 — the ONE audited non-tool row (the reviewer's convergence): the
+* dedicated investigator SAFETY plugin, mounted FIRST inside the closed
+* composition. Its registrations land on the preset generation's standing
+* scope (agents are parented to it — agent-preset-registry mount.ts
+* `standingMountFor`), so the guard + visibility cover create/resume/
+* blank-select with ONE policy and detach on leave. The name is a package
+* SUBPATH of THIS plugin (`exports["./investigator-safety"]`) — the
+* composition row carries no config and no other freedom.
+*/
+const INVESTIGATOR_SAFETY_ROW = Object.freeze({
+	id: "research-investigator-safety",
+	name: "dsh-research-control/investigator-safety"
+});
 /** The fs-search package name（the one row that carries the config）. */
 const FS_SEARCH_TOOL_NAME = "@deepseek-ai/dsh-tool-fs-search";
 /**
@@ -21404,6 +21426,7 @@ function renderInvestigatorPresetComposition(presetId) {
 		code: "IVL_INPUT",
 		message: `renderInvestigatorPresetComposition: presetId must be "${INVESTIGATOR_PRESET_ID}" (the plugin authors exactly one investigator preset), got ${JSON.stringify(presetId)}`
 	});
+	const safetyLines = [`- id: ${INVESTIGATOR_SAFETY_ROW.id}`, `  name: '${INVESTIGATOR_SAFETY_ROW.name}'`];
 	const rows = INVESTIGATOR_PRESET_TOOL_NAMES.map((name) => {
 		const lines = [`- id: ${name.replace(/^@deepseek-ai\/dsh-/, "")}`, `  name: '${name}'`];
 		if (name === FS_SEARCH_TOOL_NAME) lines.push("  config:", "    sampleOverCapGlobResults: false");
@@ -21422,7 +21445,10 @@ function renderInvestigatorPresetComposition(presetId) {
 		"#",
 		"# Do not add rows or config keys: the plugin launcher parses this file",
 		"# back and refuses to launch when a row (or the one audited fs-search",
-		"# config key) is not in its closed read-only set.",
+		"# config key) is not in its closed read-only set. The FIRST row is the",
+		"# audited safety plugin (guard + visibility on the preset generation) —",
+		"# it is part of the closed set, not an extension point.",
+		...safetyLines,
 		...rows,
 		""
 	].join("\n");

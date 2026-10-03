@@ -103,7 +103,6 @@ import {
   type InvestigatorLaunchResult,
 } from '../../service/investigator/index.js'
 import { InvestigatorLaunchError } from '../../service/investigator/index.js'
-import { restrictInvestigatorCtx } from './restriction-watch.js'
 import type {
   AgentCtxLike,
   AgentLike,
@@ -245,14 +244,11 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
         cause: error,
       })
     }
-    this.restrictInvestigatorTools(agentCtx)
-  }
-
-  /** 本 agent 的只读工具面（restriction 层 — Gate P7 二; 与 resume watch
-   *  经 per-scoped-ctx WeakSet 去重 — `agent/created` 稍后串行派发时看到
-   *  同一 ctx, 不重复 append）。 */
-  private restrictInvestigatorTools(agentCtx: AgentCtxLike): void {
-    restrictInvestigatorCtx(agentCtx as unknown as { tools: { restrict(filter: { deny?: readonly string[] }): unknown } })
+    // R3 convergence — NO restriction here: the closed composition's
+    // safety row owns deny-7 (execution guard + visibility) on the preset
+    // GENERATION's standing scope, which this mount just joined; a launch
+    // that added its own layer would double-patch what the generation
+    // already provides for create, cold resume AND blank select alike.
   }
 
   /**

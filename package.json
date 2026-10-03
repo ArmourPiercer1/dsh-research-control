@@ -22,6 +22,10 @@
     "./client": {
       "default": "./lib/client.js"
     },
+    "./investigator-safety": {
+      "types": "./lib/investigator-safety.d.ts",
+      "default": "./lib/investigator-safety.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },

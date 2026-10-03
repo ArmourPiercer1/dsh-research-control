@@ -115,11 +115,12 @@ describe('路径 A 全序（U5 定案）', () => {
 
     const result = await adapter.launchInvestigator(request)
 
-    // 全序: create-start → mount → restrict → create-done → execute → followup。
+    // 全序（R3 convergence）: create-start → mount → create-done → execute →
+    // followup — setup 只 mount: deny-7（guard+visibility）属 preset generation
+    // 的 safety 行（mount 即继承），adapter 不再叠 agent 层 restriction。
     expect(host.events.map(event => event.kind)).toEqual([
       'create-start',
       'mount',
-      'restrict',
       'create-done',
       'execute',
       'followup',
@@ -134,9 +135,7 @@ describe('路径 A 全序（U5 定案）', () => {
     const mountEvent = host.events.find(event => event.kind === 'mount')
     expect(mountEvent).toEqual({ kind: 'mount', presetId: INVESTIGATOR_PRESET_ID })
     expect(roster.mountCalls).toHaveLength(1)
-    // restriction 黑名单 = §7.2 可写 7 工具同一真源（单一来源引用钉）。
-    const restrictEvent = host.events.find(event => event.kind === 'restrict')
-    expect(restrictEvent).toEqual({ kind: 'restrict', deny: [...WRITE_TOOL_NAMES] })
+    // deny-7 名单单一真源不变（safety 行消费同一常量 — 引用钉）。
     expect(INVESTIGATOR_DENIED_TOOL_NAMES).toBe(WRITE_TOOL_NAMES)
     // /permission 命令线逐字 + images 恒空。
     const executeEvent = host.events.find(event => event.kind === 'execute')
@@ -196,9 +195,9 @@ describe('ensure preset（0.2 声明式注册 — 映射行第 1 步）', () => 
     // 注册的声明 = service 单一真源产物（render → parse → definition）。
     expect(roster.registerCalls).toHaveLength(1)
     expect(roster.registerCalls[0]).toEqual(investigatorPresetDefinition())
-    // 闭集定义的行面（2 行只读工具, 无第三行混入）。
+    // 闭集定义的行面（2 行只读工具 + R3 审计 safety 行, 再无第四行混入）。
     expect(roster.registerCalls[0]!.plugins.map(row => row.name).sort())
-      .toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES].sort())
+      .toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES, 'dsh-research-control/investigator-safety'].sort())
     // 回读门读过注册后的内容。
     expect(roster.readDocumentCalls).toEqual([INVESTIGATOR_PRESET_ID])
     expect(result.presetId).toBe(INVESTIGATOR_PRESET_ID)
@@ -396,30 +395,29 @@ describe('create / setup 失败（IVL_LAUNCH — all-or-nothing）', () => {
     expect(host.createdAgents).toHaveLength(0)
   })
 
-  it('restrict 抛错（部署无研究工具 — 名字未知）⇒ IVL_LAUNCH（零命令零 followup）', async () => {
+  it('generation mount 抛错（preset 行加载失败）⇒ IVL_LAUNCH（零命令零 followup）— R3: setup 面只剩 mount', async () => {
     const host = makeHost({
-      roster: makeDeclaredRoster().roster,
+      roster: makeDeclaredRoster({ mountError: new Error('mount failed: row research-investigator-safety failed to load') }).roster,
       commands: makeCommands({}).commands,
-      restrictError: new Error('tools.restrict() names unknown global tool "research_fact_record"'),
     })
     const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_LAUNCH')
-    expect(caught.message).toContain('research_fact_record')
+    expect(caught.message).toContain('research-investigator-safety')
     expect(host.events.filter(event => event.kind === 'execute' || event.kind === 'followup')).toEqual([])
   })
 })
 
 describe('组合文本同源（注册定义 = 回读解析 = 渲染器 单一真源）', () => {
-  it('注册的声明恰为闭集 2 行组合（无第三行混入）+ 渲染文本过同一解析门', async () => {
+  it('注册的声明恰为闭集 2 行工具 + 审计 safety 行（无其他混入）+ 渲染文本过同一解析门', async () => {
     const definition = investigatorPresetDefinition()
     expect(definition.id).toBe(INVESTIGATOR_PRESET_ID)
-    expect(definition.plugins.map(row => row.name).sort()).toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES].sort())
-    expect(definition.plugins).toHaveLength(2)
+    expect(definition.plugins.map(row => row.name).sort()).toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES, 'dsh-research-control/investigator-safety'].sort())
+    expect(definition.plugins).toHaveLength(3) // 2 tool rows + the audited safety row
     // 渲染文本 = 注册定义 = 回读门输入: 冻结渲染再解析, 行面一致。
     const text = renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID)
     const nameRows = text.split('\n').filter(line => line.startsWith('  name: '))
     expect(nameRows.map(line => line.replace('  name: ', '').replace(/'/g, '')).sort())
-      .toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES].sort())
+      .toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES, 'dsh-research-control/investigator-safety'].sort())
   })
 })

@@ -16,13 +16,6 @@
  */
 
 export { HostAgentLauncherAdapter } from './adapter.js'
-export {
-  installInvestigatorRestrictionWatch,
-  restrictInvestigatorCtx,
-  type RestrictableAgent,
-  type RestrictableAgentCtx,
-  type RestrictionWatchContext,
-} from './restriction-watch.js'
 export type {
   AgentCtxLike,
   AgentLike,

@@ -29,6 +29,8 @@
         description: 'Read-only research investigator — closed read-only tool composition (dsh-research-control).'
         order: 100
         plugins:
+          - id: research-investigator-safety
+            name: dsh-research-control/investigator-safety
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
           - id: tool-fs-search

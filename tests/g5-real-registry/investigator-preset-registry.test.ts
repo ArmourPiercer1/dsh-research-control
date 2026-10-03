@@ -146,10 +146,10 @@ describe('0.2 真实 agent-preset-registry — launcher ensure 流', () => {
     expect(rows.map(row => row.id)).toContain(INVESTIGATOR_PRESET_ID)
 
     // 关键迁移证明：注册表自己的 entry-list dump（readDocument.content）
-    // 与插件闭集解析器逐字节兼容 — 2 行只读组合, 无多余键。
+    // 与插件闭集解析器逐字节兼容 — 2 行只读工具 + R3 审计 safety 行, 无多余键。
     const document = await h.roster.readDocument(INVESTIGATOR_PRESET_ID)
     const spec = parsePresetComposition(INVESTIGATOR_PRESET_ID, document.content)
-    expect(spec.rows.map(row => row.name).sort()).toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES].sort())
+    expect(spec.rows.map(row => row.name).sort()).toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES, 'dsh-research-control/investigator-safety'].sort())
 
     // Duplicate 语义（真注册表）与适配器的竞态判定一致。
     await expect(h.roster.register(investigatorPresetDefinition())).rejects.toThrow(/Duplicate agent preset/)

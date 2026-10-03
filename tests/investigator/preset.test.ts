@@ -56,7 +56,11 @@ describe('renderInvestigatorPresetComposition（闭集构造 — 逐字钉）', 
       + '\n#'
       + '\n# Do not add rows or config keys: the plugin launcher parses this file'
       + '\n# back and refuses to launch when a row (or the one audited fs-search'
-      + '\n# config key) is not in its closed read-only set.'
+      + '\n# config key) is not in its closed read-only set. The FIRST row is the'
+      + '\n# audited safety plugin (guard + visibility on the preset generation) —'
+      + '\n# it is part of the closed set, not an extension point.'
+      + '\n- id: research-investigator-safety'
+      + "\n  name: 'dsh-research-control/investigator-safety'"
       + '\n- id: tool-bash'
       + "\n  name: '@deepseek-ai/dsh-tool-bash'"
       + '\n- id: tool-fs-search'
@@ -89,6 +93,7 @@ describe('parsePresetComposition（严格回读 — 非白名单能力即拒）'
     const spec: InvestigatorPresetSpec = parsePresetComposition(INVESTIGATOR_PRESET_ID, renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID))
     expect(spec.id).toBe('research-investigator')
     expect(spec.rows).toEqual([
+      { id: 'research-investigator-safety', name: 'dsh-research-control/investigator-safety' },
       { id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash' },
       { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
     ])
@@ -104,9 +109,33 @@ describe('parsePresetComposition（严格回读 — 非白名单能力即拒）'
       '    sampleOverCapGlobResults: false',
       '- id: shell',
       "  name: '@deepseek-ai/dsh-tool-bash'",
+      '- id: research-investigator-safety',
+      '  name: dsh-research-control/investigator-safety',
       '',
     ].join('\n'))
-    expect(spec.rows.map(row => row.name)).toEqual(['@deepseek-ai/dsh-tool-fs-search', '@deepseek-ai/dsh-tool-bash'])
+    expect(spec.rows.map(row => row.name)).toEqual([
+      '@deepseek-ai/dsh-tool-fs-search',
+      '@deepseek-ai/dsh-tool-bash',
+      'dsh-research-control/investigator-safety',
+    ])
+  })
+
+  it('R3 闭集扩展: safety 行是集合一部分 — 缺失即拒、id 漂移即拒、多余键即拒', () => {
+    // 缺失（工具-only 组合 = 无 guard 的漂移，不是「更小的 investigator」）
+    expectPresetRejection(
+      () => parsePresetComposition(INVESTIGATOR_PRESET_ID, "- id: bash\n  name: '@deepseek-ai/dsh-tool-bash'\n"),
+      'safety row',
+    )
+    // id 漂移 = 另一个未审计插件挂 safety 的 name 也不行（name 钉死后 id 必须逐字）
+    expectPresetRejection(
+      () => parsePresetComposition(INVESTIGATOR_PRESET_ID, '- id: evil\n  name: dsh-research-control/investigator-safety\n'),
+      'audited id',
+    )
+    // safety 行带任何 config ⇒ 拒（审计行恰 {id,name} — config 例外只在 fs-search 行）
+    expectPresetRejection(
+      () => parsePresetComposition(INVESTIGATOR_PRESET_ID, '- id: research-investigator-safety\n  name: dsh-research-control/investigator-safety\n  config:\n    x: 1\n'),
+      'audited safety row carries no config',
+    )
   })
 
   it.each([

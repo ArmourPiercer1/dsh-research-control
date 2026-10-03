@@ -169,7 +169,7 @@ function mountHost(workspaces: readonly string[]): HostHarness {
       list: () => workspaces.map((path) => ({ path })),
     },
   } as unknown as Context
-  const svc = new ResearchControlService(ctx, { minDshVersion: '0.1.0-rc.8' })
+  const svc = new ResearchControlService(ctx, { minDshVersion: '0.2.0-rc.2' })
   return { svc, effectBodies, toolNames, commands, disposedCommands }
 }
 

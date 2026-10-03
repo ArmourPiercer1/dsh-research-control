@@ -31,10 +31,12 @@
  * `/permission read-only` settlement — the permission-preset ENFORCEMENT
  * layer lives in the host app; the plugin-side registry layer proven
  * HERE is the restriction half, per INV-PERM-3's layered design), and
- * no `agentPresets` roster (the documented roster-less deployment:
- * `lastPresetEnsure = 'skipped'`, session runs on host composition — the
- * restriction + sandbox layers are the read-only guarantee there, per
- * the adapter's own module header).
+ * and, for the 0.2.0-rc.2 fail-loud tightening (no roster = the closed
+ * read-only composition cannot be proven = refusal), a MINIMAL SIMULATED
+ * `agentPresets` roster (declared row + frozen-render readDocument — the
+ * mount is a recorded no-op here: the preset ROW composition is not what
+ * §D proves; the REAL roster surface is covered by
+ * investigator-preset-registry.test.ts and the real-host e2e).
  */
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -48,7 +50,7 @@ import {
   type RealScope,
 } from '../helpers/real-registry-host.js'
 import { HostAgentLauncherAdapter } from '../../src/host/dsh-adapter/launcher/index.js'
-import { INVESTIGATOR_DENIED_TOOL_NAMES, INVESTIGATOR_PRESET_ID, READ_ONLY_PERMISSION_PRESET } from '../../src/host/service/investigator/index.js'
+import { INVESTIGATOR_DENIED_TOOL_NAMES, INVESTIGATOR_PRESET_ID, READ_ONLY_PERMISSION_PRESET, renderInvestigatorPresetComposition } from '../../src/host/service/investigator/index.js'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { USER } from '../wiring/helpers.js'
 
@@ -143,14 +145,23 @@ describe('G5 §D real restricted Investigator (adapter + scoped tools.restrict o
       }
       h.root.provide('agents', fakeAgents)
       h.root.provide('commands', fakeCommands)
-      // No `agentPresets` roster → the documented roster-less deployment
-      // (adapter: lastPresetEnsure 'skipped', restriction + sandbox carry
-      // the read-only guarantee).
+      // 0.2 收紧后的最小 SIMULATED roster（披露见文件头）: 行已声明 +
+      // readDocument = 冻结渲染（闭集门照常执行）; mount 为记录性 no-op
+      // — §D 的证明对象是 restriction 层, 不是 preset 行组合本身。
+      const presetMounts: string[] = []
+      h.root.provide('agentPresets', {
+        async resolve() { return { id: INVESTIGATOR_PRESET_ID } },
+        async list() { return [{ id: INVESTIGATOR_PRESET_ID }] },
+        async register() { throw new Error(`Duplicate agent preset: ${INVESTIGATOR_PRESET_ID}`) },
+        async readDocument() {
+          return { agentPreset: INVESTIGATOR_PRESET_ID, content: renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID) }
+        },
+        async mount(_agentCtx: unknown, id?: string) { presetMounts.push(id ?? ''); return { id: id ?? '' } },
+      })
 
       // ── REAL adapter: one launch, production order ──
       const adapter = new HostAgentLauncherAdapter(
         h.root as unknown as ConstructorParameters<typeof HostAgentLauncherAdapter>[0],
-        { presetRootDir: h.workspacePaths[0]! },
       )
       const launch = await adapter.launchInvestigator({
         presetId: INVESTIGATOR_PRESET_ID,
@@ -158,7 +169,8 @@ describe('G5 §D real restricted Investigator (adapter + scoped tools.restrict o
         cwd: h.workspacePaths[1]!,
         task: 'G5 §D：真实受限 Investigator 验收',
       })
-      expect(adapter.lastPresetEnsure).toBe('skipped')
+      expect(adapter.lastPresetEnsure).toBe('present')
+      expect(presetMounts).toEqual([INVESTIGATOR_PRESET_ID])
       expect(permissionLines).toEqual(['/permission read-only'])
       expect(minted).toHaveLength(1)
       const inv = minted[0]!

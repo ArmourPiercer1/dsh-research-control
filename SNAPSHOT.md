@@ -1,7 +1,7 @@
 # SNAPSHOT.md — 发布期快照清单（SI-001；生成物，勿编辑）
 
-> 生成时间：2026-08-25T09:19:07.470Z
-> 源根（开发期正本，唯一）：`/home/armourpiercer/projects/dsh-plugins/research-control-plane`
+> 生成时间：2026-10-03T14:20:21.558Z
+> 源根（开发期正本，唯一）：`/srv/workspace/dsh-plugins/dsh-research-control/.worktrees`
 > 政策：`docs/execution/spec-issues/SI-001.md`（`resolved-compatibly`）+ ARCHITECTURE §2.1「目录结构（冻结目标）」。
 
 **只读声明**：本包内 `schema/**` 与 8 份根文档是工作区根冻结产物的**内容一致只读快照**

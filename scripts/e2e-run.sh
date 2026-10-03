@@ -122,7 +122,7 @@ DSH_RESEARCH_SCHEMA_ROOT="$E2E_SCHEMA_ROOT"
 export DSH_RESEARCH_SCHEMA_ROOT
 printf '[e2e-run] schema root (normalized, absolute): %s\n' "$E2E_SCHEMA_ROOT"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$SMOKE_ROOT/pw-browsers}"
-EXPECTED_DSH_VERSION="0.1.0-rc.8"
+EXPECTED_DSH_VERSION="0.2.0-rc.2"
 CYCLES="${E2E_CYCLES:-2}"
 
 PROFILE_DIR="$DSH_HOME/profiles/web"
@@ -291,13 +291,11 @@ seed_research() {
   # once-only guard is PRESERVED (below: an existing research.sqlite still
   # skips the factory) — --reset is the operator's declared intent to
   # reseed, and it is what makes a re-run over a used root green.
-  # WP-7.4 / G7 S2: the reset ALSO wipes the plugin-ensured investigator
-  # preset ($DSH_HOME/.agent-presets/research-investigator) — it is the
-  # plugin's own ensure artifact in the SMOKE home (this home exists only
-  # for smoke runs; never a user-authored file), so wiping it lets the next
-  # launch re-ensure the CURRENT closed-set composition (the launcher never
-  # overwrites an existing file by design — a stale shape would otherwise
-  # survive resets and pin the machine half to an outdated preset).
+  # WP-7.4 / G7 S2 (0.2.0-rc.2 refresh): the reset also wipes the legacy
+  # file-ensured investigator preset ($DSH_HOME/.agent-presets/…) from
+  # pre-0.2 smoke homes. 0.2 declares the preset through the agent-preset
+  # REGISTRY at launch time (declarative, fiber-scoped — no file), so on a
+  # fresh smoke home this rm is a no-op touching only legacy residue.
   if [ "$RESET" = "1" ]; then
     log "reset: removing $E2E_REPO (smoke workspace), $DSH_HOME/research-control (research DB) and $DSH_HOME/.agent-presets/research-investigator (ensured investigator preset)"
     rm -rf "$E2E_REPO" "$DSH_HOME/research-control" "$DSH_HOME/.agent-presets/research-investigator"

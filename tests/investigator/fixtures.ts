@@ -7,9 +7,15 @@
  *  - `agents.create` — 记录选项; **await setup**（真实工厂时序: setup 在
  *    发布前 await, rejection 整体回滚 — checkout
  *    `packages/core/agent/src/index.ts:114-126` 的行为镜像）;
- *  - `ctx.get('agentPresets')` — 可配置名册（resolve 可抛
- *    `UnknownPresetError` 形状错误 — 携带 `presetId` + `available` 字段,
- *    checkout `packages/preset/agent-presets/src/preset.ts:71-80`）;
+ *  - `ctx.get('agentPresets')` — 可配置声明式名册（0.2: unknown 抛
+ *    **真实** `RemoteError('agent-preset/not-found')` + details
+ *    `{agentPreset, available}` — checkout
+ *    `packages/preset/agent-preset-registry/src/index.ts:180-186`;
+ *    `register` 记录声明并即时可见, 返回真 unregister —
+ *    checkout `agent-preset-registry/src/index.ts:80-105`）;
+ *  - `ctx.effect(execute, label)` — AsyncEffect 镜像（await execute 取
+ *    disposer, `disposeEffects()` 模拟 fiber 卸载逆序 await — cordis
+ *    fiber.d.ts 契约）;
  *  - `ctx.get('commands')` — 可配置命令运行面（记录 execute 调用 +
  *    可配置结果 / 抛错）。
  *
@@ -18,16 +24,21 @@
  * mount→restrict) → /permission → followup）。
  */
 
+// Type-only pull of the registry package so its `RemoteErrorDetailsMap`
+// augmentation ('agent-preset/not-found') is in the program.
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   AgentCtxLike,
   AgentLike,
-  AgentPresetRowLike,
+  AgentPresetLike,
   AgentPresetsLike,
   AgentsStoreLike,
   CommandExecutionLike,
   CommandsRuntimeLike,
   CreateAgentOptionsLike,
   LauncherHostContext,
+  PresetDefinitionLike,
 } from '../../src/host/dsh-adapter/launcher/index.js'
 import type { DshAgentLauncherAdapter, InvestigatorLaunchRequest, InvestigatorLaunchResult } from '../../src/host/service/investigator/index.js'
 
@@ -81,68 +92,121 @@ export function makeFakeAgentCtx(events: FakeEvent[], options?: { readonly restr
   }
 }
 
-/** 假名册行。 */
-export type FakePresetRow = AgentPresetRowLike
+/** 假名册行（0.2 `AgentPreset` — 无 `path` 字段）。 */
+export type FakePresetRow = AgentPresetLike
 
-/** 假名册（`AgentPresetsLike` 行为镜像 + 可配置失败面）。 */
+/** 名册内一条声明（定义 + 组合文本 — `readDocument` 的回读面）。 */
+export interface FakeDeclaration {
+  readonly definition: PresetDefinitionLike
+  readonly content: string
+}
+
+/** 假名册（0.2 `AgentPresetsLike` 行为镜像 + 可配置失败面）。 */
 export interface FakeRoster {
   readonly roster: AgentPresetsLike
   readonly mountCalls: readonly { readonly agentCtx: AgentCtxLike; readonly presetId: string | undefined }[]
   readonly resolveCalls: readonly (string | undefined)[]
+  readonly registerCalls: readonly PresetDefinitionLike[]
+  readonly readDocumentCalls: readonly string[]
   /** 接入宿主全序事件面（makeHost 自动 — mount 事件进同一日志）。 */
   wireEvents(events: FakeEvent[]): void
 }
 
 export function makeRoster(options: {
-  /** id → 行（resolve 命中）; 未命中 ⇒ 抛 UnknownPresetError 形状错误。 */
+  /** id → 声明（resolve/readDocument 命中）; 未命中 ⇒ 抛真实
+   *  `RemoteError('agent-preset/not-found')`。 */
   readonly rows?: ReadonlyMap<string, FakePresetRow>
-  /**
-   * 动态根视图（discovery unmemoized 镜像 — checkout
-   * `packages/preset/agent-presets/src/index.ts` 头注「Discovery re-reads
-   * the roots on every call」）: 每次 resolve 重新取行表（模拟 ensure
-   * 落盘后免重启可见）; 提供时优先于静态 `rows`。
-   */
-  readonly rowsProvider?: () => ReadonlyMap<string, FakePresetRow>
+  /** 声明的组合文本（`readDocument` 的 content）; 未配置的行用
+   *  `defaultContent`。 */
+  readonly documents?: ReadonlyMap<string, string>
+  /** 未显式配置 `documents` 时的组合文本默认值（= 冻结渲染 — 测试用
+   *  `renderInvestigatorPresetComposition` 传入, fixtures 不 import
+   *  service 面以保持纯假面）。 */
+  readonly defaultContent?: string
   /** mount 时抛错（preset 组合不可装载）. */
   readonly mountError?: Error
   /**
-   * 前 N 次 resolve 强制 unknown（即便行表命中 — 模拟「首查滞后于落盘
-   * / roots 不含用户根」时序, 驱动 ensure 流）; 之后恢复正常命中逻辑。
+   * 前 N 次 resolve 强制 unknown（即便名册已有声明 — 模拟「注册表
+   * 尚未含本插件声明」首查, 驱动 ensure/register 流）; 之后恢复正常。
    */
   readonly unknownFirst?: number
+  /** register 抛错（声明注册失败面 — 如 activation 拒绝）。 */
+  readonly registerError?: Error
+  /**
+   * register 命中后的副作用钩子（Duplicate 竞态模拟: 抛
+   * `Duplicate agent preset` 前由外部把声明放入 rows — 或者完全不放:
+   * `registerNoop: true` 令 register 成功但不落声明, 驱动
+   * 「still unresolvable after register」面）。
+   */
+  readonly registerNoop?: boolean
+  /** registerCalls 观测面。 */
+  readonly registerCalls?: PresetDefinitionLike[]
 }): FakeRoster {
-  const staticRows = options.rows ?? new Map<string, FakePresetRow>()
-  const liveRows = (): ReadonlyMap<string, FakePresetRow> =>
-    options.rowsProvider !== undefined ? options.rowsProvider() : staticRows
+  const rows = new Map(options.rows ?? new Map<string, FakePresetRow>())
+  const documents = new Map(options.documents ?? new Map<string, string>())
+  const declarations = new Map<string, FakeDeclaration>()
+  for (const [id, row] of rows) {
+    declarations.set(id, {
+      definition: { id: row.id, plugins: [] },
+      content: documents.get(id) ?? options.defaultContent ?? '',
+    })
+  }
   const mountCalls: { readonly agentCtx: AgentCtxLike; readonly presetId: string | undefined }[] = []
   const resolveCalls: (string | undefined)[] = []
+  const registerCalls = options.registerCalls ?? []
+  const readDocumentCalls: string[] = []
   let events: FakeEvent[] | undefined
-  const unknownPresetError = (id: string, rows: ReadonlyMap<string, FakePresetRow>): Error => {
-    const error = new Error(`agent-presets: preset "${id}" not found (available: ${[...rows.keys()].join(', ') || 'none'})`)
-    Object.assign(error, { presetId: id, available: [...rows.keys()] })
-    return error
-  }
+  let unknownCount = 0
+  const notFound = (id: string): Error => new RemoteError(
+    'agent-preset/not-found',
+    `Unknown agent preset: ${id}`,
+    { agentPreset: id, available: [...declarations.keys()] },
+  )
   return {
     roster: {
       async resolve(id?: string) {
         resolveCalls.push(id)
         if (id === undefined) throw new Error('makeRoster: resolve() called without an id (the fake needs one)')
-        const rows = liveRows()
-        if (options.unknownFirst !== undefined && resolveCalls.length <= options.unknownFirst) {
-          throw unknownPresetError(id, rows)
-        }
+        unknownCount += 1
+        if (options.unknownFirst !== undefined && unknownCount <= options.unknownFirst) throw notFound(id)
         const row = rows.get(id)
-        if (row === undefined) throw unknownPresetError(id, rows)
+        if (row === undefined) throw notFound(id)
         return row
       },
       async list() {
-        return [...liveRows().values()]
+        return [...rows.values()]
+      },
+      async register(definition: PresetDefinitionLike) {
+        registerCalls.push(definition)
+        if (options.registerError !== undefined) throw options.registerError
+        if (declarations.has(definition.id) || rows.has(definition.id)) {
+          throw new Error(`Duplicate agent preset: ${definition.id}`)
+        }
+        if (options.registerNoop === true) return async () => undefined
+        rows.set(definition.id, { id: definition.id })
+        declarations.set(definition.id, {
+          definition,
+          content: documents.get(definition.id) ?? options.defaultContent ?? '',
+        })
+        let disposed = false
+        return async () => {
+          if (disposed) return
+          disposed = true
+          rows.delete(definition.id)
+          declarations.delete(definition.id)
+        }
+      },
+      async readDocument(agentPreset: string) {
+        readDocumentCalls.push(agentPreset)
+        const declaration = declarations.get(agentPreset)
+        if (declaration === undefined) throw notFound(agentPreset)
+        return { agentPreset, content: declaration.content }
       },
       async mount(agentCtx: AgentCtxLike, id?: string) {
         mountCalls.push({ agentCtx, presetId: id })
         events?.push({ kind: 'mount', presetId: id })
         if (options.mountError !== undefined) throw options.mountError
-        return liveRows().get(id ?? '') ?? { id: id ?? '', path: '/nonexistent/agent.cordis.yml' }
+        return rows.get(id ?? '') ?? { id: id ?? '' }
       },
     },
     get mountCalls() {
@@ -150,6 +214,12 @@ export function makeRoster(options: {
     },
     get resolveCalls() {
       return resolveCalls
+    },
+    get registerCalls() {
+      return registerCalls
+    },
+    get readDocumentCalls() {
+      return readDocumentCalls
     },
     wireEvents(next: FakeEvent[]) {
       events = next
@@ -215,6 +285,11 @@ export interface FakeHost {
   setAgents(agents: AgentsStoreLike | undefined): void
   /** create 抛错（agents.create 失败面）. */
   failCreate(error: Error): void
+  /** 已登记的 fiber effect（label + 未消费状态 — ensure 注册的 preset
+   *  disposer 在此可见）。 */
+  readonly effects: readonly { readonly label: string; disposed: boolean }[]
+  /** 模拟插件 fiber 卸载: 逆序 await 全部 disposer（cordis 契约）。 */
+  disposeEffects(): Promise<void>
 }
 
 /** 假包装器判别（wrapper 面 vs 裸接口面 — 结构类型守卫, 零 brand 依赖;
@@ -274,14 +349,34 @@ export function makeHost(options?: {
   // DSH_ADAPTER §4 无 `agents` 硬 inject）; `agents` 可置 undefined 以
   // 钉「无 agent 注册表部署 ⇒ IVL_LAUNCH 使用大声」面。
   let agents: AgentsStoreLike | undefined = agentsStore
+  // ctx.effect AsyncEffect 镜像: await execute() 取 disposer; 返回的
+  // disposer 幂等; disposeEffects 逆序 await — fiber 卸载语义。
+  const effects: { label: string; disposed: boolean; dispose: () => Promise<void> }[] = []
+  const fakeCtx = {
+    get: (name: string): unknown =>
+      name === 'agentPresets' ? roster
+        : name === 'commands' ? commands
+          : name === 'agents' ? agents
+            : undefined,
+    effect: async (execute: () => unknown, label?: string): Promise<() => Promise<void>> => {
+      const produced = (await (execute as () => unknown)()) as (() => Promise<void> | void) | void
+      let disposed = false
+      const record = {
+        label: label ?? '(unlabeled)',
+        disposed: false,
+        dispose: async (): Promise<void> => {
+          if (disposed) return
+          disposed = true
+          record.disposed = true
+          await produced?.()
+        },
+      }
+      effects.push(record)
+      return record.dispose
+    },
+  }
   return {
-    ctx: {
-      get: (name: string): unknown =>
-        name === 'agentPresets' ? roster
-          : name === 'commands' ? commands
-            : name === 'agents' ? agents
-              : undefined,
-    } as unknown as LauncherHostContext,
+    ctx: fakeCtx as unknown as LauncherHostContext,
     events,
     createCalls,
     createdAgents,
@@ -296,6 +391,10 @@ export function makeHost(options?: {
     },
     failCreate(error: Error) {
       createError = error
+    },
+    effects,
+    async disposeEffects() {
+      for (const record of [...effects].reverse()) await record.dispose()
     },
   }
 }

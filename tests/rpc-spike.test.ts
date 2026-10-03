@@ -101,13 +101,13 @@ function requireStrictCodec(value: unknown, subject: string): void {
   const codec = requireObject(value, subject)
   if (codec.mode !== 'strict') throw new Error(`${subject} must use a strict codec`)
   requireString(codec, 'typeSymbol', subject)
-  if (
-    typeof codec.schema !== 'object'
-    || codec.schema === null
-    || !('_zod' in (codec.schema as Record<string, unknown>))
-    || typeof (codec.schema as { parse?: unknown }).parse !== 'function'
-  ) {
-    throw new Error(`${subject} is not backed by a zod v4 schema`)
+  for (const method of ['decode', 'encode'] as const) {
+    if (codec[method] !== undefined && typeof codec[method] !== 'function') {
+      throw new Error(`${subject}.${method} must be a function`)
+    }
+  }
+  if (typeof codec.create !== 'function') {
+    throw new Error(`${subject} has no create() factory`)
   }
 }
 
@@ -196,12 +196,8 @@ function validateTypertManifest(pkgName: string, exported: unknown): void {
   for (const value of requireArray(manifest.schemas, 'TYPERT.schemas')) {
     const schema = requireObject(value, 'schema')
     requireString(schema, 'name', 'schema')
-    if (
-      typeof schema.schema !== 'object'
-      || schema.schema === null
-      || !('_zod' in (schema.schema as Record<string, unknown>))
-    ) {
-      throw new Error(`TYPERT schema "${String(schema.name)}" is not a zod v4 schema instance`)
+    if (typeof schema.create !== 'function') {
+      throw new Error(`TYPERT schema "${String(schema.name)}" has no create() factory`)
     }
   }
   const model = requireObject(manifest.model, 'TYPERT.model')
@@ -293,7 +289,7 @@ describe('WP-0.3 ping RPC spike', () => {
     expect(Array.isArray(TYPERT.schemas)).toBe(true)
     const [schemaEntry] = TYPERT.schemas
     expect(schemaEntry.name).toBe('PingResult')
-    expect('_zod' in schemaEntry.schema).toBe(true)
+    expect('_zod' in schemaEntry.create()).toBe(true)
     // model: services entry carries the loader-required key/exportName/members/tags
     const [service] = TYPERT.model.services
     expect(TYPERT.model.events).toEqual([])
@@ -319,8 +315,8 @@ describe('WP-0.3 ping RPC spike', () => {
     expect(invocation.parameters).toEqual([])
     const resultCodec = strictCodec(invocation.result)
     expect(resultCodec.typeSymbol).toBe('PingResult')
-    expect('_zod' in resultCodec.schema).toBe(true)
-    expect(resultCodec.schema.parse(fixture)).toEqual(fixture)
+    expect('_zod' in resultCodec.create()).toBe(true)
+    expect(resultCodec.create().parse(fixture)).toEqual(fixture)
     // wire segment grammar (the endpoint must survive the shared RPC carrier)
     expect(isTypertRemoteSegment(invocation.namespace)).toBe(true)
     expect(isTypertRemoteSegment(invocation.method)).toBe(true)
@@ -396,13 +392,13 @@ describe('WP-0.3 ping RPC spike', () => {
     expect(researchRemotes.descriptors[0]).toEqual(TYPERT.invocations[0])
     // The host manifest's named schema entry is the same zod instance the
     // strict result codec carries.
-    expect(TYPERT.schemas[0].schema).toBe(PingResultSchema)
-    expect(strictCodec(researchRemotes.descriptors[0].result).schema).toBe(PingResultSchema)
+    expect(TYPERT.schemas[0].create()).toBe(PingResultSchema)
+    expect(strictCodec(researchRemotes.descriptors[0].result).create()).toBe(PingResultSchema)
     // The same fixture parses through both the shared schema and the
     // descriptor's strict codec.
     expect(PingResultSchema.parse(fixture)).toEqual(fixture)
-    expect(strictCodec(researchRemotes.descriptors[0].result).schema.parse(fixture)).toEqual(fixture)
-    expect(strictCodec(TYPERT.invocations[0].result).schema.parse(fixture)).toEqual(fixture)
+    expect(strictCodec(researchRemotes.descriptors[0].result).create().parse(fixture)).toEqual(fixture)
+    expect(strictCodec(TYPERT.invocations[0].result).create().parse(fixture)).toEqual(fixture)
     // And the strict schema rejects an off-contract value.
     expect(() => PingResultSchema.parse({ ...fixture, ok: false })).toThrow()
   })

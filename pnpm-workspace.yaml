@@ -14,14 +14,21 @@ storeDir: .pnpm-store
 # dsh-tools/dsh-session train in the profile; the new train moved
 # isJsonValue/snapshotJsonValue to @deepseek-ai/dsh-util-values, a hard
 # dep of both, so a consistent install can no longer skew this way).
+# 0.2.0-rc.2 re-anchor (this branch): the train is the pristine reference
+# checkout stable-3-0.2.0-rc.2 @ 639ed015397290b3745d163aafe02ffee4aa3f84.
+# `@deepseek-ai/dsh-code-runtime` DROPPED: that package is not published at
+# 0.2.0-rc.2 (registry max 0.1.5-rc.3), the 0.2 monorepo contains no such
+# package, and nothing in the 0.2 dependency closure requires it — overriding
+# it to a version that does not exist would be an unresolvable pin, so the
+# entry is removed rather than re-pinned. The remaining nine ranges all ACCEPT
+# the 0.2.0-rc.2 train (verified against the published manifests).
 overrides:
-  '@deepseek-ai/dsh-attachment': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-agent': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-brand': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-code-runtime': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-invariants': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-scope': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-session': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-system-prompt': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-timeout': 0.1.2-alpha.3
-  '@deepseek-ai/dsh-user-approval': 0.1.2-alpha.3
+  '@deepseek-ai/dsh-attachment': 0.2.0-rc.2
+  '@deepseek-ai/dsh-agent': 0.2.0-rc.2
+  '@deepseek-ai/dsh-brand': 0.2.0-rc.2
+  '@deepseek-ai/dsh-invariants': 0.2.0-rc.2
+  '@deepseek-ai/dsh-scope': 0.2.0-rc.2
+  '@deepseek-ai/dsh-session': 0.2.0-rc.2
+  '@deepseek-ai/dsh-system-prompt': 0.2.0-rc.2
+  '@deepseek-ai/dsh-timeout': 0.2.0-rc.2
+  '@deepseek-ai/dsh-user-approval': 0.2.0-rc.2

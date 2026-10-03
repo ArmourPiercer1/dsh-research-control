@@ -14,16 +14,26 @@ interface PingResult {
 }
 /**
  * Structural mirror of the protocol `TypertSchema` (the minimal runtime
- * capability a strict codec schema must carry).
+ * capability a strict codec schema must carry). The 0.2 train materializes
+ * the process-realm schema lazily through a codec/manifest `create()`
+ * factory (checkout `packages/typert/protocol/src/types.ts:269-292`,
+ * `packages/typert/registry/src/types.ts:74-89`); this is what a factory
+ * returns.
  */
 interface TypertSchemaLike {
   parse(value: unknown): unknown;
 }
-/** Structural mirror of the protocol `TypertCodec` union. */
+/**
+ * Structural mirror of the protocol `TypertCodec` union. The strict branch
+ * carries a `create: () => TypertSchema` factory (0.2), not the schema value
+ * object the 0.1 train embedded — the loader rejects a codec with no
+ * `create()` factory (`typert-loader: … <subject> has no create() factory`,
+ * checkout `packages/typert/loader/src/index.ts:270-284`).
+ */
 type TypertCodecMirror = {
   readonly mode: 'strict';
   readonly typeSymbol: string;
-  readonly schema: TypertSchemaLike;
+  readonly create: () => TypertSchemaLike;
 } | {
   readonly mode: 'src-json';
 };
@@ -121,10 +131,16 @@ interface TypertPackageModelMirror {
   readonly events: readonly TypertEventModelMirror[];
   readonly objects: readonly TypertObjectModelMirror[];
 }
-/** Structural mirror of the registry `TypertSchema`. */
+/**
+ * Structural mirror of the registry `TypertSchemaFactory` (the 0.2
+ * `TYPERT.schemas` entry shape: a name plus a `create()` factory, checkout
+ * `packages/typert/registry/src/types.ts:74-79`). The old `{name, schema}`
+ * value-object entry is rejected by the 0.2 loader with
+ * `TYPERT schema "<name>" has no create() factory`.
+ */
 interface TypertSchemaMirror {
   readonly name: string;
-  readonly schema: TypertSchemaLike;
+  readonly create: () => TypertSchemaLike;
 }
 /**
  * Structural mirror of the registry `TypertContribution` (the `TYPERT`

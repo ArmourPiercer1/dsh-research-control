@@ -49,6 +49,9 @@ export default defineConfig({
   test: {
     // e2e/*.spec.ts belong to Playwright (scripts/e2e-run.sh / test:e2e), not
     // the unit runner; vitest's default include would otherwise collect them.
-    exclude: [...defaultExclude, 'e2e/**'],
+    // The maintenance-branch reference clone and its run logs are never test
+    // targets: without these, the pristine DSH checkout under .dsh-ref/ would
+    // add its 2000+ specs to this suite's default include glob.
+    exclude: [...defaultExclude, 'e2e/**', '.dsh-ref/**', '.maint-logs/**'],
   },
 })

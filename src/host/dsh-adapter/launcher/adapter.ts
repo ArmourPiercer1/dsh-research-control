@@ -12,22 +12,26 @@
  *
  * ## 路径 A 全序（U5 定案 — 报告「U5 消解」专节证据链）
  *
- * 1. **ensure preset**: 名册（`ctx.get('agentPresets')`）存在时,
- *    resolve `research-investigator`: unknown ⇒ 向用户 preset 根
- *    （`$DSH_HOME/.agent-presets` — DSH `USER_PRESET_DIR`, checkout
- *    `packages/preset/agent-presets/src/discovery.ts:41`）落盘
- *    `agent.cordis.yml`（闭集只读组合 —
- *    `renderInvestigatorPresetComposition`）⇒ 再 resolve（discovery
- *    unmemoized — `agent-presets/src/index.ts` 头注「Discovery
- *    re-reads the roots on every call」— 免重启可见）。胜出行（含
- *    shipped-root 影子）的 `path` 回读 → **严格闭集解析**
- *    （`parsePresetComposition` — 写工具行/多余键/group 即拒
- *    `IVL_PRESET_NOT_READONLY`; broken 行 `IVL_PRESET_BROKEN`）。
- *    名册不存在的部署（无 roster 组合）降级: 不传 `agentPreset`
- *    （会话跑宿主组合）, 只读保障 = 下面第 2 步 restriction + 第 3 步
- *    sandbox 两层（文档化降级 — 该部署下插件的 11 研究工具中可写 7 个
- *    仍被 restriction 拒之门外, workspace 写仍被 read-only sandbox 后端
- *    拒绝 — INV-PERM-3 不依赖 preset 层成立）。
+ * 1. **ensure preset（0.2.0-rc.2: 声明式注册, 文件落盘退役）**: 名册
+ *    （`ctx.get('agentPresets')` — 0.2 `dsh-agent-preset-registry`）存在
+ *    时 resolve `research-investigator`: 未知名（`RemoteError`
+ *    `agent-preset/not-found`, details `{agentPreset, available}` —
+ *    checkout `packages/preset/agent-preset-registry/src/index.ts:180-186`）
+ *    ⇒ `register(investigatorPresetDefinition())`（声明式 preset —
+ *    0.1 的「写 `agent.cordis.yml` 到用户根 + discovery 重扫」路径已随
+ *    discovery 退役: 0.2 注册表是声明式名册, `register` 收
+ *    `PresetDefinition` 并即时激活, disposer 随插件 fiber 卸载 —
+ *    checkout `agent-preset-registry/src/index.ts:80-105` + cordis
+ *    `ctx.effect` 的 AsyncEffect 生命周期）⇒ 再 resolve。重复注册竞态
+ *    （`Duplicate agent preset` — 另一适配器实例/宿主已声明同一闭集
+ *    组合）视作 present。broken（激活失败, resolve 带 `broken` 字段）
+ *    ⇒ `IVL_PRESET_BROKEN`。回读门 = `readDocument(id).content`（声明
+ *    组合的 entry-list YAML — 取代 0.1 的胜出行 `path` 回读）→ **严格
+ *    闭集解析**（`parsePresetComposition` — 写工具行/多余键/group 即拒
+ *    `IVL_PRESET_NOT_READONLY`）。名册不存在的部署（无 roster 组合）
+ *    **不再降级启动**（0.2.0-rc.2 收紧 — 用户裁定）: preset 层是闭集
+ *    只读组合的证明点, 缺席即无法证明 ⇒ 拒启 `IVL_PRESET` fail-loud
+ *    （插件本体仍可加载, 缺口在使用点名 — 授权面不放宽）。
  * 2. **agents.create（路径 A 第 1 步的 host 面）**: 宿主注册表经
  *    **可选服务面** `ctx.get('agents')` 解析（DSH_ADAPTER §4 要点
  *    「可选服务用 `ctx.get('name')`」— 生产 `HostSessionAdapter`
@@ -80,24 +84,21 @@
  * 「Enforce a decision in the operation that makes it」）。
  *
  * 本文件是 dsh-adapter 领地（INV-PERM-5 豁免）: `@deepseek-ai/cordis`
- * （`Context` 类型）+ `@deepseek-ai/dsh-llm`（`createUserMessage`）+
- * `@deepseek-ai/dsh-home-paths`（preset 根默认 — DSH_ADAPTER §9 先例）
- * + `node:fs`（preset 落盘 — 插件自有 DSH_HOME 数据区, 同 research.
- * sqlite 落盘口径 — 非 workspace/plan/history 写）。
+ * （`Context` 类型）+ `@deepseek-ai/dsh-llm`（`createUserMessage`）。
+ * 0.2.0-rc.2: `node:fs` 写路径与 `@deepseek-ai/dsh-home-paths` preset 根
+ * 默认随文件 ensure 退役 — preset 声明改走注册表 `register`（本适配器
+ * 零文件系统副作用, 授权面进一步收窄）。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import {
   INVESTIGATOR_DENIED_TOOL_NAMES,
   INVESTIGATOR_PRESET_ID,
   READ_ONLY_PERMISSION_PRESET,
   assertReadonlyLaunchRequest,
+  investigatorPresetDefinition,
   parsePresetComposition,
-  renderInvestigatorPresetComposition,
   type DshAgentLauncherAdapter,
   type InvestigatorLaunchRequest,
   type InvestigatorLaunchResult,
@@ -106,38 +107,26 @@ import { InvestigatorLaunchError } from '../../service/investigator/index.js'
 import type {
   AgentCtxLike,
   AgentLike,
-  AgentPresetRowLike,
+  AgentPresetLike,
   AgentPresetsLike,
   AgentsStoreLike,
   CommandsRuntimeLike,
   LauncherHostContext,
 } from './types.js'
 
-/** 用户 preset 根的目录段（DSH `USER_PRESET_DIR` — checkout
- * `packages/preset/agent-presets/src/discovery.ts:41`; web profile 的可写
- * 根 = 该段, checkout `packages/bundle/web-app/cordis.patch.yml:431-444`
- * 注释: 「the writable root is dsh-agent-presets' own default
- * (`includeUserRoot)`」）。常量在此具名（该值对 dsh-agent-presets 是
- * 包内私有的 — 本插件按 checkout 锚定, 漂移由 TC-DSH 冒烟捕获）。 */
-const USER_PRESET_DIR_SEGMENT = '.agent-presets'
-
-/** `HostAgentLauncherAdapter` 构造选项（全部可选 — 生产装配零参可用）。 */
-export interface HostAgentLauncherAdapterOptions {
-  /**
-   * 用户 preset 根目录（默认 `$DSH_HOME/.agent-presets`）。tests 注
-   * temp dir — 生产装配不传。
-   */
-  readonly presetRootDir?: string
-}
-
 export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
   readonly #ctx: LauncherHostContext
-  readonly #presetRootDir: string
+  /** 本 activation 内 investigator preset 已声明的幂等闩（注册同时挂入
+   *  `ctx.effect` — fiber 卸载自动回收宿主名册; 本字段只防本实例重复
+   *  注册）。 */
+  #presetRegistered = false
 
   /** Spike-style 可观测（WP-0.4 计数器先例 — NOT a business API）:
-   *  最近一次 launch 的 preset ensure 结果（`written` = 本适配器落盘 /
-   *  `present` = 已存在未覆写 / `skipped` = 无 roster 部署）。 */
-  lastPresetEnsure: 'written' | 'present' | 'skipped' | undefined
+   *  最近一次 launch 的 preset ensure 结果（`registered` = 本适配器
+   *  声明式注册 / `present` = 名册已有声明）。0.1 的 `written`（文件
+   *  落盘）随文件 ensure 退役; 0.2 的无 roster 部署 fail-loud
+   *  （IVL_PRESET — 0.1 的 `skipped` 降级随之退役）。 */
+  lastPresetEnsure: 'registered' | 'present' | undefined
 
   /**
    * @param ctx - the host context（plain cordis `Context` — every host
@@ -145,16 +134,9 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
    *  documented optional-service read `ctx.get`; see the `types.ts`
    *  `LauncherHostContext` doc for the §4-verbatim no-hard-inject
    *  ruling + the absent-service loud-failure path）.
-   * @param options - optional preset-root override（tests 面）.
    */
-  constructor(ctx: LauncherHostContext, options?: HostAgentLauncherAdapterOptions) {
+  constructor(ctx: LauncherHostContext) {
     this.#ctx = ctx
-    this.#presetRootDir = options?.presetRootDir ?? dshHomePath(USER_PRESET_DIR_SEGMENT)
-  }
-
-  /** 最近一次 ensure 的 preset 目录（可观测面 — tests 断言落点）。 */
-  get presetDir(): string {
-    return join(this.#presetRootDir, INVESTIGATOR_PRESET_ID)
   }
 
   /** `/permission` 命令线（逐字 — tests 钉死）。 */
@@ -180,14 +162,17 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
     // 端口边界再断言（INV-PERM-3 双钉 — 决策所在操作处执行决策）。
     assertReadonlyLaunchRequest(request)
     const roster = this.#ctx.get('agentPresets') as AgentPresetsLike | undefined
-    let presetId: string | undefined
-    if (roster !== undefined) {
-      presetId = await this.resolveOrEnsure(roster, request.presetId)
-    } else {
-      // 文档化降级: 无 roster 部署 — 会话跑宿主组合; 只读保障 =
-      // restriction + sandbox 两层（模块头第 1 步）。
-      this.lastPresetEnsure = 'skipped'
+    if (roster === undefined || typeof roster.resolve !== 'function' || typeof roster.readDocument !== 'function') {
+      // 0.2.0-rc.2 收紧（用户裁定, 计划书 F3）: 无 roster 部署不再降级
+      // 启动 — preset 层是闭集只读组合的**证明点**（`readDocument` 回读
+      // 门）, 缺席即无法证明, 拒启 fail-loud。restriction + sandbox 两
+      // 层仍各自成立, 但不再构成免 preset 启动的理由。
+      throw new InvestigatorLaunchError({
+        code: 'IVL_PRESET',
+        message: 'launchInvestigator: the host composes no agent-preset registry (`ctx.get("agentPresets")` is absent) — the closed read-only composition cannot be proven, so the launch is refused (0.2.0-rc.2 tightening: no preset roster, no investigator launch — INV-PERM-3, fail loud at use time; the plugin itself stays loadable)',
+      })
     }
+    const presetId: string = await this.resolveOrEnsure(roster, request.presetId)
     const sessionId = `investigator-${randomUUID()}`
     // 路径 A 第 1 步的宿主注册表（可选服务面 — 缺席 = 该部署无 agent
     // 创建能力; 不降级启动, 大声 IVL_LAUNCH, 见 types.ts 头注）。
@@ -204,7 +189,7 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
         sessionId,
         meta: {
           cwd: request.cwd,
-          ...(presetId === undefined ? {} : { agentPreset: presetId }),
+          agentPreset: presetId,
         },
         setup: (agentCtx) => this.setupInvestigator(agentCtx, roster, presetId),
       })
@@ -225,7 +210,7 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
     }))
     return Object.freeze({
       sessionId,
-      ...(presetId === undefined ? {} : { presetId }),
+      presetId,
       permissionPreset: request.permissionPreset,
       task: request.task,
     })
@@ -246,24 +231,16 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
    * @internal exported for the test seam（tests 直调断言组合序 —
    * 宿主工厂时序不在单测面）。
    */
-  async setupInvestigator(agentCtx: AgentCtxLike, roster: AgentPresetsLike | undefined, presetId: string | undefined):
+  async setupInvestigator(agentCtx: AgentCtxLike, roster: AgentPresetsLike, presetId: string):
     Promise<void> {
-    if (presetId !== undefined) {
-      if (roster === undefined) {
-        throw new InvestigatorLaunchError({
-          code: 'IVL_PRESET',
-          message: 'setupInvestigator: internal — a preset id without a roster (composition-time invariant)',
-        })
-      }
-      try {
-        await roster.mount(agentCtx, presetId)
-      } catch (error: unknown) {
-        throw new InvestigatorLaunchError({
-          code: 'IVL_LAUNCH',
-          message: `setupInvestigator: preset mount of "${presetId}" failed (the agent factory rolls the creation back): ${error instanceof Error ? error.message : String(error)}`,
-          cause: error,
-        })
-      }
+    try {
+      await roster.mount(agentCtx, presetId)
+    } catch (error: unknown) {
+      throw new InvestigatorLaunchError({
+        code: 'IVL_LAUNCH',
+        message: `setupInvestigator: preset mount of "${presetId}" failed (the agent factory rolls the creation back): ${error instanceof Error ? error.message : String(error)}`,
+        cause: error,
+      })
     }
     this.restrictInvestigatorTools(agentCtx)
   }
@@ -311,18 +288,20 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
   }
 
   /**
-   * ensure preset: resolve（unknown ⇒ 用户根落盘闭集组合 ⇒ 再 resolve）
-   * ⇒ 胜出行 broken 检查 ⇒ 胜出行 path 回读闭集解析。
+   * ensure preset（0.2 声明式）: resolve ⇒ 未知名 ⇒ `register`（幂等
+   * 闩 + 竞态容忍）⇒ 再 resolve ⇒ broken 检查 ⇒ `readDocument` 回读
+   * 闭集解析。
    * @returns the preset id the session will run under.
    */
   private async resolveOrEnsure(roster: AgentPresetsLike, presetId: string): Promise<string> {
-    let resolved: AgentPresetRowLike
+    let resolved: AgentPresetLike
     try {
       resolved = await roster.resolve(presetId)
+      this.lastPresetEnsure = 'present'
     } catch (firstError: unknown) {
-      // unknown preset（`UnknownPresetError` — checkout
-      // agent-presets/src/preset.ts:71-80）⇒ ensure ⇒ 再 resolve;
-      // 其他错误（根不可读）不吞, 直接包 IVL_PRESET（cause 保留）。
+      // unknown preset（`RemoteError('agent-preset/not-found')` —
+      // checkout agent-preset-registry/src/index.ts:180-186）⇒ 声明式
+      // 注册 ⇒ 再 resolve; 其他错误不吞, 直接包 IVL_PRESET（cause 保留）。
       if (!isUnknownPresetError(firstError)) {
         throw new InvestigatorLaunchError({
           code: 'IVL_PRESET',
@@ -330,13 +309,13 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
           cause: firstError,
         })
       }
-      this.writePresetFileIfAbsent()
+      await this.registerPresetDeclaration(roster)
       try {
         resolved = await roster.resolve(presetId)
       } catch (secondError: unknown) {
         throw new InvestigatorLaunchError({
           code: 'IVL_PRESET',
-          message: `launchInvestigator: preset "${presetId}" is still unresolvable after ensure (roster roots do not see ${this.#presetRootDir}): ${secondError instanceof Error ? secondError.message : String(secondError)}`,
+          message: `launchInvestigator: preset "${presetId}" is still unresolvable after register: ${secondError instanceof Error ? secondError.message : String(secondError)}`,
           cause: secondError,
         })
       }
@@ -344,35 +323,50 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
     if (resolved.broken !== undefined) {
       throw new InvestigatorLaunchError({
         code: 'IVL_PRESET_BROKEN',
-        message: `launchInvestigator: the roster reports preset "${resolved.id}" broken: ${resolved.broken} — the mounting paths refuse it (checkout agent-presets mount guard); refusing to launch over a broken composition`,
+        message: `launchInvestigator: the roster reports preset "${resolved.id}" broken: ${resolved.broken} — the mounting paths refuse it (checkout agent-preset-registry retain guard :318-325); refusing to launch over a broken composition`,
       })
     }
-    // 胜出行回读（含 shipped-root 影子: 读的是 resolve 胜出者的 path,
-    // 不是本插件写的那份）— 严格闭集解析 = 只读门的执行点。
-    const compositionText = readFileSync(resolved.path, 'utf8')
-    parsePresetComposition(presetId, compositionText) // 非只读组合 ⇒ IVL_PRESET_NOT_READONLY
+    // 声明回读（0.2 `readDocument` — 取代 0.1 胜出行 path 文件回读）:
+    // 读的是注册表实际持有并会挂载的组合文本, 不是本进程内存里的声明 —
+    // 严格闭集解析 = 只读门的执行点。
+    const document = await roster.readDocument(presetId)
+    parsePresetComposition(presetId, document.content) // 非只读组合 ⇒ IVL_PRESET_NOT_READONLY
     return resolved.id
   }
 
   /**
-   * 向用户 preset 根落盘闭集只读组合（幂等 — 已存在不覆写: 用户自撰
-   * preset 带 shell 级信任, 插件不抢写; 回读闭集解析是只读门的执行点,
-   * 自撰组合过解析即可用, 不过即 IVL_PRESET_NOT_READONLY 拒启）。
+   * 声明式注册闭集只读组合（0.2 `register` — 幂等: 本 activation 只注册
+   * 一次; 注册经 `ctx.effect` 挂入插件 fiber — 卸载即从宿主名册回收,
+   * reload 干净重注册）。竞态: 同 id 已有声明（`Duplicate agent preset`
+   * — 并发 ensure 或宿主/其他实例先声明）视作 present — 组合内容随后由
+   * `resolveOrEnsure` 的 `readDocument` 闭集门统一把关, 不信任任何一方。
    */
-  private writePresetFileIfAbsent(): void {
-    const file = join(this.presetDir, 'agent.cordis.yml')
+  private async registerPresetDeclaration(roster: AgentPresetsLike): Promise<void> {
+    if (this.#presetRegistered) {
+      this.lastPresetEnsure = 'present'
+      return
+    }
     try {
-      if (existsSync(file)) {
+      // AsyncEffect: fiber 卸载时 await 注册表 disposer（cordis
+      // fiber.d.ts Effect 契约 — disposers run in reverse order, async
+      // ones awaited）。
+      await this.#ctx.effect(
+        () => roster.register(investigatorPresetDefinition()),
+        'research-control/investigator-preset',
+      )
+      this.#presetRegistered = true
+      this.lastPresetEnsure = 'registered'
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('Duplicate agent preset')) {
+        // 已有声明（本插件 reload 后名册未清 / 并发启动竞态）— 视作
+        // present, 内容由 resolveOrEnsure 的回读门把关。
+        this.#presetRegistered = true
         this.lastPresetEnsure = 'present'
         return
       }
-      mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(file, renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID), 'utf8')
-      this.lastPresetEnsure = 'written'
-    } catch (error: unknown) {
       throw new InvestigatorLaunchError({
         code: 'IVL_PRESET',
-        message: `launchInvestigator: preset ensure (write ${file}) failed: ${error instanceof Error ? error.message : String(error)}`,
+        message: `launchInvestigator: preset register of "${INVESTIGATOR_PRESET_ID}" failed: ${error instanceof Error ? error.message : String(error)}`,
         cause: error,
       })
     }
@@ -380,15 +374,24 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
 }
 
 /**
- * `UnknownPresetError` 的形状判定（结构 — 不 import dsh-agent-presets:
- * checkout `packages/preset/agent-presets/src/preset.ts:71-80` — 携带
- * `presetId` + `available` 字段; 消息前缀 `agent-presets: preset "…"
- * not found`）。
+ * `agent-preset/not-found` 的形状判定（结构 — 不 import 注册表实现:
+ * checkout `packages/preset/agent-preset-registry/src/types.ts:39-48` —
+ * `RemoteError` 携带 `isDSHRemoteError: true` + `code` + details
+ * `{agentPreset, available}`; `@deepseek-ai/dsh-typert-protocol` 的
+ * `RemoteError` 类实例 — 0.1 的 `UnknownPresetError`（presetId/available
+ * 直接挂 error 上）已退役）。
  */
 function isUnknownPresetError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null
-    && (error as { presetId?: unknown }).presetId !== undefined
-    && (error as { available?: unknown }).available !== undefined
+  if (typeof error !== 'object' || error === null) return false
+  const candidate = error as {
+    isDSHRemoteError?: unknown
+    code?: unknown
+    details?: { agentPreset?: unknown; available?: unknown }
+  }
+  return candidate.isDSHRemoteError === true
+    && candidate.code === 'agent-preset/not-found'
+    && typeof candidate.details?.agentPreset === 'string'
+    && Array.isArray(candidate.details?.available)
 }
 
 /** Re-export the structural faces (the adapter's public type surface). */
@@ -396,7 +399,9 @@ export type {
   AgentCtxLike,
   AgentLike,
   AgentHandleLike,
-  AgentPresetRowLike,
+  AgentPresetLike,
+  AgentPresetDocumentLike,
+  PresetDefinitionLike,
   AgentPresetsLike,
   AgentsStoreLike,
   CommandExecutionLike,

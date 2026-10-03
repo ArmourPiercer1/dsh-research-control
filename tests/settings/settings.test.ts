@@ -3,17 +3,26 @@
  * Q4): the frozen namespace + schema, the directory-name rule
  * (validateDirName), the pure §4 step 1 resolution core (invalid →
  * default + warn), the optional-service registration (absent → ONE warn
- * + defaults, register called with the exact namespace + schema), and
- * the live read T2.2's discovery consumes (no cache — the §7.5
- * save→rescan contract).
+ * + defaults, and the plugin Config carries the field pair), and the
+ * live read T2.2's discovery consumes (no cache — the §7.5 save→rescan
+ * contract).
  *
- * Fakes: a plain-object settings double (records `register` calls,
- * answers `get` from a mutable section) and a minimal ctx double
- * exposing the optional-service `get` face — the same structural-fake
- * style as `tests/host-investigate-command.test.ts`.
+ * 0.2.0-rc.2 migration: `settings.register`/`get` are RETIRED (the real
+ * host caught the stale assumption — `SettingsForms` has neither). A
+ * namespace IS a profile plugin entry; reads ride `describe()`. The
+ * §7.5 fields now live in the plugin `Config` schema and the namespace
+ * id is the profile entry id.
+ *
+ * Fakes: a plain-object settings double answering `describe` from a
+ * mutable entry view, and a minimal ctx double exposing the
+ * optional-service `get` face — the same structural-fake style as
+ * `tests/host-investigate-command.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type s from '@deepseek-ai/schemastery'
+
+import { ResearchControlService } from '../../src/host/dsh-adapter/host/index.js'
 
 import {
   DEFAULT_HUB_DIR,
@@ -21,6 +30,7 @@ import {
   MAX_DIR_NAME_LENGTH,
   RESEARCH_SETTINGS_NAMESPACE,
   RESEARCH_SETTINGS_SCHEMA,
+  RESEARCH_SETTINGS_ENTRY_ID,
   getResearchDirNames,
   registerResearchSettings,
   resolveResearchDirNames,
@@ -36,21 +46,21 @@ const DEFAULT_NAMES: ResearchDirNames = {
 }
 
 /**
- * A host settings service double: records every `register` call and
- * answers `get` from a mutable stored section (the §7.5 save
- * transaction commits there; `setSection` simulates that commit).
+ * A host settings service double in the 0.2 `SettingsForms` shape: the
+ * research entry view (id = the profile entry id) answers `describe()`
+ * from a mutable stored section (the §7.5 save transaction commits
+ * there; `setSection` simulates that commit). `undefined` section =
+ * the entry is not served at all (empty describe()).
  */
 function makeSettingsDouble(initialSection: unknown) {
-  const registered: { ns: string; schema: unknown }[] = []
   let section = initialSection
   const service: SettingsServiceLike = {
-    register: (ns: string, schema: unknown) => {
-      registered.push({ ns, schema })
-    },
-    get: (ns: string) => (ns === RESEARCH_SETTINGS_NAMESPACE ? section : undefined),
+    describe: () =>
+      section === undefined || section === null
+        ? []
+        : [{ ns: RESEARCH_SETTINGS_ENTRY_ID, value: section }],
   }
   return {
-    registered,
     service,
     setSection(next: unknown): void {
       section = next
@@ -76,6 +86,27 @@ describe('the frozen namespace and schema (design §7.5 field table)', () => {
     expect(MAX_DIR_NAME_LENGTH).toBe(64)
   })
 
+  it('0.2: the plugin Config carries the §7.5 field pair (lockstep with RESEARCH_SETTINGS_SCHEMA)', () => {
+    // The 0.2 settings model has no namespace registration — the fields
+    // ride the plugin's own Config schema (its profile entry IS the
+    // namespace). This pins the two schema halves in lockstep: same
+    // defaults, same resolved shape.
+    const config: s<unknown> = (ResearchControlService as unknown as { Config: s<unknown> }).Config
+    const unwrap = (value: unknown): unknown =>
+      typeof value === 'object' && value !== null && typeof (value as { get?: unknown }).get === 'function'
+        ? (value as { get: () => unknown }).get()
+        : value
+    const resolved = config({} as never) as Record<string, unknown>
+    expect(resolved['minDshVersion']).toBe('0.2.0-rc.2')
+    // `.volatile()` fields mount as live cosmokit cells (the runtime reads
+    // them through `.get()` — the bash-local config convention).
+    expect(unwrap(resolved['projectTreeDir'])).toBe('.research')
+    expect(unwrap(resolved['hubDir'])).toBe('.research-control')
+    const fromSettingsSchema = RESEARCH_SETTINGS_SCHEMA({} as never) as unknown as Record<string, unknown>
+    expect(unwrap(resolved['projectTreeDir'])).toBe(fromSettingsSchema['projectTreeDir'])
+    expect(unwrap(resolved['hubDir'])).toBe(fromSettingsSchema['hubDir'])
+  })
+
   it('resolves an empty section to the full default (schema defaults applied)', () => {
     expect(RESEARCH_SETTINGS_SCHEMA({} as never)).toEqual({
       projectTreeDir: '.research',
@@ -97,6 +128,89 @@ describe('the frozen namespace and schema (design §7.5 field table)', () => {
 
   it('serializes to JSON (the host descriptor carries schema.toJSON())', () => {
     expect(() => JSON.stringify(RESEARCH_SETTINGS_SCHEMA.toJSON())).not.toThrow()
+  })
+})
+
+describe('fallback chain (0.2 authorities: served view → service Config → frozen defaults)', () => {
+  it('entry NOT served + fallback wired → fallback names, NO warn (the documented boot window)', () => {
+    const warnings: string[] = []
+    const out = resolveResearchDirNames(
+      makeSettingsDouble(undefined).service,
+      (message) => warnings.push(message),
+      { projectTreeDir: 'mytree', hubDir: 'myhub' },
+    )
+    expect(out).toEqual({ treeDir: 'mytree', hubDir: 'myhub' })
+    expect(warnings).toEqual([])
+  })
+
+  it('entry NOT served + NO fallback → defaults + one warn (the anomaly case)', () => {
+    const warnings: string[] = []
+    const out = resolveResearchDirNames(makeSettingsDouble(undefined).service, (message) => warnings.push(message))
+    expect(out).toEqual(DEFAULT_NAMES)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('no service config fallback is wired')
+  })
+
+  it('a served view WINS over the fallback (live authority order pinned)', () => {
+    const warnings: string[] = []
+    const out = resolveResearchDirNames(
+      makeSettingsDouble({ projectTreeDir: 'served-tree', hubDir: 'served-hub' }).service,
+      (message) => warnings.push(message),
+      { projectTreeDir: 'stale-tree', hubDir: 'stale-hub' },
+    )
+    expect(out).toEqual({ treeDir: 'served-tree', hubDir: 'served-hub' })
+    expect(warnings).toEqual([])
+  })
+
+  it('a FALLBACK field invalid → the same per-field fallback + warn (no smuggling through the boot window)', () => {
+    const warnings: string[] = []
+    const out = resolveResearchDirNames(
+      makeSettingsDouble(undefined).service,
+      (message) => warnings.push(message),
+      { projectTreeDir: 'a/b', hubDir: 'myhub' },
+    )
+    expect(out).toEqual({ treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: 'myhub' })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('projectTreeDir')
+  })
+
+  it('a volatile-CELL fallback field (the loader-mounted shape) is read through .get()', () => {
+    const warnings: string[] = []
+    const out = resolveResearchDirNames(
+      makeSettingsDouble(undefined).service,
+      (message) => warnings.push(message),
+      {
+        projectTreeDir: { get: () => 'cell-tree' },
+        hubDir: { get: () => 'bad/name' },
+      },
+    )
+    expect(out).toEqual({ treeDir: 'cell-tree', hubDir: DEFAULT_HUB_DIR })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('hubDir')
+  })
+
+  it('settings service ABSENT + fallback wired → fallback silently (the degraded-deployment authority)', () => {
+    const warnings: string[] = []
+    const out = resolveResearchDirNames(
+      undefined,
+      (message) => warnings.push(message),
+      { projectTreeDir: 'mytree', hubDir: 'myhub' },
+    )
+    expect(out).toEqual({ treeDir: 'mytree', hubDir: 'myhub' })
+    expect(warnings).toEqual([])
+  })
+
+  it('a NON-0.2 service shape (no describe face) + fallback → warn once + fallback names', () => {
+    const warnings: string[] = []
+    const legacyShaped = { get: () => undefined } as unknown as SettingsServiceLike
+    const out = resolveResearchDirNames(
+      legacyShaped,
+      (message) => warnings.push(message),
+      { projectTreeDir: 'mytree', hubDir: 'myhub' },
+    )
+    expect(out).toEqual({ treeDir: 'mytree', hubDir: 'myhub' })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('describe()')
   })
 })
 
@@ -140,12 +254,21 @@ describe('resolveResearchDirNames — the pure §4 step 1 core (读设置 → �
     expect(warnings).toEqual([])
   })
 
-  it('service present but namespace unregistered → defaults + one diagnostic warn', () => {
+  it('service present but the entry view is not served → defaults + one diagnostic warn', () => {
     const warnings: string[] = []
     const out = resolveResearchDirNames(makeSettingsDouble(undefined).service, (message) => warnings.push(message))
     expect(out).toEqual(DEFAULT_NAMES)
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain(RESEARCH_SETTINGS_NAMESPACE)
+    expect(warnings[0]).toContain(RESEARCH_SETTINGS_ENTRY_ID)
+  })
+
+  it('a NON-0.2 service shape (no describe face) → defaults + one loud warn, never a throw', () => {
+    const warnings: string[] = []
+    const legacyShaped = { get: () => ({ projectTreeDir: 'x' }) } as unknown as SettingsServiceLike
+    const out = resolveResearchDirNames(legacyShaped, (message) => warnings.push(message))
+    expect(out).toEqual(DEFAULT_NAMES)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('describe()')
   })
 
   it('a default-resolved section (no user override) → defaults, no warn', () => {
@@ -241,7 +364,7 @@ describe('resolveResearchDirNames — the pure §4 step 1 core (读设置 → �
   })
 })
 
-describe('registerResearchSettings — the optional-service registration (§7.5 host side)', () => {
+describe('registerResearchSettings — 0.2 model: nothing to register, observability kept', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>
   let logSpy: ReturnType<typeof vi.spyOn>
 
@@ -253,14 +376,18 @@ describe('registerResearchSettings — the optional-service registration (§7.5 
     vi.restoreAllMocks()
   })
 
-  it('settings present → register called exactly once with the exact namespace + schema (identity)', () => {
-    const fake = makeSettingsDouble(undefined)
-    registerResearchSettings(makeCtx(fake.service))
-    expect(fake.registered).toHaveLength(1)
-    expect(fake.registered[0].ns).toBe(RESEARCH_SETTINGS_NAMESPACE)
-    expect(fake.registered[0].schema).toBe(RESEARCH_SETTINGS_SCHEMA)
+  it('settings present → NO registration call (0.2 retired register), ONE log naming the entry + the Config home', async () => {
+    vi.resetModules()
+    const mod = await import('../../src/host/dsh-adapter/host/settings.js')
+    const fake = makeSettingsDouble({ projectTreeDir: '.research', hubDir: '.research-control' })
+    const service = fake.service as SettingsServiceLike & Record<string, unknown>
+    expect(service['register']).toBeUndefined()
+    mod.registerResearchSettings(makeCtx(fake.service))
+    mod.registerResearchSettings(makeCtx(fake.service))
+    expect(warnSpy).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledTimes(1)
-    expect(logSpy.mock.calls[0][0]).toContain(RESEARCH_SETTINGS_NAMESPACE)
+    expect(String(logSpy.mock.calls[0][0])).toContain(RESEARCH_SETTINGS_ENTRY_ID)
+    expect(String(logSpy.mock.calls[0][0])).toContain('0.2 settings model')
   })
 
   it('settings absent → no throw, ONE console.warn across repeated calls', async () => {

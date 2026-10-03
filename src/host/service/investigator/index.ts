@@ -10,7 +10,8 @@
  *    `InvestigatorLauncher.launch/launchFromIntervention` — Gate P7 三:
  *    能从 Intervention 一键启动并引用相关上下文）;
  *  - the preset face（`renderInvestigatorPresetComposition` +
- *    `parsePresetComposition` — agent.cordis.yml 闭集构造 + 严格回读,
+ *    `parsePresetComposition` + `investigatorPresetDefinition` —
+ *    闭集构造 + 严格回读 + 0.2 声明式定义,
  *    写工具行混入即拒）;
  *  - the runtime guards（`assertReadonlyLaunchRequest` /
  *    `assertInvestigationContext` / `assertReadonlyPermissionPreset` —
@@ -43,6 +44,7 @@ export {
 } from './types.js'
 export { buildInvestigationContext, investigationTask } from './context.js'
 export {
+  investigatorPresetDefinition,
   parsePresetComposition,
   renderInvestigatorPresetComposition,
   assertReadonlyPermissionPreset,

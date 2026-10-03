@@ -248,10 +248,10 @@ describe('session adapter spike (WP-0.4)', () => {
     // Creation order preserved; header fields mapped 1:1; title from the
     // title unit; blank folded from turnBoundary; running from the agents
     // registry. s2 has no registered projection units: title omitted,
-    // blank conservative (unit absent ⇒ never claim unseen blankness is
-    // FALSE only when a turn is known open — an absent unit degrades to
-    // blank:true here, matching the documented rule below), agentPreset
-    // falls back to the header creation fact (absent ⇒ omitted).
+    // blank TRUE — an absent `turnBoundary` unit is AUTHORITATIVE
+    // no-turn evidence (upstream capability absence, core/agent/src/
+    // types.ts:69-76; see the R4 contract case below), agentPreset falls
+    // back to the header creation fact (absent ⇒ omitted).
     expect(adapter.listSessions()).toEqual([
       { id: 's1', cwd: '/work/repo', title: 'renamed', running: true, agentPreset: 'researcher', createdAt: 111, blank: false },
       { id: 's2', running: false, parentId: 's1', origin: 'subagent', createdAt: 222, blank: true },
@@ -304,8 +304,38 @@ describe('session adapter spike (WP-0.4)', () => {
     const { ctx } = makeCtx(makeStore([s1]))
     expect(new HostSessionAdapter(ctx).listSessions()[0]).toMatchObject({
       agentPreset: 'researcher', // header creation fact (unit unregistered)
-      blank: true, // no turn evidence — never claim started without proof
+      blank: true, // degraded read never claims started without proof —
+      // the same fallback the host select gate applies (R4 unification;
+      // the projections-service-absent arm of the two undefined arms in
+      // the R4 contract case below)
     })
+  })
+
+  it('R4 contract: an absent turnBoundary unit is AUTHORITATIVE no-turn evidence (capability absence)', () => {
+    // Upstream reader contract (checkout core/agent/src/types.ts:69-76):
+    // the `turnBoundary` key is registered by `dsh-agent-loop` and ABSENT
+    // otherwise; "without agent-loop no turn events exist, so readers
+    // treat an absent key as no open turn / no boundaries — capability
+    // absence, not a corrupt state." ⇒ a session with no unit never
+    // started ⇒ blank true (mirrors the host select gate, agent-preset-
+    // registry/src/index.ts:321-323). The projections-service-absent arm
+    // keeps the same fallback (degraded reads never claim started without
+    // proof). DISCLOSED existing-debt edge (host-side, outside this
+    // plugin's patch budget): turns ran + agent-loop uninstalled mid-
+    // persistence reads blank again — unreachable while agent-loop is
+    // installed. No destructive consumer of `.blank` exists in this repo
+    // (display/analysis payloads only — verified by grep).
+    const s1 = makeSession('s1')
+    const { ctx } = makeCtx(makeStore([s1]), undefined, makeProjections({}))
+    expect(new HostSessionAdapter(ctx).listSessions()[0]).toMatchObject({ blank: true })
+    // …and a folded unit with boundaries is NOT blank (the non-blank arm,
+    // replayed state — the dispose edge above is the only unverifiable
+    // transition and stays disclosed, not silently asserted).
+    const started = makeProjections({
+      s1: { title: null, turnBoundary: { openTurnStartSeq: null, lastTurn: 2 }, agentPreset: null },
+    })
+    const startedCtx = makeCtx(makeStore([s1]), undefined, started)
+    expect(new HostSessionAdapter(startedCtx.ctx).listSessions()[0]).toMatchObject({ blank: false })
   })
 
   it('reports running:false when the agent registry is absent or the agent idle', () => {

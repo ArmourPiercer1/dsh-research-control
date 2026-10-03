@@ -198,9 +198,25 @@ export class HostSessionAdapter implements DshSessionAdapter {
    * header value is only the creation fact, used solely when the unit is
    * unregistered); `running` from the agent registry
    * (`status === 'running'`), defaulting to `false` when the registry is
-   * absent. Degradations (projection registry absent / unit unregistered):
-   * `title` omitted, `blank` false (never claim blankness unseen),
-   * `agentPreset` falls back to the header creation fact.
+   * absent.
+   *
+   * `blank` under an absent `turnBoundary` unit (R4 unification — the
+   * upstream reader contract, checkout core/agent/src/types.ts:69-76):
+   * the key is registered by `dsh-agent-loop` and ABSENT otherwise;
+   * upstream defines the absence as "no open turn / no boundaries" —
+   * CAPABILITY ABSENCE, not a corrupt state: without agent-loop no turn
+   * events exist, so an absent unit is AUTHORITATIVE evidence the session
+   * never started ⇒ `blank: true` (mirroring the host select gate). The
+   * same fallback is kept when the whole projections service is absent
+   * (a degraded read never claims STARTED without proof — the host gate
+   * precedent again). Disclosed edge (host-side, existing debt): a session
+   * that ran turns and then lost the agent-loop provider (uninstall
+   * mid-persistence) reads blank again — unreachable while agent-loop is
+   * installed, and outside this plugin's patch budget; the summary has no
+   * destructive consumer (display/analysis payloads only — verified 0
+   * production reads of `.blank` in this repo).
+   * Other degradations: `title` omitted, `agentPreset` falls back to the
+   * header creation fact.
    */
   listSessions(): SessionSummary[] {
     const agents = this.#ctx.get('agents') as AgentRegistryLike | undefined

@@ -203,6 +203,31 @@ export function findLostDiscovery(
  * - `write-error` — a settings-domain write failed: nothing is kept
  *  (nothing was written, or the partial write was rolled back).
  */
+/**
+ * Pure narrowing of one config-form raw snapshot into the card's display
+ * values (R5: shared so the adapter face and the seat-rendered view derive
+ * the canonical and the page-OWNER forms through ONE function — belt-and-
+ * braces per-field guards over the schema, non-strings fall back to the
+ * composition defaults).
+ */
+export function deriveSettingsSectionFromRaw(
+  raw: { readonly status: 'loading' | 'ready' | 'unavailable'; readonly value: unknown; readonly writable: boolean },
+  defaults: ResearchSettingsSection,
+): { status: 'loading' | 'ready' | 'unavailable'; values: ResearchSettingsSection | undefined; writable: boolean } {
+  const record = typeof raw.value === 'object' && raw.value !== null ? (raw.value as unknown as Record<string, unknown>) : {}
+  return {
+    status: raw.status,
+    values:
+      raw.value === undefined
+        ? undefined
+        : {
+            projectTreeDir: typeof record.projectTreeDir === 'string' ? record.projectTreeDir : defaults.projectTreeDir,
+            hubDir: typeof record.hubDir === 'string' ? record.hubDir : defaults.hubDir,
+          },
+    writable: raw.writable,
+  }
+}
+
 export type ResearchSettingsSaveOutcome =
   | { readonly status: 'saved' }
   | {
@@ -210,6 +235,8 @@ export type ResearchSettingsSaveOutcome =
       readonly hubLost: boolean
       readonly hubPath: string | null
       readonly lostTreePaths: string[]
+      /** Set when the post-rollback RESCAN of the restored paths ALSO failed — the live plane did not come back (the card blocks with this second fault; a manual rescan/restart is required). */
+      readonly restoreFault?: string
     }
-  | { readonly status: 'rescan-error'; readonly message: string }
+  | { readonly status: 'rescan-error'; readonly message: string; readonly restoreFault?: string }
   | { readonly status: 'write-error'; readonly message: string }

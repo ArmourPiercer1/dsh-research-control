@@ -51,6 +51,7 @@ import {
 import {
   MAX_DIR_NAME_LENGTH,
   classifyDirNameViolation,
+  deriveSettingsSectionFromRaw,
   type ResearchSettingsSaveOutcome,
   type ResearchSettingsSection,
 } from '../../../shared/research-settings.js'
@@ -91,8 +92,8 @@ export interface ResearchSettingsCardFace {
   readonly subscribe: (listener: () => void) => () => void
   /** The composition defaults (the reset-to-default affordance). */
   readonly defaults: ResearchSettingsSection
-  /** Run the §7.5 two-phase save; resolves the rendered outcome (never rejects for a business fault). */
-  readonly save: (next: ResearchSettingsSection) => Promise<ResearchSettingsSaveOutcome>
+  /** Run the §7.5 two-phase save; resolves the rendered outcome (never rejects for a business fault). The opaque `ownerForm` is the row-config seat's page-owner form prop, passed straight through — when present the adapter writes through IT (real entry identity). */
+  readonly save: (next: ResearchSettingsSection, ownerForm?: unknown) => Promise<ResearchSettingsSaveOutcome>
 }
 
 /**
@@ -105,7 +106,28 @@ export interface ResearchSettingsCardFace {
  */
 export type ResearchSettingsCardProps = ResearchSettingsCardFace & {
   readonly view?: 'summary' | 'page'
+  /**
+   * The row-config seat's page-owner form (opaque here). When the seat
+   * supplies one, the card DISPLAYS its state (the entry the page owns —
+   * custom owning ids included) and passes it back to `save`, which routes
+   * the whole §7.5 transaction through it. The face's own snapshot stays
+   * the fallback when no owner form rides along.
+   */
   readonly form?: unknown
+}
+
+/** Derive the card snapshot from the opaque owner form's state (stable per state reference). */
+function ownerFormSnapshot(form: unknown, defaults: ResearchSettingsSection): ResearchSettingsCardSnapshot | undefined {
+  if (typeof form !== 'object' || form === null) return undefined
+  const state = (form as { state?: unknown }).state
+  if (typeof state !== 'object' || state === null) return undefined
+  const status = (state as { status?: unknown }).status
+  if (status !== 'loading' && status !== 'ready' && status !== 'unavailable') return undefined
+  if (typeof (state as { writable?: unknown }).writable !== 'boolean') return undefined
+  return deriveSettingsSectionFromRaw(
+    state as { status: 'loading' | 'ready' | 'unavailable'; value: unknown; writable: boolean },
+    defaults,
+  )
 }
 
 /* ------------------------------------------------------------------ *
@@ -148,7 +170,23 @@ type CardNotice =
 const SAVED_CLEAR_MS = 2500
 
 export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactElement {
-  const snapshot = useSyncExternalStore(props.subscribe, props.getSnapshot, props.getSnapshot)
+  // R5: when the row-config seat supplies a page-owner form, its state IS
+  // the display (the page re-renders on refresh; cache per state reference
+  // for the stable-reference contract useSyncExternalStore demands).
+  const ownerState = props.form === undefined ? undefined : (props.form as { state?: unknown }).state
+  const ownerCacheRef = useRef<{ raw: unknown; snap: ResearchSettingsCardSnapshot } | undefined>(undefined)
+  if (ownerState !== undefined && ownerCacheRef.current?.raw !== ownerState) {
+    const derived = ownerFormSnapshot(props.form, props.defaults)
+    ownerCacheRef.current = derived === undefined ? undefined : { raw: ownerState, snap: derived }
+  }
+  const ownerGetter = ownerState !== undefined && ownerCacheRef.current?.raw === ownerState
+    ? () => (ownerCacheRef.current as { snap: ResearchSettingsCardSnapshot }).snap
+    : undefined
+  const snapshot = useSyncExternalStore(
+    props.subscribe,
+    ownerGetter ?? props.getSnapshot,
+    ownerGetter ?? props.getSnapshot,
+  )
 
   const [drafts, setDrafts] = useState<ResearchSettingsSection>({
     projectTreeDir: props.defaults.projectTreeDir,
@@ -225,7 +263,7 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
     setSaving(true)
     setNotice(null)
     try {
-      const outcome: ResearchSettingsSaveOutcome = await props.save(next)
+      const outcome: ResearchSettingsSaveOutcome = await props.save(next, props.form)
       if (outcome.status === 'saved') {
         committedRef.current = next
         dirtyRef.current = false

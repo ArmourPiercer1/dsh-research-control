@@ -87,6 +87,7 @@ import {
   DEFAULT_HUB_DIR,
   DEFAULT_PROJECT_TREE_DIR,
   RESEARCH_SETTINGS_ENTRY_ID,
+  deriveSettingsSectionFromRaw,
   findLostDiscovery,
   type ResearchSettingsSaveOutcome,
   type ResearchSettingsSection,
@@ -100,14 +101,25 @@ import {
 import type { ResearchClientContext } from './ui.js'
 
 /**
- * The LIST slot the Plugins manager dispatches for a single plugin's
- * configuration card (ui-plugin-manager slot-contract.ts: kind `list`,
- * scope `root`, owner `PluginConfigViewProps` — `view: 'summary' | 'page'`).
+ * The KEYED configuration seat of one bundle row on the Plugins manager's
+ * Installed pages (ui-plugin-manager slot-contract.ts: kind `keyed`, scope
+ * `root`, owner `PluginConfigViewProps`). The host contract is explicit:
+ * "a bundle's configuration belongs in `plugins.bundle.config` or
+ * `plugins.row.config`" — NOT in the Official-group `plugins.item` list.
+ * R5 moved this card off the official group onto the real Installed row
+ * seat (GUI path: Installed → dsh-research-control → research-control),
+ * keeping the page-owner's form props as the write path.
  */
-export const PLUGINS_ITEM_SLOT = 'plugins.item'
+export const ROW_CONFIG_SLOT = 'plugins.row.config'
 
-/** The list-slot registration id / entry key (the host profile entry id). */
+/** The host profile entry id — also the row id the bundle's patch declares. */
 const ENTRY_ID = RESEARCH_SETTINGS_ENTRY_ID
+
+/**
+ * The keyed seat identity: `<bundle package>#<row id as the bundle's patch
+ * declares it>` — config-ledger.ts `rowConfigKey` verbatim.
+ */
+export const ROW_CONFIG_KEY = `dsh-research-control#${ENTRY_ID}`
 
 /** The Plugins-manager tab / list label for this card's page. */
 const CARD_LABEL = 'settingsCard.title'
@@ -125,7 +137,7 @@ const CARD_LABEL = 'settingsCard.title'
  * is mirrored structurally — the same discipline as the `SlotService`
  * mirror in `./ui.ts` and the host half's `SettingsServiceLike`. The full
  * snapshot also carries `base` / `user` / `revision` / `mode`; the card
- * only reads `status` / `value` / `writable`.
+ * only reads `status` / `value` / `writable` / `revision`.
  */
 export interface ConfigFormSnapshotLike<T> {
   /** `loading` until the first accepted section; `ready` while one stands; `unavailable` when the entry is not served to this client (or memory mode). */
@@ -134,6 +146,8 @@ export interface ConfigFormSnapshotLike<T> {
   readonly value: T | undefined
   /** Whether the host document accepts writes (memory mode never does). */
   readonly writable: boolean
+  /** Namespace revision fencing the next write (`undefined` before the first Host view). */
+  readonly revision: number | undefined
 }
 
 /**
@@ -148,8 +162,54 @@ export interface ConfigFormLike<T> {
   getSnapshot(): ConfigFormSnapshotLike<T>
   /** Observe snapshot changes; returns the disposer. */
   subscribe(listener: () => void): () => void
-  /** Queue one field write (revision-fenced, ordered); `true` accepted, `false` refused/skipped, transport rejects. */
-  set(field: string, value: unknown): Promise<boolean>
+  /**
+   * Queue ONE ATOMIC namespace mutation — all ops share one revision fence,
+   * Host validation, persistence decision, and recovery read (host contract
+   * config-form-types.ts, `ConfigForm.mutate`). `true` = accepted;
+   * `false` = refused/conflict and NOTHING of the ops was written;
+   * transport failures reject.
+   */
+  mutate(ops: readonly SettingsPathOpViewLike[], expectedRevision?: number): Promise<boolean>
+}
+
+/** Structural mirror of `SettingsPathOpView` (dsh-api-remotes/client) — the field-op shape this card uses. */
+export interface SettingsPathOpViewLike {
+  readonly op: 'set' | 'unset'
+  readonly path: readonly string[]
+  readonly value?: unknown
+}
+
+/**
+ * Structural mirror of the page-owner `ConfigPageForm` the row-config seat
+ * renders contributions with (ui-plugin-manager slot-contract.ts): accepted
+ * values refreshed by the page owner + the atomic write command (no
+ * subscribe — the page re-renders on refresh).
+ */
+export interface OwnerFormLike {
+  readonly state: ConfigFormSnapshotLike<Record<string, unknown>>
+  mutate(ops: readonly SettingsPathOpViewLike[], expectedRevision?: number): Promise<boolean>
+}
+
+/** The owner props the keyed row-config seat renders a contribution with. */
+export interface RowConfigOwnerProps {
+  readonly view?: 'summary' | 'page'
+  readonly form?: OwnerFormLike
+}
+
+/**
+ * Adapt the seat's owner form to the ConfigForm face the transaction
+ * speaks. The owner's `state` object is replaced wholesale on refresh (the
+ * page re-render re-runs the contribution's inject), so no subscribe is
+ * needed; the WRITE rides the owner's own `mutate` — the real entry /
+ * real namespace the page resolved (a custom owning id such as `rc-real`
+ * keeps its identity end to end).
+ */
+function ownerFormToFormLike(owner: OwnerFormLike): ConfigFormLike<ResearchSettingsSection> {
+  return {
+    getSnapshot: () => owner.state as unknown as ConfigFormSnapshotLike<ResearchSettingsSection>,
+    subscribe: () => () => {},
+    mutate: (ops, expectedRevision) => owner.mutate(ops, expectedRevision),
+  }
 }
 
 /**
@@ -159,9 +219,8 @@ export interface ConfigFormLike<T> {
  * `get(entryId)`, and gates its slot registration on `whileServed`.
  */
 export interface ConfigFormsServiceLike {
+  /** One stable controller per entry id (the host caches them — `forms` Map). */
   get<T>(entryId: string): ConfigFormLike<T>
-  /** Run `register` once one of `namespaces` appears in the describe mirror; returns the disposer. */
-  whileServed(namespaces: readonly string[], register: (served: ReadonlySet<string>) => () => void): () => void
 }
 
 /**
@@ -190,21 +249,10 @@ function readConfigFormsService(ctx: Context): ConfigFormsServiceLike | undefine
  * the same per-field resilience the host read path documents).
  */
 export function deriveCardSnapshot(form: ConfigFormLike<ResearchSettingsSection>): ResearchSettingsCardSnapshot {
-  const raw = form.getSnapshot()
-  const record =
-    typeof raw.value === 'object' && raw.value !== null ? (raw.value as unknown as Record<string, unknown>) : {}
-  return {
-    status: raw.status,
-    values:
-      raw.value === undefined
-        ? undefined
-        : {
-            projectTreeDir:
-              typeof record.projectTreeDir === 'string' ? record.projectTreeDir : DEFAULT_PROJECT_TREE_DIR,
-            hubDir: typeof record.hubDir === 'string' ? record.hubDir : DEFAULT_HUB_DIR,
-          },
-    writable: raw.writable,
-  }
+  return deriveSettingsSectionFromRaw(form.getSnapshot(), {
+    projectTreeDir: DEFAULT_PROJECT_TREE_DIR,
+    hubDir: DEFAULT_HUB_DIR,
+  })
 }
 
 /** The pre-save committed section (the rollback target), or `undefined` before the first acceptance. */
@@ -227,48 +275,66 @@ function faultMessage(fault: { code: string; message: string } | unknown): strin
   return fault instanceof Error ? fault.message : String(fault)
 }
 
-/** Write BOTH fields, in order, through the ConfigForm face. Resolves
- *  `true` only when the Host accepted every write; a `false` refusal or a
- *  thrown transport fault resolves `false` (the caller rolls back). */
-async function writeBoth(
+/** The two field ops of one section save — ONE atomic mutate's payload. */
+function sectionOps(section: ResearchSettingsSection): SettingsPathOpViewLike[] {
+  return [
+    { op: 'set', path: ['projectTreeDir'], value: section.projectTreeDir },
+    { op: 'set', path: ['hubDir'], value: section.hubDir },
+  ]
+}
+
+/**
+ * R5 — the ONE-REQUEST ATOMIC two-field write: both fields travel in one
+ * `form.mutate(ops, expectedRevision)` (host contract: all ops share one
+ * revision fence, Host validation, persistence decision, and recovery
+ * read). `false` = refusal/conflict — the atomicity guarantees NOTHING of
+ * this write landed, so the caller MUST NOT roll back (there is nothing of
+ * ours to revert); it refreshes the display from the recovery read instead.
+ * A transport rejection is indeterminate and likewise never earns a blind
+ * compensating write.
+ */
+async function atomicWrite(
   form: ConfigFormLike<ResearchSettingsSection>,
   section: ResearchSettingsSection,
+  expectedRevision: number | undefined,
 ): Promise<{ ok: true } | { ok: false; fault: unknown }> {
   try {
-    const treeOk = await form.set('projectTreeDir', section.projectTreeDir)
-    const hubOk = await form.set('hubDir', section.hubDir)
-    if (treeOk && hubOk) return { ok: true }
-    // 0.2: `false` = Host REFUSED / skipped the write (revision fence,
-    // validation, memory mode). It is a failure, not a success.
-    return { ok: false, fault: treeOk === false || hubOk === false ? 'host-refused-write' : 'write-skipped' }
+    const accepted = await form.mutate(sectionOps(section), expectedRevision)
+    if (accepted) return { ok: true }
+    return { ok: false, fault: 'host-refused-write' }
   } catch (err) {
     return { ok: false, fault: err }
   }
 }
 
 /**
- * Roll BOTH fields back to their pre-save values through the same
- * config-form face (awaited — the settings document must settle before the
- * outcome resolves, the live rehearsal asserts the on-disk revert). A
- * failed rollback cannot strand the card silently: it warns (the view still
- * ends on the old values locally — its draft resets are independent of the
- * wire) and the restart re-resolves through the host read path (the §4
- * step 1 fallback + warn is the final backstop).
+ * Fenced compensating rollback: writes the pre-save section back under the
+ * revision OUR accepted write produced — if a newer writer moved the
+ * namespace since, the Host refuses the stale fence and nothing is
+ * trampled. Only ever issued after an ACCEPTED write (never for a `false`
+ * or a transport rejection).
  */
-async function rollbackBoth(form: ConfigFormLike<ResearchSettingsSection>, before: ResearchSettingsSection): Promise<void> {
+async function rollbackFenced(
+  form: ConfigFormLike<ResearchSettingsSection>,
+  before: ResearchSettingsSection,
+  acceptedRevision: number | undefined,
+): Promise<{ rolledBack: boolean; fault: unknown | undefined }> {
   try {
-    const rollback = await writeBoth(form, before)
-    if (!rollback.ok) {
-      console.warn(
-        `[research-control] the settings card's rollback write was refused by the Host (${faultMessage(rollback.fault)}) — ` +
-          'the on-disk values may not match the display until the next rescan or restart',
-      )
-    }
+    const accepted = await form.mutate(sectionOps(before), acceptedRevision)
+    return accepted ? { rolledBack: true, fault: undefined } : { rolledBack: false, fault: 'rollback-fence-refused' }
   } catch (err) {
-    console.warn(
-      `[research-control] the settings card's rollback write failed (${faultMessage(err)}) — ` +
-        'the on-disk values may not match the display until the next rescan or restart',
-    )
+    return { rolledBack: false, fault: err }
+  }
+}
+
+/** One plane rescan (the RPC re-runs discovery under the CURRENT committed
+ *  names and answers with the fresh discovery state). Never throws. */
+async function rescanPlane(): Promise<{ ok: true } | { ok: false; fault: unknown }> {
+  try {
+    const result = await researchRpc.rescan({})
+    return result.ok ? { ok: true } : { ok: false, fault: result.error }
+  } catch (err) {
+    return { ok: false, fault: err }
   }
 }
 
@@ -296,35 +362,53 @@ async function runTwoPhaseSave(
   if (before === undefined) {
     return { status: 'rescan-error', message: t('settings.notReady') }
   }
-  // Step 3 — write BOTH fields through the config-form face (the same face
-  // the card displays them). A `false` (Host refusal) or a thrown transport
-  // fault is a FAILURE: roll back and report — never proceed to rescan.
-  const write = await writeBoth(form, next)
+  // Step 3 — the ONE-REQUEST ATOMIC write of BOTH fields under the fence
+  // read here. `false` (Host refusal / revision conflict) wrote NOTHING —
+  // no rollback, no rescan, the recovery read refreshes the editor. A
+  // transport rejection likewise never earns a blind compensating write.
+  const baseRevision = form.getSnapshot().revision
+  const write = await atomicWrite(form, next, baseRevision)
   if (!write.ok) {
-    await rollbackBoth(form, before)
     return {
       status: 'write-error',
       message: t('settings.writeFailed', { fault: faultMessage(write.fault) }),
     }
   }
+  // The revision Host answered for OUR accepted write (the acceptance folds
+  // it into the snapshot) — the fence any compensating rollback carries, so
+  // a newer concurrent writer is never trampled.
+  const acceptedRevision = form.getSnapshot().revision
+  // The rolled-back tail shared by steps 4/5 failures: fenced rollback,
+  // then a RESCAN OF THE RESTORED PATHS so the old plane is live and the
+  // old project queryable IMMEDIATELY (no manual rescan, no restart). A
+  // rollback or restore-rescan failure surfaces as the outcome's
+  // `restoreFault` — the card stays blocked with the second fault.
+  const rollBackAndRestore = async (): Promise<{ restoreFault?: string }> => {
+    const rollback = await rollbackFenced(form, before, acceptedRevision)
+    if (!rollback.rolledBack) return { restoreFault: faultMessage(rollback.fault) }
+    const restored = await rescanPlane()
+    return restored.ok ? {} : { restoreFault: faultMessage(restored.fault) }
+  }
   // Step 4 — rescan: fresh discovery under the NEW names.
   const postRes = await researchRpc.rescan({})
   if (!postRes.ok) {
-    await rollbackBoth(form, before)
+    const { restoreFault } = await rollBackAndRestore()
     return {
       status: 'rescan-error',
       message: t('settings.rescanFailed', { fault: faultMessage(postRes.error) }),
+      ...(restoreFault === undefined ? {} : { restoreFault }),
     }
   }
   // Step 5 — verify: did the rename lose what the plane detected before?
   const lost = findLostDiscovery(preRes.value, postRes.value)
   if (lost.hubLost || lost.lostTreePaths.length > 0) {
-    await rollbackBoth(form, before)
+    const { restoreFault } = await rollBackAndRestore()
     return {
       status: 'missing',
       hubLost: lost.hubLost,
       hubPath: lost.hubPath,
       lostTreePaths: lost.lostTreePaths,
+      ...(restoreFault === undefined ? {} : { restoreFault }),
     }
   }
   return { status: 'saved' }
@@ -334,90 +418,130 @@ async function runTwoPhaseSave(
  * Registration (one surface: registerResearchUI calls this once)
  * ------------------------------------------------------------------ */
 
-let warnedFormsAbsent = false
+/** Runtime narrowing of the opaque `form` owner prop the pure view hands back. */
+function isOwnerFormLike(value: unknown): value is OwnerFormLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { mutate?: unknown }).mutate === 'function' &&
+    'state' in (value as object)
+  )
+}
 
 /**
- * Register the research settings card into the `plugins.item` list slot
- * with `id` {@link RESEARCH_SETTINGS_ENTRY_ID} (paired with the host half's
- * entry — design §7.5 「按设置域 namespace 配对」, realized in 0.2 as
- * entry-id pairing).
- *
- * The registration is gated by `configForms.whileServed([entryId], …)` so
- * the card mounts only while the host serves this entry's descriptor (the
- * 0.2 optional-served discipline; the slot registrations ride the caller's
- * fiber effects — plugin unload removes the card). Service absent → ONE
- * warn + no card (the optional-service discipline, the host twin).
- *
- * @param ctx - the client context (slots from the entry's inject list; the
- *  configForms face read through the optional `ctx.get`).
+ * The fallback write path for deployments where the row page resolves no
+ * owner form (a custom owning entry id such as `rc-real`, whose settings
+ * namespace no row id names, or a describe mirror that has not landed —
+ * late appearance). Resolved PER FACE BUILD: the service may appear late
+ * and disappears on unload, so nothing is cached across builds; the host
+ * caches controllers per entry id, so repeated `get` is stable.
  */
-export function registerResearchSettingsCard(ctx: ResearchClientContext): void {
+function ownCanonicalForm(ctx: ResearchClientContext): ConfigFormLike<ResearchSettingsSection> | undefined {
   const configForms = readConfigFormsService(ctx)
-  if (configForms === undefined || typeof configForms.get !== 'function') {
-    if (!warnedFormsAbsent) {
-      warnedFormsAbsent = true
-      console.warn(
-        '[research-control] the client exposes no configForms service — the research ' +
-          `settings card (entry "${ENTRY_ID}") is unavailable in this deployment`,
-      )
-    }
-    return
-  }
-  const form = configForms.get<ResearchSettingsSection>(ENTRY_ID)
+  if (configForms === undefined || typeof configForms.get !== 'function') return undefined
+  return configForms.get<ResearchSettingsSection>(ENTRY_ID)
+}
 
-  // Stable-reference snapshot derivation (useSyncExternalStore requires
-  // the getter to return the SAME reference until the store changes —
-  // the form's raw snapshot is stable per update, so cache the derived
-  // object keyed on the raw reference; both closures are created ONCE
-  // per registration, so their identities are stable across renders).
-  let cachedRaw: unknown = null
-  let cachedDerived: ResearchSettingsCardSnapshot = {
-    status: 'loading',
-    values: undefined,
-    writable: false,
+let warnedNoFormPath = false
+
+/**
+ * The face the slot runtime spreads into the pure view, built for one
+ * render of the seat. The ACTIVE form is the page-owner's when the seat
+ * supplies one (the canonical R5 path — real entry identity, real
+ * namespace, owner props preserved), else the canonical own-entry form.
+ * Neither exists → an honest unavailable face (`save` refuses through the
+ * existing 未就绪 outcome; no silent success, no fake plane).
+ */
+function buildCardFace(ctx: ResearchClientContext): ResearchSettingsCardFace {
+  const canonical = ownCanonicalForm(ctx)
+  const active = canonical
+  if (active === undefined && !warnedNoFormPath) {
+    warnedNoFormPath = true
+    console.warn(
+      '[research-control] the settings card seat has no owner form and the client exposes no ' +
+        `configForms service — saving is unavailable (entry "${ENTRY_ID}")`,
+    )
   }
+
+  // Stable-reference snapshot derivation (useSyncExternalStore requires a
+  // getter returning the SAME reference until the store changes). The raw
+  // snapshot is stable per update (owner form: per page refresh; own form:
+  // per subscription tick), so cache the derived object on its identity.
+  let cachedRaw: unknown = null
+  let cachedDerived: ResearchSettingsCardSnapshot = { status: 'loading', values: undefined, writable: false }
   const getSnapshot = (): ResearchSettingsCardSnapshot => {
-    const raw = form.getSnapshot()
+    if (active === undefined) return { status: 'unavailable', values: undefined, writable: false }
+    const raw = active.getSnapshot()
     if (raw !== cachedRaw) {
       cachedRaw = raw
-      cachedDerived = deriveCardSnapshot(form)
+      cachedDerived = deriveCardSnapshot(active)
     }
     return cachedDerived
   }
 
-  const face: ResearchSettingsCardFace = {
+  return {
     getSnapshot,
-    subscribe: (listener: () => void) => form.subscribe(listener),
+    subscribe: (listener: () => void) => (active === undefined ? () => {} : active.subscribe(listener)),
     defaults: {
       projectTreeDir: DEFAULT_PROJECT_TREE_DIR,
       hubDir: DEFAULT_HUB_DIR,
     },
-    save: (next: ResearchSettingsSection): Promise<ResearchSettingsSaveOutcome> =>
-      runTwoPhaseSave(form, next),
+    // The seat spreads the page-owner props onto the component, and the
+    // view passes its `form` prop here at SAVE time: when the row page
+    // resolved a form (the canonical R5 path), that form — the entry the
+    // PAGE owns, custom ids included — executes the transaction; the
+    // canonical own-entry form is the fallback. No form at all → the
+    // honest 未就绪 refusal (no silent success).
+    save: (next: ResearchSettingsSection, ownerForm?: unknown): Promise<ResearchSettingsSaveOutcome> => {
+      const writer = isOwnerFormLike(ownerForm) ? ownerFormToFormLike(ownerForm) : canonical
+      return writer === undefined
+        ? Promise.resolve({ status: 'rescan-error', message: t('settings.notReady') })
+        : runTwoPhaseSave(writer, next)
+    },
   }
+}
 
-  // Mount while the host serves this entry's descriptor. The slot
-  // registrations ride this fiber effect (registered by the caller's
-  // apply); `whileServed` returns the disposer that unregisters the slot
-  // contribution once the entry stops being served.
+/**
+ * Register the research settings card on the Plugins manager's KEYED
+ * row-config seat (Installed → dsh-research-control → research-control),
+ * under the key `<package>#<row id>` the config ledger defines.
+ *
+ * R5 moved this off the Official-group `plugins.item` list — the host
+ * slot contract reserves that slot for the official settings pages and
+ * routes bundle configuration to the bundle/row config seats. The card
+ * WRITES THROUGH THE PAGE-OWNER'S FORM PROPS when the row page supplies
+ * one (the entry the page resolved keeps its identity — custom owning ids
+ * included); the canonical `configForms.get(entryId)` form is the fallback
+ * only. The registration is unconditional: the seat's form arrives with
+ * each render, so a late-appearing describe mirror needs no re-registration,
+ * and the slot contribution rides this fiber effect (plugin unload removes
+ * the card; reload re-registers).
+ *
+ * @param ctx - the client context (slots from the entry's inject list; the
+ *  optional configForms face read through `ctx.get`, never a hard inject).
+ */
+export function registerResearchSettingsCard(ctx: ResearchClientContext): void {
   ctx.effect(
     () =>
-      configForms.whileServed([ENTRY_ID], () =>
-        ctx.slots.inject(PLUGINS_ITEM_SLOT, () =>
+      ctx.slots.inject(
+        ROW_CONFIG_SLOT,
+        () =>
           ctx.slots.register(
             {
-              name: PLUGINS_ITEM_SLOT,
-              // The list-slot identity: the host profile entry id.
-              id: ENTRY_ID,
+              name: ROW_CONFIG_SLOT,
+              // The keyed seat identity: the bundle package + the row id the
+              // bundle's patch declares.
+              id: ROW_CONFIG_KEY,
               order: 40,
               label: () => t(CARD_LABEL),
-              inject: () => face,
+              // The keyed seat renders contributions with the page-owner
+              // props; the face is rebuilt per render against them.
+              inject: () => buildCardFace(ctx),
             },
             // The component is the PURE view — the slot runtime hands it the
-            // face members plus the owner share (`view: 'summary' | 'page'`).
+            // face members plus the owner share (`view`, `form`).
             ResearchSettingsCard,
           ),
-        ),
       ),
     'research-control/settings-card',
   )

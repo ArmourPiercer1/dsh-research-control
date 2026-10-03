@@ -658,23 +658,12 @@ function readConfigEditor(ctx: Context): ConfigEditorLike | undefined {
     : undefined
 }
 
-/** Locate this plugin's OWN configuration row. Identity comes FIRST:
- *  the row whose `entry.fiber` is OUR fiber (exact, survives any custom
- *  entry id — `dsh plugin add` installs under one id but operators may
- *  rename it). Id/name matching are fallbacks for contexts where the
- *  fiber is not exposed (unit doubles); the row itself (and its LIVE
- *  `entry`) is returned verbatim because `edit` demands the very Entry
- *  object the loader handed out. */
-function findOwnConfigRow(ctx: Context): ConfigEditorRow | undefined {
-  const editor = readConfigEditor(ctx)
-  if (editor === undefined) return undefined
-  const ownFiber = (ctx as unknown as { fiber?: unknown }).fiber
-  let rows: readonly ConfigEditorRow[]
-  try {
-    rows = editor.configuration()
-  } catch {
-    return undefined
-  }
+/** Pick this plugin's OWN row out of a configuration() roster. Identity
+ *  comes FIRST: the row whose `entry.fiber` is OUR fiber (exact, survives
+ *  any custom entry id — `dsh plugin add` installs under one id but
+ *  operators may rename it). Id/name matching are fallbacks for contexts
+ *  where the fiber is not exposed (unit doubles). */
+function pickOwnConfigRow(rows: readonly ConfigEditorRow[], ownFiber: unknown): ConfigEditorRow | undefined {
   if (ownFiber !== undefined) {
     const byFiber = rows.find((row) => row?.entry?.fiber === ownFiber)
     if (byFiber !== undefined) return byFiber
@@ -687,6 +676,19 @@ function findOwnConfigRow(ctx: Context): ConfigEditorRow | undefined {
     (row) => row?.override !== null && typeof row?.override === 'object' && 'projectTreeDir' in row.override,
   )
   return ours.length === 1 ? ours[0] : undefined
+}
+
+/** Locate this plugin's OWN configuration row; the row (and its LIVE
+ *  `entry`) is returned verbatim because `edit` demands the very Entry
+ *  object the loader handed out. */
+function findOwnConfigRow(ctx: Context): ConfigEditorRow | undefined {
+  const editor = readConfigEditor(ctx)
+  if (editor === undefined) return undefined
+  try {
+    return pickOwnConfigRow(editor.configuration(), (ctx as unknown as { fiber?: unknown }).fiber)
+  } catch {
+    return undefined
+  }
 }
 
 /** This plugin's live profile entry id (custom installs differ; the
@@ -789,7 +791,9 @@ export function resetLegacyResearchCacheForTests(): void {
  * Rules (reviewer-fixed):
  *  - runs ONLY while pending (no marker); a completed home never
  *    re-migrates, so a post-migration reset cannot resurrect old names;
- *  - a field the current user layer already sets is NEVER overwritten;
+ *  - a field the FRESH RAW user layer sets is NEVER overwritten
+ *    (explicitness = presence in the raw override, never composed-value
+ *    inference — see the in-callback comment);
  *  - only legacy fields that are valid directory names are written;
  *  - a malformed legacy document writes nothing (already warned);
  *  - the legacy file itself is preserved untouched (lazy backup);
@@ -831,15 +835,30 @@ export function migrateLegacyResearchSettings(
     }
     const entryId = row.entry?.options?.id ?? RESEARCH_SETTINGS_ENTRY_ID
     const legacySection = legacy.section!
+    const ownFiber = (ctx as unknown as { fiber?: unknown }).fiber
     const wroteFields: string[] = []
     await editor.edit(row.entry, (current: Record<string, unknown>) => {
-      // `current` is the LIVE, reconciled user layer inside the editor's
-      // critical section — this re-read is what closes the TOCTOU.
+      // EXPLICITNESS authority = the FRESH RAW user layer, re-read inside
+      // this critical section: `configuration()` reloads the patched
+      // profile from disk (index.ts:49-52), and this callback runs after
+      // the file lock + reconcile (index.ts:93-97), so the read is fresh
+      // and cannot race. The callback's `current` is the COMPOSED entry
+      // options (index.ts:98 — inherited/base values ride it): treating
+      // it as "the user layer" made base-provided defaults look explicit,
+      // silently dropping the migration whenever the base layer already
+      // carried the two names. Never infer explicitness from
+      // current-vs-inherited VALUE equality either — an explicit user
+      // value that happens to equal the default stays explicit and wins.
+      const freshOverride = (pickOwnConfigRow(editor.configuration(), ownFiber)?.override ?? {}) as Record<
+        string,
+        unknown
+      >
+      // Other fields of the fresh composed `current` are preserved verbatim.
       const next: Record<string, unknown> = { ...current }
       for (const field of ['projectTreeDir', 'hubDir'] as const) {
         const value = legacySection[field]
         if (typeof value !== 'string' || validateDirName(value) !== null) continue
-        if (current[field] !== undefined) continue // never overwrite the user layer (fresh read)
+        if (freshOverride[field] !== undefined) continue // explicitly set — the user layer wins
         next[field] = value
         wroteFields.push(field)
       }

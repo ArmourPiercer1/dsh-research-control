@@ -675,7 +675,15 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
   function makeFixture(options?: {
     legacy?: string
     fileName?: string
+    /** the RAW profile user layer (configEditor `override`) — only keys
+     *  the profile patch actually sets (explicitness authority). */
     userConfig?: Record<string, unknown>
+    /** layers BELOW the profile patch (bundle/base config) — they ride the
+     *  composed `entry.options.config` the edit callback receives as
+     *  `current`, but NOT the raw override (real semantics: boot
+     *  config-editor index.ts:98-100 clones the COMPOSED entry options;
+     *  explicitness lives in `configuration()`'s `override` row only). */
+    inherited?: Record<string, unknown>
     entryId?: string
     noEditor?: boolean
   }): Fixture {
@@ -685,8 +693,15 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
     }
     const fiber = { uid: 11 }
     const row: FakeRow = {
-      entry: { options: { id: options?.entryId ?? RESEARCH_SETTINGS_ENTRY_ID, config: structuredClone(options?.userConfig ?? {}) }, fiber },
-      inherited: {},
+      entry: {
+        options: {
+          id: options?.entryId ?? RESEARCH_SETTINGS_ENTRY_ID,
+          // COMPOSED (inherited ⊕ raw override) — the loader's entry options
+          config: { ...structuredClone(options?.inherited ?? {}), ...structuredClone(options?.userConfig ?? {}) },
+        },
+        fiber,
+      },
+      inherited: structuredClone(options?.inherited ?? {}),
       override: structuredClone(options?.userConfig ?? {}),
     }
     const edits: Array<Record<string, unknown>> = []
@@ -700,9 +715,10 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
           throw new Error('ConfigEditor.edit: entry identity violated (rebuilt look-alike passed)')
         }
         const current = structuredClone(row.entry.options.config ?? {})
-        const next = change(current, row.inherited)
-        row.entry.options.config = next
+        const next = change(current, structuredClone(row.inherited))
+        // the host writes `next` as the PROFILE ROW config (raw override)
         row.override = structuredClone(next)
+        row.entry.options.config = { ...structuredClone(row.inherited), ...structuredClone(next) }
         edits.push(next)
       },
     }
@@ -749,15 +765,60 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
     }
   })
 
+  it('COUNTER-EXAMPLE A: inherited/base defaults on the composed current must NOT block the migration (the real edit() `current` is COMPOSED — boot/config-editor index.ts:98-100)', async () => {
+    // base layer sets both names to the defaults; the user layer sets
+    // NOTHING; legacy carries custom names. Pre-fix code trusted the
+    // composed `current` → "field already present" → skipped both writes,
+    // persisted only the marker, and the NEXT reload fell back to the
+    // base defaults — the legacy discovery silently LOST.
+    const f = makeFixture({
+      legacy: LEGACY_DOC,
+      inherited: { projectTreeDir: '.research', hubDir: '.research-control' },
+      userConfig: {},
+    })
+    try {
+      // first upgraded boot (pending): the overlay already names the tree
+      expect(getResearchDirNames(f.ctx as never)).toEqual({ treeDir: '.legacy-tree', hubDir: '.legacy-hub' })
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1)
+      expect(f.edits[0]!.projectTreeDir).toBe('.legacy-tree')
+      expect(f.edits[0]!.hubDir).toBe('.legacy-hub')
+      expect(typeof f.edits[0]![RESEARCH_SETTINGS_MIGRATION_MARKER]).toBe('number')
+      // post-marker reload: the migrated names WIN over the base defaults —
+      // discovery survives (this is the exact silent-loss regression).
+      expect(getResearchDirNames(f.ctx as never)).toEqual({ treeDir: '.legacy-tree', hubDir: '.legacy-hub' })
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('COUNTER-EXAMPLE B: an EXPLICIT user value that EQUALS the inherited default still wins (explicitness is layer presence, never value comparison)', async () => {
+    const f = makeFixture({
+      legacy: LEGACY_DOC,
+      inherited: { projectTreeDir: '.research', hubDir: '.research-control' },
+      userConfig: { projectTreeDir: '.research' }, // user explicitly chose the default
+    })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1)
+      expect(f.edits[0]!.projectTreeDir).toBe('.research') // explicit default stays (legacy NOT applied)
+      expect(f.edits[0]!.hubDir).toBe('.legacy-hub') // absent field still migrates
+    } finally {
+      f.dispose()
+    }
+  })
+
   it('TOCTOU closed: a value a CONCURRENT writer commits before the edit is present in the in-callback re-read and wins', async () => {
     const f = makeFixture({ legacy: LEGACY_DOC })
     try {
       // The settle seam stands in for the host file lock: by the time
-      // edit() runs, a concurrent settings write has landed a NEWER
-      // hubDir in the stored config. The migration reads `current`
-      // INSIDE the callback, so it sees — and keeps — the newer value.
+      // edit() runs, a concurrent settings write has COMMITTED a newer
+      // hubDir into the profile row (raw override + recomposed entry
+      // options). The migration re-reads the fresh raw override inside
+      // the callback, so it sees — and keeps — the newer value.
       await migrateLegacyResearchSettings(f.ctx as never, {
         settle: async () => {
+          f.row.override = { ...f.row.override, hubDir: '.concurrent-newer' }
           f.row.entry.options.config = { ...(f.row.entry.options.config ?? {}), hubDir: '.concurrent-newer' }
         },
       })

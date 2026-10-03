@@ -207,6 +207,18 @@ try {
         'if (!T || !Array.isArray(T.invocations)) throw new Error("./typert: no TYPERT.invocations manifest")',
         'if (T.invocations.length !== 59) throw new Error("./typert: expected 59 invocations (58 RPC: 13 frozen V1 + 9 plane + 36 GUI management, + ping), got " + T.invocations.length)',
         'console.log("./typert: " + T.invocations.length + " invocations, package=" + T.package + ", face=" + T.face)',
+        // 0.2 face gate: the REAL published loader validates the extracted
+        // artifact bytes (the exact call dsh-typert-loader performs at host
+        // boot) — a 0.1-shaped manifest (schema values instead of create()
+        // factories) can never pass this.
+        'const { validateTypertManifest } = await import("@deepseek-ai/dsh-typert-loader")',
+        'const validated = validateTypertManifest(T.package, T)',
+        'if (validated.invocations.length !== 59) throw new Error("./typert: real loader did not confirm 59 invocations")',
+        'if (validated.schemas.length !== 115) throw new Error("./typert: real loader did not confirm 115 schema factories, got " + validated.schemas.length)',
+        'for (const inv of validated.invocations) {',
+        '  if (inv.result.mode !== "strict" || typeof inv.result.create !== "function") throw new Error("./typert: invocation " + inv.method + " has no strict create() result codec")',
+        '}',
+        'console.log("./typert: REAL dsh-typert-loader@0.2 validateTypertManifest accepted the extracted artifact (59 invocations, 115 create() schema factories)")',
         'const remote = await import(process.argv[1] + "/remote")',
         'const C = remote.default',
         'if (!C || typeof C.package !== "string" || !Array.isArray(C.descriptors)) throw new Error("./remote: contribution is not {package, descriptors}")',

@@ -1,4 +1,4 @@
-import { $t as UpdateObjectiveArgs, A as DismissNextActionResult, At as RescanResult, B as GetGitHistoryResult, Bt as SaveResearchCheckpointResult, C as CreateTopicResult, Ct as RemovePlanItemArgs, D as CreateWorkstreamResult, Dt as ReorderPlanArgs, E as CreateWorkstreamForkResult, Et as RemoveRelationResult, F as DropWorkstreamArgs, Ft as RetractClaimArgs, G as GetPortfolioInterventionsResult, Gt as SetHubArgs, H as GetMergeContractArgs, Ht as SelectPlanForkResult, I as DropWorkstreamResult, It as RetractClaimResult, J as GetTopicArgs, K as GetResearchPlaneStateArgs, Kt as SetHubResult, L as GetCurrentFocusArgs, Lt as SaveMergeContractArgs, M as DismissPlanForkResult, Mt as RestoreDeclarativeFileResult, N as DropTopologyEdgeArgs, Nt as RestoreProjectArgs, O as DashboardSnapshot, Ot as ReorderPlanResult, P as DropTopologyEdgeResult, Pt as RestoreProjectResult, Q as HubOverviewResult, Qt as UpdateInterventionStateResult, R as GetCurrentFocusResult, Rt as SaveMergeContractResult, S as CreateTopicArgs, St as RemoveDependencyResult, T as CreateWorkstreamForkArgs, Tt as RemoveRelationArgs, U as GetMergeContractResult, Ut as SetCurrentFocusArgs, V as GetHubOverviewArgs, Vt as SelectPlanForkArgs, W as GetPortfolioInterventionsArgs, Wt as SetCurrentFocusResult, X as GetWorkstreamCurrentArgs, Xt as UnbindProjectResult, Y as GetWorkstreamArgs, Yt as UnbindProjectArgs, Z as GetWorkstreamCurrentResult, Zt as UpdateInterventionStateArgs, _ as CreateNextActionResult, _t as RegisterArtifactArgs, a as AddRelationArgs, an as UpdateTopicArgs, at as PromoteNextActionArgs, b as CreatePlannedMergeArgs, bt as RegisterInteractionResult, c as BindProjectArgs, cn as UpdateWorkstreamResult, ct as QueryAttentionResult, d as ClearBlockerResult, dt as QueryRecordsArgs, en as UpdateObjectiveResult, et as InspectProjectDirectoryResult, f as CreateBlockerArgs, ft as QueryRecordsResult, g as CreateNextActionArgs, gt as RecordFactResult, h as CreateLocalResearchProjectResult, ht as RecordFactArgs, i as AddDependencyResult, in as UpdateProjectMetadataResult, it as ProjectSnapshot, j as DismissPlanForkArgs, jt as RestoreDeclarativeFileArgs, k as DismissNextActionArgs, kt as RescanArgs, l as BindProjectResult, ln as WorkstreamSnapshot, lt as QueryHistoryArgs, mt as RecordClaimResult, n as AckMissingReminderResult, nn as UpdatePlanItemResult, nt as MarkArtifactMissingResult, o as AddRelationResult, on as UpdateTopicResult, ot as PromoteNextActionResult, p as CreateBlockerResult, pt as RecordClaimArgs, q as GetResearchPlaneStateResult, qt as TopicSnapshot, r as AddDependencyArgs, rn as UpdateProjectMetadataArgs, rt as PingResult, s as AttentionItemDto, sn as UpdateWorkstreamArgs, st as QueryAttentionArgs, t as AckMissingReminderArgs, tn as UpdatePlanItemArgs, tt as MarkArtifactMissingArgs, u as ClearBlockerArgs, ut as QueryHistoryResult, v as CreatePlanItemArgs, vt as RegisterArtifactResult, w as CreateWorkstreamArgs, wt as RemovePlanItemResult, x as CreatePlannedMergeResult, xt as RemoveDependencyArgs, y as CreatePlanItemResult, yt as RegisterInteractionArgs, z as GetGitHistoryArgs, zt as SaveResearchCheckpointArgs } from "./rpc-contracts-CAb1T63d.js";
+import { $t as UpdateObjectiveArgs, A as DismissNextActionResult, At as RescanResult, B as GetGitHistoryResult, Bt as SaveResearchCheckpointResult, C as CreateTopicResult, Ct as RemovePlanItemArgs, D as CreateWorkstreamResult, Dt as ReorderPlanArgs, E as CreateWorkstreamForkResult, Et as RemoveRelationResult, F as DropWorkstreamArgs, Ft as RetractClaimArgs, G as GetPortfolioInterventionsResult, Gt as SetHubArgs, H as GetMergeContractArgs, Ht as SelectPlanForkResult, I as DropWorkstreamResult, It as RetractClaimResult, J as GetTopicArgs, K as GetResearchPlaneStateArgs, Kt as SetHubResult, L as GetCurrentFocusArgs, Lt as SaveMergeContractArgs, M as DismissPlanForkResult, Mt as RestoreDeclarativeFileResult, N as DropTopologyEdgeArgs, Nt as RestoreProjectArgs, O as DashboardSnapshot, Ot as ReorderPlanResult, P as DropTopologyEdgeResult, Pt as RestoreProjectResult, Q as HubOverviewResult, Qt as UpdateInterventionStateResult, R as GetCurrentFocusResult, Rt as SaveMergeContractResult, S as CreateTopicArgs, St as RemoveDependencyResult, T as CreateWorkstreamForkArgs, Tt as RemoveRelationArgs, U as GetMergeContractResult, Ut as SetCurrentFocusArgs, V as GetHubOverviewArgs, Vt as SelectPlanForkArgs, W as GetPortfolioInterventionsArgs, Wt as SetCurrentFocusResult, X as GetWorkstreamCurrentArgs, Xt as UnbindProjectResult, Y as GetWorkstreamArgs, Yt as UnbindProjectArgs, Z as GetWorkstreamCurrentResult, Zt as UpdateInterventionStateArgs, _ as CreateNextActionResult, _t as RegisterArtifactArgs, a as AddRelationArgs, an as UpdateTopicArgs, at as PromoteNextActionArgs, b as CreatePlannedMergeArgs, bt as RegisterInteractionResult, c as BindProjectArgs, cn as UpdateWorkstreamResult, ct as QueryAttentionResult, d as ClearBlockerResult, dt as QueryRecordsArgs, en as UpdateObjectiveResult, et as InspectProjectDirectoryResult, f as CreateBlockerArgs, ft as QueryRecordsResult, g as CreateNextActionArgs, gt as RecordFactResult, h as CreateLocalResearchProjectResult, ht as RecordFactArgs, i as AddDependencyResult, in as UpdateProjectMetadataResult, it as ProjectSnapshot, j as DismissPlanForkArgs, jt as RestoreDeclarativeFileArgs, k as DismissNextActionArgs, kt as RescanArgs, l as BindProjectResult, ln as WorkstreamSnapshot, lt as QueryHistoryArgs, mt as RecordClaimResult, n as AckMissingReminderResult, nn as UpdatePlanItemResult, nt as MarkArtifactMissingResult, o as AddRelationResult, on as UpdateTopicResult, ot as PromoteNextActionResult, p as CreateBlockerResult, pt as RecordClaimArgs, q as GetResearchPlaneStateResult, qt as TopicSnapshot, r as AddDependencyArgs, rn as UpdateProjectMetadataArgs, rt as PingResult, s as AttentionItemDto, sn as UpdateWorkstreamArgs, st as QueryAttentionArgs, t as AckMissingReminderArgs, tn as UpdatePlanItemArgs, tt as MarkArtifactMissingArgs, u as ClearBlockerArgs, ut as QueryHistoryResult, v as CreatePlanItemArgs, vt as RegisterArtifactResult, w as CreateWorkstreamArgs, wt as RemovePlanItemResult, x as CreatePlannedMergeResult, xt as RemoveDependencyArgs, y as CreatePlanItemResult, yt as RegisterInteractionArgs, z as GetGitHistoryArgs, zt as SaveResearchCheckpointArgs } from "./rpc-contracts-CmHDfUDF.js";
 import { Context, Service } from "@deepseek-ai/cordis";
 import s from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
@@ -511,7 +511,7 @@ interface LocalProjectServices {
  *
  * WP-2.6: `minDshVersion` — RR-008 / DSH_ADAPTER §12-② 「插件 `Config` 自持
  * `minDshVersion` 字段，`[Service.init]` 与宿主可观测版本比对 fail-loud」.
- * The default `0.1.0-rc.8` (the frozen baseline host, this plugin's exact
+ * The default `0.2.0-rc.2` (the frozen baseline host, this plugin's exact
  * peer pin) lives in the SCHEMA, not in code (root AGENTS.md: no hardcoded
  * tunables — defaults belong in the schema).
  */
@@ -520,10 +520,33 @@ interface Config {
    * The minimum DSH (harness package) version this plugin supports.
    * Optional at the type level (a hand-built config, e.g. in construction
    * tests, may omit it); for every config that went through the LOADER the
-   * schema default (`0.1.0-rc.8`) has been applied, so `[Service.init]`
+   * schema default (`0.2.0-rc.2`) has been applied, so `[Service.init]`
    * sees a string — an omission there is misconfiguration and fails loud.
    */
   readonly minDshVersion?: string;
+  /**
+   * 0.2 settings model: §7.5 「项目数据目录名」 — the workspace-root
+   * project-tree directory name (frozen default `.research`). The
+   * settings namespace of this plugin IS its profile entry, so the two
+   * §7.5 fields ride the plugin Config (the host renders them as the
+   * entry's settings form); the discovery layer reads them live through
+   * `getResearchDirNames` (invalid stored values fall back + warn — the
+   * name rule is deliberately NOT a schema constraint, see
+   * `./settings.ts` 模块头).
+   */
+  readonly projectTreeDir?: string;
+  /** §7.5 「管理中心目录名」 — the hub directory name (default `.research-control`). */
+  readonly hubDir?: string;
+  /**
+   * Internal completion marker of the ONE-shot 0.1→0.2 settings migration
+   * (`RESEARCH_SETTINGS_MIGRATION_MARKER` in `./settings.ts`): written by
+   * the migration through the host's own `ConfigEditor.edit` in the SAME
+   * atomic write as the migrated fields. Its presence means the legacy
+   * `settings.yaml(.imported)` is permanently out of the read authority
+   * (the boot overlay is pending-window only); its absence means pending.
+   * NOT `.volatile()` → never enters the editable form or the plugin card.
+   */
+  readonly legacyMigrationCompletedAt?: number;
 }
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -551,9 +574,19 @@ declare class ResearchControlService extends TypertRemoteService {
   /**
    * Loader-side validation of the plugin config (standard-schema V1).
    * `minDshVersion` default = the frozen baseline (DSH_ADAPTER 头部：宿主
-   * `0.1.0-rc.8`; exact peer pin per RR-003).
+   * `0.2.0-rc.2`; exact peer pin per RR-003).
    */
-  static Config: s<Config>;
+  static Config: s<Schemastery.ObjectS<NoInfer<{
+    minDshVersion: s<string, string, "defined">;
+    projectTreeDir: s<string, string, "volatile-defined">;
+    hubDir: s<string, string, "volatile-defined">;
+    legacyMigrationCompletedAt: s<number, number, "plain">;
+  }>>, Schemastery.ObjectT<NoInfer<{
+    minDshVersion: s<string, string, "defined">;
+    projectTreeDir: s<string, string, "volatile-defined">;
+    hubDir: s<string, string, "volatile-defined">;
+    legacyMigrationCompletedAt: s<number, number, "plain">;
+  }>>, "plain">;
   /**
    * V2-T2.2 (design §4 step 6): the discovered plane state — set in
    * `[Service.init]` in EVERY mode (the empty plane included: hub
@@ -652,6 +685,17 @@ declare class ResearchControlService extends TypertRemoteService {
    * with the real instance receiver).
    */
   private rpc;
+  /**
+   * PUBLIC mirror of the loader-resolved Config for the settings-fallback
+   * reads: the @Remote dispatch reaches the RPC bodies through a receiver
+   * whose private (`#`) fields are NOT initialized (real-host failure on
+   * dsh@0.2.0-rc.2: "Cannot read private member #config from an object
+   * whose class did not declare it"), while public property reads stay
+   * safe. `getResearchDirNames` therefore takes THIS reference — worst
+   * case (a receiver without the field) it reads `undefined` and the
+   * live describe() view answers instead.
+   */
+  readonly dirNamesConfig: Config;
   /**
    * @param ctx - the host context that owns this service.
    * @param config - validated plugin config (WP-2.6: `minDshVersion`).

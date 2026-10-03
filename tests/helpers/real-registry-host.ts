@@ -172,7 +172,7 @@ export async function bootRealRegistryHarness(workspacePaths?: readonly string[]
     },
   })
 
-  const svc = new ResearchControlService(child, { minDshVersion: '0.1.0-rc.8' })
+  const svc = new ResearchControlService(child, { minDshVersion: '0.2.0-rc.2' })
   const init = (ResearchControlService.prototype as unknown as Record<symbol, unknown>)[
     Service.init
   ] as (this: ResearchControlService) => Promise<void>

@@ -10,7 +10,7 @@
  * label-primary/label-secondary — never the low-contrast tertiary band.
  *
  * The card root carries its OWN token block: the card renders inside the
- * HOST's settings dialog (the keyed slot `settings.plugin.item`), OUTSIDE
+ * HOST's Plugins manager (the `plugins.item` configuration card), OUTSIDE
  * this plugin's shell root, so the tokens cannot be inherited from it.
  */
 

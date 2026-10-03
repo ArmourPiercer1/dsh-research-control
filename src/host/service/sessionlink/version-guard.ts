@@ -16,7 +16,7 @@
  *   - the channel the plugin CAN read: the INSTALLED version of the
  *     `@deepseek-ai/dsh-*` packages the host runtime actually loaded — all
  *     dsh-* packages (and the CLI app) are versioned in lockstep with the
- *     harness root `package.json` (checkout `0.1.0-rc.8`, verified across
+ *     harness root `package.json` (checkout `0.2.0-rc.2`, verified across
  *     typert-protocol / core-session / host-plugin-inventory / boot-app-boot).
  *     The plugin already imports `@deepseek-ai/dsh-typert-protocol` at
  *     runtime (WP-0.3 TypertRemoteService), so resolving ITS installed
@@ -206,7 +206,7 @@ export function createPackageVersionSource(packageName: string, fromUrl: string)
  * violation or on an unobservable version (module doc semantics).
  *
  * @param minDshVersion - the Config-validated minimum (default
- *   `0.1.0-rc.8` — the default lives in the schema, not here).
+ *   `0.2.0-rc.2` — the default lives in the schema, not here).
  * @param source - the observable host-version channel.
  * @throws `DshVersionError` (`MIN_VERSION_VIOLATION` /
  *   `VERSION_UNREACHABLE` / `INVALID_VERSION`).

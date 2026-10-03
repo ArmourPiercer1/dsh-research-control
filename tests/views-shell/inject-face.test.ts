@@ -43,14 +43,26 @@ interface CapturedRegistration {
   readonly component: unknown
 }
 
+/** The client ctx the real registration path needs (slots + the fiber effect). */
+function makeFakeCtx(fake: { slots: unknown }): ResearchClientContext {
+  return {
+    slots: fake.slots,
+    effect: (fn: () => (() => void) | void) => {
+      fn()
+    },
+  } as unknown as ResearchClientContext
+}
+
 /** Build the fake slots service, capturing the injection-time registration. */
 function makeFakeSlots(): { slots: unknown; get: () => CapturedRegistration } {
   let registration: CapturedRegistration | null = null
-  let contribute: (() => unknown) | null = null
+  const contributes = new Map<string, () => unknown>()
   const slots = {
     inject(slot: string, fn: () => unknown): void {
-      expect(slot).toBe(CONVERSATION_VIEW_SLOT)
-      contribute = fn
+      // Two contributors exist: the conversation shell (this suite's
+      // subject) and the settings card's plugins.row.config seat (R5).
+      expect([CONVERSATION_VIEW_SLOT, 'plugins.row.config']).toContain(slot)
+      contributes.set(slot, fn)
     },
     register(options: CapturedRegistration['options'], component: unknown): () => void {
       registration = { options, component }
@@ -61,6 +73,7 @@ function makeFakeSlots(): { slots: unknown; get: () => CapturedRegistration } {
     slots,
     get: () => {
       // Run the contribute callback (slot declaration time) to register.
+      const contribute = contributes.get(CONVERSATION_VIEW_SLOT) ?? null
       if (contribute === null) throw new Error('no injection contributed yet')
       contribute()
       if (registration === null) throw new Error('registration not captured')
@@ -86,7 +99,7 @@ afterEach(() => {
 describe('registerResearchUI — the tab registration (unchanged, 标签恒显)', () => {
   it('registers the shell into the conversation.view slot with the same identity', () => {
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options, component } = fake.get()
 
     expect(options.name).toBe(CONVERSATION_VIEW_SLOT)
@@ -103,7 +116,7 @@ describe('registerResearchUI — the injected plane-state fetch face', () => {
     const stub = makeStubRpc()
     await mountStub(stub)
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
 
     const face = options.inject!('sess-1') as {
@@ -129,7 +142,7 @@ describe('registerResearchUI — the injected plane-state fetch face', () => {
       error: { code: 'PLANE_SESSION_UNKNOWN', message: 'session sess-9 names no known session', details: {} },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
 
     const face = options.inject!('sess-9') as { loadPlaneState: () => Promise<unknown> }
@@ -142,7 +155,7 @@ describe('registerResearchUI — the T5.1 HUB 总览 fetch face (design §12 row
     const stub = makeStubRpc()
     await mountStub(stub)
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
 
     const face = options.inject!('sess-hub') as {
@@ -169,7 +182,7 @@ describe('registerResearchUI — the T5.1 HUB 总览 fetch face (design §12 row
       error: { code: 'PLANE_NOT_MANAGED', message: 'the overview requires a hub', details: {} },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
 
     const face = options.inject!('sess-9') as { loadHubOverview: () => Promise<unknown> }
@@ -187,7 +200,7 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
     const stub = makeStubRpc()
     await mountStub(stub)
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MutationFaces
 
@@ -203,7 +216,7 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
     const stub = makeStubRpc()
     await mountStub(stub)
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MutationFaces
 
@@ -222,7 +235,7 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
       error: { code: 'PLANE_HUB_EXISTS', message: 'a hub already exists at /workspace/hub', details: {} },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MutationFaces
 
@@ -252,7 +265,7 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
       },
     ])
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MutationFaces
 
@@ -275,7 +288,7 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
       error: { code: 'PLANE_TREE_EXISTS', message: 'a research tree already exists at /workspace/unregistered/.research', details: {} },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MutationFaces
 
@@ -295,7 +308,7 @@ describe('registerResearchUI — the T4.2 onboarding mutation faces (design §8)
       error: { code: 'PLANE_HUB_WORKSPACE', message: 'the target IS the hub workspace', details: {} },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MutationFaces
 
@@ -317,7 +330,7 @@ describe('registerResearchUI — the T4.3 MISSING-modal mutation faces (design �
     const stub = makeStubRpc()
     await mountStub(stub)
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MissingModalFaces
 
@@ -333,7 +346,7 @@ describe('registerResearchUI — the T4.3 MISSING-modal mutation faces (design �
     const stub = makeStubRpc()
     await mountStub(stub)
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MissingModalFaces
 
@@ -347,7 +360,7 @@ describe('registerResearchUI — the T4.3 MISSING-modal mutation faces (design �
     const stub = makeStubRpc()
     await mountStub(stub)
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MissingModalFaces
 
@@ -369,7 +382,7 @@ describe('registerResearchUI — the T4.3 MISSING-modal mutation faces (design �
       },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MissingModalFaces
 
@@ -388,7 +401,7 @@ describe('registerResearchUI — the T4.3 MISSING-modal mutation faces (design �
       },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MissingModalFaces
 
@@ -407,7 +420,7 @@ describe('registerResearchUI — the T4.3 MISSING-modal mutation faces (design �
       },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-1') as MissingModalFaces
 
@@ -424,7 +437,7 @@ describe('registerResearchUI — the T5.4 登记册 恢复登记 face (design §
     const stub = makeStubRpc()
     await mountStub(stub)
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-hub') as RestoreFace
 
@@ -446,7 +459,7 @@ describe('registerResearchUI — the T5.4 登记册 恢复登记 face (design §
       },
     })
     const fake = makeFakeSlots()
-    registerResearchUI({ slots: fake.slots } as unknown as ResearchClientContext)
+    registerResearchUI(makeFakeCtx(fake))
     const { options } = fake.get()
     const face = options.inject!('sess-hub') as RestoreFace
 

@@ -14,30 +14,28 @@
  *  - followup 消息钉: content [{type:'text',text:task}] + source
  *    {kind:'user'} + role 'user'（createUserMessage 宿主同一真源）;
  *  - 结果钉: sessionId / presetId / permissionPreset / task echoes;
- *  - ensure 流: unknown ⇒ 落盘（内容 = 冻结渲染）⇒ 再 resolve;
- *    已存在不覆写（lastPresetEnsure 'present'）;
- *  - 只读门: 非闭集组合回读 ⇒ IVL_PRESET_NOT_READONLY（零 create）;
- *    broken 行 ⇒ IVL_PRESET_BROKEN（零 create）;
- *  - 降级面: 无 roster ⇒ meta 无 agentPreset + lastPresetEnsure
- *    'skipped'（restriction + sandbox 两层仍生效）;
+ *  - ensure 流（0.2 声明式）: unknown ⇒ `register(闭集定义)`（内容 =
+ *    冻结渲染的闭集解析产物）⇒ 再 resolve（lastPresetEnsure
+ *    'registered'）; Duplicate 竞态 ⇒ present; register 后仍 unknown ⇒
+ *    IVL_PRESET; 注册经 `ctx.effect` 挂 fiber（卸载 ⇒ 名册回收）;
+ *  - 只读门: 非闭集声明回读（`readDocument.content`）⇒
+ *    IVL_PRESET_NOT_READONLY（零 create）; broken 行 ⇒ IVL_PRESET_BROKEN
+ *    （零 create）;
+ *  - 无 roster 部署（0.2 收紧）: ⇒ IVL_PRESET fail-loud（闭集组合不可
+ *    证明即拒启 — 0.1 的 'skipped' 降级退役, 授权不放宽）;
  *  - 命令面失败（无注册表 / undefined / kind error / throw）⇒
  *    IVL_PERMISSION（零 followup — 不降级启动）;
  *  - create / mount / restrict 失败 ⇒ IVL_LAUNCH（零命令零 followup）;
  *  - 无 agent 注册表（`ctx.get('agents')` 缺席）⇒ IVL_LAUNCH 使用大声
  *    + 零副作用（WP-7.4 / G7 S1 — §4 无 `agents` 硬 inject 裁决面）;
  *  - 端口边界再断言: 伪造请求（多余能力键）⇒ IVL_WRITE_CAPABILITY
- *    （零 create — 双钉的宿主半边）。
+ *    （零 create — 双钉的宿主半边, 断言面在 guard 套件）。
  *
- * 目录纪律: temp root 下 `user/`（适配器的 preset 根 — ensure 落点）与
- * `shipped/`（roster 行的组合文件 — 模拟 shipped-root 行）分离 —
- * 无同路径互踩; 用户自撰 preset 场景的「已存在」文件落 `user/` 且
- * roster 行指向它（resolve 胜出者 = 用户自撰 — 回读解析同一文件）。
+ * 0.2.0-rc.2: 本测试面零 `node:fs` — 文件 ensure 退役后适配器零文件
+ * 系统副作用, 名册状态全部由假声明表承载。
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import {
   HostAgentLauncherAdapter,
@@ -46,11 +44,11 @@ import {
   INVESTIGATOR_DENIED_TOOL_NAMES,
   INVESTIGATOR_PRESET_ID,
   INVESTIGATOR_PRESET_TOOL_NAMES,
+  investigatorPresetDefinition,
   isInvestigatorLaunchError,
   renderInvestigatorPresetComposition,
   READ_ONLY_PERMISSION_PRESET,
   type InvestigatorLaunchError,
-  type InvestigatorLaunchRequest,
 } from '../../src/host/service/investigator/index.js'
 import { WRITE_TOOL_NAMES } from '../../src/host/tools/index.js'
 import {
@@ -60,66 +58,40 @@ import {
   makeRoster,
   makeValidRequest,
   type FakeHost,
+  type FakePresetRow,
   type FakeRoster,
 } from './fixtures.js'
 
-const TEMP_ROOTS: string[] = []
-
-/** temp root（`user/` = 适配器 preset 根; `shipped/` = roster 行落点）。 */
-function makeTempDirs(): { root: string; presetRoot: string; shipped: string } {
-  const root = mkdtempSync(join(tmpdir(), 'wp71-adapter-'))
-  TEMP_ROOTS.push(root)
-  return { root, presetRoot: join(root, 'user'), shipped: join(root, 'shipped') }
-}
-
-afterEach(() => {
-  while (TEMP_ROOTS.length > 0) {
-    const root = TEMP_ROOTS.pop() as string
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-/** shipped-root 组合文件（roster 行指向 — 默认内容 = 冻结渲染）。 */
-function makeShippedFile(shipped: string, content: string = renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID)): string {
-  mkdirSync(shipped, { recursive: true })
-  const file = join(shipped, 'agent.cordis.yml')
-  writeFileSync(file, content, 'utf8')
-  return file
-}
-
-/** roster（行 = shipped 文件）; 可配 mountError / unknownFirst。 */
-function makeShippedRoster(shipped: string, options?: {
-  readonly path?: string
+/**
+ * 名册（0.2 声明式）: `research-investigator` 已有声明（行 + 组合文本 =
+ * 冻结渲染 — readDocument 回读源）; 可配 mountError / unknownFirst /
+ * rogue content / broken。
+ */
+function makeDeclaredRoster(options?: {
+  readonly content?: string
   readonly mountError?: Error
   readonly unknownFirst?: number
+  readonly broken?: string
+  readonly rows?: Map<string, FakePresetRow>
+  readonly registerNoop?: boolean
 }): FakeRoster {
   return makeRoster({
-    rows: new Map([[INVESTIGATOR_PRESET_ID, { id: INVESTIGATOR_PRESET_ID, path: options?.path ?? makeShippedFile(shipped) }]]),
+    ...options?.rows === undefined
+      ? { rows: new Map([[INVESTIGATOR_PRESET_ID, {
+          id: INVESTIGATOR_PRESET_ID,
+          ...options?.broken === undefined ? {} : { broken: options.broken },
+        }]]) }
+      : { rows: options.rows },
+    defaultContent: renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID),
+    ...options?.content === undefined ? {} : { documents: new Map([[INVESTIGATOR_PRESET_ID, options.content]]) },
     ...options?.mountError === undefined ? {} : { mountError: options.mountError },
     ...options?.unknownFirst === undefined ? {} : { unknownFirst: options.unknownFirst },
+    ...options?.registerNoop === undefined ? {} : { registerNoop: options.registerNoop },
   })
 }
 
-/**
- * 动态根视图 roster（discovery unmemoized 镜像）: 每次 resolve 重新扫描
- * user preset 根（`<presetRoot>/<preset-id>/agent.cordis.yml`）+ 可选
- * shipped 行（优先序 = shipped 根先, 与 web profile roots 序一致）。
- */
-function makeFsRoster(presetRoot: string, shippedFile?: string): FakeRoster {
-  const rowsProvider = (): ReadonlyMap<string, { id: string; path: string }> => {
-    const rows = new Map<string, { id: string; path: string }>()
-    if (shippedFile !== undefined) rows.set(INVESTIGATOR_PRESET_ID, { id: INVESTIGATOR_PRESET_ID, path: shippedFile })
-    const userFile = join(presetRoot, INVESTIGATOR_PRESET_ID, 'agent.cordis.yml')
-    if (!rows.has(INVESTIGATOR_PRESET_ID) && existsSync(userFile)) {
-      rows.set(INVESTIGATOR_PRESET_ID, { id: INVESTIGATOR_PRESET_ID, path: userFile })
-    }
-    return rows
-  }
-  return makeRoster({ rowsProvider })
-}
-
-function makeAdapter(presetRoot: string, ctx: FakeHost['ctx']): HostAgentLauncherAdapter {
-  return new HostAgentLauncherAdapter(ctx, { presetRootDir: presetRoot })
+function makeAdapter(ctx: FakeHost['ctx']): HostAgentLauncherAdapter {
+  return new HostAgentLauncherAdapter(ctx)
 }
 
 /** 捕获 IVL_* 错误 + 码断言（返回错误本体 — cause 面可断言）。 */
@@ -133,22 +105,22 @@ async function expectIvl(fn: () => Promise<unknown>, code: string): Promise<Inve
 
 describe('路径 A 全序（U5 定案）', () => {
   it('roster 命中 + 命令 success ⇒ 全序事件钉 + create 选项钉 + 结果钉', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const roster = makeShippedRoster(shipped)
+    const roster = makeDeclaredRoster()
     const commands = makeCommands({})
     // 假包装器传入 — makeHost 自动接全序事件面（mount/execute/followup
     // 与 create/restrict 同一日志）。
     const host: FakeHost = makeHost({ roster, commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
     const request = makeValidRequest({ cwd: '/ws/project', task: 'Read-only investigation of Intervention IV-7 "t".' })
 
     const result = await adapter.launchInvestigator(request)
 
-    // 全序: create-start → mount → restrict → create-done → execute → followup。
+    // 全序（R3 convergence）: create-start → mount → create-done → execute →
+    // followup — setup 只 mount: deny-7（guard+visibility）属 preset generation
+    // 的 safety 行（mount 即继承），adapter 不再叠 agent 层 restriction。
     expect(host.events.map(event => event.kind)).toEqual([
       'create-start',
       'mount',
-      'restrict',
       'create-done',
       'execute',
       'followup',
@@ -163,9 +135,7 @@ describe('路径 A 全序（U5 定案）', () => {
     const mountEvent = host.events.find(event => event.kind === 'mount')
     expect(mountEvent).toEqual({ kind: 'mount', presetId: INVESTIGATOR_PRESET_ID })
     expect(roster.mountCalls).toHaveLength(1)
-    // restriction 黑名单 = §7.2 可写 7 工具同一真源（单一来源引用钉）。
-    const restrictEvent = host.events.find(event => event.kind === 'restrict')
-    expect(restrictEvent).toEqual({ kind: 'restrict', deny: [...WRITE_TOOL_NAMES] })
+    // deny-7 名单单一真源不变（safety 行消费同一常量 — 引用钉）。
     expect(INVESTIGATOR_DENIED_TOOL_NAMES).toBe(WRITE_TOOL_NAMES)
     // /permission 命令线逐字 + images 恒空。
     const executeEvent = host.events.find(event => event.kind === 'execute')
@@ -190,12 +160,16 @@ describe('路径 A 全序（U5 定案）', () => {
     })
     expect(Object.isFrozen(result)).toBe(true)
     expect(adapter.permissionCommandLine()).toBe('/permission read-only')
+    // 声明命中路径不触发注册, 但回读门必须执行（readDocument 读过冻结
+    // 渲染内容 — 只读门在执行点）。
+    expect(roster.registerCalls).toHaveLength(0)
+    expect(roster.readDocumentCalls).toEqual([INVESTIGATOR_PRESET_ID])
+    expect(adapter.lastPresetEnsure).toBe('present')
   })
 
   it('sessionId 每次 launch 唯一（预分配 uuid — 不重用不派生自输入）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const host = makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const host = makeHost({ roster: makeDeclaredRoster().roster, commands: makeCommands({}).commands })
+    const adapter = makeAdapter(host.ctx)
     const first = await adapter.launchInvestigator(makeValidRequest())
     const second = await adapter.launchInvestigator(makeValidRequest())
     expect(first.sessionId).not.toBe(second.sessionId)
@@ -204,68 +178,96 @@ describe('路径 A 全序（U5 定案）', () => {
   })
 })
 
-describe('ensure preset（DSH_ADAPTER 映射行第 1 步）', () => {
-  it('首查 unknown（用户根空）⇒ 落盘冻结渲染组合 ⇒ 再 resolve 命中（discovery unmemoized 镜像）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    void shipped
-    const roster = makeFsRoster(presetRoot) // 无 shipped 行; 首查前用户根空
+describe('ensure preset（0.2 声明式注册 — 映射行第 1 步）', () => {
+  it('首查 unknown ⇒ register(闭集定义) ⇒ 再 resolve 命中（lastPresetEnsure registered）', async () => {
+    // 名册为空表起 — 首查 not-found ⇒ 适配器声明式注册 ⇒ 命中。
+    const roster = makeRoster({
+      rows: new Map(),
+      defaultContent: renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID),
+    })
     const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
-    await adapter.launchInvestigator(makeValidRequest())
+    const result = await adapter.launchInvestigator(makeValidRequest())
 
-    expect(adapter.lastPresetEnsure).toBe('written')
+    expect(adapter.lastPresetEnsure).toBe('registered')
     expect(roster.resolveCalls).toEqual([INVESTIGATOR_PRESET_ID, INVESTIGATOR_PRESET_ID])
-    const written = readFileSync(join(presetRoot, INVESTIGATOR_PRESET_ID, 'agent.cordis.yml'), 'utf8')
-    expect(written).toBe(renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID))
+    // 注册的声明 = service 单一真源产物（render → parse → definition）。
+    expect(roster.registerCalls).toHaveLength(1)
+    expect(roster.registerCalls[0]).toEqual(investigatorPresetDefinition())
+    // 闭集定义的行面（2 行只读工具 + R3 审计 safety 行, 再无第四行混入）。
+    expect(roster.registerCalls[0]!.plugins.map(row => row.name).sort())
+      .toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES, 'dsh-research-control/investigator-safety'].sort())
+    // 回读门读过注册后的内容。
+    expect(roster.readDocumentCalls).toEqual([INVESTIGATOR_PRESET_ID])
+    expect(result.presetId).toBe(INVESTIGATOR_PRESET_ID)
   })
 
-  it('已存在不覆写（名册视图滞后 — ensure 见文件已存在 ⇒ present, 内容原样）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    void shipped
-    // 用户自撰（过闭集解析的只读组合 — 行序不同的等价面; fs-search 行
-    // 携带上游必需的审计 config 键）, 落 user 根。
-    const authored = [
-      '- id: search',
-      "  name: '@deepseek-ai/dsh-tool-fs-search'",
-      '  config:',
-      '    sampleOverCapGlobResults: false',
-      '- id: shell',
-      "  name: '@deepseek-ai/dsh-tool-bash'",
-      '',
-    ].join('\n')
-    const userFile = join(presetRoot, INVESTIGATOR_PRESET_ID, 'agent.cordis.yml')
-    mkdirSync(join(presetRoot, INVESTIGATOR_PRESET_ID), { recursive: true })
-    writeFileSync(userFile, authored, 'utf8')
-    // 名册视图滞后镜像: 首查 unknown（视图未及更新）⇒ ensure 见文件已
-    // 存在（present — 不覆写）⇒ 再查视图追上（命中用户自撰行）。
-    const emptyView = new Map<string, { id: string; path: string }>()
-    const hitView = new Map([[INVESTIGATOR_PRESET_ID, { id: INVESTIGATOR_PRESET_ID, path: userFile }]] as const)
-    const views = [emptyView, hitView]
-    // 首查走 emptyView（unknown ⇒ ensure）, 次查起走 hitView（视图追上）。
-    // resolveIndex 从 -1 起: 推进器先 +1 再取视图 — 第 1 次 resolve 见
-    // views[0], 第 2 次见 views[1]。
-    let resolveIndex = -1
+  it('注册经 ctx.effect 挂 fiber — 卸载即名册回收（reload 干净重注册）', async () => {
     const roster = makeRoster({
-      rowsProvider: () => views[Math.max(0, Math.min(resolveIndex, views.length - 1))],
+      rows: new Map(),
+      defaultContent: renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID),
     })
-    // 推进器: roster.resolve 每次被调用, 视图前进一步（模拟 discovery 追赶）。
-    const originalResolve = roster.roster.resolve
-    roster.roster.resolve = (id?: string) => {
-      resolveIndex += 1
-      return originalResolve(id)
-    }
     const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
-
+    const adapter = makeAdapter(host.ctx)
     await adapter.launchInvestigator(makeValidRequest())
+    expect(host.effects).toHaveLength(1)
+    expect(host.effects[0]!.label).toBe('research-control/investigator-preset')
+    expect(host.effects[0]!.disposed).toBe(false)
+
+    // fiber 卸载: effect disposer 逆序 await → 假注册表真 unregister。
+    await host.disposeEffects()
+    expect(host.effects[0]!.disposed).toBe(true)
+    const caught = await captureAsync(() => roster.roster.resolve(INVESTIGATOR_PRESET_ID))
+    expect((caught as Error).message).toContain('Unknown agent preset')
+
+    // reload 语义: 新适配器在新名册状态重新注册成功（无 Duplicate 残留）。
+    const host2 = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
+    const result2 = await makeAdapter(host2.ctx).launchInvestigator(makeValidRequest())
+    expect(result2.presetId).toBe(INVESTIGATOR_PRESET_ID)
+  })
+
+  it('Duplicate 竞态（他方已声明同 id）⇒ present（回读门把关, 不崩不重复）', async () => {
+    // 行已存在但首查视图滞后（unknownFirst: 1）⇒ 适配器 register 撞
+    // Duplicate（假名册按真注册表语义抛 `Duplicate agent preset`）⇒
+    // 视作 present ⇒ 第二次 resolve 命中 ⇒ 正常启动。
+    const roster = makeDeclaredRoster({ unknownFirst: 1 })
+    const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
+    const adapter = makeAdapter(host.ctx)
+
+    const result = await adapter.launchInvestigator(makeValidRequest())
 
     expect(adapter.lastPresetEnsure).toBe('present')
-    expect(readFileSync(userFile, 'utf8')).toBe(authored) // 未覆写
+    expect(roster.registerCalls).toHaveLength(1) // 尝试了（竞态面）
+    expect(roster.readDocumentCalls).toEqual([INVESTIGATOR_PRESET_ID])
+    expect(result.presetId).toBe(INVESTIGATOR_PRESET_ID)
   })
 
-  it('非闭集组合回读 ⇒ IVL_PRESET_NOT_READONLY（零 create — 只读门在执行点）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
+  it('register 后仍 unknown（注册被名册吞掉）⇒ IVL_PRESET（不吞不猜）', async () => {
+    const roster = makeRoster({ rows: new Map(), registerNoop: true })
+    const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
+    const adapter = makeAdapter(host.ctx)
+
+    const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_PRESET')
+    expect(caught.message).toContain('still unresolvable after register')
+    expect(host.createCalls).toHaveLength(0)
+  })
+
+  it('register 抛非 Duplicate 错误 ⇒ IVL_PRESET（cause 保留）', async () => {
+    const roster = makeRoster({
+      rows: new Map(),
+      registerError: new Error('preset activation refused by deployment policy'),
+    })
+    const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
+    const adapter = makeAdapter(host.ctx)
+
+    const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_PRESET')
+    expect(caught.message).toContain('activation refused by deployment policy')
+    expect((caught.cause as Error).message).toContain('activation refused')
+    expect(host.createCalls).toHaveLength(0)
+  })
+
+  it('非闭集声明回读 ⇒ IVL_PRESET_NOT_READONLY（零 create — 只读门在执行点）', async () => {
     const rogue = [
       "- id: bash",
       "  name: '@deepseek-ai/dsh-tool-bash'",
@@ -273,9 +275,9 @@ describe('ensure preset（DSH_ADAPTER 映射行第 1 步）', () => {
       "  name: '@deepseek-ai/dsh-tool-fs'",
       '',
     ].join('\n')
-    const roster = makeShippedRoster(shipped, { path: makeShippedFile(shipped, rogue) })
+    const roster = makeDeclaredRoster({ content: rogue })
     const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_PRESET_NOT_READONLY')
     expect(caught.message).toContain('@deepseek-ai/dsh-tool-fs')
@@ -283,82 +285,68 @@ describe('ensure preset（DSH_ADAPTER 映射行第 1 步）', () => {
     expect(host.events).toEqual([])
   })
 
-  it('broken 行 ⇒ IVL_PRESET_BROKEN（零 create — 指名 broken 原因）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    void shipped
-    const roster = makeRoster({
-      rows: new Map([[INVESTIGATOR_PRESET_ID, { id: INVESTIGATOR_PRESET_ID, path: '/nonexistent/agent.cordis.yml', broken: 'row 2 failed to load' }]]),
-    })
+  it('broken 声明 ⇒ IVL_PRESET_BROKEN（零 create — 指名 broken 原因）', async () => {
+    const roster = makeDeclaredRoster({ broken: 'row 2 failed to load' })
     const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_PRESET_BROKEN')
     expect(caught.message).toContain('row 2 failed to load')
     expect(host.createCalls).toHaveLength(0)
   })
 
-  it('resolve 非 unknown 错误（根不可读）⇒ IVL_PRESET（不 ensure 不吞）', async () => {
-    const { presetRoot } = makeTempDirs()
+  it('resolve 非 unknown 错误 ⇒ IVL_PRESET（不 ensure 不吞）', async () => {
     const failingRoster = {
       async resolve(): Promise<never> {
-        throw new Error('ENOENT: root unreadable')
+        throw new Error('roster store corrupt')
       },
       async list() {
         return []
+      },
+      async register(): Promise<() => Promise<void>> {
+        throw new Error('unreachable')
+      },
+      async readDocument(): Promise<never> {
+        throw new Error('unreachable')
       },
       async mount() {
         throw new Error('unreachable')
       },
     }
     const host = makeHost({ roster: failingRoster as never, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_PRESET')
-    expect(caught.message).toContain('ENOENT: root unreadable')
+    expect(caught.message).toContain('roster store corrupt')
     expect(host.createCalls).toHaveLength(0)
-  })
-
-  it('ensure 后仍 unknown（roster 根看不见用户根）⇒ IVL_PRESET（指名根）', async () => {
-    const { presetRoot } = makeTempDirs()
-    // roster 永远不命中 — 模拟 roots 不含用户根（includeUserRoot: false 部署）。
-    const neverHits = makeRoster({ rows: new Map(), unknownFirst: Number.MAX_SAFE_INTEGER })
-    const host = makeHost({ roster: neverHits.roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
-
-    const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_PRESET')
-    expect(caught.message).toContain(presetRoot)
-    expect(host.createCalls).toHaveLength(0)
-    // 落盘本身发生了（ensure 尝试了）— 可见性缺失是 roster 配置事实。
-    expect(adapter.lastPresetEnsure).toBe('written')
   })
 })
 
-describe('降级面（无 roster 部署）', () => {
-  it('meta 无 agentPreset + lastPresetEnsure skipped + restriction/sandbox 两层仍生效', async () => {
-    const { presetRoot } = makeTempDirs()
+describe('无 roster 部署（0.2.0-rc.2 收紧 — 不降级, fail-loud）', () => {
+  it('ctx.get("agentPresets") 缺席 ⇒ IVL_PRESET + 零副作用（闭集组合不可证明即拒启）', async () => {
     const host = makeHost({ commands: makeCommands({}) })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
-    const result = await adapter.launchInvestigator(makeValidRequest())
-
-    expect(adapter.lastPresetEnsure).toBe('skipped')
-    expect(host.createCalls[0].meta).toEqual({ cwd: '/ws/project' })
-    expect('agentPreset' in (host.createCalls[0].meta as object)).toBe(false)
-    expect(host.events.map(event => event.kind)).toEqual(['create-start', 'restrict', 'create-done', 'execute', 'followup'])
-    expect(result).not.toHaveProperty('presetId')
+    const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_PRESET')
+    expect(caught.message).toContain('no agent-preset registry')
+    expect(caught.message).toContain('cannot be proven')
+    // 零宿主副作用: 不建会话、不驱动命令、不注册 preset、无 ensure 结果。
+    expect(host.createCalls).toHaveLength(0)
+    expect(host.events).toEqual([])
+    expect(host.effects).toHaveLength(0)
+    expect(adapter.lastPresetEnsure).toBeUndefined()
   })
 })
 
 describe('命令面失败（IVL_PERMISSION — 不降级启动）', () => {
   it.each([
-    ['无命令注册表', (shipped: string) => makeHost({ roster: makeShippedRoster(shipped).roster, commands: undefined })],
-    ['execute 返回 undefined（命令未注册）', (shipped: string) => makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({ unregistered: true }).commands })],
-    ['execute 返回 kind error（preset 表缺 read-only 行）', (shipped: string) => makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({ execution: { commandId: 'cmd-1', result: { kind: 'error', text: 'unknown preset "read-only" (available: workspace-write, danger-full-access)' } } }).commands })],
-    ['execute throw', (shipped: string) => makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({ executeError: new Error('boom') }).commands })],
+    ['无命令注册表', () => makeHost({ roster: makeDeclaredRoster().roster, commands: undefined })],
+    ['execute 返回 undefined（命令未注册）', () => makeHost({ roster: makeDeclaredRoster().roster, commands: makeCommands({ unregistered: true }).commands })],
+    ['execute 返回 kind error（preset 表缺 read-only 行）', () => makeHost({ roster: makeDeclaredRoster().roster, commands: makeCommands({ execution: { commandId: 'cmd-1', result: { kind: 'error', text: 'unknown preset "read-only" (available: workspace-write, danger-full-access)' } } }).commands })],
+    ['execute throw', () => makeHost({ roster: makeDeclaredRoster().roster, commands: makeCommands({ executeError: new Error('boom') }).commands })],
   ])('%s ⇒ IVL_PERMISSION + 零 followup', async (_label, make) => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const host = make(shipped)
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const host = make()
+    const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_PERMISSION')
     expect(caught.message).toContain('/permission read-only')
@@ -369,40 +357,37 @@ describe('命令面失败（IVL_PERMISSION — 不降级启动）', () => {
 
 describe('create / setup 失败（IVL_LAUNCH — all-or-nothing）', () => {
   it('agents.create 抛错 ⇒ IVL_LAUNCH（cause 保留）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const host = makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({}).commands })
+    const host = makeHost({ roster: makeDeclaredRoster().roster, commands: makeCommands({}).commands })
     const cause = new Error('session-conflict')
     host.failCreate(cause)
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_LAUNCH')
     expect(caught.cause).toBe(cause)
   })
 
   it('无 agent 注册表部署（ctx.get("agents") 缺席）⇒ IVL_LAUNCH 使用大声 + 零副作用（WP-7.4 / G7 S1 — §4 无 `agents` 硬 inject 裁决面）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const host = makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({}).commands })
+    const host = makeHost({ roster: makeDeclaredRoster().roster, commands: makeCommands({}).commands })
     host.setAgents(undefined)
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_LAUNCH')
     expect(caught.message).toContain('no agent registry')
     expect(caught.message).toContain('DSH_ADAPTER §4')
-    // 使用大声, 零宿主副作用: 不创建会话、不驱动命令、不落 preset 文件
-    // （能力缺席的部署连调查员 preset 都不该被 ensure 出 — 插件本体
+    // 使用大声, 零宿主副作用: 不创建会话、不驱动命令、不注册 preset
+    // （能力缺席的部署连调查员 preset 声明都不该落进名册 — 插件本体
     // 仍可加载, 缺口在使用点名, 不静默降级）。
     expect(host.createCalls).toHaveLength(0)
     expect(host.events).toEqual([])
-    expect(existsSync(join(presetRoot, INVESTIGATOR_PRESET_ID, 'agent.cordis.yml'))).toBe(false)
+    expect(host.effects).toHaveLength(0)
   })
 
   it('preset mount 拒绝 ⇒ IVL_LAUNCH（零命令零 followup — setup 回滚镜像）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const roster = makeShippedRoster(shipped, {
-      mountError: new Error(`agent-presets: preset "${INVESTIGATOR_PRESET_ID}" failed to mount: row 1 failed to load`),
+    const roster = makeDeclaredRoster({
+      mountError: new Error(`agent-preset-registry: preset "${INVESTIGATOR_PRESET_ID}" failed to mount: row 1 failed to load`),
     })
     const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_LAUNCH')
     expect(caught.message).toContain('failed to mount')
@@ -410,54 +395,29 @@ describe('create / setup 失败（IVL_LAUNCH — all-or-nothing）', () => {
     expect(host.createdAgents).toHaveLength(0)
   })
 
-  it('restrict 抛错（部署无研究工具 — 名字未知）⇒ IVL_LAUNCH（零命令零 followup）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
+  it('generation mount 抛错（preset 行加载失败）⇒ IVL_LAUNCH（零命令零 followup）— R3: setup 面只剩 mount', async () => {
     const host = makeHost({
-      roster: makeShippedRoster(shipped).roster,
+      roster: makeDeclaredRoster({ mountError: new Error('mount failed: row research-investigator-safety failed to load') }).roster,
       commands: makeCommands({}).commands,
-      restrictError: new Error('tools.restrict() names unknown global tool "research_fact_record"'),
     })
-    const adapter = makeAdapter(presetRoot, host.ctx)
+    const adapter = makeAdapter(host.ctx)
 
     const caught = await expectIvl(() => adapter.launchInvestigator(makeValidRequest()), 'IVL_LAUNCH')
-    expect(caught.message).toContain('tools.restrict() names unknown global tool')
+    expect(caught.message).toContain('research-investigator-safety')
     expect(host.events.filter(event => event.kind === 'execute' || event.kind === 'followup')).toEqual([])
   })
 })
 
-describe('端口边界再断言（INV-PERM-3 双钉 — 宿主半边）', () => {
-  it('伪造请求（注入 sandboxMode）⇒ IVL_WRITE_CAPABILITY + 零 create 零命令', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const host = makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
-    const forged = { ...makeValidRequest(), sandboxMode: 'danger-full-access' } as unknown as InvestigatorLaunchRequest
-
-    const caught = await expectIvl(() => adapter.launchInvestigator(forged), 'IVL_WRITE_CAPABILITY')
-    expect(caught.message).toContain('sandboxMode')
-    expect(caught.message).toContain('INV-PERM-3')
-    expect(host.createCalls).toHaveLength(0)
-    expect(host.events).toEqual([])
-  })
-
-  it('合法闭集请求在端口边界放行（再断言不拦合法面）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const host = makeHost({ roster: makeShippedRoster(shipped).roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
-    const result = await adapter.launchInvestigator(makeValidRequest())
-    expect(result.sessionId).toMatch(/^investigator-/)
-  })
-})
-
-describe('组合文本同源（ensure 写盘 = 回读解析 = 渲染器 单一真源）', () => {
-  it('ensure 落盘内容恰为闭集 2 行组合（无第三行混入）', async () => {
-    const { presetRoot, shipped } = makeTempDirs()
-    const roster = makeShippedRoster(shipped, { unknownFirst: 1 })
-    const host = makeHost({ roster: roster.roster, commands: makeCommands({}).commands })
-    const adapter = makeAdapter(presetRoot, host.ctx)
-    await adapter.launchInvestigator(makeValidRequest())
-    const text = readFileSync(join(presetRoot, INVESTIGATOR_PRESET_ID, 'agent.cordis.yml'), 'utf8')
+describe('组合文本同源（注册定义 = 回读解析 = 渲染器 单一真源）', () => {
+  it('注册的声明恰为闭集 2 行工具 + 审计 safety 行（无其他混入）+ 渲染文本过同一解析门', async () => {
+    const definition = investigatorPresetDefinition()
+    expect(definition.id).toBe(INVESTIGATOR_PRESET_ID)
+    expect(definition.plugins.map(row => row.name).sort()).toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES, 'dsh-research-control/investigator-safety'].sort())
+    expect(definition.plugins).toHaveLength(3) // 2 tool rows + the audited safety row
+    // 渲染文本 = 注册定义 = 回读门输入: 冻结渲染再解析, 行面一致。
+    const text = renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID)
     const nameRows = text.split('\n').filter(line => line.startsWith('  name: '))
     expect(nameRows.map(line => line.replace('  name: ', '').replace(/'/g, '')).sort())
-      .toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES].sort())
+      .toEqual([...INVESTIGATOR_PRESET_TOOL_NAMES, 'dsh-research-control/investigator-safety'].sort())
   })
 })

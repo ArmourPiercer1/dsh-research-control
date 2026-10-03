@@ -27,14 +27,11 @@ import type {
   SessionLifecycleEvent,
 } from '../src/shared/host-adapter-ports.js'
 
-/** One fake session-log entry (structural `SessionEventLike`). */
-interface FakeEvent {
-  seq: number
-  type: string
-  data?: unknown
-}
-
-/** Build one fake live session with header fields and a log. */
+/**
+ * Build one fake live session with header fields ONLY (0.2 `SessionLike`:
+ * the 0.1 log property is gone — title/blank/preset-selection now come from
+ * the fake `sessionProjections` below, never from the session object).
+ */
 function makeSession(
   id: string,
   opts: {
@@ -43,7 +40,6 @@ function makeSession(
     origin?: 'subagent'
     agentPreset?: string
     createdAt?: number
-    events?: FakeEvent[]
   } = {},
 ): SessionLike {
   return {
@@ -55,7 +51,25 @@ function makeSession(
       ...opts.agentPreset === undefined ? {} : { agentPreset: opts.agentPreset },
       createdAt: opts.createdAt ?? 1_700_000_000_000,
     },
-    events: opts.events ?? [],
+  }
+}
+
+/** Per-session fake projection states keyed by session id. */
+interface FakeProjectionState {
+  title?: string | null
+  turnBoundary?: { openTurnStartSeq: number | null; lastTurn: number }
+  agentPreset?: string | null
+}
+
+/**
+ * Fake `ctx.sessionProjections`: a session missing from the map behaves
+ * like an unregistered unit (`stateOf` -> undefined), exactly the 0.2
+ * session-projection contract.
+ */
+function makeProjections(map: Readonly<Record<string, FakeProjectionState>>) {
+  return {
+    stateOf: (session: { id: string }, key: string): unknown =>
+      (map[session.id] as Readonly<Record<string, unknown>> | undefined)?.[key],
   }
 }
 
@@ -96,18 +110,27 @@ function makeBus() {
 }
 
 /**
- * Assemble the fake host context: bus + store, and — only when `agents`
- * is provided — a minimal agent registry behind `ctx.get('agents')`
- * (the adapter's `running` derivation; absent registry ⇒ `running:false`).
+ * Assemble the fake host context: bus + store, and — only when provided —
+ * a minimal agent registry behind `ctx.get('agents')` (the adapter's
+ * `running` derivation; absent registry ⇒ `running:false`) and a fake
+ * projections service behind `ctx.get('sessionProjections')` (absent ⇒ the
+ * adapter's documented degradation path).
  */
-function makeCtx(store: SessionStoreLike, agents?: readonly { id: string; status: string }[]) {
+function makeCtx(
+  store: SessionStoreLike,
+  agents?: readonly { id: string; status: string }[],
+  projections?: ReturnType<typeof makeProjections>,
+) {
   const bus = makeBus()
   const registry = agents === undefined ? undefined : new Map(agents.map(agent => [agent.id, agent]))
   const fake = {
     events: { on: bus.on },
     sessions: store,
-    get: (name: string): unknown =>
-      name === 'agents' && registry !== undefined ? { get: (id: string) => registry.get(id) } : undefined,
+    get: (name: string): unknown => {
+      if (name === 'agents' && registry !== undefined) return { get: (id: string) => registry.get(id) }
+      if (name === 'sessionProjections' && projections !== undefined) return projections
+      return undefined
+    },
   }
   return {
     ctx: fake as unknown as SessionHostContext,
@@ -204,27 +227,115 @@ describe('session adapter spike (WP-0.4)', () => {
     again()
   })
 
-  it('maps ctx.sessions.list() rows to the port payload fields', () => {
+  it('maps ctx.sessions.list() rows to the port payload fields (projection-derived title/blank/preset)', () => {
     const s1 = makeSession('s1', {
       cwd: '/work/repo',
       agentPreset: 'researcher',
       createdAt: 111,
-      events: [
-        { seq: 0, type: 'turn/start', data: { turn: 1 } },
-        { seq: 1, type: 'session/title', data: { title: 'first', messageSeqs: [], source: { kind: 'fallback' } } },
-        { seq: 2, type: 'session/title', data: { title: 'renamed', messageSeqs: [], source: { kind: 'user' } } },
-      ],
     })
     const s2 = makeSession('s2', { parentSession: 's1', origin: 'subagent', createdAt: 222 })
-    const { ctx } = makeCtx(makeStore([s1, s2]), [{ id: 's1', status: 'running' }])
+    const projections = makeProjections({
+      // title unit: last committed fold; turnBoundary: one closed turn.
+      s1: {
+        title: 'renamed',
+        turnBoundary: { openTurnStartSeq: null, lastTurn: 1 },
+        agentPreset: 'researcher',
+      },
+    })
+    const { ctx } = makeCtx(makeStore([s1, s2]), [{ id: 's1', status: 'running' }], projections)
     const adapter = new HostSessionAdapter(ctx)
 
-    // Creation order preserved; header fields mapped 1:1; latest title
-    // wins; blank folded from the log; running from the agent registry.
+    // Creation order preserved; header fields mapped 1:1; title from the
+    // title unit; blank folded from turnBoundary; running from the agents
+    // registry. s2 has no registered projection units: title omitted,
+    // blank TRUE — an absent `turnBoundary` unit is AUTHORITATIVE
+    // no-turn evidence (upstream capability absence, core/agent/src/
+    // types.ts:69-76; see the R4 contract case below), agentPreset falls
+    // back to the header creation fact (absent ⇒ omitted).
     expect(adapter.listSessions()).toEqual([
       { id: 's1', cwd: '/work/repo', title: 'renamed', running: true, agentPreset: 'researcher', createdAt: 111, blank: false },
       { id: 's2', running: false, parentId: 's1', origin: 'subagent', createdAt: 222, blank: true },
     ])
+  })
+
+  it('title updates and turn starts flow through the projection units', () => {
+    const s1 = makeSession('s1')
+    const store = makeStore([s1])
+    const states: Record<string, FakeProjectionState> = {
+      s1: { title: null, turnBoundary: { openTurnStartSeq: null, lastTurn: 0 }, agentPreset: null },
+    }
+    const { ctx } = makeCtx(store, undefined, makeProjections(states))
+    const adapter = new HostSessionAdapter(ctx)
+    expect(adapter.listSessions()[0]).toMatchObject({ blank: true })
+    expect(adapter.listSessions()[0]).not.toHaveProperty('title')
+
+    // `session/title` committed ⇒ the title unit advances (no log re-read).
+    states.s1 = { ...states.s1, title: 'research: repo' }
+    expect(adapter.listSessions()[0]).toMatchObject({ title: 'research: repo' })
+
+    // `turn/start` committed ⇒ the turnBoundary unit advances ⇒ not blank.
+    states.s1 = { ...states.s1, turnBoundary: { openTurnStartSeq: 7, lastTurn: 1 } }
+    expect(adapter.listSessions()[0]).toMatchObject({ blank: false })
+
+    // `turn/end` committed ⇒ closed turn, still not blank.
+    states.s1 = { ...states.s1, turnBoundary: { openTurnStartSeq: null, lastTurn: 1 } }
+    expect(adapter.listSessions()[0]).toMatchObject({ blank: false })
+  })
+
+  it('agentPreset reports the CURRENT projection selection, not the header creation fact', () => {
+    // Header says the session STARTED with `standard`; a blank-session
+    // `agent-preset/selected` advanced the unit to `research-investigator`.
+    const s1 = makeSession('s1', { agentPreset: 'standard' })
+    const { ctx } = makeCtx(
+      makeStore([s1]),
+      undefined,
+      makeProjections({ s1: { agentPreset: 'research-investigator' } }),
+    )
+    expect(new HostSessionAdapter(ctx).listSessions()[0]).toMatchObject({ agentPreset: 'research-investigator' })
+
+    // Projection says null (deployment composes none) ⇒ omitted even when
+    // a stale header fact exists (projection is the authority).
+    const { ctx: nullCtx } = makeCtx(makeStore([s1]), undefined, makeProjections({ s1: { agentPreset: null } }))
+    expect(new HostSessionAdapter(nullCtx).listSessions()[0]).not.toHaveProperty('agentPreset')
+  })
+
+  it('degrades without the projections service: header preset, conservative blank, no title', () => {
+    const s1 = makeSession('s1', { agentPreset: 'researcher' })
+    const { ctx } = makeCtx(makeStore([s1]))
+    expect(new HostSessionAdapter(ctx).listSessions()[0]).toMatchObject({
+      agentPreset: 'researcher', // header creation fact (unit unregistered)
+      blank: true, // degraded read never claims started without proof —
+      // the same fallback the host select gate applies (R4 unification;
+      // the projections-service-absent arm of the two undefined arms in
+      // the R4 contract case below)
+    })
+  })
+
+  it('R4 contract: an absent turnBoundary unit is AUTHORITATIVE no-turn evidence (capability absence)', () => {
+    // Upstream reader contract (checkout core/agent/src/types.ts:69-76):
+    // the `turnBoundary` key is registered by `dsh-agent-loop` and ABSENT
+    // otherwise; "without agent-loop no turn events exist, so readers
+    // treat an absent key as no open turn / no boundaries — capability
+    // absence, not a corrupt state." ⇒ a session with no unit never
+    // started ⇒ blank true (mirrors the host select gate, agent-preset-
+    // registry/src/index.ts:321-323). The projections-service-absent arm
+    // keeps the same fallback (degraded reads never claim started without
+    // proof). DISCLOSED existing-debt edge (host-side, outside this
+    // plugin's patch budget): turns ran + agent-loop uninstalled mid-
+    // persistence reads blank again — unreachable while agent-loop is
+    // installed. No destructive consumer of `.blank` exists in this repo
+    // (display/analysis payloads only — verified by grep).
+    const s1 = makeSession('s1')
+    const { ctx } = makeCtx(makeStore([s1]), undefined, makeProjections({}))
+    expect(new HostSessionAdapter(ctx).listSessions()[0]).toMatchObject({ blank: true })
+    // …and a folded unit with boundaries is NOT blank (the non-blank arm,
+    // replayed state — the dispose edge above is the only unverifiable
+    // transition and stays disclosed, not silently asserted).
+    const started = makeProjections({
+      s1: { title: null, turnBoundary: { openTurnStartSeq: null, lastTurn: 2 }, agentPreset: null },
+    })
+    const startedCtx = makeCtx(makeStore([s1]), undefined, started)
+    expect(new HostSessionAdapter(startedCtx.ctx).listSessions()[0]).toMatchObject({ blank: false })
   })
 
   it('reports running:false when the agent registry is absent or the agent idle', () => {

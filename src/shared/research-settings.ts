@@ -20,11 +20,24 @@ import type { PlaneStateSummary } from './rpc-contracts.js'
  * The DSH user-settings namespace owned by this plugin (frozen §7.5 —
  * 「按设置域 namespace 配对」). The host's `settingsNamespace()` brands
  * exactly this string pattern; the plugin keeps it as a plain string
- * because it does not devDep on `@deepseek-ai/dsh-settings`. The client
- * card registers into the `settings.plugin.item` slot under THIS key, so
- * the host and the browser half pair on the same name.
+ * because it does not devDep on `@deepseek-ai/dsh-settings`. In 0.2 the
+ * legacy `settings.yaml` migration reads THIS section out of the profile
+ * home document (see the host `parseLegacyResearchSection`); the live
+ * config plane is keyed by {@link RESEARCH_SETTINGS_ENTRY_ID} instead.
  */
 export const RESEARCH_SETTINGS_NAMESPACE = 'dsh-research-control'
+
+/**
+ * rc.2 config-form key — the HOST PROFILE ENTRY id whose ConfigForm the
+ * browser card edits. In the 0.2 settings model the client reads a plugin's
+ * configuration through `ctx.configForms.get(entryId)`, keyed by the profile
+ * entry id (== the descriptor `ns` the host `describe()` serves == this
+ * plugin's entry `options.id`), NOT by the frozen 0.1 `settingsNamespace()`
+ * brand. Empirically this deployment's entry id is `research-control` (the
+ * profile patch entry); the host read path resolves the same id through
+ * `resolveOwnSettingsEntryId` so the host and browser halves pair on it.
+ */
+export const RESEARCH_SETTINGS_ENTRY_ID = 'research-control'
 
 /** The project data directory name, default (the per-project declarative tree). */
 export const DEFAULT_PROJECT_TREE_DIR = '.research'
@@ -190,6 +203,31 @@ export function findLostDiscovery(
  * - `write-error` — a settings-domain write failed: nothing is kept
  *  (nothing was written, or the partial write was rolled back).
  */
+/**
+ * Pure narrowing of one config-form raw snapshot into the card's display
+ * values (R5: shared so the adapter face and the seat-rendered view derive
+ * the canonical and the page-OWNER forms through ONE function — belt-and-
+ * braces per-field guards over the schema, non-strings fall back to the
+ * composition defaults).
+ */
+export function deriveSettingsSectionFromRaw(
+  raw: { readonly status: 'loading' | 'ready' | 'unavailable'; readonly value: unknown; readonly writable: boolean },
+  defaults: ResearchSettingsSection,
+): { status: 'loading' | 'ready' | 'unavailable'; values: ResearchSettingsSection | undefined; writable: boolean } {
+  const record = typeof raw.value === 'object' && raw.value !== null ? (raw.value as unknown as Record<string, unknown>) : {}
+  return {
+    status: raw.status,
+    values:
+      raw.value === undefined
+        ? undefined
+        : {
+            projectTreeDir: typeof record.projectTreeDir === 'string' ? record.projectTreeDir : defaults.projectTreeDir,
+            hubDir: typeof record.hubDir === 'string' ? record.hubDir : defaults.hubDir,
+          },
+    writable: raw.writable,
+  }
+}
+
 export type ResearchSettingsSaveOutcome =
   | { readonly status: 'saved' }
   | {
@@ -197,6 +235,8 @@ export type ResearchSettingsSaveOutcome =
       readonly hubLost: boolean
       readonly hubPath: string | null
       readonly lostTreePaths: string[]
+      /** Set when the post-rollback RESCAN of the restored paths ALSO failed — the live plane did not come back (the card blocks with this second fault; a manual rescan/restart is required). */
+      readonly restoreFault?: string
     }
-  | { readonly status: 'rescan-error'; readonly message: string }
+  | { readonly status: 'rescan-error'; readonly message: string; readonly restoreFault?: string }
   | { readonly status: 'write-error'; readonly message: string }

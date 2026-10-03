@@ -14,7 +14,7 @@
  * instances and the loader duck-checks them via the `_zod` brand.
  *
  * The `*Mirror` interfaces below re-declare the Typert protocol types
- * (npm `@deepseek-ai/dsh-typert-protocol` 0.1.0-rc.8 `lib/types/types.d.ts`)
+ * (npm `@deepseek-ai/dsh-typert-protocol` 0.2.0-rc.2 `lib/types/types.d.ts`)
  * and the registry manifest types (checkout `packages/typert/registry/src/types.ts`)
  * because this file cannot import those packages. The host and client
  * artifact files re-attach the REAL protocol types at their export
@@ -102,15 +102,25 @@ export const PingResultSchema = z.object({
 
 /**
  * Structural mirror of the protocol `TypertSchema` (the minimal runtime
- * capability a strict codec schema must carry).
+ * capability a strict codec schema must carry). The 0.2 train materializes
+ * the process-realm schema lazily through a codec/manifest `create()`
+ * factory (checkout `packages/typert/protocol/src/types.ts:269-292`,
+ * `packages/typert/registry/src/types.ts:74-89`); this is what a factory
+ * returns.
  */
 export interface TypertSchemaLike {
   parse(value: unknown): unknown
 }
 
-/** Structural mirror of the protocol `TypertCodec` union. */
+/**
+ * Structural mirror of the protocol `TypertCodec` union. The strict branch
+ * carries a `create: () => TypertSchema` factory (0.2), not the schema value
+ * object the 0.1 train embedded — the loader rejects a codec with no
+ * `create()` factory (`typert-loader: … <subject> has no create() factory`,
+ * checkout `packages/typert/loader/src/index.ts:270-284`).
+ */
 export type TypertCodecMirror =
-  | { readonly mode: 'strict'; readonly typeSymbol: string; readonly schema: TypertSchemaLike }
+  | { readonly mode: 'strict'; readonly typeSymbol: string; readonly create: () => TypertSchemaLike }
   | { readonly mode: 'src-json' }
 
 /** Structural mirror of the protocol `InvocationParameterDescriptor`. */
@@ -203,10 +213,16 @@ export interface TypertPackageModelMirror {
   readonly objects: readonly TypertObjectModelMirror[]
 }
 
-/** Structural mirror of the registry `TypertSchema`. */
+/**
+ * Structural mirror of the registry `TypertSchemaFactory` (the 0.2
+ * `TYPERT.schemas` entry shape: a name plus a `create()` factory, checkout
+ * `packages/typert/registry/src/types.ts:74-79`). The old `{name, schema}`
+ * value-object entry is rejected by the 0.2 loader with
+ * `TYPERT schema "<name>" has no create() factory`.
+ */
 export interface TypertSchemaMirror {
   readonly name: string
-  readonly schema: TypertSchemaLike
+  readonly create: () => TypertSchemaLike
 }
 
 /**
@@ -239,7 +255,7 @@ export const pingInvocation: InvocationDescriptorMirror = {
   method: 'ping',
   invocation: { kind: 'direct' },
   parameters: [],
-  result: { mode: 'strict', typeSymbol: 'PingResult', schema: PingResultSchema },
+  result: { mode: 'strict', typeSymbol: 'PingResult', create: () => PingResultSchema },
 }
 
 /* ===================================================================== *
@@ -1401,7 +1417,11 @@ function argsParameter(argsSymbol: string, schema: TypertSchemaLike): Invocation
     name: 'args',
     wire: 'args',
     source: 'json',
-    codec: { mode: 'strict', typeSymbol: argsSymbol, schema },
+    // The factory closes over the SHARED module-level zod instance, so every
+    // `create()` returns the same object — the identity discipline the
+    // generated self-memoizing factories have (generator emitter.ts:702),
+    // by construction instead of by memoization.
+    codec: { mode: 'strict', typeSymbol: argsSymbol, create: () => schema },
   }
 }
 
@@ -1413,7 +1433,7 @@ function descriptor(method: ResearchRpcMethod | ResearchPlaneRpcMethod | Researc
     method,
     invocation: { kind: 'direct' },
     parameters,
-    result: { mode: 'strict', typeSymbol: resultSymbol, schema: resultSchema },
+    result: { mode: 'strict', typeSymbol: resultSymbol, create: () => resultSchema },
   }
 }
 

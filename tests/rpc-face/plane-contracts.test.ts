@@ -230,20 +230,20 @@ describe('V2-T3.1 descriptor mirror consistency — the 9 plane descriptors', ()
       // Mirror identity: the codec carries the SAME shared schema instance
       // (the no-drift-by-construction rule, applied at the contract layer).
       expect(codec.typeSymbol, `${d.method} args typeSymbol`).toBe(planeArgsSymbols[d.method])
-      expect(codec.schema, `${d.method} args codec must be the shared schema instance`).toBe(
+      expect(codec.create(), `${d.method} args codec must materialize the shared schema instance`).toBe(
         planeArgsSchemas[d.method],
       )
-      expect('_zod' in (codec.schema as object), `${d.method} args codec zod brand`).toBe(true)
+      expect('_zod' in (codec.create() as object), `${d.method} args codec zod brand`).toBe(true)
     })
 
     it(`${d.method}: the result codec binds the shared result schema (mirror identity)`, () => {
       expect(d.result.mode, `${d.method} result codec mode`).toBe('strict')
       const result = strictCodec(d.result)
       expect(result.typeSymbol, `${d.method} result typeSymbol`).toBe(planeResultSymbols[d.method])
-      expect(result.schema, `${d.method} result codec must be the shared schema instance`).toBe(
+      expect(result.create(), `${d.method} result codec must materialize the shared schema instance`).toBe(
         planeResultSchemas[d.method],
       )
-      expect('_zod' in (result.schema as object), `${d.method} result codec zod brand`).toBe(true)
+      expect('_zod' in (result.create() as object), `${d.method} result codec zod brand`).toBe(true)
     })
   }
 

@@ -7,8 +7,8 @@
  * adapter half (`dsh-adapter/settings-card.tsx`) hands the card the
  * inject face below — plain data + callbacks (client/AGENTS.md rule 7) —
  * and the slot runtime spreads the face members onto the component as
- * props (the keyed slot `settings.plugin.item`'s owner share is empty,
- * so the face IS the props).
+ * props (the face members plus the `plugins.item` owner share
+ * `view: 'summary' | 'page'`).
  *
  * ## What the card does (frozen §7.5)
  *
@@ -51,6 +51,7 @@ import {
 import {
   MAX_DIR_NAME_LENGTH,
   classifyDirNameViolation,
+  deriveSettingsSectionFromRaw,
   type ResearchSettingsSaveOutcome,
   type ResearchSettingsSection,
 } from '../../../shared/research-settings.js'
@@ -91,12 +92,43 @@ export interface ResearchSettingsCardFace {
   readonly subscribe: (listener: () => void) => () => void
   /** The composition defaults (the reset-to-default affordance). */
   readonly defaults: ResearchSettingsSection
-  /** Run the §7.5 two-phase save; resolves the rendered outcome (never rejects for a business fault). */
-  readonly save: (next: ResearchSettingsSection) => Promise<ResearchSettingsSaveOutcome>
+  /** Run the §7.5 two-phase save; resolves the rendered outcome (never rejects for a business fault). The opaque `ownerForm` is the row-config seat's page-owner form prop, passed straight through — when present the adapter writes through IT (real entry identity). */
+  readonly save: (next: ResearchSettingsSection, ownerForm?: unknown) => Promise<ResearchSettingsSaveOutcome>
 }
 
-/** The slot runtime spreads the face onto the component — the face IS the props. */
-export type ResearchSettingsCardProps = ResearchSettingsCardFace
+/**
+ * The slot runtime spreads the face onto the component as props. The
+ * 0.2 `plugins.item` owner share rides along: `view` (the Plugins manager
+ * renders the one-liner `summary` on the list and the full `page` in the
+ * plugin's detail view) and the host-owned `form` (UNUSED here — the card
+ * edits through its own face, whose `save` wraps the whole §7.5
+ * transaction; the owner form would bypass that guarantee).
+ */
+export type ResearchSettingsCardProps = ResearchSettingsCardFace & {
+  readonly view?: 'summary' | 'page'
+  /**
+   * The row-config seat's page-owner form (opaque here). When the seat
+   * supplies one, the card DISPLAYS its state (the entry the page owns —
+   * custom owning ids included) and passes it back to `save`, which routes
+   * the whole §7.5 transaction through it. The face's own snapshot stays
+   * the fallback when no owner form rides along.
+   */
+  readonly form?: unknown
+}
+
+/** Derive the card snapshot from the opaque owner form's state (stable per state reference). */
+function ownerFormSnapshot(form: unknown, defaults: ResearchSettingsSection): ResearchSettingsCardSnapshot | undefined {
+  if (typeof form !== 'object' || form === null) return undefined
+  const state = (form as { state?: unknown }).state
+  if (typeof state !== 'object' || state === null) return undefined
+  const status = (state as { status?: unknown }).status
+  if (status !== 'loading' && status !== 'ready' && status !== 'unavailable') return undefined
+  if (typeof (state as { writable?: unknown }).writable !== 'boolean') return undefined
+  return deriveSettingsSectionFromRaw(
+    state as { status: 'loading' | 'ready' | 'unavailable'; value: unknown; writable: boolean },
+    defaults,
+  )
+}
 
 /* ------------------------------------------------------------------ *
  * i18n over the shared validator (the host warns English; the card
@@ -138,7 +170,23 @@ type CardNotice =
 const SAVED_CLEAR_MS = 2500
 
 export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactElement {
-  const snapshot = useSyncExternalStore(props.subscribe, props.getSnapshot, props.getSnapshot)
+  // R5: when the row-config seat supplies a page-owner form, its state IS
+  // the display (the page re-renders on refresh; cache per state reference
+  // for the stable-reference contract useSyncExternalStore demands).
+  const ownerState = props.form === undefined ? undefined : (props.form as { state?: unknown }).state
+  const ownerCacheRef = useRef<{ raw: unknown; snap: ResearchSettingsCardSnapshot } | undefined>(undefined)
+  if (ownerState !== undefined && ownerCacheRef.current?.raw !== ownerState) {
+    const derived = ownerFormSnapshot(props.form, props.defaults)
+    ownerCacheRef.current = derived === undefined ? undefined : { raw: ownerState, snap: derived }
+  }
+  const ownerGetter = ownerState !== undefined && ownerCacheRef.current?.raw === ownerState
+    ? () => (ownerCacheRef.current as { snap: ResearchSettingsCardSnapshot }).snap
+    : undefined
+  const snapshot = useSyncExternalStore(
+    props.subscribe,
+    ownerGetter ?? props.getSnapshot,
+    ownerGetter ?? props.getSnapshot,
+  )
 
   const [drafts, setDrafts] = useState<ResearchSettingsSection>({
     projectTreeDir: props.defaults.projectTreeDir,
@@ -215,7 +263,7 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
     setSaving(true)
     setNotice(null)
     try {
-      const outcome: ResearchSettingsSaveOutcome = await props.save(next)
+      const outcome: ResearchSettingsSaveOutcome = await props.save(next, props.form)
       if (outcome.status === 'saved') {
         committedRef.current = next
         dirtyRef.current = false
@@ -256,6 +304,20 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
       savingRef.current = false
       setSaving(false)
     }
+  }
+
+  // `plugins.item` list one-liner (owner `view: 'summary'`): the Plugins
+  // manager renders this in the plugin list; the full form is the `page`
+  // view. `undefined` (a non-manager host or a summary-only seat) keeps the
+  // historical behavior — the full card.
+  if (props.view === 'summary') {
+    const committed = committedRef.current
+    return (
+      <span data-testid="settings-card-summary" aria-label={t('settingsCard.title')}>
+        {t('settingsCard.title')}
+        {committed === null ? '' : ` · ${committed.projectTreeDir} · ${committed.hubDir}`}
+      </span>
+    )
   }
 
   return (

@@ -37,22 +37,23 @@
  *    failure: a typoed value must not take down the 13-RPC plane).
  *
  * The field-level name rule ({@link validateDirName}) is deliberately
- * NOT expressed as a schemastery constraint: the host settings provider
- * REJECTS the whole namespace registration (and therefore fails this
- * plugin's fiber) when a stored section fails its schema, while the
- * frozen design requires the read path to fall back and warn instead.
+ * NOT expressed as a schemastery constraint: a hard schema rejection
+ * would fail the plugin's activation (0.1: rejecting the namespace
+ * registration; 0.2: rejecting the plugin config), while the frozen
+ * design requires the read path to fall back and warn instead.
  * The write side is guarded by the §7.5 two-phase save transaction
  * (write → rescan → validate the discovery → roll the field back) and
  * may pre-check values with {@link validateDirName} before writing.
  *
- * ## Effect discipline (registration is an effect)
+ * ## 0.2 settings model (registration retired)
  *
- * `settings.register` registers the un-registration as an effect on
- * the CALLING fiber (the host service resolves the effect through the
- * traced caller context), so the namespace disappears with this
- * plugin's fiber unmount — there is no separate disposer to hold, and
- * {@link registerResearchSettings} is safe to call once from
- * `[Service.init]` regardless of spike mode (the settings card is a
+ * 0.2.0-rc.2 retired `settings.register`: a settings namespace IS a
+ * profile plugin entry and its form schema IS the plugin `Config`
+ * schema. The two §7.5 fields therefore live in `static Config` and the
+ * namespace id is the profile entry id
+ * ({@link RESEARCH_SETTINGS_ENTRY_ID}); reads ride the `describe()`
+ * view (live on every call). {@link registerResearchSettings} keeps its
+ * boot call site purely for observability (the settings card stays a
  * global preference the operator configures before any research tree
  * exists — §7.4 「全局偏好不在设置页，在 DSH 设置的插件卡片」).
  *
@@ -80,8 +81,11 @@
  * host test imports are untouched).
  */
 
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
+import { parse as parseYamlDocument } from 'yaml'
 import {
   DEFAULT_HUB_DIR,
   DEFAULT_PROJECT_TREE_DIR,
@@ -158,11 +162,63 @@ export const RESEARCH_SETTINGS_SCHEMA: s<ResearchSettings> = s.object({
  * the shape structurally — the same discipline as the launcher
  * adapter's `AgentsStoreLike`).
  */
+/**
+ * One `describe()` view of a settings namespace. 0.2.0-rc.2 model
+ * (`@deepseek-ai/dsh-settings` `SettingsForms`): a namespace IS a profile
+ * plugin entry (`SettingsNamespaceView` — one view per profile plugin
+ * entry), so `id` is the profile entry id and `value` the schema-resolved
+ * section (schema defaults → composition base → user layer). Only the two
+ * members the plugin reads; the host runtime satisfies it structurally.
+ */
+export interface SettingsDescriptorLike {
+  /** The namespace key: the profile entry id (`entry.options.id` — the
+   *  descriptor member is `ns`, NOT `id`; the real host proved it). */
+  readonly ns: string
+  readonly value: unknown
+  /** The USER layer alone (keys the profile patch actually sets). The
+   *  layered resolution needs it to tell "the user set the default"
+   *  apart from "nobody set anything" — the merged `value` cannot. */
+  readonly user?: unknown
+}
+
+/**
+ * The 0.2 host settings service, structural slice (INV-PERM-5 exemption
+ * zone; the plugin does NOT devDep `@deepseek-ai/dsh-settings`). 0.1's
+ * `register`/`get` are retired (the real-host boot caught the stale
+ * assumption): registration no longer exists — the plugin's own profile
+ * entry IS its settings namespace — and reads ride `describe()`.
+ */
 export interface SettingsServiceLike {
-  /** Register one namespace schema (an effect on the calling fiber). */
-  register(ns: string, schema: unknown): void
-  /** Read one namespace's resolved value (schema defaults applied). */
-  get(ns: string): unknown
+  describe(options?: unknown): readonly SettingsDescriptorLike[]
+  /** Public write face (the host form calls it; the legacy migration
+   *  persists through exactly this). Optional on the structural slice —
+   *  a service without it is read-only for migration purposes. */
+  update?(ns: string, patch: object, expectedRevision?: number): Promise<unknown>
+}
+
+/**
+ * The service-owned fallback section (the plugin's loader-resolved
+ * Config — defaults + composition + user layer, e2e-verified): used when
+ * the describe() view cannot answer (this fiber's own boot window, or a
+ * service-degraded read). Fields pass the SAME per-field validation as
+ * served values (a hand-edited profile layer must not smuggle a bad
+ * name through the fallback path).
+ */
+export interface ResearchDirNamesFallback {
+  /** Raw or cosmokit volatile-cell (`{ get(): string }` — the 0.2
+   *  convention: host plugins read volatile Config fields through
+   *  `.get()`, the bash-local `config.timeoutMs.get()` precedent; the
+   *  loader mounts volatile fields as live cells). Unwrapped before the
+   *  per-field validation. */
+  readonly projectTreeDir?: unknown
+  readonly hubDir?: unknown
+  /** Completion evidence (see {@link RESEARCH_SETTINGS_MIGRATION_MARKER}):
+   *  the plugin's OWN loader-resolved Config carries the same numeric
+   *  marker (`static Config` — a non-volatile field). It is the
+   *  editor-independent authority that keeps the legacy document retired
+   *  when the OPTIONAL config editor is gone (service unload/reload) —
+   *  a missing service must never read as "never migrated". */
+  readonly legacyMigrationCompletedAt?: unknown
 }
 
 /** The discovery-facing directory names (design §4 step 1 output). */
@@ -174,78 +230,232 @@ export interface ResearchDirNames {
 }
 
 /**
+ * One raw field layer for the layered resolution (values stay `unknown`
+ * — every candidate passes the SAME per-field validation when consumed).
+ */
+export interface DirNameFieldLayer {
+  readonly projectTreeDir?: unknown
+  readonly hubDir?: unknown
+}
+
+/** Extra layers the layered resolver consults (beyond the served view
+ *  and the service-Config fallback — see the matrix on
+ *  {@link resolveResearchDirNames}). */
+export interface ResearchDirResolutionOptions {
+  /** The BOOT OVERLAY — the parsed 0.1 `settings.yaml` section, supplied
+   *  ONLY while the one-shot migration is PENDING (the profile user layer
+   *  carries no {@link RESEARCH_SETTINGS_MIGRATION_MARKER}). Pending lasts
+   *  exactly one boot: the synchronous read serves the first upgraded
+   *  boot's discovery (no manual rescan/restart), the atomic
+   *  {@link migrateLegacyResearchSettings} then persists fields + marker
+   *  through the host's own `ConfigEditor.edit`, and from then on the
+   *  legacy document is PERMANENTLY out of the authority layers — a later
+   *  reset back to a default stays default and never resurrects the old
+   *  name (the file itself survives as a lazy backup; nothing rewrites or
+   *  deletes it). The host legacy importer cannot carry this section:
+   *  `LEGACY_SECTION_ENTRIES` only knows ui-developer-tools/
+   *  ui-onboarding/shell (rc.2 settings index:200-206); the unmapped
+   *  `dsh-research-control` section survives only in the renamed
+   *  `.imported` file. */
+  readonly legacy?: DirNameFieldLayer | undefined
+  /** The raw profile user layer at boot (configEditor `override`) —
+   *  during the boot window the served descriptor is absent and the
+   *  Config fallback CANNOT tell a user-set default apart from an
+   *  unset field; this layer can (empty ⇒ nobody set anything ⇒ the
+   *  pending overlay may supply). */
+  readonly userOverride?: DirNameFieldLayer | undefined
+  /** This plugin's OWN profile entry id (custom installs carry a
+   *  different one; the descriptor key follows the entry, the legacy
+   *  section name never does). Defaults to
+   *  {@link RESEARCH_SETTINGS_ENTRY_ID}. */
+  readonly entryId?: string | undefined
+}
+
+/**
  * PURE resolution core (no ctx, no console — the warn sink is
- * injected): read the registered section, validate each field, fall
- * back per-field to the default with a warn for every violation
- * (frozen §4 step 1: 非法即回退默认并告警).
+ * injected): resolve each directory-name field through the priority
+ * layers, validating every candidate with the SAME per-field rule
+ * (frozen §4 step 1: 非法即回退默认并告警 — an invalid candidate warns
+ * and the walk continues to the next layer).
  *
- * Behavior matrix:
- *  - `settings === undefined` → both defaults, NO warn (the
- *    service-absent warn is fired exactly once by
- *    {@link registerResearchSettings} — the read path stays silent so
- *    repeated rescans do not re-log a boot-time fact);
- *  - section `undefined` (service present but the namespace is not
- *    registered — a deployment anomaly) → both defaults + one warn;
- *  - a field `undefined` → the default silently (schema-default
- *    inheritance, the documented no-override path);
- *  - a field of the wrong type (a hand-edited document) → the default
- *    + a warn (the section crosses the durable-file boundary — the
- *    type check lives in the schema at registration, this is the
- *    read-side guard);
- *  - a string field failing {@link validateDirName} → the default + a
- *    warn naming the field, the value, and the violation.
+ * Priority (first VALID candidate wins, per field):
+ *  1. the USER layer — the served descriptor's `user` once answered
+ *     (else the `userOverride` boot layer): a value the user actually
+ *     set ALWAYS wins — a legacy section never overwrites it;
+ *  2. the LEGACY 0.1 section (explicit migration; see
+ *     {@link ResearchDirResolutionOptions.legacy});
+ *  3. the served 0.2 view (`value` — schema defaults merged with the
+ *     composition base);
+ *  4. the service Config fallback (loader-resolved, volatile cells
+ *     unwrapped);
+ *  5. the frozen defaults.
  *
- * @param settings - the host settings service, or `undefined` when the
- *  host composes none (the read still returns usable names).
- * @param warn - sink for fallback diagnostics (the wiring passes
- *  `console.warn`; tests pass a collector).
- * @returns the validated directory names, default-applied.
+ * Degradation warns (unchanged matrix):
+ *  - service absent → NO warn (fired once by registerResearchSettings);
+ *  - no describe() face → one warn regardless of layers (deployment
+ *    anomaly);
+ *  - entry not served (boot window) → warn ONLY when no other
+ *    authority exists (no fallback, no legacy, no user override) —
+ *    with any of them the window is documented behavior, not an anomaly.
  */
 export function resolveResearchDirNames(
   settings: SettingsServiceLike | undefined,
   warn: (message: string) => void,
+  fallback?: ResearchDirNamesFallback | undefined,
+  options?: ResearchDirResolutionOptions | undefined,
 ): ResearchDirNames {
+  const entryId = options?.entryId ?? RESEARCH_SETTINGS_ENTRY_ID
+  let served: DirNameFieldLayer | undefined
+  let user: DirNameFieldLayer | undefined = options?.userOverride
+  const legacy = options?.legacy
   if (settings === undefined) {
-    return { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
-  }
-  const section = settings.get(RESEARCH_SETTINGS_NAMESPACE)
-  if (section === undefined || section === null) {
+    // No service at all: silent (the once-warn is registerResearchSettings' job).
+  } else if (typeof settings.describe !== 'function') {
     warn(
-      `the research settings section "${RESEARCH_SETTINGS_NAMESPACE}" is not registered ` +
-        '(the host settings service answered without the namespace) — using the defaults ' +
-        `"${DEFAULT_PROJECT_TREE_DIR}" / "${DEFAULT_HUB_DIR}"`,
+      'the host settings service does not expose the 0.2 describe() face — the research ' +
+        'settings namespace cannot be read, falling back to the remaining authorities',
     )
-    return { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
+  } else {
+    const entry = findResearchEntry(settings.describe(), entryId)
+    if (entry !== undefined && entry.value !== undefined && entry.value !== null) {
+      served = entry.value as DirNameFieldLayer
+      if (entry.user !== undefined && entry.user !== null) user = entry.user as DirNameFieldLayer
+    } else if (fallback === undefined && legacy === undefined && user === undefined) {
+      warn(
+        `the research settings namespace (profile entry "${entryId}", the plugin's ` +
+          'own settings view in the 0.2 model) is not served by the host settings service and no ' +
+          'authority fallback is wired — using the frozen defaults ' +
+          `"${DEFAULT_PROJECT_TREE_DIR}" / "${DEFAULT_HUB_DIR}"`,
+      )
+    }
   }
-  const record = section as { projectTreeDir?: unknown; hubDir?: unknown }
   return {
-    treeDir: resolveDirField('projectTreeDir', record.projectTreeDir, DEFAULT_PROJECT_TREE_DIR, warn),
-    hubDir: resolveDirField('hubDir', record.hubDir, DEFAULT_HUB_DIR, warn),
+    treeDir: pickDirField('projectTreeDir', user, legacy, served, fallback, warn),
+    hubDir: pickDirField('hubDir', user, legacy, served, fallback, warn),
   }
 }
 
-/** Resolve one directory-name field (the matrix above, per field). */
-function resolveDirField(
+/**
+ * Locate this plugin's descriptor: exact entry-id match first; absent
+ * that, the ONE descriptor whose served value carries our field pair
+ * (a custom profile entry id renames the ns, never the fields).
+ */
+export function findResearchEntry(
+  descriptors: readonly SettingsDescriptorLike[],
+  entryId: string,
+): SettingsDescriptorLike | undefined {
+  const exact = descriptors.find((view) => view.ns === entryId)
+  if (exact !== undefined) return exact
+  const ours = descriptors.filter(
+    (view) =>
+      typeof view.value === 'object' &&
+      view.value !== null &&
+      'projectTreeDir' in (view.value as Record<string, unknown>),
+  )
+  return ours.length === 1 ? ours[0] : undefined
+}
+
+/**
+ * Unwrap one cosmokit volatile config cell (`{ get(): … }` — what the
+ * loader mounts for `.volatile()` fields, read live like the host's own
+ * `config.timeoutMs.get()` convention). Plain values pass through
+ * untouched (served layers are already plain).
+ */
+function unwrapVolatile(value: unknown): unknown {
+  if (value !== null && typeof value === 'object' && typeof (value as { get?: unknown }).get === 'function') {
+    return (value as { get: () => unknown }).get()
+  }
+  return value
+}
+
+/** Per-field walk over the priority layers (first valid candidate wins;
+ *  an invalid candidate warns — naming its source — and the walk
+ *  continues; nothing valid → the frozen default). */
+function pickDirField(
   field: 'projectTreeDir' | 'hubDir',
-  value: unknown,
-  fallback: string,
+  user: DirNameFieldLayer | undefined,
+  legacy: DirNameFieldLayer | undefined,
+  served: DirNameFieldLayer | undefined,
+  fallback: ResearchDirNamesFallback | undefined,
   warn: (message: string) => void,
 ): string {
-  if (value === undefined) return fallback
-  if (typeof value !== 'string') {
+  const fallbackDefault = field === 'projectTreeDir' ? DEFAULT_PROJECT_TREE_DIR : DEFAULT_HUB_DIR
+  const candidates: ReadonlyArray<readonly [string, unknown]> = [
+    ['the user settings layer', user?.[field]],
+    ['the legacy 0.1 settings.yaml section', legacy?.[field]],
+    ['the served 0.2 settings view', served?.[field]],
+    ['the service config', fallback === undefined ? undefined : unwrapVolatile(fallback[field])],
+  ]
+  for (const [source, value] of candidates) {
+    if (value === undefined || value === null) continue
+    if (typeof value !== 'string') {
+      warn(
+        `the research settings field "${field}" must be a string (stored ${typeof value} in ` +
+          `${source}) — falling through to the next authority`,
+      )
+      continue
+    }
+    const violation = validateDirName(value)
+    if (violation === null) return value
     warn(
-      `the research settings field "${field}" must be a string (stored ${typeof value}) — ` +
-        `using the default "${fallback}"`,
+      `the research settings field "${field}" value ${JSON.stringify(value)} from ` +
+        `${source} is invalid (a directory name ${violation}) — ` +
+        `falling through to the next authority (final default "${fallbackDefault}")`,
     )
-    return fallback
   }
-  const violation = validateDirName(value)
-  if (violation === null) return value
-  warn(
-    `the research settings field "${field}" value ${JSON.stringify(value)} is invalid ` +
-      `(a directory name ${violation}) — using the default "${fallback}"`,
-  )
-  return fallback
+  return fallbackDefault
+}
+
+/**
+ * Read the plugin's own section inside a 0.1 `settings.yaml` document
+ * (the explicit-migration read) with the REAL YAML parser — the repo's
+ * existing `yaml` dependency (direct dep, already used in
+ * `src/host/service/**`). The previous hand-rolled line parser was
+ * retired: it stripped ` #` as a comment and corrupted perfectly legal
+ * quoted names (`".research #1"`), and could not express escapes, folded
+ * scalars or flow style — the serializer round-trip cases below pin the
+ * replacement.
+ *
+ * SCOPED by design: extract ONLY the `dsh-research-control` section's
+ * `projectTreeDir` / `hubDir` entries (structure/type check — every
+ * candidate still passes the SAME per-field `validateDirName` when
+ * consumed); nothing else is read, and the file itself is NEVER written
+ * or renamed (original bytes stay; the file is a lazy backup).
+ *
+ * @returns `section` = the recognized fields (values unvalidated by the
+ *  directory-name rule on purpose — same per-field semantics as every
+ *  other layer), `undefined` when the document carries no research
+ *  section; `malformed` = the document (or its research section) is not
+ *  the shape a 0.1 settings file has — then the migration writes NOTHING
+ *  (loud skip; the document remains for manual rescue).
+ */
+export function parseLegacyResearchSection(text: string): {
+  readonly section: DirNameFieldLayer | undefined
+  readonly malformed: boolean
+} {
+  let document: unknown
+  try {
+    document = parseYamlDocument(text)
+  } catch {
+    return { section: undefined, malformed: true }
+  }
+  // An empty document parses to undefined/null — a valid "no sections"
+  // file, not a malformed one.
+  if (document === undefined || document === null) return { section: undefined, malformed: false }
+  if (typeof document !== 'object' || Array.isArray(document)) {
+    return { section: undefined, malformed: true }
+  }
+  const section = (document as Record<string, unknown>)[RESEARCH_SETTINGS_NAMESPACE]
+  if (section === undefined) return { section: undefined, malformed: false }
+  if (typeof section !== 'object' || section === null || Array.isArray(section)) {
+    return { section: undefined, malformed: true }
+  }
+  const out: Record<string, unknown> = {}
+  for (const key of ['projectTreeDir', 'hubDir'] as const) {
+    const value = (section as Record<string, unknown>)[key]
+    if (value !== undefined) out[key] = value
+  }
+  return { section: Object.keys(out).length === 0 ? undefined : out, malformed: false }
 }
 
 /* ------------------------------------------------------------------ *
@@ -292,6 +502,30 @@ function readSettingsService(ctx: Context): SettingsServiceLike | undefined {
  *
  * @param ctx - the host context owning the plugin fiber.
  */
+/**
+ * The 0.2 settings namespace identity of this plugin: the PROFILE ENTRY id
+ * (the `dsh web` dump-config row `id: research-control`). 0.2 retired the
+ * register-a-namespace API: a namespace IS a profile plugin entry and its
+ * form schema IS the plugin `Config` schema, so `projectTreeDir` / `hubDir`
+ * are Config fields and the entry id is what `describe()` keys on. The
+ * legacy frozen constant {@link RESEARCH_SETTINGS_NAMESPACE} (the package
+ * name, the 0.1 namespace) stays exported for the client half and the
+ * frozen face.
+ */
+export const RESEARCH_SETTINGS_ENTRY_ID = 'research-control'
+
+let loggedSettingsModel = false
+
+/**
+ * Boot hook, 0.2 semantics: NOTHING to register (0.1's
+ * `settings.register` is retired — the plugin's own profile entry is its
+ * settings namespace and the two §7.5 fields ride `static Config`). This
+ * function keeps its call site and its observability: service absent →
+ * ONE `console.warn` + defaults (unchanged); service present → ONE
+ * `console.log` naming where the fields live.
+ *
+ * @param ctx - the host context owning the plugin fiber.
+ */
 export function registerResearchSettings(ctx: Context): void {
   const settings = readSettingsService(ctx)
   if (settings === undefined) {
@@ -299,18 +533,22 @@ export function registerResearchSettings(ctx: Context): void {
       warnedSettingsAbsent = true
       console.warn(
         '[research-control] the host exposes no settings service — the research settings ' +
-          `card (namespace "${RESEARCH_SETTINGS_NAMESPACE}") is unavailable and the directory ` +
+          `namespace (profile entry "${RESEARCH_SETTINGS_ENTRY_ID}") is unreadable and the directory ` +
           `names stay at the defaults ("${DEFAULT_PROJECT_TREE_DIR}" / "${DEFAULT_HUB_DIR}"); ` +
           'discovery is unaffected (warned once)',
       )
     }
     return
   }
-  settings.register(RESEARCH_SETTINGS_NAMESPACE, RESEARCH_SETTINGS_SCHEMA)
-  console.log(
-    `[research-control] registered the research settings namespace "${RESEARCH_SETTINGS_NAMESPACE}" ` +
-      `(projectTreeDir / hubDir — the discovery layer reads them through getResearchDirNames)`,
-  )
+  if (!loggedSettingsModel) {
+    loggedSettingsModel = true
+    console.log(
+      `[research-control] research settings ride the 0.2 settings model — profile entry ` +
+        `"${RESEARCH_SETTINGS_ENTRY_ID}" is its own settings namespace (projectTreeDir / hubDir are ` +
+        'plugin Config fields, edited in DSH 设置 → 插件; the discovery layer reads them live ' +
+        'through getResearchDirNames)',
+    )
+  }
 }
 
 /**
@@ -325,11 +563,360 @@ export function registerResearchSettings(ctx: Context): void {
  *
  * @param ctx - the host context (the settings service is re-read on
  *  every call through `ctx.get`).
+ * @param fallback - the service-owned loader-resolved Config (the boot
+ *  window + service-degraded authority; the served describe() view wins
+ *  whenever it answers).
  * @returns the validated names, default-applied per the §4 step 1 rule.
  */
-export function getResearchDirNames(ctx: Context): ResearchDirNames {
+export function getResearchDirNames(
+  ctx: Context,
+  fallback?: ResearchDirNamesFallback | undefined,
+): ResearchDirNames {
   const settings = readSettingsService(ctx)
-  return resolveResearchDirNames(settings, (message) =>
-    console.warn(`[research-control] ${message}`),
+  // The legacy document is a BOOT OVERLAY, never a permanent layer: it is
+  // consulted ONLY while the one-shot migration is pending (no completion
+  // marker in the user layer). After completion the read authority is the
+  // live Config/describe stack alone — a reset back to a default stays
+  // default and cannot resurrect the legacy name (the file is a lazy
+  // backup, not a layer).
+  const pending = isMigrationPending(ctx, fallback)
+  const legacy = pending ? readLegacyResearchSection(ctx).section : undefined
+  return resolveResearchDirNames(
+    settings,
+    (message) => console.warn(`[research-control] ${message}`),
+    fallback,
+    {
+      legacy,
+      userOverride: readOwnUserOverrideLayer(ctx),
+      entryId: resolveOwnSettingsEntryId(ctx),
+    },
   )
+}
+
+/* ------------------------------------------------------------------ *
+ * Legacy 0.1 settings.yaml migration — ONE boot migration (reviewer
+ * simplification ruling).
+ *
+ * Model: the legacy document is consulted ONLY while the migration is
+ * PENDING — the profile user layer carries no completion marker
+ * ({@link RESEARCH_SETTINGS_MIGRATION_MARKER}). The synchronous read
+ * turns the pending section into the BOOT OVERLAY (so the first upgraded
+ * boot's discovery already resolves the custom names — no manual
+ * rescan/restart), and the persist step completes the migration through
+ * the host's OWN public write face, `ConfigEditor.edit`: file lock,
+ * profile reconcile, and the `current` re-read all happen INSIDE the
+ * edit critical section (boot/config-editor/src/index.ts:87-135), so the
+ * merge can never clobber a value a concurrent writer committed first
+ * (the pre-fix `settings.update` read-then-write TOCTOU), and the fields
+ * plus the completion marker land ATOMICALLY in one write. Once the
+ * marker exists the legacy document is permanently out of every
+ * authority layer — a later reset to a default stays default, and the
+ * file survives untouched as a lazy backup. No hand-rolled YAML, no
+ * revision bookkeeping of our own: the host editor owns lock/re-read/
+ * atomic-write/reconcile/rollback and we reuse it.
+ * ------------------------------------------------------------------ */
+
+/** The internal completion marker: a NON-volatile Config field (never in
+ *  the editable form), written by {@link migrateLegacyResearchSettings}
+ *  in the SAME `ConfigEditor.edit` call as the migrated fields. Its
+ *  presence (a number — the completion timestamp) in the raw user layer
+ *  is the ONLY pending/completed authority. Mirrored in the host service
+ *  `static Config` (host/index.ts — the schema must declare every key a
+ *  config may carry). */
+export const RESEARCH_SETTINGS_MIGRATION_MARKER = 'legacyMigrationCompletedAt'
+
+/** Structural slice of the host config-editor service (optional
+ *  `ctx.get` face — same discipline as the settings service). The row
+ *  shape is the REAL one: `configuration(): Array<{ entry, inherited,
+ *  override }>` (boot/config-editor/src/index.ts:49; consumed exactly
+ *  this way by the host settings service at settings/src/index.ts:304),
+ *  and `edit(entry, change)` takes the SAME live Loader `Entry` object
+ *  the row carries (it identity-checks it against the current entries
+ *  and re-reads `current` under the file lock — index.ts:87-135). */
+interface ConfigEditorRow {
+  readonly entry: {
+    readonly options?: { readonly id?: string; readonly name?: string }
+    readonly fiber?: unknown
+    readonly id?: string
+  }
+  readonly inherited: Record<string, unknown>
+  readonly override: Record<string, unknown>
+}
+
+interface ConfigEditorLike {
+  configuration(): readonly ConfigEditorRow[]
+  edit(
+    entry: ConfigEditorRow['entry'],
+    change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void>
+}
+
+function readConfigEditor(ctx: Context): ConfigEditorLike | undefined {
+  let editor: unknown
+  try {
+    editor = (ctx as unknown as { get: (name: string) => unknown }).get('configEditor')
+  } catch {
+    return undefined
+  }
+  if (typeof editor !== 'object' || editor === null) return undefined
+  const candidate = editor as ConfigEditorLike
+  return typeof candidate.configuration === 'function' && typeof candidate.edit === 'function'
+    ? candidate
+    : undefined
+}
+
+/** Pick this plugin's OWN row out of a configuration() roster. Identity
+ *  comes FIRST: the row whose `entry.fiber` is OUR fiber (exact, survives
+ *  any custom entry id — `dsh plugin add` installs under one id but
+ *  operators may rename it). Id/name matching are fallbacks for contexts
+ *  where the fiber is not exposed (unit doubles). */
+function pickOwnConfigRow(rows: readonly ConfigEditorRow[], ownFiber: unknown): ConfigEditorRow | undefined {
+  if (ownFiber !== undefined) {
+    const byFiber = rows.find((row) => row?.entry?.fiber === ownFiber)
+    if (byFiber !== undefined) return byFiber
+  }
+  const byId = rows.filter((row) => row?.entry?.options?.id === RESEARCH_SETTINGS_ENTRY_ID)
+  if (byId.length === 1) return byId[0]
+  // custom entry ids: the ONE row whose user layer already speaks our
+  // field pair (ambiguity → no row, never a guess).
+  const ours = rows.filter(
+    (row) => row?.override !== null && typeof row?.override === 'object' && 'projectTreeDir' in row.override,
+  )
+  return ours.length === 1 ? ours[0] : undefined
+}
+
+/** Locate this plugin's OWN configuration row; the row (and its LIVE
+ *  `entry`) is returned verbatim because `edit` demands the very Entry
+ *  object the loader handed out. */
+function findOwnConfigRow(ctx: Context): ConfigEditorRow | undefined {
+  const editor = readConfigEditor(ctx)
+  if (editor === undefined) return undefined
+  try {
+    return pickOwnConfigRow(editor.configuration(), (ctx as unknown as { fiber?: unknown }).fiber)
+  } catch {
+    return undefined
+  }
+}
+
+/** This plugin's live profile entry id (custom installs differ; the
+ *  frozen constant is the fallback when the editor cannot answer). */
+export function resolveOwnSettingsEntryId(ctx: Context): string {
+  return findOwnConfigRow(ctx)?.entry?.options?.id ?? RESEARCH_SETTINGS_ENTRY_ID
+}
+
+/** The raw profile user layer (configEditor `override`) for our entry —
+ *  the boot-window authority that distinguishes a user-SET default from
+ *  an unset field (the merged Config cannot). */
+export function readOwnUserOverrideLayer(ctx: Context): DirNameFieldLayer | undefined {
+  const override = findOwnConfigRow(ctx)?.override
+  if (typeof override === 'object' && override !== null) return override as DirNameFieldLayer
+  return undefined
+}
+
+/** True while the one-shot 0.1 → 0.2 migration has NOT completed.
+ *  Completion evidence (ANY of): a numeric marker in the raw user layer
+ *  (the fast, editor-served authority) or a numeric marker in the
+ *  plugin's OWN loader-resolved Config (`ownConfig` — the same
+ *  `static Config` field, resolved by the loader from the user layer at
+ *  boot). The config editor is an OPTIONAL service: when it (or the row)
+ *  disappears mid-session — unload/reload — the own-Config marker keeps
+ *  the legacy document retired. A missing service is NEVER read as
+ *  "never migrated". While pending, the read path may use the boot
+ *  overlay; once completed it must not. */
+export function isMigrationPending(ctx: Context, ownConfig?: ResearchDirNamesFallback | undefined): boolean {
+  const override = findOwnConfigRow(ctx)?.override
+  if (typeof override?.[RESEARCH_SETTINGS_MIGRATION_MARKER] === 'number') return false
+  return (
+    typeof (ownConfig as Record<string, unknown> | undefined)?.[RESEARCH_SETTINGS_MIGRATION_MARKER] !== 'number'
+  )
+}
+
+/** Per-process cache of the parsed legacy document (per home). */
+let legacyCache:
+  | { readonly home: string; readonly section: DirNameFieldLayer | undefined; readonly malformed: boolean }
+  | undefined
+let legacyWarned = false
+
+/**
+ * Read + parse the 0.1 `settings.yaml` research section with the real
+ * YAML parser (cached per home, warn-once on malformed/read failure).
+ * Prefers the live document (before the host's post-loader rename),
+ * falls back to the host-renamed `.imported` file (an already-imported
+ * home is a REQUIRED migration case: the values survive only there).
+ * Never writes, never renames: the file stays a lazy backup.
+ */
+export function readLegacyResearchSection(
+  ctx: Context,
+): { readonly section: DirNameFieldLayer | undefined; readonly malformed: boolean } {
+  const home = (ctx as unknown as { profileContext?: { home?: string } }).profileContext?.home
+  if (typeof home !== 'string' || home.length === 0) return { section: undefined, malformed: false }
+  if (legacyCache !== undefined && legacyCache.home === home) {
+    return { section: legacyCache.section, malformed: legacyCache.malformed }
+  }
+  let section: DirNameFieldLayer | undefined
+  let malformed = false
+  try {
+    const path = existsSync(join(home, 'settings.yaml'))
+      ? join(home, 'settings.yaml')
+      : existsSync(join(home, 'settings.yaml.imported'))
+        ? join(home, 'settings.yaml.imported')
+        : undefined
+    if (path !== undefined) {
+      const parsed = parseLegacyResearchSection(readFileSync(path, 'utf8'))
+      section = parsed.section
+      malformed = parsed.malformed
+      if (malformed && !legacyWarned) {
+        legacyWarned = true
+        console.warn(
+          `[research-control] the legacy settings document at ${path} is not a readable YAML ` +
+            'mapping (or its dsh-research-control section is not a mapping) — the migration ' +
+            'writes NOTHING and the legacy names are NOT overlaid this boot; fix the file (or ' +
+            'set the names in DSH 设置 → 插件) and restart (warned once)',
+        )
+      }
+    }
+  } catch (error: unknown) {
+    malformed = true
+    if (!legacyWarned) {
+      legacyWarned = true
+      console.warn(
+        '[research-control] the legacy settings document could not be read — the 0.1 custom ' +
+          'directory names stay in the file (nothing is lost, nothing is overwritten): ' +
+          `${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+  legacyCache = { home, section, malformed }
+  return { section, malformed }
+}
+
+/** Test seam: drop the per-process legacy cache (module state). */
+export function resetLegacyResearchCacheForTests(): void {
+  legacyCache = undefined
+  legacyWarned = false
+}
+
+/**
+ * Complete the ONE-shot 0.1 → 0.2 migration — scheduled at activation,
+ * persisted through the host's OWN `ConfigEditor.edit` (its callback
+ * runs after the file lock + profile reconcile with a FRESH `current`,
+ * so the merge is race-free: a value a concurrent writer committed
+ * first is present in `current` and never overwritten). Fields AND the
+ * completion marker land in the same write (atomic completion: a
+ * crash between them cannot leave "half-migrated and re-migratable").
+ *
+ * Rules (reviewer-fixed):
+ *  - runs ONLY while pending (no marker); a completed home never
+ *    re-migrates, so a post-migration reset cannot resurrect old names;
+ *  - a field the FRESH RAW user layer sets is NEVER overwritten
+ *    (explicitness = presence in the raw override, never composed-value
+ *    inference — see the in-callback comment);
+ *  - only legacy fields that are valid directory names are written;
+ *  - a malformed legacy document writes nothing (already warned);
+ *  - the legacy file itself is preserved untouched (lazy backup);
+ *  - failure = loud warn — the boot overlay already served THIS boot,
+ *    so a persist failure costs durability, never this-boot correctness,
+ *    and the migration retries next boot (still pending).
+ */
+export function migrateLegacyResearchSettings(
+  ctx: Context,
+  options?: { readonly settle?: () => Promise<unknown>; readonly config?: ResearchDirNamesFallback } | undefined,
+): Promise<void> {
+  const legacy = readLegacyResearchSection(ctx)
+  if (legacy.malformed || legacy.section === undefined) return Promise.resolve()
+  if (!isMigrationPending(ctx, options?.config)) return Promise.resolve()
+  const editor = readConfigEditor(ctx)
+  if (editor === undefined) {
+    console.warn(
+      '[research-control] the legacy 0.1 directory names are being honored through the boot ' +
+        'overlay, but the host config editor (ConfigEditor) is unavailable to persist them ' +
+        'atomically — the migration will retry next boot',
+    )
+    return Promise.resolve()
+  }
+  const settle =
+    options?.settle?.()
+    ?? (ctx as unknown as { root?: { loader?: { await?: () => Promise<unknown> } } }).root?.loader?.await?.()
+  const persist = async (): Promise<void> => {
+    if (settle !== undefined) await settle
+    // Re-check pending AFTER settlement (a concurrent activation in the
+    // same process may already have completed the migration).
+    if (!isMigrationPending(ctx, options?.config)) return
+    const row = findOwnConfigRow(ctx)
+    if (row === undefined) {
+      console.warn(
+        '[research-control] the legacy settings migration cannot find this profile entry ' +
+          'through ConfigEditor.configuration() — retrying next boot (nothing written)',
+      )
+      return
+    }
+    const entryId = row.entry?.options?.id ?? RESEARCH_SETTINGS_ENTRY_ID
+    const legacySection = legacy.section!
+    const ownFiber = (ctx as unknown as { fiber?: unknown }).fiber
+    const wroteFields: string[] = []
+    let concurrentlyCompleted = false
+    await editor.edit(row.entry, (current: Record<string, unknown>) => {
+      // EXPLICITNESS authority = the FRESH RAW user layer, re-read inside
+      // this critical section: `configuration()` reloads the patched
+      // profile from disk (index.ts:49-52), and this callback runs after
+      // the file lock + reconcile (index.ts:93-97), so the read is fresh
+      // and cannot race. The callback's `current` is the COMPOSED entry
+      // options (index.ts:98 — inherited/base values ride it): treating
+      // it as "the user layer" made base-provided defaults look explicit,
+      // silently dropping the migration whenever the base layer already
+      // carried the two names. Never infer explicitness from
+      // current-vs-inherited VALUE equality either — an explicit user
+      // value that happens to equal the default stays explicit and wins.
+      const freshOverride = (pickOwnConfigRow(editor.configuration(), ownFiber)?.override ?? {}) as Record<
+        string,
+        unknown
+      >
+      // ONE-SHOT concurrency boundary: `edit` may have QUEUED behind the
+      // file lock while a competing completion landed first and the user
+      // then unset/reset the fields (the outer pending checks ran BEFORE
+      // the queue). A numeric marker in the FRESH raw user layer means the
+      // one-shot was already consumed — return the current config
+      // UNCHANGED and import nothing (with the fields gone from
+      // `current`, importing legacy here would resurrect them).
+      if (typeof freshOverride[RESEARCH_SETTINGS_MIGRATION_MARKER] === 'number') {
+        concurrentlyCompleted = true
+        return current
+      }
+      // Other fields of the fresh composed `current` are preserved verbatim.
+      const next: Record<string, unknown> = { ...current }
+      for (const field of ['projectTreeDir', 'hubDir'] as const) {
+        const value = legacySection[field]
+        if (typeof value !== 'string' || validateDirName(value) !== null) continue
+        if (freshOverride[field] !== undefined) continue // explicitly set — the user layer wins
+        next[field] = value
+        wroteFields.push(field)
+      }
+      // completion lands in the SAME write as the fields (atomic).
+      next[RESEARCH_SETTINGS_MIGRATION_MARKER] = Date.now()
+      return next
+    })
+    if (concurrentlyCompleted) {
+      console.log(
+        `[research-control] 0.1 settings migration: the completion marker was already ` +
+          `present in the fresh user layer when the edit ran (a concurrent completion ` +
+          `landed first) — entry "${entryId}" left UNCHANGED, legacy names NOT imported`,
+      )
+      return
+    }
+    console.log(
+      `[research-control] 0.1 settings migration complete: ${JSON.stringify(
+        wroteFields,
+      )} carried from settings.yaml into the profile user layer of entry "${entryId}" ` +
+        `+ completion marker "${RESEARCH_SETTINGS_MIGRATION_MARKER}" — one atomic ` +
+        'ConfigEditor.edit (the legacy file stays as a backup and exits the authority layers ' +
+        'for good)',
+    )
+  }
+  return persist().catch((error: unknown) => {
+    console.warn(
+      '[research-control] the legacy settings migration could not persist this run (the boot ' +
+        `overlay still honored the legacy names this boot, and the migration retries next ` +
+        `boot): ${error instanceof Error ? error.message : String(error)}`,
+    )
+  })
 }

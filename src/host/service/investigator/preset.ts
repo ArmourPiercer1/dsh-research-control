@@ -11,7 +11,7 @@
  *    行集 = 闭集 `INVESTIGATOR_PRESET_TOOL_NAMES`（types.ts）, 逐行
  *    `{id, name}` — **唯一例外**: `tool-fs-search` 行携带恰好一个
  *    上游必需 config 键 `sampleOverCapGlobResults: false`（pin 版
- *    dsh@0.1.0-rc.8: 该键 required 无 fallback — 缺失即 mount 失败
+ *    dsh@0.2.0-rc.2: 该键 required 无 fallback — 缺失即 mount 失败
  *    「$.sampleOverCapGlobResults missing required value」, 实机 TC-
  *    DSH-010 发现; 值 = 上游 standard/code preset 同行逐字。语义 =
  *    over-cap glob 分页的**读呈现**排序〔true 采样 / false 保 mtime
@@ -46,12 +46,27 @@ import { InvestigatorLaunchError } from './types.js'
 
 /**
  * The audited config face — the ONE upstream-required key the fs-search
- * row must carry（pin 版 dsh@0.1.0-rc.8 `dsh-tool-fs-search`: required,
+ * row must carry（pin 版 dsh@0.2.0-rc.2 `dsh-tool-fs-search`: required,
  * no fallback — the upstream `standard`/`code` presets set it to `false`
  * verbatim; checkout the shipped `standard` / `code` preset rows）. Pure
  * read-presentation ordering（over-cap glob pages: `false` keeps the
  * modification-time-ordered head）— no write-capability face.
  */
+/**
+ * R3 — the ONE audited non-tool row (the reviewer's convergence): the
+ * dedicated investigator SAFETY plugin, mounted FIRST inside the closed
+ * composition. Its registrations land on the preset generation's standing
+ * scope (agents are parented to it — agent-preset-registry mount.ts
+ * `standingMountFor`), so the guard + visibility cover create/resume/
+ * blank-select with ONE policy and detach on leave. The name is a package
+ * SUBPATH of THIS plugin (`exports["./investigator-safety"]`) — the
+ * composition row carries no config and no other freedom.
+ */
+export const INVESTIGATOR_SAFETY_ROW = Object.freeze({
+  id: 'research-investigator-safety',
+  name: 'dsh-research-control/investigator-safety',
+} as const)
+
 const FS_SEARCH_CONFIG = { sampleOverCapGlobResults: false } as const
 
 /** The fs-search package name（the one row that carries the config）. */
@@ -96,6 +111,7 @@ export function renderInvestigatorPresetComposition(presetId: string): string {
       message: `renderInvestigatorPresetComposition: presetId must be "${INVESTIGATOR_PRESET_ID}" (the plugin authors exactly one investigator preset), got ${JSON.stringify(presetId)}`,
     })
   }
+  const safetyLines = [`- id: ${INVESTIGATOR_SAFETY_ROW.id}`, `  name: '${INVESTIGATOR_SAFETY_ROW.name}'`]
   const rows = INVESTIGATOR_PRESET_TOOL_NAMES.map((name) => {
     const lines = [`- id: ${name.replace(/^@deepseek-ai\/dsh-/, '')}`, `  name: '${name}'`]
     if (name === FS_SEARCH_TOOL_NAME) {
@@ -118,7 +134,10 @@ export function renderInvestigatorPresetComposition(presetId: string): string {
     '#',
     '# Do not add rows or config keys: the plugin launcher parses this file',
     '# back and refuses to launch when a row (or the one audited fs-search',
-    '# config key) is not in its closed read-only set.',
+    '# config key) is not in its closed read-only set. The FIRST row is the',
+    '# audited safety plugin (guard + visibility on the preset generation) —',
+    '# it is part of the closed set, not an extension point.',
+    ...safetyLines,
     ...rows,
     '',
   ].join('\n')
@@ -191,8 +210,25 @@ export function parsePresetComposition(presetId: string, yamlText: string): Inve
     if (typeof name !== 'string' || name === '') {
       return fail(`${at} has no string "name"`)
     }
+    if (name === INVESTIGATOR_SAFETY_ROW.name) {
+      // The ONE audited non-tool row: exact id, NO config (a drifted id,
+      // any config, or any other key on it is a different, unaudited
+      // plugin — the audited row carries exactly {id, name}).
+      if (hasConfig) {
+        return fail(`${at} (safety row) carries a config block — the audited safety row carries no config (the config exception is audited ONLY on the fs-search row)`)
+      }
+      if (id !== INVESTIGATOR_SAFETY_ROW.id) {
+        return fail(`${at} (safety row) carries id ${JSON.stringify(id)} — the audited id is exactly "${INVESTIGATOR_SAFETY_ROW.id}"`)
+      }
+      if (seenNames.has(name)) {
+        return fail(`${at} duplicates "${name}"`)
+      }
+      rows.push(Object.freeze({ id, name }))
+      seenNames.add(name)
+      continue
+    }
     if (!allowed.has(name)) {
-      return fail(`${at} names "${name}" — not in the closed read-only set [${INVESTIGATOR_PRESET_TOOL_NAMES.join(', ')}] (a non-whitelisted capability is refused — INV-PERM-3)`)
+      return fail(`${at} names "${name}" — not in the closed read-only set [${INVESTIGATOR_PRESET_TOOL_NAMES.join(', ')} + ${INVESTIGATOR_SAFETY_ROW.name}] (a non-whitelisted capability is refused — INV-PERM-3)`)
     }
     if (seenNames.has(name)) {
       return fail(`${at} duplicates "${name}"`)
@@ -223,6 +259,12 @@ export function parsePresetComposition(presetId: string, yamlText: string): Inve
     }
     rows.push(Object.freeze({ id, name }))
   }
+  // The safety row is PART of the closed set: a composition that lost it
+  // lost the guard — that is drift, not a smaller investigator (fail the
+  // gate loudly rather than launch a tool-only preset).
+  if (!seenNames.has(INVESTIGATOR_SAFETY_ROW.name)) {
+    return fail(`the audited safety row (${INVESTIGATOR_SAFETY_ROW.name}) is missing — a preset composition without the generation guard is not the investigator (INV-PERM-3)`)
+  }
   return Object.freeze({ id: presetId, rows: Object.freeze(rows) })
 }
 
@@ -243,4 +285,34 @@ export function assertReadonlyPermissionPreset(name: string): void {
       message: `assertReadonlyPermissionPreset: "${name}" is not the read-only permission preset (the investigator launches ONLY "${READ_ONLY_PERMISSION_PRESET}" — every other preset carries a write-capable sandbox mode — INV-PERM-3)`,
     })
   }
+}
+
+/**
+ * 0.2 声明式 preset 定义（`register` 的输入 — 「文件即声明」退役后的
+ * 单一真源: 渲染文本 → 严格闭集解析 → 行数组, 与 0.1 的「落盘 + 回读
+ * 解析」共享同一解析门 — 定义本身先过 `parsePresetComposition`, 闭集
+ * 性质在构造期即成立, 不是运行期才发现）。
+ *
+ * 返回形状是 0.2 `PresetDefinition` 的结构切片（dsh-adapter 侧的
+ * `PresetDefinitionLike` — 本文件是 service 领地, 零 DSH import）。
+ *
+ * @returns the frozen declarative preset definition the launcher
+ *   registers into the host roster when the id is unknown.
+ */
+export function investigatorPresetDefinition(): {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly plugins: readonly { readonly id?: string; readonly name: string; readonly config?: unknown }[]
+} {
+  const spec = parsePresetComposition(
+    INVESTIGATOR_PRESET_ID,
+    renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID),
+  )
+  return Object.freeze({
+    id: INVESTIGATOR_PRESET_ID,
+    name: 'Investigator (read-only)',
+    description: 'Read-only research investigator — closed read-only tool composition (dsh-research-control).',
+    plugins: spec.rows,
+  })
 }

@@ -9,7 +9,7 @@
  *   plugin fiber stays PENDING (silently) until they are ready (DSH_ADAPTER §4);
  * - `static Config` (schemastery, standard-schema V1) validates the plugin
  *   config coming from `cordis.yml` before the fiber starts — WP-2.6 adds
- *   `minDshVersion` (RR-008 / DSH_ADAPTER §12-②, default `0.1.0-rc.8`);
+ *   `minDshVersion` (RR-008 / DSH_ADAPTER §12-②, default `0.2.0-rc.2`);
  * - `protected async [Service.init]()` carries post-construction async
  *   initialization (WP-0.4: instantiates the session adapter and its
  *   counting subscriptions; WP-2.6: the minDshVersion fail-loud guard +
@@ -369,17 +369,20 @@ import {
   type HostWiring,
   type HostWiringLogger,
 } from '../../service/wiring/index.js'
-import { HostAgentLauncherAdapter, type LauncherHostContext } from '../launcher/index.js'
+import {
+  HostAgentLauncherAdapter,
+  type LauncherHostContext,
+} from '../launcher/index.js'
 import { registerAnalysisCommands } from './analysis-commands.js'
 import { registerInvestigationCommand } from './investigate-command.js'
-import { getResearchDirNames, registerResearchSettings } from './settings.js'
+import { getResearchDirNames, migrateLegacyResearchSettings, registerResearchSettings } from './settings.js'
 
 /**
  * Validated plugin config.
  *
  * WP-2.6: `minDshVersion` — RR-008 / DSH_ADAPTER §12-② 「插件 `Config` 自持
  * `minDshVersion` 字段，`[Service.init]` 与宿主可观测版本比对 fail-loud」.
- * The default `0.1.0-rc.8` (the frozen baseline host, this plugin's exact
+ * The default `0.2.0-rc.2` (the frozen baseline host, this plugin's exact
  * peer pin) lives in the SCHEMA, not in code (root AGENTS.md: no hardcoded
  * tunables — defaults belong in the schema).
  */
@@ -388,10 +391,33 @@ export interface Config {
    * The minimum DSH (harness package) version this plugin supports.
    * Optional at the type level (a hand-built config, e.g. in construction
    * tests, may omit it); for every config that went through the LOADER the
-   * schema default (`0.1.0-rc.8`) has been applied, so `[Service.init]`
+   * schema default (`0.2.0-rc.2`) has been applied, so `[Service.init]`
    * sees a string — an omission there is misconfiguration and fails loud.
    */
   readonly minDshVersion?: string
+  /**
+   * 0.2 settings model: §7.5 「项目数据目录名」 — the workspace-root
+   * project-tree directory name (frozen default `.research`). The
+   * settings namespace of this plugin IS its profile entry, so the two
+   * §7.5 fields ride the plugin Config (the host renders them as the
+   * entry's settings form); the discovery layer reads them live through
+   * `getResearchDirNames` (invalid stored values fall back + warn — the
+   * name rule is deliberately NOT a schema constraint, see
+   * `./settings.ts` 模块头).
+   */
+  readonly projectTreeDir?: string
+  /** §7.5 「管理中心目录名」 — the hub directory name (default `.research-control`). */
+  readonly hubDir?: string
+  /**
+   * Internal completion marker of the ONE-shot 0.1→0.2 settings migration
+   * (`RESEARCH_SETTINGS_MIGRATION_MARKER` in `./settings.ts`): written by
+   * the migration through the host's own `ConfigEditor.edit` in the SAME
+   * atomic write as the migrated fields. Its presence means the legacy
+   * `settings.yaml(.imported)` is permanently out of the read authority
+   * (the boot overlay is pending-window only); its absence means pending.
+   * NOT `.volatile()` → never enters the editable form or the plugin card.
+   */
+  readonly legacyMigrationCompletedAt?: number
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -488,10 +514,37 @@ export class ResearchControlService extends TypertRemoteService {
   /**
    * Loader-side validation of the plugin config (standard-schema V1).
    * `minDshVersion` default = the frozen baseline (DSH_ADAPTER 头部：宿主
-   * `0.1.0-rc.8`; exact peer pin per RR-003).
+   * `0.2.0-rc.2`; exact peer pin per RR-003).
    */
-  static Config: s<Config> = s.object({
-    minDshVersion: s.string().default('0.1.0-rc.8'),
+  // NOTE: NO `s<Config>` annotation — `.volatile()` fields shift the
+  // schemastery output state (`volatile-defined`), which the plain
+  // `s<Config>` type would reject; the inferred type carries the
+  // volatility honestly (the loader consumes it structurally).
+  static Config = s.object({
+    minDshVersion: s.string().default('0.2.0-rc.2'),
+    // 0.2 settings model: the §7.5 field table rides the plugin Config
+    // (the frozen copy lives in RESEARCH_SETTINGS_SCHEMA — keep the two
+    // in lockstep; tests/settings/settings.test.ts pins the pairing).
+    // `.volatile()` is the 0.2 settings-form marker: only volatile
+    // fields enter the entry's editable form (`volatileForm` in
+    // @deepseek-ai/dsh-settings); minDshVersion stays composition-time
+    // (a pin, never form-editable).
+    projectTreeDir: s
+      .string()
+      .description('项目数据目录名（工作区根级子目录；默认 .research）')
+      .default('.research')
+      .volatile(),
+    hubDir: s
+      .string()
+      .description('管理中心目录名（工作区根级子目录；默认 .research-control）')
+      .default('.research-control')
+      .volatile(),
+    // Internal migration completion (see the Config interface doc; the
+    // settings module writes it — never the form, never the card: the
+    // marker is non-volatile so volatileForm excludes it).
+    legacyMigrationCompletedAt: s
+      .number()
+      .description('内部字段：0.1 settings.yaml 一次性迁移完成时间戳（迁移器写入；请勿手工编辑）'),
   })
 
   /**
@@ -621,6 +674,17 @@ export class ResearchControlService extends TypertRemoteService {
 
   /** The validated config (WP-2.6: `minDshVersion` is read in `[Service.init]`). */
   readonly #config: Config
+  /**
+   * PUBLIC mirror of the loader-resolved Config for the settings-fallback
+   * reads: the @Remote dispatch reaches the RPC bodies through a receiver
+   * whose private (`#`) fields are NOT initialized (real-host failure on
+   * dsh@0.2.0-rc.2: "Cannot read private member #config from an object
+   * whose class did not declare it"), while public property reads stay
+   * safe. `getResearchDirNames` therefore takes THIS reference — worst
+   * case (a receiver without the field) it reads `undefined` and the
+   * live describe() view answers instead.
+   */
+  readonly dirNamesConfig: Config
 
   /**
    * @param ctx - the host context that owns this service.
@@ -654,6 +718,7 @@ export class ResearchControlService extends TypertRemoteService {
   ) {
     super(ctx, 'researchControl')
     this.#config = config
+    this.dirNamesConfig = config
     this.rpc = rpcServices
     this.planeServices = planeServices
     this.planeMutationServices = planeMutationServices
@@ -742,13 +807,21 @@ export class ResearchControlService extends TypertRemoteService {
     // the namespace is registered would warn about a not-registered
     // section.
     registerResearchSettings(this.ctx)
+    // 0.1 → 0.2 ONE-SHOT migration (reviewer P1 + simplification ruling): the host
+    // importer cannot carry our section (LEGACY_SECTION_ENTRIES is fixed), so the
+    // plugin completes the migration itself — fields + completion marker in ONE
+    // atomic ConfigEditor.edit (the host's own public write face: lock, reconcile,
+    // fresh `current` inside the critical section). Deferred (awaits loader
+    // settlement — no activation deadlock); the pending-window boot overlay already
+    // served the first-boot discovery, so durability is the only thing this gates.
+    void migrateLegacyResearchSettings(this.ctx, { config: this.dirNamesConfig })
 
     // (d) G1 分诊 — startup sweep of stale crash residue (W9 front line).
     // V2-T2.2: the tree name comes from the settings domain (design
     // §3.1: 发现逻辑只认配置后的名字) — a renamed tree is swept too.
     try {
       const registry = (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry
-      const treeDir = getResearchDirNames(this.ctx).treeDir
+      const treeDir = getResearchDirNames(this.ctx, this.dirNamesConfig).treeDir
       for (const workspace of registry.list()) {
         const researchRoot = join(workspace.path, treeDir)
         if (!existsSync(researchRoot)) continue
@@ -792,7 +865,7 @@ export class ResearchControlService extends TypertRemoteService {
     this.planeServices = new ProductionResearchPlaneServices({
       getPlane: () => this.plane,
       getWirings: () => this.projectWirings,
-      dirNames: () => getResearchDirNames(this.ctx),
+      dirNames: () => getResearchDirNames(this.ctx, this.dirNamesConfig),
       sessions: adapter,
       declarativeDir: join(schemaRoot, 'declarative'),
       // UI-8 (D2, ADJ-4/ADJ-13): the plane queryAttention leg reads the
@@ -824,7 +897,7 @@ export class ResearchControlService extends TypertRemoteService {
       getPlane: () => this.plane,
       listWorkspacePaths: (): readonly string[] =>
         (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry.list().map((w) => w.path),
-      dirNames: () => getResearchDirNames(this.ctx),
+      dirNames: () => getResearchDirNames(this.ctx, this.dirNamesConfig),
       reinitPlane: (): void | Promise<void> => this.#reinitResearchPlane(adapter, schemaRoot),
       sealStandaloneDb: (projectId: string): void => {
         // A project's live sqlite connections have TWO owners: its
@@ -853,7 +926,7 @@ export class ResearchControlService extends TypertRemoteService {
       getPlane: () => this.plane,
       listWorkspacePaths: (): readonly string[] =>
         (this.ctx as unknown as WorkspaceHostContext).workspaceRegistry.list().map((w) => w.path),
-      dirNames: () => getResearchDirNames(this.ctx),
+      dirNames: () => getResearchDirNames(this.ctx, this.dirNamesConfig),
       declarativeDir: join(schemaRoot, 'declarative'),
       bindProject: (args) => this.requirePlaneMutationServices().bindProject(args),
     })
@@ -1468,7 +1541,7 @@ export class ResearchControlService extends TypertRemoteService {
     const decoded = InspectProjectDirectoryArgsSchema.parse(args) satisfies InspectProjectDirectoryArgs
     return this.requireLocalProjectServices().inspectProjectDirectory({
       wsPath: decoded.wsPath,
-      treeDir: getResearchDirNames(this.ctx).treeDir,
+      treeDir: getResearchDirNames(this.ctx, this.dirNamesConfig).treeDir,
     })
   }
 
@@ -1477,7 +1550,7 @@ export class ResearchControlService extends TypertRemoteService {
     const decoded = CreateLocalResearchProjectArgsSchema.parse(args) satisfies CreateLocalResearchProjectArgs
     return this.requireLocalProjectServices().createLocalResearchProject({
       wsPath: decoded.wsPath,
-      treeDir: getResearchDirNames(this.ctx).treeDir,
+      treeDir: getResearchDirNames(this.ctx, this.dirNamesConfig).treeDir,
       title: decoded.title,
       description: decoded.description,
       importance: decoded.importance,
@@ -1716,7 +1789,7 @@ export class ResearchControlService extends TypertRemoteService {
     const workspaces = registry.list()
     // Design §4 step 1: the directory names come exclusively from the
     // settings domain (T2.1 — live read, no hardcoded literal).
-    const dirNames = getResearchDirNames(this.ctx)
+    const dirNames = getResearchDirNames(this.ctx, this.dirNamesConfig)
 
     // Design §4 step 2: the root-level scan. The probe also reads each
     // discovered tree's project id (the routing key + the §3.2 cross-
@@ -1837,6 +1910,26 @@ export class ResearchControlService extends TypertRemoteService {
     // ctx (reads `agents` through `ctx.get` at launch time) — one
     // instance shared by every project wiring.
     const launcherAdapter = new HostAgentLauncherAdapter(this.ctx as unknown as LauncherHostContext)
+    // R3 (reviewer convergence) — the deny-7 LIFECYCLE question (resume
+    // setup does no restrict; blank select fires no `agent/created`) is
+    // answered by the preset GENERATION itself: the closed composition's
+    // safety row registers the guard + visibility on the standing preset
+    // scope, which every joined agent (create / cold resume / blank
+    // recompose) inherits through its scope parent, detaching on leave.
+    // The retired design (global `agent/created` watch + WeakSet + preset
+    // identity guessing) is replaced — see src/host/investigator-safety.
+    // R3 (reviewer final ruling) — the investigator preset declaration is
+    // owned by the bundle's companion `@deepseek-ai/dsh-agent-preset` row
+    // (cordis.patch.yml): its `inject: ['agentPresets']` rides cordis's
+    // dependency graph, which IS the optional-service appearance/replacement
+    // lifecycle (late registry at boot → deferred activation; registry
+    // unload/reload → the row re-declares on the new generation, so resumed
+    // sessions never hit a missing preset without a new launch). A previous
+    // one-shot activation-time declare was retired — it checked the roster
+    // exactly once and raced the companion row (which does not tolerate a
+    // Duplicate). The launcher keeps a register-on-miss fallback for a
+    // hand-removed row; the launch-time readDocument closed-set gate audits
+    // the composition regardless of who declared it.
     try {
       for (const project of planeState.projects) {
         // Design §3.3 (V2-T2.4): the database follows the project — the

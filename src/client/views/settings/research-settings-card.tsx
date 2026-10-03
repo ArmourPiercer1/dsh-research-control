@@ -7,8 +7,8 @@
  * adapter half (`dsh-adapter/settings-card.tsx`) hands the card the
  * inject face below — plain data + callbacks (client/AGENTS.md rule 7) —
  * and the slot runtime spreads the face members onto the component as
- * props (the keyed slot `settings.plugin.item`'s owner share is empty,
- * so the face IS the props).
+ * props (the face members plus the `plugins.item` owner share
+ * `view: 'summary' | 'page'`).
  *
  * ## What the card does (frozen §7.5)
  *
@@ -95,8 +95,18 @@ export interface ResearchSettingsCardFace {
   readonly save: (next: ResearchSettingsSection) => Promise<ResearchSettingsSaveOutcome>
 }
 
-/** The slot runtime spreads the face onto the component — the face IS the props. */
-export type ResearchSettingsCardProps = ResearchSettingsCardFace
+/**
+ * The slot runtime spreads the face onto the component as props. The
+ * 0.2 `plugins.item` owner share rides along: `view` (the Plugins manager
+ * renders the one-liner `summary` on the list and the full `page` in the
+ * plugin's detail view) and the host-owned `form` (UNUSED here — the card
+ * edits through its own face, whose `save` wraps the whole §7.5
+ * transaction; the owner form would bypass that guarantee).
+ */
+export type ResearchSettingsCardProps = ResearchSettingsCardFace & {
+  readonly view?: 'summary' | 'page'
+  readonly form?: unknown
+}
 
 /* ------------------------------------------------------------------ *
  * i18n over the shared validator (the host warns English; the card
@@ -256,6 +266,20 @@ export function ResearchSettingsCard(props: ResearchSettingsCardProps): ReactEle
       savingRef.current = false
       setSaving(false)
     }
+  }
+
+  // `plugins.item` list one-liner (owner `view: 'summary'`): the Plugins
+  // manager renders this in the plugin list; the full form is the `page`
+  // view. `undefined` (a non-manager host or a summary-only seat) keeps the
+  // historical behavior — the full card.
+  if (props.view === 'summary') {
+    const committed = committedRef.current
+    return (
+      <span data-testid="settings-card-summary" aria-label={t('settingsCard.title')}>
+        {t('settingsCard.title')}
+        {committed === null ? '' : ` · ${committed.projectTreeDir} · ${committed.hubDir}`}
+      </span>
+    )
   }
 
   return (

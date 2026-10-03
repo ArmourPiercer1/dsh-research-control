@@ -20,11 +20,24 @@ import type { PlaneStateSummary } from './rpc-contracts.js'
  * The DSH user-settings namespace owned by this plugin (frozen §7.5 —
  * 「按设置域 namespace 配对」). The host's `settingsNamespace()` brands
  * exactly this string pattern; the plugin keeps it as a plain string
- * because it does not devDep on `@deepseek-ai/dsh-settings`. The client
- * card registers into the `settings.plugin.item` slot under THIS key, so
- * the host and the browser half pair on the same name.
+ * because it does not devDep on `@deepseek-ai/dsh-settings`. In 0.2 the
+ * legacy `settings.yaml` migration reads THIS section out of the profile
+ * home document (see the host `parseLegacyResearchSection`); the live
+ * config plane is keyed by {@link RESEARCH_SETTINGS_ENTRY_ID} instead.
  */
 export const RESEARCH_SETTINGS_NAMESPACE = 'dsh-research-control'
+
+/**
+ * rc.2 config-form key — the HOST PROFILE ENTRY id whose ConfigForm the
+ * browser card edits. In the 0.2 settings model the client reads a plugin's
+ * configuration through `ctx.configForms.get(entryId)`, keyed by the profile
+ * entry id (== the descriptor `ns` the host `describe()` serves == this
+ * plugin's entry `options.id`), NOT by the frozen 0.1 `settingsNamespace()`
+ * brand. Empirically this deployment's entry id is `research-control` (the
+ * profile patch entry); the host read path resolves the same id through
+ * `resolveOwnSettingsEntryId` so the host and browser halves pair on it.
+ */
+export const RESEARCH_SETTINGS_ENTRY_ID = 'research-control'
 
 /** The project data directory name, default (the per-project declarative tree). */
 export const DEFAULT_PROJECT_TREE_DIR = '.research'

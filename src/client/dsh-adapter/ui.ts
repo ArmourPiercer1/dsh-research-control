@@ -78,7 +78,7 @@ export const CONVERSATION_VIEW_SLOT = 'conversation.view'
  * real `SlotMap`/`register` contract and extends it
  * (`children`/`store`/`locale`) when the cockpit registers more seats —
  * the `key` field was pulled in early by V2-T6.1 (the DSH 设置 plugin card
- * registers into the KEYED slot `settings.plugin.item` under the
+ * registers into the `plugins.item` list slot under the
  * settings-namespace key — the standard third-party entry, design §7.5).
  */
 export interface SlotRegisterOptions {
@@ -91,7 +91,7 @@ export interface SlotRegisterOptions {
   readonly id?: string
   /**
    * The literal entry key of a KEYED slot: the host
-   * `settings.plugin.item` contract keys cards by the settings namespace
+   * `plugins.item` contract seats one card per plugin (list-slot `id`)
    * the card edits (slot-contract.ts of `dsh-client-ui-settings-plugins`).
    * Keyed entries only.
    */
@@ -122,9 +122,11 @@ export interface SlotService {
   register<P>(options: SlotRegisterOptions, component: (props: P) => unknown): () => void
   /**
    * Contribute to a slot lazily: the callback runs at declaration time
-   * (and after redeclaration), leaving the caller's plugin fiber.
+   * (and after redeclaration), leaving the caller's plugin fiber; the
+   * returned disposer removes the contribution (host runtime — the
+   * `configForms.whileServed` pairing composes on this return value).
    */
-  inject(slot: string, contribute: () => unknown): void
+  inject(slot: string, contribute: () => unknown): () => void
 }
 
 /** Client context carrying the slots service (mirror of the host Context merge). */
@@ -163,14 +165,14 @@ export type ResearchClientContext = Context & { slots: SlotService }
  * (ui-trajectory precedent, same call shape).
  *
  * V2-T6.1 (design §7.5): the SAME surface also registers the DSH 设置
- * plugin card — the keyed slot `settings.plugin.item` under the
+ * plugin card — the `plugins.item` configuration card for the
  * namespace key `dsh-research-control` (the host half of §7.5 already
  * serves that namespace; the two pair on it). That registration lives in
  * `./settings-card.tsx` (`registerResearchSettingsCard`) so each seat
  * keeps one file; this function remains the ONE registration surface
  * called by the bundle entry's `apply`.
  * @param ctx - client context with the injected slots service (the
- *  settings card additionally reads the optional `settingsScope` service
+ *  settings card additionally reads the optional `configForms` service
  *  through the context's optional-service face).
  */
 export function registerResearchUI(ctx: ResearchClientContext): void {
@@ -467,9 +469,10 @@ export function registerResearchUI(ctx: ResearchClientContext): void {
       ResearchShell,
     ),
   )
-  // V2-T6.1 (design §7.5): the DSH 设置 plugin card — the keyed slot
-  // `settings.plugin.item` under the namespace key `dsh-research-control`
-  // (paired with the host half's namespace registration). One warn + no
-  // card when the client exposes no settingsScope service.
+  // V2-T6.1 (design §7.5): the DSH 设置 plugin card — the 0.2
+  // `plugins.item` configuration card for the profile entry
+  // `research-control` (paired with the host half's descriptor through
+  // configForms.whileServed). One warn + no card when the client exposes
+  // no configForms service.
   registerResearchSettingsCard(ctx)
 }

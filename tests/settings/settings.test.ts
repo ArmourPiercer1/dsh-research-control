@@ -667,6 +667,7 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
     readonly row: FakeRow
     readonly edits: Array<Record<string, unknown>>
     readonly ctx: unknown
+    readonly fiber: unknown
     dispose(): void
   }
   const LEGACY_DOC =
@@ -686,6 +687,12 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
     inherited?: Record<string, unknown>
     entryId?: string
     noEditor?: boolean
+    /** test seam for the ONE-SHOT concurrency boundary: edit() announces
+     *  entry (AFTER the identity check) and then waits — the reviewer-
+     *  required injection point is BETWEEN the outer pending re-check and
+     *  the callback execution (settle runs EARLIER and cannot express it). */
+    onEditEnter?: () => void
+    beforeChange?: Promise<unknown>
   }): Fixture {
     const home = mkdtempSync(join(tmpdir(), 'rc-legacy-'))
     if (options?.legacy !== undefined) {
@@ -714,6 +721,8 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
         if (entry !== row.entry) {
           throw new Error('ConfigEditor.edit: entry identity violated (rebuilt look-alike passed)')
         }
+        options?.onEditEnter?.()
+        if (options?.beforeChange !== undefined) await options.beforeChange
         const current = structuredClone(row.entry.options.config ?? {})
         const next = change(current, structuredClone(row.inherited))
         // the host writes `next` as the PROFILE ROW config (raw override)
@@ -733,6 +742,7 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
       row,
       edits,
       ctx,
+      fiber,
       dispose: () => rmSync(home, { recursive: true, force: true }),
     }
   }
@@ -860,6 +870,79 @@ describe('migrateLegacyResearchSettings — the ONE-shot atomic migration (host 
       // And a fresh boot's read resolves DEFAULTS, never the legacy file:
       const names = getResearchDirNames(f.ctx as never)
       expect(names).toEqual({ treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR })
+    } finally {
+      f.dispose()
+    }
+  })
+
+  it('CONCURRENCY (reviewer): completion+unset committed AFTER the outer pending re-check but BEFORE the callback runs → the locked callback returns UNCHANGED, legacy NOT imported', async () => {
+    let entered = false
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const f = makeFixture({ legacy: LEGACY_DOC, onEditEnter: () => { entered = true }, beforeChange: gate })
+    try {
+      const running = migrateLegacyResearchSettings(f.ctx as never)
+      for (let i = 0; !entered && i < 200; i++) await new Promise((r) => setTimeout(r, 1))
+      expect(entered).toBe(true)
+      // A competing actor completes the one-shot and the user THEN unsets
+      // both fields (the marker survives the reset; the fields are gone).
+      // The queued callback must see the marker in the FRESH raw user
+      // layer and return the current config unchanged — importing legacy
+      // into the field-less `current` would resurrect the old names.
+      f.row.override = { [RESEARCH_SETTINGS_MIGRATION_MARKER]: 1700000000009 }
+      f.row.entry.options.config = { [RESEARCH_SETTINGS_MIGRATION_MARKER]: 1700000000009 }
+      release()
+      await running
+      expect(f.edits).toHaveLength(1)
+      expect(f.edits[0]!.projectTreeDir).toBeUndefined()
+      expect(f.edits[0]!.hubDir).toBeUndefined()
+      expect(f.edits[0]![RESEARCH_SETTINGS_MIGRATION_MARKER]).toBe(1700000000009) // unchanged current
+    } finally {
+      release()
+      f.dispose()
+    }
+  })
+
+  it('EDITOR LOSS after completion keeps the legacy RETIRED (own-Config marker; service absence ≠ never migrated) — completed→reset→unload→read/rescan→reload', async () => {
+    const f = makeFixture({ legacy: LEGACY_DOC })
+    try {
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1)
+      // the user RESETS both names (unset; the marker keeps the row alive)
+      const marker = f.edits[0]![RESEARCH_SETTINGS_MIGRATION_MARKER]
+      f.row.override = { [RESEARCH_SETTINGS_MIGRATION_MARKER]: marker }
+      f.row.entry.options.config = { [RESEARCH_SETTINGS_MIGRATION_MARKER]: marker }
+      // the OPTIONAL config editor disappears (unload). The plugin lives
+      // on with its loader-resolved Config (the host threads it as the
+      // `config` evidence / discovery fallback) — marker included.
+      const bareCtx = { fiber: f.fiber, profileContext: { home: f.home }, get: () => undefined }
+      const evidence = f.row.entry.options.config
+      expect(isMigrationPending(bareCtx as never, evidence)).toBe(false)
+      // read + rescan through the outage: DEFAULTS win over the still-
+      // present legacy file — no overlay, no resurrection.
+      expect(getResearchDirNames(bareCtx as never, evidence)).toEqual({
+        treeDir: DEFAULT_PROJECT_TREE_DIR,
+        hubDir: DEFAULT_HUB_DIR,
+      })
+      expect(getResearchDirNames(bareCtx as never, evidence)).toEqual({
+        treeDir: DEFAULT_PROJECT_TREE_DIR,
+        hubDir: DEFAULT_HUB_DIR,
+      })
+      // a scheduled migration during the outage stays SILENT (completed by
+      // the Config evidence — not the "unavailable, retry next boot" warn)
+      const warns: unknown[] = []
+      const spy = vi.spyOn(console, 'warn').mockImplementation((...a) => void warns.push(a.join(' ')))
+      try {
+        await migrateLegacyResearchSettings(bareCtx as never, { settle: async () => {}, config: evidence })
+      } finally {
+        spy.mockRestore()
+      }
+      expect(warns).toEqual([])
+      expect(f.edits).toHaveLength(1)
+      // reload: the editor returns — STILL completed, zero re-migration
+      expect(isMigrationPending(f.ctx as never)).toBe(false)
+      await migrateLegacyResearchSettings(f.ctx as never, { settle: async () => {} })
+      expect(f.edits).toHaveLength(1)
     } finally {
       f.dispose()
     }

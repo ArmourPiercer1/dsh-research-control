@@ -816,7 +816,7 @@ export class ResearchControlService extends TypertRemoteService {
     // fresh `current` inside the critical section). Deferred (awaits loader
     // settlement — no activation deadlock); the pending-window boot overlay already
     // served the first-boot discovery, so durability is the only thing this gates.
-    void migrateLegacyResearchSettings(this.ctx)
+    void migrateLegacyResearchSettings(this.ctx, { config: this.dirNamesConfig })
 
     // (d) G1 分诊 — startup sweep of stale crash residue (W9 front line).
     // V2-T2.2: the tree name comes from the settings domain (design

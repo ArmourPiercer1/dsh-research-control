@@ -212,6 +212,13 @@ export interface ResearchDirNamesFallback {
    *  per-field validation. */
   readonly projectTreeDir?: unknown
   readonly hubDir?: unknown
+  /** Completion evidence (see {@link RESEARCH_SETTINGS_MIGRATION_MARKER}):
+   *  the plugin's OWN loader-resolved Config carries the same numeric
+   *  marker (`static Config` — a non-volatile field). It is the
+   *  editor-independent authority that keeps the legacy document retired
+   *  when the OPTIONAL config editor is gone (service unload/reload) —
+   *  a missing service must never read as "never migrated". */
+  readonly legacyMigrationCompletedAt?: unknown
 }
 
 /** The discovery-facing directory names (design §4 step 1 output). */
@@ -572,7 +579,7 @@ export function getResearchDirNames(
   // live Config/describe stack alone — a reset back to a default stays
   // default and cannot resurrect the legacy name (the file is a lazy
   // backup, not a layer).
-  const pending = isMigrationPending(ctx)
+  const pending = isMigrationPending(ctx, fallback)
   const legacy = pending ? readLegacyResearchSection(ctx).section : undefined
   return resolveResearchDirNames(
     settings,
@@ -706,12 +713,22 @@ export function readOwnUserOverrideLayer(ctx: Context): DirNameFieldLayer | unde
   return undefined
 }
 
-/** True while the one-shot 0.1 → 0.2 migration has NOT completed: the
- *  raw user layer carries no numeric completion marker. While pending,
- *  the read path may use the boot overlay; once completed it must not. */
-export function isMigrationPending(ctx: Context): boolean {
+/** True while the one-shot 0.1 → 0.2 migration has NOT completed.
+ *  Completion evidence (ANY of): a numeric marker in the raw user layer
+ *  (the fast, editor-served authority) or a numeric marker in the
+ *  plugin's OWN loader-resolved Config (`ownConfig` — the same
+ *  `static Config` field, resolved by the loader from the user layer at
+ *  boot). The config editor is an OPTIONAL service: when it (or the row)
+ *  disappears mid-session — unload/reload — the own-Config marker keeps
+ *  the legacy document retired. A missing service is NEVER read as
+ *  "never migrated". While pending, the read path may use the boot
+ *  overlay; once completed it must not. */
+export function isMigrationPending(ctx: Context, ownConfig?: ResearchDirNamesFallback | undefined): boolean {
   const override = findOwnConfigRow(ctx)?.override
-  return typeof override?.[RESEARCH_SETTINGS_MIGRATION_MARKER] !== 'number'
+  if (typeof override?.[RESEARCH_SETTINGS_MIGRATION_MARKER] === 'number') return false
+  return (
+    typeof (ownConfig as Record<string, unknown> | undefined)?.[RESEARCH_SETTINGS_MIGRATION_MARKER] !== 'number'
+  )
 }
 
 /** Per-process cache of the parsed legacy document (per home). */
@@ -803,11 +820,11 @@ export function resetLegacyResearchCacheForTests(): void {
  */
 export function migrateLegacyResearchSettings(
   ctx: Context,
-  options?: { readonly settle?: () => Promise<unknown> } | undefined,
+  options?: { readonly settle?: () => Promise<unknown>; readonly config?: ResearchDirNamesFallback } | undefined,
 ): Promise<void> {
   const legacy = readLegacyResearchSection(ctx)
   if (legacy.malformed || legacy.section === undefined) return Promise.resolve()
-  if (!isMigrationPending(ctx)) return Promise.resolve()
+  if (!isMigrationPending(ctx, options?.config)) return Promise.resolve()
   const editor = readConfigEditor(ctx)
   if (editor === undefined) {
     console.warn(
@@ -824,7 +841,7 @@ export function migrateLegacyResearchSettings(
     if (settle !== undefined) await settle
     // Re-check pending AFTER settlement (a concurrent activation in the
     // same process may already have completed the migration).
-    if (!isMigrationPending(ctx)) return
+    if (!isMigrationPending(ctx, options?.config)) return
     const row = findOwnConfigRow(ctx)
     if (row === undefined) {
       console.warn(
@@ -837,6 +854,7 @@ export function migrateLegacyResearchSettings(
     const legacySection = legacy.section!
     const ownFiber = (ctx as unknown as { fiber?: unknown }).fiber
     const wroteFields: string[] = []
+    let concurrentlyCompleted = false
     await editor.edit(row.entry, (current: Record<string, unknown>) => {
       // EXPLICITNESS authority = the FRESH RAW user layer, re-read inside
       // this critical section: `configuration()` reloads the patched
@@ -853,6 +871,17 @@ export function migrateLegacyResearchSettings(
         string,
         unknown
       >
+      // ONE-SHOT concurrency boundary: `edit` may have QUEUED behind the
+      // file lock while a competing completion landed first and the user
+      // then unset/reset the fields (the outer pending checks ran BEFORE
+      // the queue). A numeric marker in the FRESH raw user layer means the
+      // one-shot was already consumed — return the current config
+      // UNCHANGED and import nothing (with the fields gone from
+      // `current`, importing legacy here would resurrect them).
+      if (typeof freshOverride[RESEARCH_SETTINGS_MIGRATION_MARKER] === 'number') {
+        concurrentlyCompleted = true
+        return current
+      }
       // Other fields of the fresh composed `current` are preserved verbatim.
       const next: Record<string, unknown> = { ...current }
       for (const field of ['projectTreeDir', 'hubDir'] as const) {
@@ -866,6 +895,14 @@ export function migrateLegacyResearchSettings(
       next[RESEARCH_SETTINGS_MIGRATION_MARKER] = Date.now()
       return next
     })
+    if (concurrentlyCompleted) {
+      console.log(
+        `[research-control] 0.1 settings migration: the completion marker was already ` +
+          `present in the fresh user layer when the edit ran (a concurrent completion ` +
+          `landed first) — entry "${entryId}" left UNCHANGED, legacy names NOT imported`,
+      )
+      return
+    }
     console.log(
       `[research-control] 0.1 settings migration complete: ${JSON.stringify(
         wroteFields,

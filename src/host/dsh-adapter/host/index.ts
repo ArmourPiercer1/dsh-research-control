@@ -372,7 +372,7 @@ import {
 import { HostAgentLauncherAdapter, type LauncherHostContext } from '../launcher/index.js'
 import { registerAnalysisCommands } from './analysis-commands.js'
 import { registerInvestigationCommand } from './investigate-command.js'
-import { getResearchDirNames, registerResearchSettings } from './settings.js'
+import { getResearchDirNames, migrateLegacyResearchSettings, registerResearchSettings } from './settings.js'
 
 /**
  * Validated plugin config.
@@ -788,6 +788,12 @@ export class ResearchControlService extends TypertRemoteService {
     // the namespace is registered would warn about a not-registered
     // section.
     registerResearchSettings(this.ctx)
+    // 0.1 → 0.2 explicit migration (reviewer P1): the host importer cannot carry our
+    // section (LEGACY_SECTION_ENTRIES is fixed), so we persist the legacy dir names into
+    // the profile user layer via the PUBLIC settings face. Deferred (awaits loader
+    // settlement — no activation deadlock); the SYNCHRONOUS read layer already served the
+    // first-boot discovery, so durability is the only thing this call gates.
+    void migrateLegacyResearchSettings(this.ctx)
 
     // (d) G1 分诊 — startup sweep of stale crash residue (W9 front line).
     // V2-T2.2: the tree name comes from the settings domain (design
@@ -1883,6 +1889,16 @@ export class ResearchControlService extends TypertRemoteService {
     // ctx (reads `agents` through `ctx.get` at launch time) — one
     // instance shared by every project wiring.
     const launcherAdapter = new HostAgentLauncherAdapter(this.ctx as unknown as LauncherHostContext)
+    // R3 (reviewer P1 regression) — the investigator preset declaration is
+    // ACTIVATION-owned (register-only via ctx.effect; NO resolve/list here —
+    // the registry's activation audit awaits loader settlement and would
+    // deadlock). 0.2 rosters are memory-only: without this, a cold start /
+    // reload leaves persisted investigator sessions un-resumable
+    // (composeAgent → presets.resolve(saved) runs before any new launch).
+    void launcherAdapter.declarePresetAtActivation().then((status) => {
+      if (status === 'no-roster') return
+      console.log(`[research-control] investigator preset declared at activation (${status}) — persisted investigator sessions can resume without a new launch`)
+    })
     try {
       for (const project of planeState.projects) {
         // Design §3.3 (V2-T2.4): the database follows the project — the

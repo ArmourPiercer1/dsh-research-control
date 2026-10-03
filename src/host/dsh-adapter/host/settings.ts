@@ -81,6 +81,8 @@
  * host test imports are untouched).
  */
 
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import {
@@ -172,6 +174,10 @@ export interface SettingsDescriptorLike {
    *  descriptor member is `ns`, NOT `id`; the real host proved it). */
   readonly ns: string
   readonly value: unknown
+  /** The USER layer alone (keys the profile patch actually sets). The
+   *  layered resolution needs it to tell "the user set the default"
+   *  apart from "nobody set anything" — the merged `value` cannot. */
+  readonly user?: unknown
 }
 
 /**
@@ -183,6 +189,10 @@ export interface SettingsDescriptorLike {
  */
 export interface SettingsServiceLike {
   describe(options?: unknown): readonly SettingsDescriptorLike[]
+  /** Public write face (the host form calls it; the legacy migration
+   *  persists through exactly this). Optional on the structural slice —
+   *  a service without it is read-only for migration purposes. */
+  update?(ns: string, patch: object, expectedRevision?: number): Promise<unknown>
 }
 
 /**
@@ -212,99 +222,130 @@ export interface ResearchDirNames {
 }
 
 /**
+ * One raw field layer for the layered resolution (values stay `unknown`
+ * — every candidate passes the SAME per-field validation when consumed).
+ */
+export interface DirNameFieldLayer {
+  readonly projectTreeDir?: unknown
+  readonly hubDir?: unknown
+}
+
+/** Extra layers the layered resolver consults (beyond the served view
+ *  and the service-Config fallback — see the matrix on
+ *  {@link resolveResearchDirNames}). */
+export interface ResearchDirResolutionOptions {
+  /** The parsed 0.1 `settings.yaml` section (the host legacy importer
+   *  cannot carry it: `LEGACY_SECTION_ENTRIES` only knows
+   *  ui-developer-tools/ui-onboarding/shell (rc.2 settings index:200-
+   *  206), the unmapped `dsh-research-control` section hits
+   *  `update('dsh-research-control')` → `No configurable plugin entry`
+   *  (settings index:377) and survives ONLY in the renamed `.imported`
+   *  file. The layer here is the plugin's own explicit migration read,
+   *  synchronous at boot so the FIRST upgrade boot's discovery already
+   *  resolves the custom names (no manual rescan, no restart). */
+  readonly legacy?: DirNameFieldLayer | undefined
+  /** The raw profile user layer at boot (configEditor `override`) —
+   *  during the boot window the served descriptor is absent and the
+   *  Config fallback CANNOT tell a user-set default apart from an
+   *  unset field; this layer can (empty ⇒ nobody set anything ⇒ legacy
+   *  may supply). */
+  readonly userOverride?: DirNameFieldLayer | undefined
+  /** This plugin's OWN profile entry id (custom installs carry a
+   *  different one; the descriptor key follows the entry, the legacy
+   *  section name never does). Defaults to
+   *  {@link RESEARCH_SETTINGS_ENTRY_ID}. */
+  readonly entryId?: string | undefined
+}
+
+/**
  * PURE resolution core (no ctx, no console — the warn sink is
- * injected): read the registered section, validate each field, fall
- * back per-field to the default with a warn for every violation
- * (frozen §4 step 1: 非法即回退默认并告警).
+ * injected): resolve each directory-name field through the priority
+ * layers, validating every candidate with the SAME per-field rule
+ * (frozen §4 step 1: 非法即回退默认并告警 — an invalid candidate warns
+ * and the walk continues to the next layer).
  *
- * Behavior matrix (0.2 authorities: served describe() view → service
- * Config fallback → frozen defaults):
- *  - `settings === undefined` → fallback when wired (silently), else
- *    both defaults with NO warn (the service-absent warn is fired
- *    exactly once by {@link registerResearchSettings});
- *  - service present but the entry view not served (THIS fiber's own
- *    boot window, or a degraded read) → fallback when wired (silently),
- *    else both defaults + one warn;
- *  - a served/fallback field `undefined` → the default silently
- *    (schema-default inheritance, the documented no-override path);
- *  - a field of the wrong type (a hand-edited document) → the default
- *    + a warn (the section crosses the durable-file boundary — the
- *    type check lives in the schema at registration, this is the
- *    read-side guard; the fallback path runs the SAME guard);
- *  - a string field failing {@link validateDirName} → the default + a
- *    warn naming the field, the value, and the violation.
+ * Priority (first VALID candidate wins, per field):
+ *  1. the USER layer — the served descriptor's `user` once answered
+ *     (else the `userOverride` boot layer): a value the user actually
+ *     set ALWAYS wins — a legacy section never overwrites it;
+ *  2. the LEGACY 0.1 section (explicit migration; see
+ *     {@link ResearchDirResolutionOptions.legacy});
+ *  3. the served 0.2 view (`value` — schema defaults merged with the
+ *     composition base);
+ *  4. the service Config fallback (loader-resolved, volatile cells
+ *     unwrapped);
+ *  5. the frozen defaults.
  *
- * @param settings - the host settings service, or `undefined` when the
- *  host composes none (the read still returns usable names).
- * @param warn - sink for fallback diagnostics (the wiring passes
- *  `console.warn`; tests pass a collector).
- * @returns the validated directory names, default-applied.
+ * Degradation warns (unchanged matrix):
+ *  - service absent → NO warn (fired once by registerResearchSettings);
+ *  - no describe() face → one warn regardless of layers (deployment
+ *    anomaly);
+ *  - entry not served (boot window) → warn ONLY when no other
+ *    authority exists (no fallback, no legacy, no user override) —
+ *    with any of them the window is documented behavior, not an anomaly.
  */
 export function resolveResearchDirNames(
   settings: SettingsServiceLike | undefined,
   warn: (message: string) => void,
   fallback?: ResearchDirNamesFallback | undefined,
+  options?: ResearchDirResolutionOptions | undefined,
 ): ResearchDirNames {
+  const entryId = options?.entryId ?? RESEARCH_SETTINGS_ENTRY_ID
+  let served: DirNameFieldLayer | undefined
+  let user: DirNameFieldLayer | undefined = options?.userOverride
+  const legacy = options?.legacy
   if (settings === undefined) {
-    // No service at all: the service-owned config (user layer included)
-    // is the remaining authority; absent both, the frozen defaults.
-    return fallback === undefined
-      ? { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
-      : namesFromSection(fallback, warn)
-  }
-  // Runtime shape guard (the real host taught this lesson): a settings
-  // service WITHOUT the 0.2 describe() face cannot answer — fall back
-  // loudly instead of throwing inside discovery.
-  if (typeof settings.describe !== 'function') {
+    // No service at all: silent (the once-warn is registerResearchSettings' job).
+  } else if (typeof settings.describe !== 'function') {
     warn(
       'the host settings service does not expose the 0.2 describe() face — the research ' +
-        'settings namespace cannot be read, using the service config fallback ' +
-        '(or the frozen defaults when no fallback is wired)',
+        'settings namespace cannot be read, falling back to the remaining authorities',
     )
-    return fallback === undefined
-      ? { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
-      : namesFromSection(fallback, warn)
-  }
-  const entry = settings.describe().find(view => view.ns === RESEARCH_SETTINGS_ENTRY_ID)
-  const section = entry?.value
-  if (section === undefined || section === null) {
-    // The boot window (and service-degraded reads): describe() only serves
-    // ACTIVE entries, so while this plugin's own fiber is still mounting
-    // its view is absent — the service-owned Config (loader-resolved, the
-    // user layer included — e2e-verified on dsh@0.2.0-rc.2) carries the
-    // configured names through exactly that window. No warn while a
-    // fallback exists: the window is the documented behavior, not an
-    // anomaly; the warn fires only when BOTH authorities are missing.
-    if (fallback !== undefined) {
-      return namesFromSection(fallback, warn)
+  } else {
+    const entry = findResearchEntry(settings.describe(), entryId)
+    if (entry !== undefined && entry.value !== undefined && entry.value !== null) {
+      served = entry.value as DirNameFieldLayer
+      if (entry.user !== undefined && entry.user !== null) user = entry.user as DirNameFieldLayer
+    } else if (fallback === undefined && legacy === undefined && user === undefined) {
+      warn(
+        `the research settings namespace (profile entry "${entryId}", the plugin's ` +
+          'own settings view in the 0.2 model) is not served by the host settings service and no ' +
+          'authority fallback is wired — using the frozen defaults ' +
+          `"${DEFAULT_PROJECT_TREE_DIR}" / "${DEFAULT_HUB_DIR}"`,
+      )
     }
-    warn(
-      `the research settings namespace (profile entry "${RESEARCH_SETTINGS_ENTRY_ID}", the plugin's ` +
-        'own settings view in the 0.2 model) is not served by the host settings service and no ' +
-        'service config fallback is wired — using the frozen defaults ' +
-        `"${DEFAULT_PROJECT_TREE_DIR}" / "${DEFAULT_HUB_DIR}"`,
-    )
-    return { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
   }
-  return namesFromSection(section as { projectTreeDir?: unknown; hubDir?: unknown }, warn)
+  return {
+    treeDir: pickDirField('projectTreeDir', user, legacy, served, fallback, warn),
+    hubDir: pickDirField('hubDir', user, legacy, served, fallback, warn),
+  }
 }
 
-/** Resolve both fields of one section (served view or Config fallback) with the SAME per-field rule. */
-function namesFromSection(
-  section: { projectTreeDir?: unknown; hubDir?: unknown },
-  warn: (message: string) => void,
-): ResearchDirNames {
-  return {
-    treeDir: resolveDirField('projectTreeDir', unwrapVolatile(section.projectTreeDir), DEFAULT_PROJECT_TREE_DIR, warn),
-    hubDir: resolveDirField('hubDir', unwrapVolatile(section.hubDir), DEFAULT_HUB_DIR, warn),
-  }
+/**
+ * Locate this plugin's descriptor: exact entry-id match first; absent
+ * that, the ONE descriptor whose served value carries our field pair
+ * (a custom profile entry id renames the ns, never the fields).
+ */
+export function findResearchEntry(
+  descriptors: readonly SettingsDescriptorLike[],
+  entryId: string,
+): SettingsDescriptorLike | undefined {
+  const exact = descriptors.find((view) => view.ns === entryId)
+  if (exact !== undefined) return exact
+  const ours = descriptors.filter(
+    (view) =>
+      typeof view.value === 'object' &&
+      view.value !== null &&
+      'projectTreeDir' in (view.value as Record<string, unknown>),
+  )
+  return ours.length === 1 ? ours[0] : undefined
 }
 
 /**
  * Unwrap one cosmokit volatile config cell (`{ get(): … }` — what the
  * loader mounts for `.volatile()` fields, read live like the host's own
  * `config.timeoutMs.get()` convention). Plain values pass through
- * untouched (the served describe() view is already plain).
+ * untouched (served layers are already plain).
  */
 function unwrapVolatile(value: unknown): unknown {
   if (value !== null && typeof value === 'object' && typeof (value as { get?: unknown }).get === 'function') {
@@ -313,28 +354,107 @@ function unwrapVolatile(value: unknown): unknown {
   return value
 }
 
-/** Resolve one directory-name field (the matrix above, per field). */
-function resolveDirField(
+/** Per-field walk over the priority layers (first valid candidate wins;
+ *  an invalid candidate warns — naming its source — and the walk
+ *  continues; nothing valid → the frozen default). */
+function pickDirField(
   field: 'projectTreeDir' | 'hubDir',
-  value: unknown,
-  fallback: string,
+  user: DirNameFieldLayer | undefined,
+  legacy: DirNameFieldLayer | undefined,
+  served: DirNameFieldLayer | undefined,
+  fallback: ResearchDirNamesFallback | undefined,
   warn: (message: string) => void,
 ): string {
-  if (value === undefined) return fallback
-  if (typeof value !== 'string') {
+  const fallbackDefault = field === 'projectTreeDir' ? DEFAULT_PROJECT_TREE_DIR : DEFAULT_HUB_DIR
+  const candidates: ReadonlyArray<readonly [string, unknown]> = [
+    ['the user settings layer', user?.[field]],
+    ['the legacy 0.1 settings.yaml section', legacy?.[field]],
+    ['the served 0.2 settings view', served?.[field]],
+    ['the service config', fallback === undefined ? undefined : unwrapVolatile(fallback[field])],
+  ]
+  for (const [source, value] of candidates) {
+    if (value === undefined || value === null) continue
+    if (typeof value !== 'string') {
+      warn(
+        `the research settings field "${field}" must be a string (stored ${typeof value} in ` +
+          `${source}) — falling through to the next authority`,
+      )
+      continue
+    }
+    const violation = validateDirName(value)
+    if (violation === null) return value
     warn(
-      `the research settings field "${field}" must be a string (stored ${typeof value}) — ` +
-        `using the default "${fallback}"`,
+      `the research settings field "${field}" value ${JSON.stringify(value)} from ` +
+        `${source} is invalid (a directory name ${violation}) — ` +
+        `falling through to the next authority (final default "${fallbackDefault}")`,
     )
-    return fallback
   }
-  const violation = validateDirName(value)
-  if (violation === null) return value
-  warn(
-    `the research settings field "${field}" value ${JSON.stringify(value)} is invalid ` +
-      `(a directory name ${violation}) — using the default "${fallback}"`,
-  )
-  return fallback
+  return fallbackDefault
+}
+
+/**
+ * PURE parser for the plugin's own section inside a 0.1
+ * `settings.yaml` document (the explicit-migration read). SCOPED by
+ * design: it extracts ONLY the `dsh-research-control:` section's
+ * `projectTreeDir` / `hubDir` scalars — block style
+ * (`  projectTreeDir: .my-tree`, quotes optional, ` #` comments
+ * stripped) and the flow inline form (`{ projectTreeDir: ".x" }`) —
+ * and nothing else. A host YAML library is deliberately NOT pulled
+ * into the plugin for one frozen two-key section; anything this parser
+ * cannot read stays untouched in the file (loud skip, never a silent
+ * half-migration — the read layer simply has no legacy candidate, and
+ * the document remains for manual rescue).
+ *
+ * @returns the section's recognized fields, or `undefined` when the
+ *  document carries no research section (fresh installs, already-migrated
+ *  homes with the section deleted, or an unrelated settings.yaml).
+ */
+export function parseLegacyResearchSection(text: string): DirNameFieldLayer | undefined {
+  const lines = text.split(/\r?\n/)
+  const header = lines.findIndex((line) => /^dsh-research-control:[ \t]*(.*)$/.test(line))
+  if (header < 0) return undefined
+  const inline = (lines[header]!.match(/^dsh-research-control:[ \t]*(.*)$/) ?? [])[1]?.trim() ?? ''
+  const section: Record<string, string> = {}
+  const take = (raw: string): { key: string; value: string } | undefined => {
+    const match = raw.match(/^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:[ \t]*(.*?)[ \t]*$/)
+    if (match === null || match[1] === undefined) return undefined
+    let value = match[2] ?? ''
+    const comment = value.indexOf(' #')
+    if (comment >= 0) value = value.slice(0, comment)
+    value = value.trim()
+    if (
+      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+    ) {
+      value = value.slice(1, -1)
+    }
+    return { key: match[1], value }
+  }
+  if (inline.startsWith('{')) {
+    for (const pair of inline.matchAll(/([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:[ \t]*("[^"]*"|'[^']*'|[^,{}]+)/g)) {
+      const key = pair[1] ?? ''
+      let value = (pair[2] ?? '').trim()
+      if (
+        (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+        (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+      ) {
+        value = value.slice(1, -1)
+      }
+      section[key] = value
+    }
+  } else {
+    for (const line of lines.slice(header + 1)) {
+      if (/^[ \t]*$/.test(line) || /^[ \t]*#/.test(line)) continue
+      if (!/^[ \t]+/.test(line)) break // dedent — next top-level section
+      const entry = take(line)
+      if (entry !== undefined) section[entry.key] = entry.value
+    }
+  }
+  const out: Record<string, string> = {}
+  for (const key of ['projectTreeDir', 'hubDir'] as const) {
+    if (section[key] !== undefined) out[key] = section[key]!
+  }
+  return Object.keys(out).length === 0 ? undefined : out
 }
 
 /* ------------------------------------------------------------------ *
@@ -456,5 +576,172 @@ export function getResearchDirNames(
     settings,
     (message) => console.warn(`[research-control] ${message}`),
     fallback,
+    {
+      legacy: readLegacyResearchSection(ctx),
+      userOverride: readOwnUserOverrideLayer(ctx),
+      entryId: resolveOwnSettingsEntryId(ctx),
+    },
   )
+}
+
+/* ------------------------------------------------------------------ *
+ * Legacy 0.1 settings.yaml migration (the host importer cannot carry
+ * this section — see ResearchDirResolutionOptions.legacy for the
+ * rc.2 source evidence). Read layer: SYNCHRONOUS at boot so the first
+ * upgrade boot's discovery already resolves the custom names; persist
+ * layer: the public settings write face, once, never overwriting the
+ * user layer.
+ * ------------------------------------------------------------------ */
+
+/** Structural slice of the host config-editor service (optional
+ *  `ctx.get` face — same discipline as the settings service). Only the
+ *  per-entry composition layers are read; nothing is written here. */
+interface ConfigEditorLike {
+  configuration(): readonly {
+    fiber: unknown
+    options: { readonly id?: string }
+    override?: unknown
+  }[]
+}
+
+/** Per-process cache of the parsed legacy section (per home). */
+let legacyCache: { readonly home: string; readonly section: DirNameFieldLayer | undefined } | undefined
+let legacyWarned = false
+
+/** Locate this plugin's OWN profile entry through the config editor's
+ *  composition (fiber identity — exact, custom-entry-id safe). */
+function findOwnConfigEntry(ctx: Context): { id?: string; override?: unknown } | undefined {
+  let editor: ConfigEditorLike | undefined
+  try {
+    editor = (ctx as unknown as { get: (name: string) => unknown }).get('configEditor') as
+      | ConfigEditorLike
+      | undefined
+  } catch {
+    return undefined
+  }
+  if (editor === undefined || typeof editor.configuration !== 'function') return undefined
+  try {
+    const entries = editor.configuration()
+    const own = entries.find((row) => row.fiber === (ctx as unknown as { fiber?: unknown }).fiber)
+    if (own !== undefined) return { id: own.options?.id, override: own.override }
+    const named = entries.find((row) => row.options?.id === RESEARCH_SETTINGS_ENTRY_ID)
+    return named === undefined ? undefined : { id: named.options?.id, override: named.override }
+  } catch {
+    return undefined
+  }
+}
+
+/** This plugin's live profile entry id (custom installs differ; the
+ *  frozen constant is the fallback when the editor cannot answer). */
+export function resolveOwnSettingsEntryId(ctx: Context): string {
+  return findOwnConfigEntry(ctx)?.id ?? RESEARCH_SETTINGS_ENTRY_ID
+}
+
+/** The raw profile user layer (configEditor `override`) for our entry —
+ *  the boot-window authority that distinguishes a user-SET default from
+ *  an unset field (the merged Config cannot). */
+export function readOwnUserOverrideLayer(ctx: Context): DirNameFieldLayer | undefined {
+  const override = findOwnConfigEntry(ctx)?.override
+  if (typeof override === 'object' && override !== null) return override as DirNameFieldLayer
+  return undefined
+}
+
+/**
+ * Read + parse the 0.1 `settings.yaml` research section (cached per
+ * home, warn-once on read failure). Prefers the live document (before
+ * the host's post-loader rename), falls back to the host-renamed
+ * `.imported` file (the rename is the host importer's own documented
+ * artifact — the values survive only there). Never writes, never
+ * renames: the file lifecycle stays host-owned (old values PRESERVED).
+ */
+export function readLegacyResearchSection(ctx: Context): DirNameFieldLayer | undefined {
+  const home = (ctx as unknown as { profileContext?: { home?: string } }).profileContext?.home
+  if (typeof home !== 'string' || home.length === 0) return undefined
+  if (legacyCache !== undefined && legacyCache.home === home) return legacyCache.section
+  let section: DirNameFieldLayer | undefined
+  try {
+    const path = existsSync(join(home, 'settings.yaml'))
+      ? join(home, 'settings.yaml')
+      : existsSync(join(home, 'settings.yaml.imported'))
+        ? join(home, 'settings.yaml.imported')
+        : undefined
+    if (path !== undefined) section = parseLegacyResearchSection(readFileSync(path, 'utf8'))
+  } catch (error: unknown) {
+    if (!legacyWarned) {
+      legacyWarned = true
+      console.warn(
+        '[research-control] the legacy settings document could not be read — the 0.1 custom ' +
+          `directory names stay in the file (nothing is lost, nothing is overwritten): ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+  legacyCache = { home, section }
+  return section
+}
+
+/** Test seam: drop the per-process legacy cache (module state). */
+export function resetLegacyResearchCacheForTests(): void {
+  legacyCache = undefined
+  legacyWarned = false
+}
+
+/**
+ * Persist the legacy section through the PUBLIC settings write face —
+ * ONCE per process, scheduled at activation, awaited only by tests via
+ * the returned promise when the ctx exposes an already-settled loader.
+ * Rules (reviewer-fixed):
+ *  - a field the USER layer already sets is NEVER overwritten;
+ *  - only fields present in the legacy section AND valid are written;
+ *  - the legacy file itself is preserved untouched;
+ *  - failure = loud warn — the READ layer already served this boot, so
+ *    a persist failure costs durability, never correctness.
+ */
+export function migrateLegacyResearchSettings(
+  ctx: Context,
+  options?: { readonly settle?: () => Promise<unknown> } | undefined,
+): Promise<void> {
+  const legacy = readLegacyResearchSection(ctx)
+  if (legacy === undefined) return Promise.resolve()
+  const settings = readSettingsService(ctx)
+  if (settings === undefined || typeof settings.update !== 'function') {
+    console.warn(
+      '[research-control] the legacy 0.1 directory names are being honored through the ' +
+        'settings.yaml read layer, but no public settings write face is available to persist ' +
+        'them into the profile user layer — the migration will retry next boot',
+    )
+    return Promise.resolve()
+  }
+  const settle =
+    options?.settle
+    ?? (ctx as unknown as { root?: { loader?: { await?: () => Promise<unknown> } } }).root?.loader?.await?.()
+  const persist = async (): Promise<void> => {
+    if (settle !== undefined) await settle
+    const entryId = resolveOwnSettingsEntryId(ctx)
+    let user: DirNameFieldLayer | undefined = readOwnUserOverrideLayer(ctx)
+    const entry = findResearchEntry(settings.describe(), entryId)
+    if (entry !== undefined && typeof entry.user === 'object' && entry.user !== null) {
+      user = entry.user as DirNameFieldLayer
+    }
+    const patch: Record<string, string> = {}
+    for (const field of ['projectTreeDir', 'hubDir'] as const) {
+      const value = legacy[field]
+      if (typeof value !== 'string' || validateDirName(value) !== null) continue
+      if (user !== undefined && user[field] !== undefined) continue // never overwrite the user layer
+      patch[field] = value
+    }
+    if (Object.keys(patch).length === 0) return
+    await settings.update!(entryId, patch)
+    console.log(
+      `[research-control] migrated the 0.1 settings.yaml section ${JSON.stringify(patch)} into ` +
+        `the profile user layer of entry "${entryId}" through the public settings face (the ` +
+        'legacy file is kept untouched; later boots read the user layer)',
+    )
+  }
+  return persist().catch((error: unknown) => {
+    console.warn(
+      '[research-control] the legacy settings migration could not persist this run (the read ' +
+        `layer still honored the legacy names this boot): ${error instanceof Error ? error.message : String(error)}`,
+    )
+  })
 }

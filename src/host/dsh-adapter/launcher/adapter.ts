@@ -118,7 +118,10 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
   readonly #ctx: LauncherHostContext
   /** 本 activation 内 investigator preset 已声明的幂等闩（注册同时挂入
    *  `ctx.effect` — fiber 卸载自动回收宿主名册; 本字段只防本实例重复
-   *  注册）。 */
+   *  注册）。**R3 修订（reviewer）**: 闩与真实名册状态绑定 — 任何
+   *  not-found 观测（冷重启后名册为空、duplicate 胜者卸载）都会清除
+   *  它, 幸存者据此重新声明; 闩只是「最近一次已证明存在」的缓存,
+   *  绝不凌驾于注册表的真实状态之上。 */
   #presetRegistered = false
 
   /** Spike-style 可观测（WP-0.4 计数器先例 — NOT a business API）:
@@ -293,6 +296,63 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
    * 闭集解析。
    * @returns the preset id the session will run under.
    */
+  /**
+   * R3（reviewer P1 回归）— 激活期声明（eager, register-ONLY）。
+   *
+   * 0.2 名册是 memory-only：冷启动 / 插件 reload 后名册为空, 而已持久化
+   *  investigator 会话的 resume 走
+   *  `session-controller/src/agent.ts → composeAgent → presets.resolve(saved)`
+   *  — resolve 先于任何新 launch。lazy 注册（只在 launchInvestigator 里
+   *  ensure）意味着旧会话在「下一次新 launch」之前永远开不起来 — 本方法
+   *  把声明前移到插件 activation, 经 `ctx.effect` 挂 fiber 生命周期
+   *  （卸载 = 真 unregister, reload = 干净重声明）。
+   *
+   * 死锁纪律（checkout agent-preset-registry/src/index.ts:117-134：激活
+   *  审计会 await loader settlement）：本方法只 register — 绝不
+   *  resolve/list; 读面（resolve/list/readDocument）只在用户动作
+   *  （launch/resume, 必然晚于 activation）时执行。
+   *
+   * @returns `'registered'`（本实例声明并挂上生命周期）| `'present'`
+   *  （名册已有 — duplicate, 他方 lease）| `'no-roster'`（该部署无注册表
+   *  — 插件照常可加载, launch 时仍 fail-loud IVL_PRESET）。
+   */
+  async declarePresetAtActivation(): Promise<'registered' | 'present' | 'no-roster'> {
+    const roster = this.#ctx.get('agentPresets') as AgentPresetsLike | undefined
+    if (roster === undefined || typeof roster.register !== 'function') {
+      return 'no-roster'
+    }
+    if (this.#presetRegistered) {
+      // 闩 = 缓存, 激活期无读面可核实（死锁纪律）— 保留声明现状即可。
+      return 'present'
+    }
+    try {
+      await this.#ctx.effect(
+        () => roster.register(investigatorPresetDefinition()),
+        'research-control/investigator-preset',
+      )
+      this.#presetRegistered = true
+      this.lastPresetEnsure = 'registered'
+      return 'registered'
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('Duplicate agent preset')) {
+        // 他方已声明（并发 activation / 宿主行）— 视作 present；内容由
+        // launch 期 readDocument 闭集门统一把关。
+        this.#presetRegistered = true
+        this.lastPresetEnsure = 'present'
+        return 'present'
+      }
+      // activation 不因 preset 声明失败而崩解插件（launch 时还会再试并
+      // fail-loud）；大声记录, 不静默。
+      console.warn(
+        `[research-control] declarePresetAtActivation: the investigator preset declaration ` +
+          `failed at activation: ${error instanceof Error ? error.message : String(error)} — ` +
+          'persisted investigator sessions cannot RESUME until a later launch re-declares it ' +
+          '(retried at every launch)',
+      )
+      return 'no-roster'
+    }
+  }
+
   private async resolveOrEnsure(roster: AgentPresetsLike, presetId: string): Promise<string> {
     let resolved: AgentPresetLike
     try {
@@ -309,6 +369,10 @@ export class HostAgentLauncherAdapter implements DshAgentLauncherAdapter {
           cause: firstError,
         })
       }
+      // R3（reviewer）— 真实名册观测优先于本实例闩：not-found 证明声明
+      // 已不在名册（冷重启 / duplicate 胜者卸载）— 清闩并重新声明,
+      // 幸存者由此恢复（旧实现里 Duplicate 路径置起的闩会永久吞掉重声明）。
+      this.#presetRegistered = false
       await this.registerPresetDeclaration(roster)
       try {
         resolved = await roster.resolve(presetId)

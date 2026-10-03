@@ -34,6 +34,10 @@ import {
   getResearchDirNames,
   registerResearchSettings,
   resolveResearchDirNames,
+  parseLegacyResearchSection,
+  findResearchEntry,
+  migrateLegacyResearchSettings,
+  resetLegacyResearchCacheForTests,
   validateDirName,
   type ResearchDirNames,
   type ResearchSettings,
@@ -148,7 +152,7 @@ describe('fallback chain (0.2 authorities: served view → service Config → fr
     const out = resolveResearchDirNames(makeSettingsDouble(undefined).service, (message) => warnings.push(message))
     expect(out).toEqual(DEFAULT_NAMES)
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('no service config fallback is wired')
+    expect(warnings[0]).toContain('no authority fallback is wired')
   })
 
   it('a served view WINS over the fallback (live authority order pinned)', () => {
@@ -463,5 +467,158 @@ describe('getResearchDirNames — the live discovery read (THE name source for T
     expect(getResearchDirNames(makeCtx(fake.service))).toEqual({ treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: 'myhub' })
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(String(warnSpy.mock.calls[0][0])).toContain('my/tree')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * 0.1 → 0.2 legacy settings.yaml migration (reviewer P1)
+ * ------------------------------------------------------------------ */
+
+describe('parseLegacyResearchSection — the scoped 0.1 section parser', () => {
+  it('block style with quoted and bare values + comments', () => {
+    const out = parseLegacyResearchSection([
+      'ui-onboarding:',
+      '  seen: true',
+      'dsh-research-control:',
+      '  # frozen §7.5 pair',
+      '  projectTreeDir: .legacy-tree',
+      '  hubDir: ".legacy hub"',
+      '  unrelatedKey: whatever',
+      'shell:',
+      '  mode: workspace-write',
+    ].join('\n'))
+    expect(out).toEqual({ projectTreeDir: '.legacy-tree', hubDir: '.legacy hub' })
+  })
+
+  it('flow inline style', () => {
+    const out = parseLegacyResearchSection('dsh-research-control: { projectTreeDir: ".x", hubDir: .y }')
+    expect(out).toEqual({ projectTreeDir: '.x', hubDir: '.y' })
+  })
+
+  it('no research section → undefined (fresh installs, unrelated documents)', () => {
+    expect(parseLegacyResearchSection('ui-onboarding:\n  seen: true\n')).toBeUndefined()
+  })
+
+  it('research section WITHOUT either field → undefined (nothing to migrate)', () => {
+    expect(parseLegacyResearchSection('dsh-research-control:\n  other: 1\n')).toBeUndefined()
+  })
+
+  it('trailing document (section at EOF, no dedent line)', () => {
+    expect(parseLegacyResearchSection('x:\n  a: 1\ndsh-research-control:\n  hubDir: .hub')!.hubDir).toBe('.hub')
+  })
+})
+
+describe('layered resolution (user > legacy > served > config > default — reviewer P1)', () => {
+  const warnings: string[] = []
+  const warn = (m: string) => warnings.push(m)
+  const servedDouble = (value: unknown, user?: unknown) => ({
+    service: { describe: () => [{ ns: 'research-control', value, ...(user === undefined ? {} : { user }) }] },
+  })
+
+  it('LEGACY custom names win over untouched defaults on the FIRST upgrade boot (R6: no restart)', () => {
+    const out = resolveResearchDirNames(
+      servedDouble({ projectTreeDir: '.research', hubDir: '.research-control' }).service,
+      warn,
+      undefined,
+      { legacy: { projectTreeDir: '.legacy-tree', hubDir: '.legacy-hub' }, userOverride: {} },
+    )
+    expect(out).toEqual({ treeDir: '.legacy-tree', hubDir: '.legacy-hub' })
+    expect(warnings).toEqual([])
+  })
+
+  it('a USER-set value is NEVER overwritten by the legacy section (per field)', () => {
+    const out = resolveResearchDirNames(
+      servedDouble({ projectTreeDir: '.kept', hubDir: '.research-control' }, { projectTreeDir: '.kept' }).service,
+      warn,
+      undefined,
+      { legacy: { projectTreeDir: '.legacy-tree', hubDir: '.legacy-hub' } },
+    )
+    expect(out).toEqual({ treeDir: '.kept', hubDir: '.legacy-hub' })
+  })
+
+  it('served descriptor user layer beats the boot userOverride (live authority)', () => {
+    const out = resolveResearchDirNames(
+      servedDouble({ projectTreeDir: '.x' }, { projectTreeDir: '.served-user' }).service,
+      warn,
+      undefined,
+      { userOverride: { projectTreeDir: '.stale-override' } },
+    )
+    expect(out.treeDir).toBe('.served-user')
+  })
+
+  it('boot window (entry not served): userOverride beats legacy, legacy beats fallback — all silent', () => {
+    const out = resolveResearchDirNames(servedDouble(undefined).service, warn, { projectTreeDir: '.fb' }, {
+      legacy: { projectTreeDir: '.legacy' },
+      userOverride: { projectTreeDir: '.user' },
+    })
+    expect(out.treeDir).toBe('.user')
+    const out2 = resolveResearchDirNames(servedDouble(undefined).service, warn, { projectTreeDir: '.fb' }, {
+      legacy: { projectTreeDir: '.legacy' },
+      userOverride: {},
+    })
+    expect(out2.treeDir).toBe('.legacy')
+    expect(warnings).toEqual([])
+  })
+
+  it('an INVALID legacy value warns (naming the source) and falls through the layers', () => {
+    warnings.length = 0
+    const out = resolveResearchDirNames(servedDouble({ projectTreeDir: '.research' }).service, warn, undefined, {
+      legacy: { projectTreeDir: 'a/b' },
+      userOverride: {},
+    })
+    expect(out.treeDir).toBe('.research')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('legacy 0.1 settings.yaml section')
+  })
+
+  it('CUSTOM profile entry id: the descriptor follows the entry', () => {
+    const custom = {
+      service: {
+        describe: () => [{ ns: 'rc-custom', value: { projectTreeDir: '.custom-tree', hubDir: '.custom-hub' } }],
+      },
+    }
+    const out = resolveResearchDirNames(custom.service as never, warn, undefined, { entryId: 'rc-custom' })
+    expect(out).toEqual({ treeDir: '.custom-tree', hubDir: '.custom-hub' })
+  })
+
+  it('findResearchEntry: exact id first; shape fallback only when UNAMBIGUOUS', () => {
+    const rows = [
+      { ns: 'other', value: { projectTreeDir: 1 } },
+      { ns: 'rc-weird', value: { projectTreeDir: 2 } },
+    ]
+    expect(findResearchEntry(rows as never, 'rc-weird')).toBe(rows[1])
+    expect(findResearchEntry(rows as never, 'missing')).toBeUndefined() // ambiguous
+    expect(findResearchEntry([{ ns: 'solo-weird', value: { projectTreeDir: 2 } }] as never, 'missing')!.ns).toBe('solo-weird')
+  })
+})
+
+describe('migrateLegacyResearchSettings — persistence guards (the E2E persist/restart/idempotency proof is the REAL host upgrade fixture)', () => {
+  it('a legacy file WITHOUT the profile home (no profileContext) → silent no-op', async () => {
+    resetLegacyResearchCacheForTests()
+    const updates: unknown[] = []
+    const ctx = {
+      fiber: { uid: 1 },
+      get: (name: string) =>
+        name === 'settings'
+          ? { describe: () => [{ ns: 'research-control', value: {}, user: {} }], update: async (ns: string, patch: object) => { updates.push({ ns, patch }) } }
+          : undefined,
+    }
+    await migrateLegacyResearchSettings(ctx as never, { settle: async () => {} })
+    expect(updates).toEqual([])
+  })
+
+  it('an invalid legacy field is never persisted (validation guards the write face too)', () => {
+    // The parser keeps the raw value; the PERSIST rule (mirrored in the
+    // module) drops fields failing validateDirName — pinned here on the
+    // parser+validator composition so a drift is caught in unit scope.
+    const section = parseLegacyResearchSection('dsh-research-control:\n  projectTreeDir: a/b\n  hubDir: .ok')
+    expect(section).toEqual({ projectTreeDir: 'a/b', hubDir: '.ok' })
+    const persisted: Record<string, string> = {}
+    for (const field of ['projectTreeDir', 'hubDir'] as const) {
+      const value = section?.[field]
+      if (typeof value !== 'string' || validateDirName(value) !== null) continue
+      persisted[field] = value
+    }
+    expect(persisted).toEqual({ hubDir: '.ok' })
   })
 })

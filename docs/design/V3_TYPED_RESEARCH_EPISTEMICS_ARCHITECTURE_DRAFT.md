@@ -628,6 +628,16 @@ V3 借鉴其思想而不将论文实验当作系统可靠性的证明：
 - 可提出 H2 新机制、C 非必要、测量方法有缺陷等竞争解释；
 - 若后来找到新证据，Anomaly 与相关 Assessment 追加修订，不覆盖原历史。
 
+### 7.8 双图谱联合召回的保证边界（D19）
+
+Inference Graph 和 Research Association Graph 共享科研对象 ID、来源、版本、World/Scope，但拥有**完全不同的边语义**。推理图中的 Argument/ProofObligation 可经登记规则检查；关联图中的 UPSTREAM_OF、DATA_GENERATED_BY、CORRELATED_WITH、RELATED_TO 等仅用于提示“值得联想到另一个对象”。上游方向不限定查找方向；统计关联没有因果或传递律保证。
+
+**可组合查询（原则已同意，API 未冻结）**：外部 LLM 自行选择图、起点、边类型、hop、方向、过滤/剪枝、是否交替检索及后续扩展。服务返回完整对象引用、关系路径、来源、版本/Scope、过滤与覆盖范围、截断情况，不在底层编排 LLM 检索策略或替 LLM 作科研充分性判断。查询可设置授权、成本和最大规模保护，但固定几跳或单一路径搜索方案不能在架构层写死。
+
+**ReviewSuggestion ≠ ProofObligation**：召回来的“可能需要检查电子枪状态/束团电荷/CCD 标定”仅是审查建议；只有已有规则要求某条件时才形成正式 ProofObligation。关联边即使源自严格证据，也不自动成为逻辑支持关系，更不产生 FactStanding。
+
+**压力测试**：先查询“新优化策略降低束流发射度”的现有推理链及观测数据，再通过关联图召回 CCD、电子枪、上游设施、束团电荷及其记录，继而回推理图查询已登记的空间电荷/测量误差论证。评审 Agent 或可据此发现混杂因素，但系统不能凭空发现从未记录的信息，也不保证已穷尽全部实验因素。
+
 ## 8. ResearchQuestion / ResearchRoute / Frontier
 
 这部分借鉴 Euler 的 Obligation / Route / Frontier，但不把研究问题等同于数学证明义务。
@@ -668,9 +678,9 @@ Context Compiler 产生带来源和版本的最小充分上下文：目标问题
 | 当前对象或模块 | V3 处理建议 | 理由 |
 | --- | --- | --- |
 | Project / Topic / Workstream | 保留组织归属 | 与科学论点所属世界不同 |
-| Claim / Fact（semantics） | 迁移为 Assertion / Revision / Assessment / FactDesignation | 当前 Fact 永久 ACTIVE，无法表达认知退化 |
+| Claim / Fact（semantics） | 引入 L0 ResearchFinding、L1 稳定 Assertion / Revision、Assessment / FactDesignation | 当前 Fact 恒 ACTIVE，无法表达语义成熟度与认知退化 |
 | Artifact / Run | 保留并强化 Provenance；新增 ObservationRecord 与 Evidence | 产物、观察和论点的证据意义不能混淆 |
-| Relation | 执行/组织关系保留；科学推理关系迁入 Argument 超边 | 二元关系不能表达规则、条件、AND / OR、undercut |
+| Relation | 组织/执行关系保留；科研论证映射 Inference Graph；新增宽松 Research Association Graph | 关联不能直接作为科学推理或因果闭包 |
 | Objective / Task / Gate / Milestone | 保留独立工作流语义 | Task 完成不等于科学定理证明 |
 | PlanFork | 保留用户控制的 canonical plan 提案 | Agent 新建 ResearchRoute 不得变更 canonical plan |
 | ResearchHistory | 扩展项目级科研事件 + 现有 Workstream 运行事件 | 跨 Workstream 共享科研知识、追踪多来源 |
@@ -678,8 +688,8 @@ Context Compiler 产生带来源和版本的最小充分上下文：目标问题
 | src/host/domain/semantics | 重构或新增 world/concept/typed-formula/inference-scheme/assertion/argument/assessment 纯领域层 | 语义内核不可因纪律插件关闭而失效；保持无 DSH 直接依赖 |
 | src/host/service/semantics | 扩展科研知识读写/验收服务 | 复用现有审计与事件追加习惯 |
 | src/host/history / persistence | 增加 WorldType/Concept Revision、Observation、Anomaly、Obligation 等事件、replay/projection、完整性检查 | 同一历史真源，精确变更影响索引 |
-| src/host/tools / dsh-adapter | 后续添加概念检索/注册、Argument 验证、Observation/Anomaly 查询和候选提交工具 | 不在本 PR 修改冻结 11-tool 面 |
-| src/client/graph | 后续加 Research Argument 图/Frontier | 不与 PlanGraph/TopologyGraph 混为一图 |
+| src/host/tools / dsh-adapter | 后续提供 L0 提交、L1 语义状态、灵活的双图查询与论证检查 | 不在本 PR 修改冻结 11-tool 面；不提供 Agent 调度 |
+| src/client/graph | 后续增加推理图谱、科研关联图谱及 Frontier 视图 | 两图共享对象身份；与 Workstream Topology 不混同 |
 
 ### 9.1 需要正式修改的既有 V1 不变量
 
@@ -707,12 +717,13 @@ V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学
 - FactStanding 的项目级接纳/暂停/撤回按照显式授权与审查策略进行；**第一版默认不设置全局自动升格器**。OPEN ProofObligation 不阻碍探索，但不得当成已完成的科学验证、安全许可或正式验收。
 - Agent 不能凭知识写口改写 canonical plan、用户决定、其他 Agent 权限或原始审计历史。
 - 后续与 dsh-agent-team 的 externalHard / approval 等治理机制对接需要专门接口设计，不在本设计稿中假定已实现。
+- **硬边界：只提供待处理语义/形式化事项和可检索状态，不负责启动 Formalizer、周期唤醒 LLM、分配 Agent、执行任务或管理会话租约。**
 
 ### 10.2 持久化原则
 
 - **Git**：低频、可读的项目政策、研究语义定义、治理契约和正式声明式配置。
 - **SQLite event store**：科研对象、WorldType/Concept 修订、Observation、Anomaly、Argument 检查、验证回执、Assessment、FactDesignation、AssumptionDebt 与研究义务的演化历史。
-- **SQLite projections/indexes**：当前认知、术语/类型反向依赖、Hypothesis/Observation 空间、Anomaly、Frontier、关键词/RAG/Lean 检索等可重建索引；召回排序不构成语义正确性证明。
+- **SQLite projections/indexes**：L0/L1 语义状态、当前认知、Inference / Association Graph 两类视图、反向依赖、Anomaly、Frontier、关键词/RAG/Lean 索引；关联路径及排名均不构成科学证明。
 - **External artifacts**：大体量实验和仿真数据仅存版本化引用、哈希、校准/生成元数据，不复制 DSH 会话 raw log。
 - **Object identity**：稳定逻辑 ID 与内容寻址的 Revision/证书哈希分离；同一命题可接受多条证据路径和多位评价者。
 - **时间**：至少区分研究现象发生时间、记录时间、评价与接纳时间；支持审计重放。
@@ -732,15 +743,18 @@ V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学
 | P5 — Impact / Replay | Concept Revision、Argument、Observation、Anomaly、债务均可 replay | 旧证明历史不消失；新术语定义变化触发定向影响 |
 | P6 — Context / Frontier | 已接纳 Fact、证明证书、未解释 Observation、矛盾和未闭合债务编译 | 缺少必需 Scope / 术语版本时 fail-loud，不能静默丢掉义务 |
 | P7 — Legacy | C-/F-/REL- 历史迁移、11 tool 权限/GUI 基线 | 旧 Fact 不自动升级为新事实认证，计划治理不被知识写口绕过 |
+| P8 — Progressive Semantics | L0 结构化提交、L1 语义确认与历史版本；L2–L5 讨论性检查产物 | L0 自己可继续，L1 可全局引用但不自动成为 Fact |
+| P9 — Reliability Boundaries | 三类可靠性的独立报告、有限保证与未知信息 | 完整图召回不等于证据充分，严格数学证明不等于工程事实 |
+| P10 — Dual Graph Recall | LLM 控制查询图、跳数、方向、过滤、迭代剪枝；可追溯路径 | 关联不能传递因果、制造 ProofObligation 或自动接纳 Fact |
 
 **首个综合用例（建议）**：电子光学近壁场和束流传输。在 Theory 模型中的理想 Hamiltonian 论点、Simulation 层 BEM/AMReX 数据、Engineering 实验/校准中明确绑定术语、数值误差和应用 Scope。补充 **A+C→B；C 校准失配；B 独立实验成立** 的异常/替代机制 H2 场景，以及一条 Lean 的严格 Theory→Theory 证明路径。
 
 ## 12. 分阶段升级构想（仅讨论）
 
-1. **S0：语义基础与 PoC**：先确定开放 WorldType/Concept Registry、有限 TypedFormula、Inference Schemes、四轴分类和强制但非阻碍义务；以 P0a/P0b/P0c/P1/P2 为重点。
+1. **S0：上层语义与 PoC**：验证开放世界、规范术语、L0/L1 协作边界、三类可靠性及两图关系的非推理性。L2–L5 具体层级、检索算法暂不冻结。
 2. **S1：Strict Formal Core**：Euler 式精确内容身份、Lean/证书、形式化术语对应、前提闭包和定向重检。
 3. **S2：Epistemic & Observation Core**：独立 Observation、Evidence、Assessment、FactDesignation、多支持路径与 Assumption Debt。
-4. **S3：Anomaly & Continuity**：Anomaly Registry、双空间探索、Frontier、Failure Memory、Context Compiler、可插拔交互检查。
+4. **S3：Anomaly & Continuity**：Anomaly Registry、双空间探索、Inference/Association Graph 的灵活只读召回、Frontier、Context Compiler；交互 LLM 由外部系统编排。
 5. **S4：DSH Governance Integration**：版本化 tools/RPC、术语纪律端口、UI、dsh-agent-team 纪律/权限接管与计划治理。
 6. **S5：Domain Profiles & Long-run Recovery**：数值收敛、实验校准、模型有效性、数字孪生、长程科研会话与快照恢复。
 
@@ -748,15 +762,18 @@ V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学
 
 ## 13. 决策登记与待裁决问题
 
-### 13.1 已同意的原则性决策（2026-10-18；尚未转成冻结 ADR）
+### 13.1 已同意的原则性决策（2026-10-18 至 2026-10-19；尚未转成冻结 ADR）
 
 | ID | 已同意内容 | **尚未**批准的细节 |
 | --- | --- | --- |
 | **D13** | 不以 Theory/Simulation/Engineering 封闭枚举世界；应支持未来增加类型、注册规则，处理多种重要语义鸿沟 | 种子类型集、继承算法、类型/表示/Scope 的最小接口 |
-| **D14** | 维护 L0 基础、L1 领域、L2 Project 概念表；正式对象引用词汇表或登记新术语；保留自然语言+规范含义+检索/Lean 链接；术语变更视作科研事件；纪律检查可插拔 | 审批角色、语义修改权限、检索索引方案、插件执行模式 |
+| **D14** | 维护 System/Domain/Project 词汇层；正式对象引用词汇表或登记新术语；保留自然语言+规范含义+检索/Lean 链接；术语变更视作科研事件；纪律检查可插拔 | 审批角色、语义修改权限、检索索引方案、插件执行模式 |
 | **D15** | 跨世界义务必须生成且可追溯，但不因此全面阻断带明确假设的科研探索 | 哪些义务阻止哪种正式验收或现实操作、债务传播与例外治理 |
 | **D16** | 自动/定期检查失效证据、前后结论成立但原推理失败、理论解释不了的观察；维护持久化异常与矛盾库，借鉴双空间探索 | LLM 审查周期、异常质量门槛、去重、误报复核及成本控制 |
 | **Inference Classification** | 采用正交维度：推理方法 × 逻辑强度 × 验证状态 × 证据关系；支持演绎、归纳、统计、溯因、类比、因果、默认/可废止、实践决策；经验支持和无已知反例不混同为归纳证明 | 最小 Scheme 接口、组合关系、Critical Questions、领域规则包 |
+| **D17** | L0 规范化提交后提交者可继续；L1 语义稳定后全局引用但仍危险；采用渐进语义契约 | L2–L5 只是待讨论的能力层，不是已冻结真值等级 |
+| **D18** | Semantic Validity / Inferential Validity / Evidential Adequacy 三分；最后一项主要通过关联召回辅助科研判断 | 三类检查报告怎样报告未知及覆盖范围 |
+| **D19** | Inference Graph + Research Association Graph + 联合召回；关联只用于联想、不隐含科学支持或因果；外部 LLM 灵活决定查询步骤 | 图边模型、API、hop、剪枝、资源上限与查询引擎待定 |
 
 **合意范围**：是对架构方向的裁决，不构成生产接口、字段、风险动作表或集成里程碑的批准。Draft PR 保持 Draft，旧 V1 冻结契约不受本文件更改影响。
 
@@ -777,7 +794,7 @@ V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学
 | D11 | V3 破坏性迁移与 Legacy Replay | 旧事件保留，旧 Fact 不无条件升格 |
 | D12 | Euler 实现复用的代码来源与许可 | 逐文件审查，优先独立 TS 重写算法思想 |
 
-### 13.3 从 D13–D16 导出的新增开放问题
+### 13.3 从 D13–D19 导出的新增开放问题
 
 | ID | 待研究问题 |
 | --- | --- |
@@ -789,6 +806,11 @@ V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学
 | O6 | 异常的假阳性、重复审查与长期激活怎样限频？观察质量未审查时如何防止错误升级为反例？ |
 | O7 | Hypothesis / Observation 双空间和现有 Assertion / Evidence 的引用关系如何高效索引？ |
 | O8 | 多轴推理方法的可扩展类型规则、Critical Questions 与实际验证器如何对接？ |
+| O9 | L2–L5 应按线性阶梯还是正交/偏序能力配置建模？ |
+| O10 | L0 结构化字段与 L1 语义确认的最小共识是什么？ |
+| O11 | Association Graph 如何保留关系边的来源、Scope、时间及弱语义？ |
+| O12 | 双图检索如何支持 LLM 自主选择图、hop、方向、剪枝及审计？ |
+| O13 | 论证模式、可废止逻辑与结构化论证可接受性框架，应当继承哪些性质而拒绝自动 Fact 接纳？ |
 
 ## 14. 参考与代码定位
 
@@ -805,7 +827,12 @@ V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学
 - [W3C SKOS Reference](https://www.w3.org/TR/skos-reference/)：概念 ID、标签、同义词与词汇管理。
 - [QUDT](https://qudt.org/)：量、单位、量纲与科学本体词汇的参考。
 - [Assumption-based Truth Maintenance System (ATMS)](https://en.wikipedia.org/wiki/Assumption-based_truth_maintenance_system)：支持路径、假设环境及非单调变更的理论来源；具体实现需另行研究。
-- Toulmin argument model、Walton argumentation schemes/critical questions：支持、限定、反驳与按推理方法生成审查问题的启发。
+- [Informal Logic (Stanford Encyclopedia of Philosophy)](https://plato.stanford.edu/entries/logic-informal/)：非形式逻辑及 Critical Questions。
+- [ASPIC+ structured argumentation](https://doi.org/10.1080/19462166.2013.869766)：严格/可废止规则、攻击前提、攻击结论与 undercut；作为后续研究方向，**非已决定的 Fact 判定器**。
+- [Carneades formal model of argument and burden of proof](https://doi.org/10.1016/j.artint.2007.04.010)：假设、例外、证明责任及不同证明标准。
+- [Dung argumentation framework (1995)](https://doi.org/10.1016/0004-3702(94)00041-X)：论证之间攻击与可接受性语义，不能直接取代科研认知评价。
+- [Pollock defeasible reasoning](https://doi.org/10.1016/S0364-0213(87)80017-4)：可撤回推理与 undercut/rebut 区分。
+- Toulmin、Walton 的论证模式与批判性问题：推理说明、限定条件、反驳和审查启发。
 
 **Euler 公开设计与实现（参考思想，不声明直接复用代码）：**
 - [Euler ARCHITECTURE](https://github.com/canghaimeng/Euler/blob/main/ARCHITECTURE.md)
@@ -818,4 +845,4 @@ V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学
 
 ---
 
-**讨论稿边界声明**：本文只建立“可审查的候选总体架构”。已认可 D13–D16 及推理分类原则，但没有冻结实现。未来若决定实施，应先拆分为已裁决 ADR、数据模型与形式化规则规范、PoC 验收计划和阶段 PR。未经批准不得将本文冒充已冻结 V3 规范，也不得直接改变现有运行时语义。
+**讨论稿边界声明**：本文是可审查的候选总体架构，已认可 D13–D19 及推理分类的方向性原则；**L2–L5 的具体能力划分与双图检索算法均未冻结**。后续将研究结构化论证/非形式逻辑，但不预先接纳其科学真值算法。未经正式 ADR 和 PoC，不得将本文作为实施规范或改变 V1/V2 运行时语义。

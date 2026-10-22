@@ -1,3 +1,8 @@
+> **HISTORICAL DESIGN RECORD — 旧 V3 长篇讨论稿，不再是新基线**  
+> 讨论中使用的旧名称及候选 Schema 仅保留历史参考；请以新的 [架构索引](../architecture/README.md)、[核心语义](../architecture/CORE_SEMANTICS.md) 和 [W3C 对齐表](../architecture/W3C_ALIGNMENT.md) 为准。标准语义相同的旧名称（ResearchActivity、旧 Detection、旧 Observation 结果、通用 Artifact 等）已原则性废弃，分别按条件采用 `prov:Activity`、`sosa:Observation`、`sosa:Result`、`prov:Entity`。  
+> **请勿直接根据下面的旧字段、枚举或状态机进行开发。**
+---
+
 # dsh-research-control V3：Typed Research State & Epistemic Reasoning Architecture
 
 > **Status: DRAFT / Discussion Baseline v0.3 — D13–D19 的上层原则已获认可，形式化具体分层与检索策略未冻结**

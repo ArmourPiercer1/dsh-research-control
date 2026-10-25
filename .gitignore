@@ -3,6 +3,14 @@ dist/
 *.tsbuildinfo
 coverage/
 .pnpm-store/
+# 2026-09-18 workspace discipline (AGENTS.md §1/§2/§3): the DSH reference copy
+# (read-only, never committed) and the test-instance checkout (nested git repo)
+# are dev-private; tests/dsh-homes/ holds DSH_HOME state — disposable by
+# design, only the .gitkeep marker is tracked.
+references/
+tests/deepseek-harness/
+tests/dsh-homes/*
+!tests/dsh-homes/.gitkeep
 # WP-0.6 e2e artifacts
 e2e/__screenshots__/
 playwright-report/

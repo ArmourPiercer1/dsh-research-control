@@ -11,7 +11,8 @@
   完整保留在本地分支 `archive/dsh-0.1.5-rc.2-adaptation`（含 rebase 收编、
   agent.id 适配与全绿门禁记录；**不入上游、不推送**）；其中与版本无关的
   settings-card 迟到注册修复单独摘到本地分支
-  `fix/settings-card-late-scope-registration`（待在新基线上验证评审）。
+  `fix/settings-card-late-scope-registration`（已在新基线验证：tests/settings
+  38/38、tsc ZERO DIFF；待评审入主干）。
 - 本文件三条硬纪律与 `references/` 只读副本、`tests/deepseek-harness/` 测试
   实例、`tests/dsh-homes/` 状态隔离**不随基线重置失效**（它们约束的是沙箱
   工作形态，与宿主版本无关）。
@@ -42,11 +43,16 @@
   `tests/deepseek-harness/**` / `tests/dsh-homes/**` / `references/**`——该
   checkout 自带大量 spec 与 TS 文件，绝不可被本仓的测试收集器 / 类型检查器收编；
   如改动收集面，保持这几条排除。
-- **版本待决（2026-10-26）**：磁盘上的 checkout 现为 `0.1.5-rc.2` train，而基线
-  pin 是 `0.1.2-alpha.3`。跑真实-DSH 门禁（e2e / live 冒烟 / CLI）前须先把
-  checkout 切回与基线同 train（或按后续版本决策切到目标 train）；在那之前
-  e2e 的 TC-DSH-008 版本门会如实拦截。**待用户裁决**：是回到 `0.1.2-alpha.3`
-  还是直接跟进 PR #8 的 `0.2.0-rc.2` 线。
+- **版本对齐（2026-10-26 完成，用户指令「更新本地测试用例 + 探针」）**：checkout 已切到
+  基线 train 的 release-merge 提交 `dd6322d604`（= `release(dsh): 0.1.2-alpha.3` 的
+  PR 合流，root package.json 版本核验一致）。**train 切换必做**：先 `pnpm run clean`
+  再 `pnpm run build`——`lib/` 等产物是 gitignored 且 tsc 增量不删孤儿文件，实测
+  0.1.5 残留（`DockSurface.js` → tsdown UNRESOLVED_IMPORT；残留 CLI → import 旧
+  train 才有的 `dsh-http-proxy`）会同时毒化构建与运行面。live-boot 冒烟已通过
+  （证据：`tests/dsh-homes/live-probe-20261026/`，探针配方：`DSH_HOME`、`HOME`
+  （pnpm 11 的 sqlite 状态落在 `$HOME` 下，沙箱必须一并收进工作区）、pnpm storeDir
+  三者全落 `tests/dsh-homes/` 内；起服 / 探测 / 关停必须写在**同一个** bash 调用里
+  ——会话会在调用边界回收后台进程）。
 
 ## 3. DSH_HOME 纪律 — 一律落在 `tests/dsh-homes/`
 

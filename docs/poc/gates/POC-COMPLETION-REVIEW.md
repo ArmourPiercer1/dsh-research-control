@@ -64,3 +64,16 @@ gitignored `.scratch/.poc-data`）；无数值置信冒充 FactStanding（schema
 train 0.2 迁移遗留三件（settings-card→configForms、load/unload 泄漏环、
 investigator GUI 走查）；`known_debts.e2e_spec_layer`（上游语义）；可选：
 为 strk-06 证伪签名做判别实验（real2sim-experimental-design 路线）。
+
+---
+
+## 7. §8 用户裁定（2026-10-26，只追加）
+
+- **判定 = ITERATE**（§8 字面语义）：机制基座正确、无触发 STOP 条件；真实
+  任务面因素材不存在缺样本，不宣布完整 GO。
+- **并行动作获准**：起草 **V3 正式实施契约**（提案文档，非冻结；起草与
+  评审属开发规划，不依赖任何 Gate 解锁，不改冻结面）。
+- 队列优先级（用户选定）：V3 契约起草 **优先**；train 遗留三件与 strk-06
+  判别实验在其后排队。
+- 门禁复审：用户裁定**本轮不拉昂贵模型**（评审以本素材包 + integrator
+  复核为准；契约草案入库后是否复审届时再裁）。

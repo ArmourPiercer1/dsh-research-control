@@ -1,0 +1,12 @@
+# ── SYNTHETIC / 合成素材声明（P1，2026-10-27）────────────────────────────
+# 合成的 V1 ResearchHistory JSONL：失败 Run + ARTIFACT_REGISTERED，形状取自
+# HISTORY_EVENT_CATALOG.md §1/§4/§5；**不是**真实 V1 导出。覆盖：
+# RUN_FAILED 不伪造正常结果、可选 content_hash 缺失→snapshot 哈希 null+unknown、
+# recordedAt 缺失→UNKNOWN 表（禁止用 occurredAt 顶替）、
+# TASK_EXECUTION_CHANGED→已知 unmapped 表。# 注释行不是事件。
+# ─────────────────────────────────────────────────────────────────────────
+{"eventId":"H-3201","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":11,"eventType":"RUN_STARTED","schemaVersion":1,"occurredAt":1778567400000,"recordedAt":1778567439000,"actor":{"kind":"AGENT","run_id":"RUN-V1F-202"},"source":{"kind":"session","id":"synthetic-session-a1","content_hash":"not-a-valid-sha256-hex"},"payload":{"run_id":"RUN-V1F-202","intent":"合成：空间电荷阶段扫步长下限","initiated_by":{"kind":"AGENT","run_id":"RUN-V1F-202"}}}
+{"eventId":"H-3202","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":12,"eventType":"ARTIFACT_REGISTERED","schemaVersion":1,"occurredAt":1778567840000,"recordedAt":1778567880000,"actor":{"kind":"AGENT","run_id":"RUN-V1F-202"},"payload":{"artifact_id":"A-SYNTH-8","type":"DATA","title":"合成：中断前的部分轨迹 .h5（有效性未核验）","uri":"file:///synthetic/out/partial_trace.h5","created_by_run":"RUN-V1F-202"}}
+{"eventId":"H-3203","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":13,"eventType":"RUN_FAILED","schemaVersion":1,"occurredAt":1778569800000,"recordedAt":1778569829000,"actor":{"kind":"PLUGIN"},"payload":{"run_id":"RUN-V1F-202","error_summary":"合成：step-size underflow near t=0.83 ps","failure_kind":"NUMERICAL"}}
+{"eventId":"H-3204","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":14,"eventType":"CLAIM_RECORDED","schemaVersion":1,"occurredAt":1778572800000,"actor":{"kind":"AGENT","run_id":"RUN-V1F-202"},"payload":{"claim_id":"C-SYNTH-4","statement":"合成：失败疑似源于网格下限而非物理不稳定性（仅登记过的候选判断）","created_by_run":"RUN-V1F-202"}}
+{"eventId":"H-3205","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":15,"eventType":"TASK_EXECUTION_CHANGED","schemaVersion":1,"occurredAt":1778573100000,"recordedAt":1778573127000,"actor":{"kind":"USER","user":"synthetic-operator"},"payload":{"task_id":"T-STREAK-8","from":"NOT_STARTED","to":"IN_PROGRESS","reason":"合成：治理迁移，v1crosswalk/0.1 不投影"}}

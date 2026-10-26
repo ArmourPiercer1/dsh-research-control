@@ -77,7 +77,9 @@
 | `docs/packaging.md` | Current |
 | `docs/poc/V3_POC_EXECUTION_PLAN.md` | Proposed |
 | `docs/poc/gates/P0.md` | Proposed |
+| `docs/poc/gates/P1.md` | Proposed |
 | `docs/testing.md` | Current |
+| `experiments/v3-semantic-poc/NOTES.md` | Unranked |
 | `experiments/v3-semantic-poc/README.md` | Unranked |
 | `experiments/v3-semantic-poc/SPEC.md` | Unranked |
 | `experiments/v3-semantic-poc/samples/gpt-streak/README.md` | Unranked |

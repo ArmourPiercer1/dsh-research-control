@@ -1,0 +1,36 @@
+{
+  "fixture": "fixtures/two-analyses.jsonl",
+  "annotator": "dsh-poc-annotator(P0-synthetic)",
+  "basis": "fixtures/two-analyses.jsonl",
+  "assertions": [
+    {
+      "assertion": "同一份扫描数据（input_sha256 与 snapshot_ref.content_sha256 相同）经 postproc v1 与 v2 两版后处理，得到两个不同的 emittance_envelope_rms 结果：4.35e-6 与 4.52e-6 m*rad。",
+      "supported_by": [2, 3, 4],
+      "truly_supported": true,
+      "unrecorded": [
+        "两版分析除方法名（direct_moment / slice_binned）外的具体算法参数（如 v1 的分箱宽度）未记录",
+        "没有任何基准解、解析极限或第三方复算记录，无法裁定 4.35e-6 与 4.52e-6 孰是",
+        "两版结果的测量/计算不确定度未记录，3.9% 差异是否在误差内无法判断"
+      ]
+    },
+    {
+      "assertion": "v2 的 emittance 结果比 v1 更接近物理真值（方法升级导致修正）。",
+      "supported_by": [],
+      "truly_supported": false,
+      "unrecorded": [
+        "文件不含任何真值或参考实现记录，\"更接近真值\"无依据",
+        "note.unknown(seq5) 明确记录分歧未裁定，两事件间也没有登记修订或替代关系"
+      ]
+    }
+  ],
+  "disagreements": [
+    {
+      "topic": "v1→v2 的结果差异应解读为\"方法修订\"还是\"未解释的偏差\"",
+      "positions": [
+        "源记录（seq3/seq4/seq5）只登记了两个不同结果与未裁定声明，不含修订语义",
+        "标注裁定：不得把时间先后推断为修订关系，保留为未裁定"
+      ],
+      "resolution": "分歧保留在 golden 层，不删除、不改写任何源事件"
+    }
+  ]
+}

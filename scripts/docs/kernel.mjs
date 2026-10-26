@@ -355,7 +355,11 @@ export const SYNC_WHITELIST = ['docs/README.md']
 
 const DOC_TIERS = [
   { glob: 'docs/engineering-baseline/**|docs/decisions/**|docs/development.md|docs/testing.md|docs/README.md|docs/G0_REPRODUCIBLE_TEST_ROOT.md|docs/packaging.md', tier: 'Current' },
-  { glob: 'docs/BASELINE_**|docs/G[1-5]_**|docs/TOOLS_TRACEABILITY.md|docs/evidence/**', tier: 'Historical' },
+  // V3 设计线（#9 架构权威目录 + #10 PoC 计划）：README 图例的 Proposed 层
+  // （未生效提案——不 Current、不是历史）。长稿 design/ 已自标 HISTORICAL
+  // DESIGN RECORD，归 Historical。
+  { glob: 'docs/architecture/**|docs/poc/**', tier: 'Proposed' },
+  { glob: 'docs/design/**|docs/BASELINE_**|docs/G[1-5]_**|docs/TOOLS_TRACEABILITY.md|docs/evidence/**', tier: 'Historical' },
 ]
 export const docTier = (p) => {
   for (const r of DOC_TIERS) if (matchAny(r.glob, p)) return r.tier

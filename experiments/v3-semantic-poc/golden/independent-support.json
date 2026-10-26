@@ -1,0 +1,37 @@
+{
+  "fixture": "fixtures/independent-support.jsonl",
+  "annotator": "dsh-poc-annotator(P0-synthetic)",
+  "basis": "fixtures/independent-support.jsonl",
+  "assertions": [
+    {
+      "assertion": "候选断言\"高光强下光输出增益压缩到约 0.7\"（seq7，RESEARCHER_INFERENCE）确有两条独立观测路径支持：路径 A 的 O1=0.71（seq3）与路径 B 的 O2=0.69（seq6），二者来自不同 deck。",
+      "supported_by": [3, 6, 7],
+      "truly_supported": true,
+      "unrecorded": [
+        "O1、O2 的测量不确定度未记录，0.71 与 0.69 的一致性强度无法定量",
+        "两条路径共用同一套物理模型（beam-track/space-charge/scintillator 模型族），共模误差未评估——独立性只在 deck 层面声明",
+        "除 gain@10mA 单点外没有剂量响应曲线记录，\"高光强行为\"的推广范围未记录"
+      ]
+    },
+    {
+      "assertion": "O2 的机制解释\"闪烁体余辉导致拖尾叠加\"（seq6 的 mechanism_reading）成立，是增益压缩的成因。",
+      "supported_by": [6],
+      "truly_supported": false,
+      "unrecorded": [
+        "闪烁体余辉时间的任何测量记录不存在",
+        "seq8 的 note.unknown 已质疑该机制解释，且没有任何洗白或否证证据被记录",
+        "除余辉外 competing 机制（空间电荷、阴极饱和）的排除证据未记录"
+      ]
+    }
+  ],
+  "disagreements": [
+    {
+      "topic": "O2 观测值本身能否继续作为 claim（seq7）的支持证据",
+      "positions": [
+        "受质疑的是 seq6 的机制归因（mechanism_reading），不是观测数值 0.69",
+        "标注裁定：seq6 数值保留为支持证据，mechanism_reading 从支持链中剔除，seq8 质疑注记并列保留"
+      ],
+      "resolution": "证据与机制解释分层处理；任何一方的原始说法都不删除"
+    }
+  ]
+}

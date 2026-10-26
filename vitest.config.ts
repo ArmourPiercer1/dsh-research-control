@@ -60,6 +60,9 @@ export default defineConfig({
       'references/**',
       'tests/deepseek-harness/**',
       'tests/dsh-homes/**',
+      // V3 PoC（#10 §2.1 失败隔离）：experiments/ 有自己的 runner（test:poc），
+      // 侧车进度永不成为主门禁的依赖或 Gate。
+      'experiments/**',
     ],
   },
 })

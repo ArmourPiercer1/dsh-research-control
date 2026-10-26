@@ -304,6 +304,8 @@ function makeGitRepo(): { root: string; file: string } {
   const file = join(root, 'outside.md')
   writeFileSync(file, 'v1\n')
   git(root, 'init', '-q', '--initial-branch=main')
+  git(root, 'config', 'user.email', 'readers-fixture@local') // EB3 遗留项 2：fixture 自带身份
+  git(root, 'config', 'user.name', 'readers-fixture')
   git(root, 'config', 'user.email', 't@local')
   git(root, 'config', 'user.name', 't')
   git(root, 'add', '-A')

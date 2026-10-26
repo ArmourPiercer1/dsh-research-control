@@ -1,0 +1,152 @@
+# =====================================================================
+# streak_quad_error.in -- GPT deck, V3 PoC sample "numerical-streak-camera"
+# model revision: v2 (revision of streak_nominal.in / rev v1 -- NOT a new
+# experiment: same beamline, same source, same output specification)
+#
+# *** synthetic demo, minimal data ***   nps default 100, hard cap nps<=200
+# This deck is a PoC artefact for provenance/channel discipline. It has
+# NOT been executed (no GPT licence on the PoC host). Numbers in these
+# comments are ANALYTIC linear-model expectations, not simulation output.
+#
+# ---------------------------------------------------------------------
+# DIFF SUMMARY  v1 (streak_nominal.in) -> v2 (this file)
+#
+#   -if( !defined(Go) )    Go    = 0.30 ;  # quad nominal gradient [T/m]
+#   +if( !defined(Go) )    Go    = 0.33 ;  # quad gradient +10%  [T/m]
+#   -outputvalue("rev",      1 ) ;
+#   +outputvalue("rev",      2 ) ;
+#   plus comment/header text only (run file names, this DIFF block).
+#
+# EVERYTHING ELSE IS UNCHANGED: particle set and distribution, gun field,
+# both drift lengths (Ld1 = 0.315 m, Ld2 = 0.225 m), quad length and centre,
+# screen plane zscr = 0.60 m, accuracy, tmax, snapshot/screen triggers and
+# all outputvalue scalars. Nothing was retuned.
+#
+# WHY: a model/field-data version revision, not a new setup. The nominal
+# run's screen spot came out ~28% (x) larger than the analytic expectation
+# used by the first analysis; one hypothesis is that the real quadrupole
+# gradient is ~10% above the value recorded in the model. v2 re-runs the
+# identical line with Go as the ONLY changed quantity, so the delta of the
+# two runs is attributable to Go by construction (single-variable revision).
+# Expected analytic delta at the screen (linear model, NOT a result):
+#   stdx 6.46e-4 -> 7.87e-4 m  (+21.8%),  stdy 3.02e-3 -> 3.22e-3 m (+6.7%),
+#   nemixrms unchanged (linear element), avgG unchanged (2.53e5 eV),
+#   avgt unchanged (~3.0e-9 s).
+# CAUTION: reproducing the direction of a residual with the same deck that
+# produced it is consistency, not independent support -- the hard-edge quad
+# and the missing rf streak element are common-mode in both revisions.
+# ---------------------------------------------------------------------
+#
+# Beamline (WCS, SI units), in beam order:
+#   photo-gun diode gap  ->  drift  ->  single quadrupole cell  ->  drift
+#   ->  "screen" diagnostic plane
+#
+# Run (smoke size only; this is the whole intended compute):
+#   gpt -o streak_quad_error.gdf streak_quad_error.in
+# convergence double-check (particle count):
+#   gpt -o streak_quad_error_n200.gdf streak_quad_error.in nps=200
+# convergence double-check (timestep / accuracy):
+#   gpt -o streak_quad_error_acc7.gdf streak_quad_error.in accg=7 accx=8
+#
+# Analyze (gdfa; group_by MUST match the output trigger used below):
+#   gdfa -o qe_time.gdf streak_quad_error.gdf time     numpar avgz stdx stdy avgG nemixrms nemiyrms
+#   gdfa -o qe_pos.gdf  streak_quad_error.gdf position stdx   stdy  avgG nemixrms nemiyrms avgt stdt
+#   gdf2a  -o qe_pos.txt qe_pos.gdf
+#
+# Expected output quantities (names are gdfa prog names, not deck vars):
+#   nemixrms, nemiyrms : NORMALIZED rms emittance [m rad]. gdfa forms it
+#       from GBx = G*Bx, so the value is already normalized. The deck
+#       scalar g0 (written into the .gdf by outputvalue) is the Lorentz
+#       factor of the diagnostic plane; convert as
+#           geometric eps = nemixrms / sqrt(g0^2 - 1) = nemixrms/(beta*gamma)
+#       Downstream of the gun g0 = 1.4951 (beta*gamma = 1.11146); at the
+#       cathode g0 = 1.00587 (beta*gamma = 0.10852). Quoting a geometric
+#       emittance without naming the g0 plane is meaningless -- state g0.
+#       Expected at the screen: nemixrms ~ 1.22e-6 m rad (1.22 pi mm mrad).
+#       Because Qtot=0 and every element here is linear, nemixrms must be
+#       CONSERVED from t=0 to the screen; growth is a model/numerics flag.
+#   stdx, stdy         : rms spot size [m] at the screen (position group).
+#       Expected ~ 7.9e-4 m (x, focused) and ~ 3.2e-3 m (y, defocused).
+#       y > x is REQUIRED for Go>0 with a hard-edge quad; stdy<stdx means
+#       a polarity/roll bookkeeping error, not physics.
+#   avgG               : mean Lorentz factor -> mean kinetic energy
+#       Ekin[eV] = (avgG - 1)*me*c^2/|qe| ~ 2.53e5 eV (deck scalar Ekin).
+#   avgt, stdt         : mean arrival time / rms arrival spread [s] at the
+#       screen (only available from screen output). Expected avgt ~ 3.0e-9 s,
+#       stdt ~ 4e-13 s from the 0.3 mm bunch length alone.
+#   numpar             : alive macro-particle count (expect nps everywhere;
+#       the deck declares no aperture).
+#
+# Known model limits (deliberate, for the PoC): Qtot=0 -> no space charge;
+# hard-edge quadrupole (no Enge fringe, no b1); NO rf streak deflector, so
+# "streak" here means only "a linear transverse kick at a plane" -- this
+# deck cannot produce a real time-resolved streak. See README.md.
+# =====================================================================
+
+# --- knobs (override on the command line: gpt ... name=value) ---------
+if( !defined(nps) )   nps   = 100 ;   # macro-particles; KEEP <= 200 (minimal data)
+if( !defined(accg) )  accg  = 5 ;     # -log10 error tolerance for gamma*beta
+if( !defined(accx) )  accx  = 6 ;     # -log10 error tolerance for position
+if( !defined(Eemit) ) Eemit = 3e3 ;   # kinetic energy at emission [eV]
+if( !defined(Egun) )  Egun  = 2.5e7 ; # gun diode field [V/m] (25 MV/m)
+if( !defined(Lgun) )  Lgun  = 1e-2 ;  # gun gap length [m]
+if( !defined(agun) )  agun  = 1e-2 ;  # gun field box transverse size [m]
+if( !defined(rbeam) ) rbeam = 1.5e-3 ;# beam radius at cathode [m], uniform disk
+if( !defined(gbdiv) ) gbdiv = 4e-3 ;  # max gamma*beta_r of the divergent halo
+if( !defined(zlen) )  zlen  = 3e-4 ;  # bunch length [m]
+if( !defined(Go) )    Go    = 0.33 ;  # quad nominal gradient [T/m]  <-- v2: +10%
+if( !defined(Lq) )    Lq    = 5e-2 ;  # quad effective length [m]
+if( !defined(zq) )    zq    = 0.35 ;  # quad centre position [m]
+if( !defined(zscr) )  zscr  = 0.60 ;  # screen plane position [m]
+if( !defined(tmaxv) ) tmaxv = 3.6e-9 ;# hard stop [s] (> flight time 2.96 ns)
+
+# --- derived quantities (not independent knobs) -----------------------
+Ekin = Eemit + Egun*Lgun ;               # energy after the gun [eV]
+g0   = 1 + abs(qe)*Ekin/(me*c^2) ;       # Lorentz factor after the gun
+gcat = 1 + abs(qe)*Eemit/(me*c^2) ;      # Lorentz factor at the cathode
+Ld1  = zq - Lq/2 - Lgun ;                # gun exit  -> quad entrance [m] = 0.315
+Ld2  = zscr - ( zq + Lq/2 ) ;            # quad exit -> screen        [m] = 0.225
+Bsqr = g0*sqrt(1-1/g0^2)*me*c/abs(qe) ;  # B*rho [T m] at the screen plane
+
+# --- initial distribution (optics study: Qtot = 0) --------------------
+setparticles( "beam", nps, me, qe, 0.0 ) ;   # Qtot=0 -> no space charge
+setrxydist(   "beam", "u", rbeam/2, rbeam ) ;   # uniform disk of radius rbeam
+setphidist(   "beam", "u", 0, 2*pi ) ;
+setzdist(     "beam", "u", 0, zlen ) ;           # short bunch, mono-z slice
+setGBrxydist( "beam", "u", gbdiv/2, gbdiv ) ;    # radial gamma*beta_r in [0,gbdiv]
+setGBphidist( "beam", "u", 0, 2*pi ) ;
+setGdist(     "beam", "u", gcat, 0 ) ;           # gamma at emission, no spread
+# No spacecharge element: permitted because Qtot = 0 (skill rule: at most
+# one space-charge element, present iff the beam carries charge).
+
+# --- beamline, in beam order -----------------------------------------
+erect(      "wcs","z", Lgun/2,          agun, agun, Lgun, -Egun ) ;
+drift(      "wcs","z", Lgun + Ld1/2,    Ld1 ) ;
+quadrupole( "wcs","z", zq,              Lq, Go ) ;   # hard edge (no b1 given)
+drift(      "wcs","z", zq + Lq/2 + Ld2/2, Ld2 ) ;
+
+# --- accuracy + output specification ---------------------------------
+accuracy( accg, accx ) ;
+tmax = tmaxv ;
+
+# Deck identity written into the .gdf so any analysis can be re-checked
+# against the model revision that produced the data (provenance hook).
+outputvalue("rev",      2 ) ;      # model revision tag: 2 = gradient +10%
+outputvalue("nps",      nps ) ;
+outputvalue("Go",       Go ) ;     # [T/m]  quad gradient actually used
+outputvalue("Lq",       Lq ) ;     # [m]
+outputvalue("zq",       zq ) ;     # [m]  quad CENTRE
+outputvalue("Ld1",      Ld1 ) ;    # [m]  gun exit -> quad entrance
+outputvalue("Ld2",      Ld2 ) ;    # [m]  quad EXIT -> screen (not quad centre)
+outputvalue("zscr",     zscr ) ;   # [m]
+outputvalue("Ekin_eV",  Ekin ) ;   # [eV]
+outputvalue("g0",       g0 ) ;     # [-]  normalize/denormalize emittance with this
+outputvalue("gcat",     gcat ) ;   # [-]
+outputvalue("Bsqr",     Bsqr ) ;   # [T m]
+
+snapshot( 0, tmaxv, 0.1e-9 ) ;           # envelope vs time  -> group_by = time
+screen(   "wcs","I", zscr ) ;            # the "screen"      -> group_by = position
+# Discriminating test (NOT enabled in the v2 run either; see observation-spec.md):
+# a screen scan locates the x-waist, which separates a gradient error from a
+# drift-length bookkeeping error. Enable with:
+# screen( "wcs","I", 0.45, 0.75, 0.01 ) ;

@@ -276,6 +276,33 @@ export function checkAdrs(root, mdFiles) {
       if (!f.includes(String(meta.id))) problems.push({ code: 'ADR_ID_FILE', where: f, detail: `id=${meta.id} 与文件名不一致` })
     }
   }
+  // 类别感知（EB3/G3 遗留项 3）：上游设计线（PR #9）docs/architecture/adr/ 的
+  // 原则性 Draft ADR 不是 docs/decisions/ 的严格 frontmatter 类——它自带词汇
+  // （自认「非冻结实现契约」），受本类四条：id 唯一 / id↔文件名 / 状态行存在 /
+  // 被索引收录（孤儿=第二权威入口的预防）。不强行映射实现状态词汇——映射与
+  // 升级规则在 #10 PoC 通过后另行裁决（状态词汇不互推同样约束这个方向）。
+  const dIds = new Map()
+  for (const f of mdFiles.filter((x) => x.startsWith('docs/architecture/adr/') && /\/D\d+/.test(x))) {
+    const base = f.split('/').pop()
+    const m = base.match(/^(D\d+)_/)
+    if (!m) {
+      problems.push({ code: 'ADR_ID_FILE', where: f, detail: '原则性 ADR 文件名应为 D<NN>_<NAME>.md' })
+      continue
+    }
+    const id = m[1]
+    if (dIds.has(id)) problems.push({ code: 'ADR_DUP_ID', where: f, detail: `D-id=${id} 与 ${dIds.get(id)} 重复` })
+    else dIds.set(id, f)
+    const text = readFileSync(join(root, f), 'utf8')
+    if (!/\*\*状态\*\*[:：]/.test(text)) problems.push({ code: 'ADR_STATUS', where: f, detail: '原则性 ADR 缺 **状态** 行（该类词汇自由，但存在性必查；存在 ≠ 实证状态）' })
+  }
+  const dIdx = join(root, 'docs/architecture/adr/README.md')
+  if (existsSync(dIdx)) {
+    const idx = readFileSync(dIdx, 'utf8')
+    for (const [, f] of dIds) {
+      const stem = f.split('/').pop().replace(/\.md$/, '')
+      if (!idx.includes(stem)) problems.push({ code: 'ADR_ORPHAN', where: f, detail: '未入 docs/architecture/adr/README.md 索引（决策孤儿）' })
+    }
+  }
   return problems
 }
 

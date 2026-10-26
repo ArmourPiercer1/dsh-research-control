@@ -80,6 +80,8 @@
 | `docs/testing.md` | Current |
 | `experiments/v3-semantic-poc/README.md` | Unranked |
 | `experiments/v3-semantic-poc/SPEC.md` | Unranked |
+| `experiments/v3-semantic-poc/samples/gpt-streak/README.md` | Unranked |
+| `experiments/v3-semantic-poc/samples/gpt-streak/observation-spec.md` | Unranked |
 | `schema/README.md` | Unranked |
 | `src/host/persistence/hardening/README.md` | Unranked |
 <!-- docs:sync:end -->

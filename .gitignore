@@ -32,3 +32,8 @@ dsh-research-control-*.tgz
 # install-time `prepare` build script was dropped. Release discipline:
 # `pnpm run build` BEFORE every push/pack; `pack:verify` asserts the lib
 # surface after packing.
+
+# 会话草稿/临时状态（EB2 纪律：temp 一律 ignored）
+.scratch/
+.npm-tmp/
+google-home-screenshot.png

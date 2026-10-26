@@ -192,5 +192,11 @@ F1–F4 + F5（settings 0.2 模型）全部落地；门禁与冒烟（2026-10，
 ## 遗留缺口收编状态（2026-10-27，只追加）
 - **settings-card→configForms**：✅ PR #34（tsc 债 21→20 清偿一并入库）；
   其遗留 = GUI 浏览器走查（读写往返/拒绝路径/unload-reload 重现）。
-- **load/unload/reload 泄漏环**：进行中（独立任务）。
+- **load/unload/reload 泄漏环**：✅ 无头层入库（tests/lifecycle/ 4 环 7 例：
+  3 轮装载回基线/preset 效应回收+Duplicate 竞态/fake-timers 归零/客户端
+  apply 环；harness=真 cordis Context+真 Entry.update，与 plugin-manager
+  GUI 同一 API 对）。live 层未烧（0/1）：0.2 无重启重复装卸的唯一控制面是
+  GUI/HTTP，其底层即无头层锁定的同一 API——并入 GUI 走查批次。
+- **GUI 走查批次清单（累积）**：settings-card 读写往返/拒绝路径/unload-reload
+  重现；插件管理页真 enable/disable 泄漏环；investigator 一键调查。
 - **investigator 一键调查 GUI 走查**：待浏览器批次（与上同批）。

@@ -1,8 +1,8 @@
-import { Jt as TypertContributionMirror } from "./rpc-contracts-CAb1T63d.js";
+import { Jt as TypertContributionMirror } from "./rpc-contracts-CmHDfUDF.js";
 import { InvocationDescriptor } from "@deepseek-ai/dsh-typert-protocol";
 //#region src/host/dsh-adapter/host/typert.artifact.d.ts
 /**
- * 0.1.2-alpha.3 typert train: merge the owner's domain failure codes into
+ * 0.2.0-rc.2 typert train: merge the owner's domain failure codes into
  * the shared `RemoteErrorDetailsMap` (the gateway merges its infrastructure
  * codes the same way — `remote-error-codes.ts`). Every `PLANE_*` code the
  * host throws via `PlaneError` (the closed 13-code vocabulary, frozen list

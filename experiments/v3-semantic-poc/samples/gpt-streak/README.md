@@ -4,9 +4,10 @@ PoC 样本 **numerical-streak-camera**（`docs/poc/V3_POC_EXECUTION_PLAN.md` §3
 落地形状：一个 GPT (General Particle Tracer) 束线案例，覆盖 **场模型/数据版本修订、数值诊断、
 后处理结果、异常校准/收敛判断** 四类语义。信封与三通道规则见 [`../../SPEC.md`](../../SPEC.md)。
 
-> **本样本是 P0 合成样本：两份 `.in` deck 从未被 `gpt` 执行过**（PoC 主机无 GPT 许可，且本轮
-> 明令不运行外部程序、不访问网络）。`.gdf` 尚不存在；`envelopes.strk-0*.jsonl` 里的哈希与数值全是合成
-> 占位，并在每行 `unknowns` 中声明。任何数字都**不得**被引用为仿真结果。
+> **本样本是 P0 合成样本**（上述限制在 P0 期内有效）。**更新 2026-10-26：deck 已经
+> WSL interop 真实执行**（strk-05/06，见文末）；**更新 2026-10-27：判别实验入库**
+> （strk-07a..k + strk-08）。合成行（strk-01..04）仍为合成占位、保留不动；
+> 真实数值一律以 strk-05 起的信封与其 sha256 登记为准。
 
 ## 1. 在 PoC 里的角色与升级路径
 
@@ -106,3 +107,19 @@ interop 启用后用宿主机 gpt.exe（Oct 14 2024）真跑两套 deck（nps=10
 为真实运行 SOURCE_RECORD + 一条推理对比；合成样本（strk-01..04）保留原样作
 P0 历史。样本升级路径中 sanitized-snapshot→live 段就此打通（GPT 运行真实；
 数据仍为合成研究场景，非实验数据）。
+
+## 更新（2026-10-27）：判别实验（strk-07a..k）与分析（strk-08）
+
+- **动因**：strk-06 的线性签名证伪挂「不归因」；按 real2sim-experimental-design 路线设计
+  最小信息量实验分离竞争假说。设计正源 = [`discrimination-design.yaml`](discrimination-design.yaml)
+  （targets/三实验/判别预测/DOE 纪律齐）；执行序 = 固定伪随机置换（种子 20261027，见 .scratch 日志）。
+- **11 run**：T0 复现锚×2（与 strk-05/06 已登记值逐位复现，字节差仅 GDF 头日期戳）；
+  T1 Go 六点响应曲线 {0.24..0.36}；T2 nps 粒度阶梯 {50/100/200}；T3 双屏对照 {0.45, 0.60}。
+- **strk-08 分析三结论**（信封为准）：① **行语义修正**——position 组末行对 zscr 不变 ⇒
+  strk-05/06 原「screen」登记值实为 tmax 弹道末态 rms（z≈0.80 m）；屏面过面值（首行）另行登记，
+  原事件不改写（L0）；② **H1′ 成立**——薄透镜外推模型类在两个观测表示下一致证伪，
+  六点曲线光滑且局部斜率复现两点差分（过面 +6.4%/+22.2%；末态 +7.4%/+15.0%），y 向响应
+  在 0.45→0.60 间符号翻转（−16%→+22%，束腰穿越指纹）；③ **H3′ 排除**——nps 粒度对响应差
+  贡献 <0.5 个百分点；**H2′（梯度约定错位）未判定**，需绝对矩阵拟合，已挂账 note.unknown。
+- **文件**：`envelopes.strk-07{a..k}-*.jsonl`（4 事件/件）+ `envelopes.strk-08-disc-analysis.jsonl`（4 事件）；
+  `.gdf` 解析后删除（sha256 已在 artifact.registered 登记，恢复=按 run.started 重跑）。

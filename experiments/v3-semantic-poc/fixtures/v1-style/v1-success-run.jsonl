@@ -1,0 +1,13 @@
+# ── SYNTHETIC / 合成素材声明（P1，2026-10-27）────────────────────────────
+# 本文件是合成的 V1 ResearchHistory JSONL 样本，形状取自 HISTORY_EVENT_CATALOG.md
+# （Frozen V1）§1 事件信封 + §4 目录事件名 + §5 payload 字段；**不是**任何真实
+# V1 导出、不是真实科研历史。事件/载荷/时间戳均为编造，用于离线验证
+# v1crosswalk/0.1 只读适配层（缺字段→UNKNOWN、未知类型→unmapped、
+# FACT_RECORDED→claim.candidate 非科学确认、行数守恒）。# 注释行不是事件，
+# 适配器单列 comment_lines 计数。
+# ─────────────────────────────────────────────────────────────────────────
+{"eventId":"H-3101","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":1,"eventType":"RUN_STARTED","schemaVersion":1,"occurredAt":1778464800000,"recordedAt":1778464841000,"actor":{"kind":"USER","user":"synthetic-operator"},"source":{"kind":"git","id":"synthetic/streak-repo@1111111"},"payload":{"run_id":"RUN-V1S-101","task_id":"T-STREAK-7","intent":"合成：按 v3 deck 跑标称条纹相机仿真","initiated_by":{"kind":"USER","user":"synthetic-operator"}}}
+{"eventId":"H-3102","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":2,"eventType":"RUN_FINISHED","schemaVersion":1,"occurredAt":"2026-05-11T02:41:10Z","recordedAt":1778467312000,"actor":{"kind":"AGENT","run_id":"RUN-V1S-101"},"payload":{"run_id":"RUN-V1S-101","outcome_summary":"合成：全部阶段完成（无产物登记行——缺失即缺失，适配器不得补全）"}}
+{"eventId":"H-3103","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":3,"eventType":"FACT_RECORDED","schemaVersion":1,"occurredAt":1778468700000,"recordedAt":1778468733000,"actor":{"kind":"AGENT","run_id":"RUN-V1S-101"},"payload":{"fact_id":"F-SYNTH-9","statement":"合成：标称工况下屏面 x 束斑 RMS 收敛于 0.65 mm（±0.05 mm）","created_by_run":"RUN-V1S-101","references":["A-SYNTH-3"]}}
+{"eventId":"H-3104","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":4,"eventType":"GATE_EVALUATED","schemaVersion":1,"occurredAt":1778469000000,"recordedAt":1778469045000,"actor":{"kind":"USER","user":"synthetic-reviewer"},"payload":{"gate_id":"G-STREAK-2","result":"PASSED","evaluated_by":{"kind":"USER","user":"synthetic-reviewer"},"note":"合成：治理事件，v1crosswalk/0.1 故意不投影（验收≠数据来源）"}}
+{"eventId":"H-3105","ownerWorkstreamId":"WS-STREAK-SYNTH","eventSeq":5,"eventType":"SPECTROMETER_PING_LOGGED","schemaVersion":1,"occurredAt":1778469300000,"recordedAt":1778469330000,"actor":{"kind":"PLUGIN"},"payload":{"probe":"synthetic-probe-1","rtt_us":812}}

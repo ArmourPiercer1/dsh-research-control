@@ -6,7 +6,7 @@
  * 且零文件创建。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -114,5 +114,71 @@ describe('poc-run.mjs（argv-only 入口）', () => {
     const exported = r.stdout.match(/exported=(\S+)/)![1]!
     expect(exported.startsWith(ALLOWED_WRITE_ROOT + path.sep)).toBe(true)
     rmSync(path.join(POC_DIR, rel), { force: true })
+  })
+})
+
+// —— P1 --project 子命令（任务 F：计数打印 + --export 前过 writeguard）————
+
+describe('poc-run.mjs --project（P1 重放视图入口）', () => {
+  it('对 fixtures 目录：打印活动/实体/观测计数与 unresolved 数，退出 0', () => {
+    const r = runPoc(['--project', 'fixtures'])
+    expect(r.stderr).toBe('')
+    expect(r.status).toBe(0)
+    expect(r.stdout).toMatch(/files=5 runs=5 events=29/)
+    expect(r.stdout).toMatch(/activities=\d+ entities=\d+ agents=\d+/)
+    expect(r.stdout).toMatch(/observations=3 results=3/) // SOSA 计数独立打印
+    expect(r.stdout).toMatch(/unresolved=\d+/)
+    expect(r.stdout).toMatch(/unresolved=[1-9]\d*/) // 合成素材必有显式未知项
+    expect(r.stdout).toContain('结果=OK')
+  })
+
+  it('断链目录：逐条 UNRESOLVED 打印但退出 0（不报错也不静默）', () => {
+    const dir = path.join(tmpRoot, 'project-gap')
+    mkdirSync(dir, { recursive: true })
+    const line = {
+      schema: 'poc/prov-envelope/v0',
+      source_project: 'neg(P1-synthetic)',
+      run_id: 'RUN-PRJ-GAP-1',
+      event_seq: 0,
+      occurred_at: '2026-05-01T00:00:00Z',
+      recorded_at: '2026-05-01T00:00:30Z',
+      snapshot_ref: { kind: 'none', id: 'none', content_sha256: null },
+      access_boundary: 'synthetic',
+      channel: 'SOURCE_RECORD',
+      kind: 'run.started',
+      payload: {},
+      unknowns: ['合成：--project 断链样本'],
+    }
+    const gap = { ...line, event_seq: 2, kind: 'run.finished' }
+    writeFileSync(path.join(dir, 'gap.jsonl'), `${JSON.stringify(line)}\n${JSON.stringify(gap)}\n`, 'utf8')
+    const r = runPoc(['--project', dir])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('UNRESOLVED')
+    expect(r.stdout).toContain('validator_event_seq_gap')
+    expect(r.stdout).toMatch(/unresolved=\d*[1-9]/)
+  })
+
+  it('--project --export 写 .poc-data/v3/ 且同输入两次逐字节一致；越界 FATAL 零文件', () => {
+    const rel = path.join('.poc-data', 'v3', 'poc-run-project-export-test.json')
+    const outAbs = path.join(POC_DIR, rel)
+    rmSync(outAbs, { force: true })
+    const first = runPoc(['--project', 'fixtures', '--export', rel])
+    expect(first.stdout).toContain('exported=')
+    const bytes1 = readFileSync(outAbs)
+    runPoc(['--project', 'fixtures', '--export', rel])
+    expect(readFileSync(outAbs).equals(bytes1)).toBe(true)
+    rmSync(outAbs, { force: true })
+
+    const outside = path.join(tmpRoot, 'smuggled-project.json')
+    const bad = runPoc(['--project', 'fixtures', '--export', outside])
+    expect(bad.status).not.toBe(0)
+    expect(bad.stderr).toContain('FATAL')
+    expect(existsSync(outside)).toBe(false)
+  })
+
+  it('--fixture 与 --project 互斥；--project 缺目录退出 2', () => {
+    expect(runPoc(['--fixture', 'fixtures/success-run.jsonl', '--project', 'fixtures']).status).toBe(2)
+    expect(runPoc(['--project', 'fixtures/nope-does-not-exist.jsonl']).status).toBe(2)
+    expect(runPoc(['--project']).status).toBe(2)
   })
 })

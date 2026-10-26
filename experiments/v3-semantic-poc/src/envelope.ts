@@ -330,8 +330,11 @@ export function parseEnvelopeFile(filePath: string, opts: ResolveOpts = {}): Par
 /**
  * 递归按字典序排键，JSON.stringify 保持对象插入序 → 稳定字节序。
  * 时间戳原样透传（字符串），绝不 Date 往返，避免任何格式抖动。
+ * P1 起对外导出：replay.ts 的视图导出必须与本文件的 normalizeExport
+ * 共用同一规范化器，否则「幂等导出」会出现两套字节规则。仅加 export，
+ * 行为零变化（P0 的 49 例不受影响）。
  */
-function canonicalize(value: unknown): unknown {
+export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => canonicalize(item))
   if (isPlainObject(value)) {
     const out: Record<string, unknown> = {}

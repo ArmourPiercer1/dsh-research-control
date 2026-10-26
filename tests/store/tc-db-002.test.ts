@@ -77,6 +77,10 @@ function makeResearchRepo(root: string): void {
   // 「DB 文件本身永不进 Git」(DOMAIN_SCHEMA §15 通则) — the repo ignores it
   writeFileSync(join(root, '.gitignore'), 'research.sqlite\nresearch.sqlite-wal\nresearch.sqlite-shm\n')
   execFileSync('git', ['init', '-q', root], { stdio: 'pipe' })
+  // EB3 遗留项 2：fixture 自带仓内 git 身份（temp repo 的 commit 不得依赖
+  // ambient 配置——干净机器/CI 上无身份时这里曾是 5 例环境红）。
+  execFileSync('git', ['-C', root, 'config', 'user.email', 'tc-db-002@fixture.local'], { stdio: 'pipe' })
+  execFileSync('git', ['-C', root, 'config', 'user.name', 'tc-db-002 fixture'], { stdio: 'pipe' })
   git(root, 'add', '-A')
   git(root, 'commit', '-q', '-m', 'baseline .research tree')
 }

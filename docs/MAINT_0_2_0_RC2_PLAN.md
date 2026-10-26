@@ -133,3 +133,26 @@ strict 分支以 `create: () => TypertSchema` 取代旧 `schema` 值对象；loa
 - DSH_HOME / HOME / pnpm storeDir：全部落 `tests/dsh-homes/` 内（AGENTS §3 +
   docs/testing.md 配方）；起服 / 探测 / 关停写在同一个 bash 调用里。
 - 进程：只启停自己启动的 server；一次一个重 build。
+
+## 新基线落地状态（branch `maint/train-0.2.0-rc.2`，本文件随迁移提交入库）
+
+F1–F4 + F5（settings 0.2 模型）全部落地；门禁与冒烟（2026-10，worktree
+`.scratch/wt-migrate`，测试实例 = `tests/deepseek-harness` @ `c1b47e41fc`）：
+
+- `check:types`：tsc-gate 21 条债务身份精确复现（新旧基线同一身份集，无漂移）。
+- `lint`：INV-PERM-5 零违规；`build`：RC=0，SNAPSHOT 31 文件双向 sha256 绿
+  （冻结面零触碰）；chunk 轮换 BAeOX3y7/CAb1T63d → BOYj4aMX/CmHDfUDF。
+- `pnpm test`：351 files 绿 / 6 skipped，5033 tests 绿 / 21 skipped，0 失败。
+- `pack:verify`：PASS 521 entries；REAL `validateTypertManifest` 面门在场
+  （59 invocations 全 strict create() + 115 schema 工厂）。
+- `docs:check`：OK（1104 tracked files）；lib 提交态与 rebuild 仅
+  rcm-css 构建路径噪声（freshness 归一化绿）。
+- **live boot（`tests/dsh-homes/live-maint-rc2/`，端口 3297）**：新 profile
+  `plugin add` 本包 tarball → profile node_modules `@deepseek-ai/dsh-*`
+  全 `0.2.0-rc.2`（cosmokit 1.8.6 / schemastery 3.18.5 = caret 范围解析）；
+  boot 日志 settings-0.2 模型行 + 空平面诚实态行在场；版本门静默
+  （MIN_VERSION/VERSION_UNREACHABLE 0 命中）；HTTP：无 token `GET /` → 401、
+  带 token → 303、`POST /api/researchControl/ping` 无 token → 401；
+  `--dump-config` 含 `- id: research-control` 行；停服端口释放。
+  **B-EB3-1 正面回答：0.2.0-rc.2 世界可 boot**（rc.8 的 HMR 起服崩溃不在
+  本 train；e2e CLI pin 已重锚，TC-DSH-008 全链复跑留待评审合入后）。

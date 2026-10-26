@@ -55,7 +55,8 @@
   再 `pnpm run build`——`lib/` 等产物是 gitignored 且 tsc 增量不删孤儿文件，实测
   0.1.5 残留（`DockSurface.js` → tsdown UNRESOLVED_IMPORT；残留 CLI → import 旧
   train 才有的 `dsh-http-proxy`）会同时毒化构建与运行面。live-boot 冒烟已通过
-  （证据：`tests/dsh-homes/live-probe-20261026/`，探针配方：`DSH_HOME`、`HOME`
+  （0.2.0-rc.2 证据：`tests/dsh-homes/live-maint-rc2/`，见
+  `docs/MAINT_0_2_0_RC2_PLAN.md` 落地状态节；旧 train 证据 `tests/dsh-homes/live-probe-20261026/`；探针配方：`DSH_HOME`、`HOME`
   （pnpm 11 的 sqlite 状态落在 `$HOME` 下，沙箱必须一并收进工作区）、pnpm storeDir
   三者全落 `tests/dsh-homes/` 内；起服 / 探测 / 关停必须写在**同一个** bash 调用里
   ——会话会在调用边界回收后台进程）。

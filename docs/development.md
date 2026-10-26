@@ -15,6 +15,10 @@
    存在的 evidence 路径（`docs:check` 抓虚假证据）。
 5. 决策进 `docs/decisions/`（一文件一决策，frontmatter：`id/status/title/date`，
    可选 `supersedes/evidence`）；`id` 不复用、不改名。
+   上游设计线的原则性 Draft ADR（`docs/architecture/adr/D<NN>_*.md`，PR #9 类）
+   受**类别规则**：D-id 唯一、id↔文件名、`**状态**` 行存在、必须入该目录 README
+   索引（`ADR_ORPHAN`）——其状态词汇自由且**不**映射实现状态词汇（映射待 #10
+   PoC 通过后另行裁决；状态词汇不互推双向适用）。
 
 ## 标准工作流
 

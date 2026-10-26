@@ -39,3 +39,12 @@
 两轮定位全仓共 3 处：`tests/checkpoint/diff-history`（run 40273375870）、
 `tests/git/tc-git-001` + `tests/git/tc-git-005`（run 40273888910）；修法附
 `TZ=UTC` 本地复验。写新断言时不要复刻本机时区假设。
+
+## 0.2 世界无头浏览器注记（2026-10-27，探针实证，只追加）
+- 本机 chromium 缺系统库（libnspr4/libnss3/libasound → exit 127）：可用世界内
+  lib-shim（如 /snap/gnome-* 借库）+ `LD_LIBRARY_PATH` 修复——属环境面，勿记
+  spec 头上。
+- 0.2 `BrowserAuth`：`/api` 需会话 cookie；无头探针可用 `E2E_BASE_URL` 带
+  `?token=`（goto 后落 cookie）绕行；node 侧直连 RPC 无 cookie 必 401。
+- 0.2 首屏模态更名 `Preview Notice`/`预览版说明`（0.1 名 Internal Testing
+  Notice 已不存在）；e2e helpers 的关窗选择器待双语重写（e2e 0.2 适配包）。

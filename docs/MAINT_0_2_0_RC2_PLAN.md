@@ -197,6 +197,17 @@ F1–F4 + F5（settings 0.2 模型）全部落地；门禁与冒烟（2026-10，
   apply 环；harness=真 cordis Context+真 Entry.update，与 plugin-manager
   GUI 同一 API 对）。live 层未烧（0/1）：0.2 无重启重复装卸的唯一控制面是
   GUI/HTTP，其底层即无头层锁定的同一 API——并入 GUI 走查批次。
-- **GUI 走查批次清单（累积）**：settings-card 读写往返/拒绝路径/unload-reload
-  重现；插件管理页真 enable/disable 泄漏环；investigator 一键调查。
+- **0.2 无头 GUI 探针**（2026-10-27，main=0c91fae，`.scratch/gui-probe-02-notes.md`）：
+  t63/t61 皆红但**零 (B) 真回归**——插件在 0.2 世界渲染/写入/重扫工作；卡片真实
+  形态 = 插件管理 → research-control **行配置页**（`[data-testid=settings-card]`），
+  写面 form→`cordis.patch.yml`，服务端同刻 `rescan-completed`——settings-card
+  读写往返已无头覆盖。红的归因（全 (A) 类）：0.2 首屏模态更名 Preview Notice/
+  预览版说明（helpers 锚旧名且 en-only）；0.2 设置对话框无「插件」nav（旧路径
+  整层不存在）；settings.yaml 载体退役迁 profile 补丁；0.2 BrowserAuth 令
+  `/api` 需 cookie。
+- **e2e spec 族 0.2 适配**（由探针派生，另包进行中）：helpers 关窗双语选择器、
+  t61 导航重写走插件管理页、node 侧 RPC 带 cookie、t63 会话种子 v4+zstd。
+- **GUI 走查批次清单（更新）**：已保存瞬态观感；case2 失联回退/case3 拒绝路径
+  UI；unload-reload 重现；插件管理页真 enable/disable 泄漏环；investigator
+  一键调查；双主题。
 - **investigator 一键调查 GUI 走查**：待浏览器批次（与上同批）。

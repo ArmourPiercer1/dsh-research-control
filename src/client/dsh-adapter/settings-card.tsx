@@ -342,7 +342,10 @@ async function atomicWrite(
  * Fenced compensating rollback: writes the pre-save section back under the
  * revision OUR accepted write produced — if a newer writer moved the
  * namespace since, the Host refuses the stale fence and nothing is
- * trampled. Only ever issued after an ACCEPTED write (never for a `false`
+ * trampled. `acceptedRevision === undefined` (frozen-snapshot seats, see
+ * runTwoPhaseSave) delegates the fence to the live form's own mirrored
+ * post-write revision — still never behind the Host without a conflict.
+ * Only ever issued after an ACCEPTED write (never for a `false`
  * or a transport rejection).
  */
 async function rollbackFenced(
@@ -405,10 +408,27 @@ async function runTwoPhaseSave(
       message: t('settings.writeFailed', { fault: faultMessage(write.fault) }),
     }
   }
-  // The revision Host answered for OUR accepted write (the acceptance folds
-  // it into the snapshot) — the fence any compensating rollback carries, so
-  // a newer concurrent writer is never trampled.
-  const acceptedRevision = form.getSnapshot().revision
+  // The fence any compensating rollback carries. On seats whose form snapshot
+  // is LIVE (the legacy settings dialog: getSnapshot advances when the Host
+  // mirrors our write) the acceptance folds the new revision into the
+  // snapshot, so we read it back and pin the rollback to it — a newer
+  // concurrent writer is then rejected by the stale fence and never trampled.
+  // But the 0.2 plugin-manager row-config seat hands us a RENDER-TIME VALUE
+  // COPY (`PluginManagerPage.tsx:1258` snapshots `form.getSnapshot()` into a
+  // plain `state` field), so the frozen snapshot cannot see the revision our
+  // own write produced; reading it back there yields the stale pre-write
+  // revision and every rollback self-conflicts (`settings/conflict`). When
+  // the snapshot did not advance we pass `undefined` instead — the host's
+  // ConfigForm.mutate contract then fences the compensating write with the
+  // live form's own post-write mirrored revision, the exact value a live seat
+  // would read. It never tramples a newer writer the live form has mirrored
+  // (that revision becomes the fence, so a further Host move still conflicts),
+  // and it matches the seat's OWN field-editor fence discipline (`set()` also
+  // forwards `undefined`). The precise-fence path is preserved wherever the
+  // snapshot advances.
+  const postRevision = form.getSnapshot().revision
+  const acceptedRevision =
+    postRevision !== undefined && postRevision !== baseRevision ? postRevision : undefined
   // The rolled-back tail shared by steps 4/5 failures: fenced rollback,
   // then a RESCAN OF THE RESTORED PATHS so the old plane is live and the
   // old project queryable IMMEDIATELY (no manual rescan, no restart). A

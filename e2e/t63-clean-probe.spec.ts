@@ -14,14 +14,25 @@
  *     rendering only). Consequence: the GUI cannot SUBMIT a prompt on a
  *     keyless home (Send stays disabled with no model), and the host renders
  *     the view ring only for NON-BLANK sessions. Fixture remedy: ONE
- *     non-blank hub session is seeded into the home (the T6.2 evidence
- *     session re-bound to the probe hub — see seed-session.mjs), registered
- *     in workspace.json like the workspaces themselves, AND given a
- *     storages/session_projcache.json row (title + sessionListMetadata,
- *     identity = header createdAt/cwd): the host serves cold-session
- *     listing projections from that persisted cache only (zero log loads on
- *     session.list), so without the row the sidebar would fall back to the
- *     cwd-basename label.
+ *     non-blank hub session is seeded into the home — on the 0.2 world by
+ *     e2e/seed-session.mjs, which drives the pinned train checkout's own
+ *     session-persistence backend (format-v4 JSONL, zstd-framed, written
+ *     through the production create→append→close path, header cwd = the
+ *     probe hub) — registered
+ *     in workspace.json like the workspaces themselves. The 0.1-era recipe
+ *     additionally carried a storages/session_projcache.json row (title +
+ *     sessionListMetadata): on 0.2 the projection cache moved to a
+ *     per-record store (storages/session_projcache/sessions/, domain v7)
+ *     and the COLD list reads only that cache (session-controller
+ *     list.ts summarizeCold — a cache miss lands NO projection block,
+ *     live-verified: the seeded row renders `Untitled` and `session/list`
+ *     carries no projections for it). The seeder therefore appends the
+ *     canonical `session/title` fallback event (exactly what the host's
+ *     session-title service writes after the first turn); opening the row
+ *     instantiates the Session, the host folds that event and pushes the
+ *     title frames, and the row re-renders with the real title — the
+ *     helpers' cold-row branch (ensureSessionOpen) clicks it open and
+ *     fail-louds unless the title lands. No projcache row is written.
  *
  * Flow (real user path for every asserted surface, no RPC shortcuts):
  *  1. open the GUI on the probe instance (E2E_BASE_URL, port 3181); the
@@ -33,13 +44,20 @@
  *     from the session list — the hub-ws group row starts collapsed on a
  *     fresh home (row click = group toggle), so it is expanded first, then
  *     the session row is clicked (real user path) → the view ring renders;
- *  4. 研究 tab (always visible) → role HUB → console frame with the 4
- *     first-tier entries (总览 / 重要事件 / 调查员 / 设置);
- *  5. all 4 HUB pages reachable by real click + page marker:
- *       - 总览     [data-hub-overview-strip] (+ fresh-DB strip text, card)
+ *  4. 研究 tab (always visible) → role HUB → console frame with the
+ *     CURRENT frozen first-tier IA (UI-3 D1: 3 visible entries —
+ *     Portfolio/Needs Attention/Settings, locale-proof regexes; the
+ *     investigator keeps only the programmatic deep-link);
+ *  5. reachable pages by real click + page marker:
+ *       - 总览默认  [data-hub-overview-strip] (+ fresh-DB strip text, card)
  *       - 重要事件 [data-attention-stream]
- *       - 调查员   [data-investigator-page]
  *       - 设置     [data-settings-page]
+ *     DEGRADED (explicit, world-truth): the 调查员 page ([data-investigator-
+ *     page]) has NO real-user entry in this world since UI-3 D1 — it is
+ *     reached only by setNavEntry('investigator') after a SUCCESSFUL 一键
+ *     调查, which needs an LLM the keyless probe home does not have. The
+ *     segment is dropped rather than faked (no RPC shortcut, no stale
+ *     4-button assertion).
  *  6. BOTH themes render. The clean home stores no ui-theme preference, so
  *     the host default 'system' applies; the boot script (boot-theme.ts)
  *     resolves 'system' via prefers-color-scheme in the browser, so
@@ -71,8 +89,15 @@ const PROJECT_ID = 'PRJ-1'
 /** The seeded non-blank hub session (title set by the session fixture). */
 const SESSION_TITLE = 't63 clean profile probe'
 
-/** The four first-tier console entries (design §6 fixed naming). */
-const HUB_PAGES = ['总览', '重要事件', '调查员', '设置'] as const
+/**
+ * The first-tier console entries as the CURRENT frozen IA renders them
+ * (UI-3 D1: 4 → 3 visible — `investigator` keeps only the programmatic
+ * deep-link; UI-9: LOCALE='en' display copy, so the nav labels are the EN
+ * strings while data-level strings (研究 tab, the 总览 strip) stay the
+ * frozen zh display invariants). Bilingual regexes keep the anchors valid
+ * across locales and the retired pre-UI-9 zh build.
+ */
+const HUB_PAGES = [/^(?:Portfolio|项目组合)$/, /^(?:Needs Attention|需关注)$/, /^(?:Settings|设置)$/] as const
 
 test.describe.configure({ mode: 'serial' })
 
@@ -99,7 +124,7 @@ test('T6.3: clean-profile probe — 研究 tab + HUB 四页可达 + 双主题渲
 
   // ----------------------------------------------------------------
   // 4. 研究标签（常驻）：cwd = 中枢工作区 → 角色 HUB → 控制台帧
-  //    （4 个一级入口，design §6 固定命名）。
+  //    （UI-3 D1 冻结 IA：3 个可见一级入口；调查员只剩程序化深链）。
   // ----------------------------------------------------------------
   await researchTab(page).click()
   const hubFrame = page.locator('[data-role="HUB"]')
@@ -111,7 +136,10 @@ test('T6.3: clean-profile probe — 研究 tab + HUB 四页可达 + 双主题渲
   }
 
   // ----------------------------------------------------------------
-  // 5. 四页可达：真实点击 + 页级 marker。
+  // 5. 页面可达：真实点击 + 页级 marker。
+  //    调查员段在此世界的真实用户入口不存在（UI-3 D1 起一级导航 4→3，
+  //    调查员页仅由一键调查成功后 setNavEntry 深链进入——keyless 世界
+  //    无 LLM，一键调查不可能成功）。该段显式降级不假绿，其余全断言。
   // ----------------------------------------------------------------
   // 5.1 总览（默认页）：聚合条（全新 DB ⇒ 0/0）+ PRJ-1 卡。
   await expect(page.locator('[data-hub-overview-strip]')).toHaveText(
@@ -121,15 +149,11 @@ test('T6.3: clean-profile probe — 研究 tab + HUB 四页可达 + 双主题渲
   await expect(page.locator(`[data-project-card][data-project-id="${PROJECT_ID}"]`)).toBeVisible()
 
   // 5.2 重要事件：干预流容器渲染（全新 DB ⇒ 空流，容器即在）。
-  await nav.getByRole('button', { name: '重要事件' }).click()
+  await nav.getByRole('button', { name: /^(?:Needs Attention|需关注)$/ }).click()
   await expect(page.locator('[data-attention-stream]')).toBeVisible({ timeout: 30_000 })
 
-  // 5.3 调查员：生产调查员面容器渲染（未绑定态引导条）。
-  await nav.getByRole('button', { name: '调查员' }).click()
-  await expect(page.locator('[data-investigator-page]')).toBeVisible({ timeout: 30_000 })
-
-  // 5.4 设置：HUB 设置页容器渲染（中枢角色）。
-  await nav.getByRole('button', { name: '设置' }).click()
+  // 5.3 设置：HUB 设置页容器渲染（中枢角色）。
+  await nav.getByRole('button', { name: /^(?:Settings|设置)$/ }).click()
   await expect(page.locator('[data-settings-page]')).toBeVisible({ timeout: 30_000 })
 
   // ----------------------------------------------------------------

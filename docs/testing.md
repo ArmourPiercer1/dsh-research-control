@@ -45,6 +45,17 @@
   lib-shim（如 /snap/gnome-* 借库）+ `LD_LIBRARY_PATH` 修复——属环境面，勿记
   spec 头上。
 - 0.2 `BrowserAuth`：`/api` 需会话 cookie；无头探针可用 `E2E_BASE_URL` 带
-  `?token=`（goto 后落 cookie）绕行；node 侧直连 RPC 无 cookie 必 401。
+  `?token=`（goto 后落 cookie）绕行；node 侧直连 RPC 无 cookie 必 401。**已落地**：
+  helpers `exportRpcCookies(page, baseURL)` 从浏览器上下文导出 cookie（含 HttpOnly）
+  供 node 侧 fetch 附头；0.1 世界无 cookie 时返回 `undefined`（请求形态原样不变）。
 - 0.2 首屏模态更名 `Preview Notice`/`预览版说明`（0.1 名 Internal Testing
-  Notice 已不存在）；e2e helpers 的关窗选择器待双语重写（e2e 0.2 适配包）。
+  Notice 已不存在）；helpers `dismissOnboardingModals` 已双语重写（0.1/0.2 名并
+  容，弹窗在场却关不掉 = fail-loud，静默清零 = 弹窗面变红）。
+- 0.2 冷列表标题只读投影缓存（session-controller `list.ts` `summarizeCold`），
+  缓存缺失的行渲染 `Untitled`/`未命名`；种子日志补 `session/title` fallback 事件
+  （= 宿主首回合后亲写的那条），行点开才把标题投影推落——helpers
+  `ensureSessionOpen` 冷行分支据此刻开该行并 fail-loud 等标题落地。
+- 后台起服脚本的坑：`tail -f` 若继承任务 stdout，spec 失败后 `set -e` 跳过 kill，
+  孤儿 tail 会永久吊住后台 job——tail 的 stdio 必须重定向 `/dev/null` 且 kill 挂
+  EXIT trap。
+

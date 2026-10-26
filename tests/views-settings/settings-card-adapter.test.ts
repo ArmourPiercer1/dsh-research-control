@@ -86,6 +86,12 @@ interface FormHarness {
   /** Simulates a concurrent writer moving the namespace (e.g. another editor tab). */
   concurrentWrite(): void
   ownerForm(): OwnerFormLike
+  /**
+   * The 0.2 plugin-manager ROW-CONFIG seat (train `PluginManagerPage.tsx:1258`
+   * copies `form.getSnapshot()` into a plain `state` VALUE at render time):
+   * the snapshot this seat hands the card NEVER advances within one save.
+   */
+  ownerFormFrozen(): OwnerFormLike
 }
 
 function makeForm(initial: Section): FormHarness {
@@ -107,6 +113,14 @@ function makeForm(initial: Section): FormHarness {
         },
         mutate: (ops, rev) => h.form.mutate(ops, rev),
       }
+    },
+    ownerFormFrozen(): OwnerFormLike {
+      // RENDER-TIME COPY: `state` is frozen at the moment the seat was
+      // rendered (revision captured once), so the card cannot see the
+      // revision its own accepted write produces — exactly the 0.2 row-config
+      // seat. `mutate` still forwards to the live harness (host fence).
+      const frozen = { status: 'ready', value: { ...h.value }, writable: true, revision: h.revision } as never
+      return { state: frozen, mutate: (ops, rev) => h.form.mutate(ops, rev) }
     },
   }
   h.form = {
@@ -427,6 +441,28 @@ describe('page-owner form props (custom owning ids included)', () => {
     expect(owner.value).toEqual({ projectTreeDir: '.research', hubDir: '.research-control' })
     // the fallback service was resolved for the face (display) but never written:
     expect(gotIds).toContain(RESEARCH_SETTINGS_ENTRY_ID)
+  })
+
+  it('0.2 row-config seat frozen snapshot: rollback DELEGATES the fence (undefined) and lands — the 2026-10-27 t61 CASE2 regression', async () => {
+    // Regression (found by t61 CASE2 in the 0.2 world): the seat hands a
+    // render-time COPY of the state, so reading the post-save snapshot
+    // returns the STALE pre-write revision; fencing the compensating write
+    // with it always self-conflicts and the unverified value stays on disk.
+    // The fix delegates: an unchanged snapshot ⇒ fence `undefined` ⇒ the
+    // live host form fences with its own mirrored post-write revision.
+    const owner = makeForm({ projectTreeDir: '.research', hubDir: '.research-control' })
+    const canonical = makeForm({ projectTreeDir: '.research', hubDir: '.research-control' })
+    const { service } = serviceSpy(canonical.form)
+    const ctx = makeCtx(service)
+    configAwareRpc(owner)
+    const outcome = await faceOf(ctx).save(NEXT, owner.ownerFormFrozen())
+    if (outcome.status !== 'missing') throw new Error(`expected missing, got ${outcome.status}`)
+    expect(outcome.restoreFault).toBeUndefined() // the rollback LANDED (old code: fence-refused)
+    expect(owner.calls).toHaveLength(2)
+    expect(owner.calls[0].rev).toBe(0) // write fenced at the render-time revision
+    expect(owner.calls[1].rev).toBeUndefined() // rollback delegated — never the stale 0
+    expect(owner.value).toEqual({ projectTreeDir: '.research', hubDir: '.research-control' })
+    expect(rpc.rescan).toHaveBeenCalledTimes(2) // restored plane rescanned
   })
 
   it('custom rc-real: with NO canonical service at all, the owner form still writes its own doc (identity preserved)', async () => {

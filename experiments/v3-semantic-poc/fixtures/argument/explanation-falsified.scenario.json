@@ -1,0 +1,34 @@
+{
+  "_note": "反例 2（真实运行素材 + 合成研究场景声明）：claim=strk-06 seq4 的对比推理（真实 GPT 运行实测签名证伪线性预估，claim 文本逐字取自信封）。ArgumentRevision 的 LEAF：explanation=mechanism_reading（锚 strk-03#2 对比材料；线性读数出处=observation-spec.md 散文，无信封 seq 可指——按 strk-06#4 reference_note 同规只注明不入机读列表）+ 观测=observation（strk-05#4 nominal / strk-06#3 quad+10%）。攻击=undercut(explanation) → explanation CONTESTED、观测记录仍 SUPPORTED、claim（两 run 实测复现的历史断言）不因解释失效被撤。",
+  "scenario_id": "ARG-EXPFALSIFIED",
+  "scenario": {
+    "scenario_id": "ARG-EXPFALSIFIED-GRAPH",
+    "nodes": [
+      { "node_id": "O-NOM", "kind": "observation_record", "source_ref": { "file": "samples/gpt-streak/envelopes.strk-05-live-nominal.jsonl", "run_id": "RUN-STRK-05", "seq": 4 } },
+      { "node_id": "O-QUAD", "kind": "observation_record", "source_ref": { "file": "samples/gpt-streak/envelopes.strk-06-live-quaderr.jsonl", "run_id": "RUN-STRK-06", "seq": 3 } },
+      { "node_id": "EXPL", "kind": "mechanism_reading", "source_ref": { "file": "samples/gpt-streak/envelopes.strk-03.jsonl", "run_id": "RUN-STRK-03", "seq": 2 } },
+      { "node_id": "CL", "kind": "claim", "source_ref": { "file": "samples/gpt-streak/envelopes.strk-06-live-quaderr.jsonl", "run_id": "RUN-STRK-06", "seq": 4 } }
+    ],
+    "paths": [
+      { "path_id": "P-live", "premises": ["O-NOM", "O-QUAD"], "via_mechanism_of": "EXPL" }
+    ],
+    "claim": "CL"
+  },
+  "argument": {
+    "argument_id": "ARG-EXPFALSIFIED-0",
+    "revision_id": "rev-0",
+    "claim": "quad +10% 的实测屏面签名 (Δstdx, Δstdy, nemi 比) = (+7.4%, +15.0%, ×0.998)，与 observation-spec.md 线性模型预估签名 (+21.8%, +6.7%) 及 A1 判据（nemixrms 比 >1.30）不一致：y 向响应被线性模型低估、x 向被高估（排序都反了），A1 在真实数据上不触发。线性机制读数（薄透镜+漂移解析外推）被本次真实运行证伪其签名预测部分；数值观测本身按记录为准。",
+    "method": "causal",
+    "scope": "2026-10-26 两次真实运行（nps=100，屏面 z=0.60 m）的对比范围；成因未归因（见信封 unknowns）",
+    "open_obligations": ["不一致成因未归因：空间电荷/边缘场/薄透镜近似的非线性等候选均未检验"],
+    "support": {
+      "type": "AND",
+      "children": [
+        { "type": "LEAF", "premise": "OBS:RUN-STRK-05@4 nominal 屏面观测（stdx/stdy/nemixrms 实测）" },
+        { "type": "LEAF", "premise": "OBS:RUN-STRK-06@3 quad+10% 屏面观测（同判据实测）" },
+        { "type": "LEAF", "premise": "EXPL:线性机制读数（薄透镜+漂移解析外推，出处 observation-spec.md 散文，锚=strk-03#2 对比材料）" }
+      ]
+    }
+  },
+  "attack": { "op": "undercut", "target": "EXPL" }
+}

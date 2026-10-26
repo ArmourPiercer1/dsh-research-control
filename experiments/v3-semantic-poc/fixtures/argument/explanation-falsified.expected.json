@@ -1,0 +1,13 @@
+{
+  "_note": "golden 期望表（标注者=integrator）。三层含义分别锁：assess=机制被疑时观测/claim 不级联；fact_standing=攻击只落 explanation，观测事实停留原态；claim_text_verbatim_from=strk-06#4 claim 逐字保留（真实素材挂接点）。",
+  "attack": { "op": "undercut", "target": "EXPL" },
+  "assess": {
+    "affected_paths": ["P-live"],
+    "unaffected_paths": [],
+    "claim_status": "OPEN",
+    "node_status": { "O-NOM": "SUPPORTED", "O-QUAD": "SUPPORTED", "EXPL": "NEEDS_CLARIFICATION", "CL": "SUPPORTED" }
+  },
+  "fact_standing": { "EXPL": "CONTESTED", "O-NOM": "CANDIDATE", "O-QUAD": "CANDIDATE" },
+  "claim_text_verbatim_from": { "file": "samples/gpt-streak/envelopes.strk-06-live-quaderr.jsonl", "run_id": "RUN-STRK-06", "seq": 4 },
+  "claim_not_withdrawn": true
+}

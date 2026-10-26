@@ -163,3 +163,76 @@ ResearchScope 为对象字段，本层简化为字符串或 'UNKNOWN'（PoC 面�
 前奏——2026-10-26 实测证伪线性预估签名（strk-06#4）正是「机制读数被疑、
 观测记录保留」的真实实例；待 P2 用真实场景文件复刻该攻击时，golden 期望表
 直接照抄 strk-06 的语义即可。
+
+## P3 机制层（2026-10-26，ArgumentRevision/EvidenceRelation/Assessment/FactStanding + 候选报告）
+
+> 阶段：**P3 的离线机制部分**。合成范围，无 Gate 声称；LIVE_REVIEW 解锁不
+> 声称，本层报告面是其**离线形态前身**。上游权威：
+> `docs/poc/V3_POC_EXECUTION_PLAN.md` §4「P3」。P2 的 undercut/rebut 算子
+> （semantics.ts assess）**直接复用**，未重复实现。
+
+### 实现裁定回放
+
+1. **EvidenceRelation 记录用、不评分；强度 schema 无数值面**：
+   `EvidenceStrength = QUALITATIVE(WEAK|MODERATE|STRONG + basis) |
+   NOT_QUANTIFIED(+reason)`——类型层面就不存在数值概率字段；
+   `parseEvidenceRelation` 对任何层级键名命中 `/probability|p_ho|confidence/i`
+   一律拒收（负例①）。conditions 缺省记 `['UNKNOWN']`（缺失就是缺失）。
+   relation_id=stableId(内容)，手写冒充被 `relation_id_mismatch` 拒。
+2. **ArgumentRevision 不可变**（同 L0 纪律）：`reviseArgument` 纯函数产新
+   revision（rev+1、based_on 指旧版 `argument_id@rev`）；负例②对旧对象深
+   冻结后修订，断言不抛且逐字段不变。SupportNode = LEAF | AND（合取）|
+   OR（替代支持路径），允许联合 Observation/结果作 LEAF，不要求和评分。
+3. **Assessment 日志 append-only；target 三形态**：导出面上没有删除/覆盖
+   API（负例③白名单测试）；「当前判断」只能 `latestFor` 派生；已入账条目
+   Object.freeze，就地篡改抛 TypeError。可攻击目标必须 ∈ {argument_id,
+   `premise:`+x, `applicability:`+x} 三形态之一——「受攻击的是哪个论证/前提/
+   适用性」必须可追踪，格式非法→拒记 + unresolved 列账。
+4. **FactStanding（本地、无生产影响）**：默认 CANDIDATE 且默认停留；只有
+   带 actor 的显式确认（`recordFactConfirmation`）能推 STANDING（P2「无授权
+   人不可归因」同规）；attack 记 CONTESTED/SUSPENDED。**没有从 report/LLM
+   分数自动生成 standing 的通道**——负例④双锁：导出名白名单（无
+   auto/score/fromReport 类函数）+ 类型面（CandidateReport 形态对象缺必填
+   via，@ts-expect-error 接不进确认记录）。
+5. **报告 CANDIDATE_REVIEW_ONLY 语义**：`generateCandidateReport` 输出
+   status 恒为常量 `CANDIDATE_REVIEW_ONLY`；推理/建议通道 → 候选论证条目、
+   observation → 候选证据条目（各带 source_ref 锚点）；unknowns/based_on
+   断链 → missing_inputs「缺失重要输入」清单（断链条目宁缺勿错，不入候选区）。
+   **措辞纪律自查**：输出逐条递归过 `scanHighRiskPhrasing`（四族正则：
+   证明成立/为真、相关即因果、run 通过证理论、置信度即事实），命中即整条
+   降级进 `flagged` 区并加 unknowns——正式候选区不含它（负例⑤端到端：
+   喂 `fixtures/report/high-risk.jsonl` 合成违规信封，seq1/2 必 flagged）。
+   `renderReportMarkdown` 固定声明段「仅供人阅览、不注入主 Agent 指令、
+   未经审查不得转正式 Fact/Task/Obligation」恒在场（负例⑥）= Gate P3
+   隔离渠道语义的离线形态。
+
+### 三反例素材来源（fixtures/argument/，golden=*.expected.json）
+
+| 反例 | 素材 | 锁定点 |
+|---|---|---|
+| independent-paths | P0 合成信封（independent-support.jsonl）+ SupportNode 重述 OR[P-AND(O1), P-AND(O2,MR2)] | undercut(MR2) 只染含 MR2 的 OR 分支；另一分支+claim 不动（复用 P2 assess） |
+| explanation-falsified | **真实运行素材**：claim=strk-06#4 对比推理（逐字挂接断言），LEAF=explanation(strk-03#2 锚，读数出处 observation-spec.md 散文)+观测 strk-05#4/strk-06#3 | undercut(explanation) → explanation CONTESTED、观测仍 SUPPORTED、历史断言不被撤（claim 不撤） |
+| formal-valid-applied-fails | 合成「薄透镜线性模型」命题 + **真实 strk-05/06 信封**证据锚（实测签名 (+7.4%,+15.0%) vs 预估 (+21.8%,+6.7%)） | 同一 argument 上「数学可信✓(CONFIRM)」与「适用范围失败✗(ATTACK, applicability 形态)」两条追加记录并存互不覆盖；scope 字段把失败限定在适用范围，不外推为命题为假 |
+
+反例 2/3 用了 strk-05/06 真实运行信封（真实 GPT 运行、合成研究场景）；
+strk-06#4 的跨文件 based_on 需两趟法解析表（P2 verifyScenario 同源规则）。
+
+### 与 #10 P3 条目的差距（如实登记）
+
+- **Theory 只做最小对照**：反例 3 以「数学可信 vs 工程适用性失败并存」的
+  Assessment 形态覆盖最小对照面；正式 Theory 对象（含形式化证明工件）不在
+  本层——那是 V3 实现面。
+- **LIVE_REVIEW 解锁不声称**：报告生成器是 LIVE_REVIEW 形态的离线前身——
+  产出候选 + 高风险降级 + 固定声明段，但没有（也不得自行）解锁任何注入
+  主 Agent 指令的在线渠道。
+- Assessment/FactStanding 的持久化 = 内存 append-only 结构（PoC 面）；
+  落盘与生产接线留待正式实现。
+- scope/条件槽位为字符串，可 'UNKNOWN' 禁编造；对象化的
+  WorldContext/ResearchScope 细分沿 P2 裁定留给 V3。
+
+### 交付面（全新增，不改任何已跟踪文件）
+
+`src/argument.ts` `src/report.ts`（机制）；`src/argument.test.ts`
+`src/report.test.ts`（新增 20 例，test:poc 118→138）；
+`fixtures/argument/*.{scenario,expected}.json` ×3 + `fixtures/report/high-risk.jsonl`。
+

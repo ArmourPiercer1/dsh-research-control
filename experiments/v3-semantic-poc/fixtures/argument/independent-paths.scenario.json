@@ -1,0 +1,34 @@
+{
+  "_note": "反例 1（合成声明）：P2 indsup 场景用 ArgumentRevision/SupportNode 重述——OR[P-AND(O1), P-AND(O2,MR2)]。结构=人工显式声明，非从 based_on 推断。信封=fixtures/independent-support.jsonl（P0 合成）。攻击=undercut(机制读数 MR2)：受影响=含 MR2 的 OR 分支；另一分支与 claim 不动（复用 P2 assess 语义）。",
+  "scenario_id": "ARG-INDPATHS",
+  "scenario": {
+    "scenario_id": "ARG-INDPATHS-GRAPH",
+    "nodes": [
+      { "node_id": "O1", "kind": "observation_record", "source_ref": { "file": "fixtures/independent-support.jsonl", "run_id": "RUN-SYNTH-INDSUP-1", "seq": 3 } },
+      { "node_id": "O2", "kind": "observation_record", "source_ref": { "file": "fixtures/independent-support.jsonl", "run_id": "RUN-SYNTH-INDSUP-1", "seq": 6 } },
+      { "node_id": "MR2", "kind": "mechanism_reading", "source_ref": { "file": "fixtures/independent-support.jsonl", "run_id": "RUN-SYNTH-INDSUP-1", "seq": 6 } },
+      { "node_id": "CL", "kind": "claim", "source_ref": { "file": "fixtures/independent-support.jsonl", "run_id": "RUN-SYNTH-INDSUP-1", "seq": 7 } }
+    ],
+    "paths": [
+      { "path_id": "P-direct", "premises": ["O1"] },
+      { "path_id": "P-mech", "premises": ["O2"], "via_mechanism_of": "MR2" }
+    ],
+    "claim": "CL"
+  },
+  "argument": {
+    "argument_id": "ARG-INDPATHS-0",
+    "revision_id": "rev-0",
+    "claim": "两次独立设置下目标效应均复现（合成断言，CL=RUN-SYNTH-INDSUP-1#7）",
+    "method": "inductive",
+    "scope": "合成 fixtures 的两设置范围；不外推",
+    "open_obligations": ["机制读数 MR2 的适用边界未检验"],
+    "support": {
+      "type": "OR",
+      "children": [
+        { "type": "AND", "children": [{ "type": "LEAF", "premise": "O1" }] },
+        { "type": "AND", "children": [{ "type": "LEAF", "premise": "O2" }, { "type": "LEAF", "premise": "MR2" }] }
+      ]
+    }
+  },
+  "attack": { "op": "undercut", "target": "MR2" }
+}

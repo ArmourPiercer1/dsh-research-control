@@ -1,0 +1,15 @@
+{
+  "_note": "golden 期望表（标注者=integrator，P3 合成范围）。assess 段=P2 算子输出；branches 段=SupportNode 顶层 OR 分支的受影响/完好划分。",
+  "attack": { "op": "undercut", "target": "MR2" },
+  "assess": {
+    "affected_paths": ["P-mech"],
+    "unaffected_paths": ["P-direct"],
+    "claim_status": "OPEN",
+    "node_status": { "O1": "SUPPORTED", "O2": "SUPPORTED", "MR2": "NEEDS_CLARIFICATION", "CL": "SUPPORTED" }
+  },
+  "branches": {
+    "affected": [{ "index": 1, "leaves": ["O2", "MR2"] }],
+    "intact": [{ "index": 0, "leaves": ["O1"] }]
+  },
+  "claim_untouched_by_branch_loss": true
+}

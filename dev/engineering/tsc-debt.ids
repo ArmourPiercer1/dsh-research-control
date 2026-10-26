@@ -1,4 +1,3 @@
-src/client/dsh-adapter/settings-card.tsx(177,60): error TS2352
 src/client/views/shell/investigator-page.tsx(55,8): error TS2307
 tests/discovery/host-commands-reinit.test.ts(141,21): error TS2345
 tests/rpc-face/rpc-face.test.ts(81,9): error TS2740

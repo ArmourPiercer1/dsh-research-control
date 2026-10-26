@@ -87,6 +87,7 @@ import {
   DEFAULT_HUB_DIR,
   DEFAULT_PROJECT_TREE_DIR,
   MAX_DIR_NAME_LENGTH,
+  RESEARCH_SETTINGS_ENTRY_ID,
   RESEARCH_SETTINGS_NAMESPACE,
   validateDirName,
   type ResearchSettingsSection,
@@ -97,11 +98,21 @@ import {
  * ------------------------------------------------------------------ */
 
 /**
- * Frozen §7.5 field table — re-exported from the shared pure core
- * (V2-T6.1: the client card consumes the same constants; the host keeps
- * this file as the frozen export face — the host tests and the discovery
- * layer import from here exactly as before).
+ * The 0.2 settings namespace identity of this plugin: the PROFILE ENTRY id
+ * (the `dsh web` dump-config row `id: research-control`, the profile patch
+ * `{ id: research-control, name: 'dsh-research-control' }`). 0.2 retired
+ * the register-a-namespace API: a namespace IS a profile plugin entry and
+ * its form schema IS the plugin `Config` schema, so `projectTreeDir` /
+ * `hubDir` are Config fields and the entry id is what `describe()` keys on
+ * (the descriptor member is `ns`). SINGLE SOURCE: the constant lives in
+ * `src/shared/research-settings.ts` (the client card reaches the SAME id
+ * through `configForms.get(entryId)` — the two halves cannot drift); this
+ * file re-exports it under the frozen host name. The legacy frozen
+ * constant {@link RESEARCH_SETTINGS_NAMESPACE} (the package name, the 0.1
+ * namespace) stays exported for the frozen face.
  */
+export { RESEARCH_SETTINGS_ENTRY_ID }
+
 export {
   RESEARCH_SETTINGS_NAMESPACE,
   DEFAULT_PROJECT_TREE_DIR,
@@ -381,18 +392,6 @@ function readSettingsService(ctx: Context): SettingsServiceLike | undefined {
  *
  * @param ctx - the host context owning the plugin fiber.
  */
-/**
- * The 0.2 settings namespace identity of this plugin: the PROFILE ENTRY id
- * (the `dsh web` dump-config row `id: research-control`). 0.2 retired the
- * register-a-namespace API: a namespace IS a profile plugin entry and its
- * form schema IS the plugin `Config` schema, so `projectTreeDir` / `hubDir`
- * are Config fields and the entry id is what `describe()` keys on. The
- * legacy frozen constant {@link RESEARCH_SETTINGS_NAMESPACE} (the package
- * name, the 0.1 namespace) stays exported for the client half and the
- * frozen face.
- */
-export const RESEARCH_SETTINGS_ENTRY_ID = 'research-control'
-
 let loggedSettingsModel = false
 
 /**

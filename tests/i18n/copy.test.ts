@@ -475,6 +475,7 @@ const EN_KEYS = [
       'settingsCard.missingHeadline',
       'settingsCard.missingNote',
       'settingsCard.reset',
+      'settingsCard.restoreFault',
       'settingsCard.saved',
       'settingsCard.title',
       'settingsCard.treeDirHint',
@@ -1219,6 +1220,7 @@ const ZH_KEYS = [
       'settingsCard.missingHeadline',
       'settingsCard.missingNote',
       'settingsCard.reset',
+      'settingsCard.restoreFault',
       'settingsCard.saved',
       'settingsCard.title',
       'settingsCard.treeDirHint',
@@ -1528,12 +1530,12 @@ describe('i18n copy (UI-9 ADJ-1 dual catalog)', () => {
 
   it('pins the EN key set (count + exact list)', () => {
     expect(Object.keys(COPY_TABLE).sort()).toEqual(EN_KEYS)
-    expect(EN_KEYS).toHaveLength(741)
+    expect(EN_KEYS).toHaveLength(742)
   })
 
   it('pins the ZH key set (count + exact list)', () => {
     expect(Object.keys(CATALOGS.zh).sort()).toEqual(ZH_KEYS)
-    expect(ZH_KEYS).toHaveLength(741)
+    expect(ZH_KEYS).toHaveLength(742)
   })
 
   it('B-verbatim strings are byte-for-byte (D §9.1 / B frozen copy)', () => {

@@ -53,6 +53,11 @@ host_pins:
   note: 2026-10 train 迁移（用户裁决：产品跟进上游）train/实例/CLI pin 三者重锚至 release(dsh): 0.2.0-rc.2；B-EB3-1 的 rc.8 起服缺陷随 pin 重定至 train CLI 解除，TC-DSH-008 世界复跑在本迁移评审合入后执行
 
 known_debts:
+  e2e_spec_layer:
+    kind: obsolete-reference
+    summary: scripts/e2e-run.sh 终段引用的 e2e/smoke.*.spec.ts 已在 9275eef（V2 全量验收、V1 specs archived）移入 e2e/v1-archived/，且两份 playwright 配置均显式 testIgnore 归档目录——脚本在 pin 世界起服后必然 No tests found。基线自带、非 2026-10 train 迁移引入（rc.2 世界实证：pin 校验/播种/research seed/起服全过，唯 spec 层死引用）。
+    evidence: .scratch/e2e-rc2g.log（2026-10-26，train 0.2.0-rc.2 世界）
+    upgrade_path: V2 GUI 验收正走 acceptance.config.ts 的 t42–t74 矩阵；e2e-run.sh 的 spec 阶段应改为 V2 等价物或由上游同步——涉及测试语义，按 AGENTS §4 上游语义不变项需上游动作或用户裁决，不本地私改。
   typescript:
     kind: known-failing
     baseline: dev/engineering/tsc-debt.ids

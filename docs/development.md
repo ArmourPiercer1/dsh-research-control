@@ -26,6 +26,13 @@
   路径**；`git add -A` 会把代理半成品卷进无关提交（真实事故：P1 代理的
   prov/replay 中途快照被卷入 CI 小 PR，只能 amend+force-push 剔除）。
 - 提交前 `git show --stat` 核对范围；代理文件在交付回报前一律视为不可提交。
+- **registry.yaml 是内核 mini-YAML**（scripts/docs/kernel.mjs：仅嵌套映射 +
+  block list + 注释；不支持 block scalar `|`/`>` 与多行折行值，直接 FATAL
+  REGISTRY_UNPARSABLE——真实事故：known_debts 条目长值必须写成单行）。
+- **新文档先跟踪再 sync**：`docs:sync` 生成的派生索引只覆盖**已跟踪**文件——
+  新 md 未 commit 时 sync 不出条目、docs:check 也测不出 stale，push 后 CI 才红
+  （真实事故 ×2：PR #10、#25 均为此）。固定顺序：add → commit → sync --write →
+  （README 有 diff 则）amend → push。
 
 ## 标准工作流
 

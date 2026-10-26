@@ -61,9 +61,15 @@ const lines = [
   ...Object.entries(registry.host_pins).filter(([k]) => k !== 'note').map(([k, v]) => `- \`${k}\` = \`${v}\``),
   `- 已知张力：${registry.host_pins.note}`,
   '',
-  '## 已知缺口（G3 登记口径）',
+  '## 已知欠账与缺口（registry 派生 + G3 登记口径）',
   '',
-  '- e2e CLI pin（TC-DSH-008 registry-floor）与 §实例 train 的版本对齐 = 待用户版本决策（AGENTS §4）。',
+  // DERIVED from `known_debts` in the registry: a hand-maintained bullet list
+  // here is exactly how this view went stale once (a "待用户版本决策" line
+  // outlived its adjudication). Facts live in the registry; this mirrors them.
+  ...Object.entries(registry.known_debts ?? {}).map(([k, v]) => {
+    const facts = v.summary ?? (v.baseline ? `基线清单 \`${v.baseline}\`` : '')
+    return `- \`${k}\`（${v.kind}）：${facts}`
+  }),
   '- SI-001 裁决书原件 / 外部 V2 设计 / 计划书 = UNKNOWN（仓外不可访问，不伪造）。',
   '- V3（#9/#10）= Draft，未生效；本视图不为其状态背书。',
   '- CI required status 配置与否见 G3 记录（观察先于强制）。',

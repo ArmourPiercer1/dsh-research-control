@@ -87,7 +87,7 @@
 
 | 文件 | 本地增量（相对上游） | 上游语义（不变项） |
 |---|---|---|
-| `scripts/e2e-run.sh` | 默认 smoke root `<repo>/tests/dsh-homes/.smoke`（工作区内，§3）；继承的 `DSH_HOME` 落在 `tests/dsh-homes/**` 内按隔离值归一化 | `E2E_SCHEMA_ROOT` 走上游 G0（`scripts/resolve-e2e-schema-root.sh`：默认 = 仓内已提交快照 `<repo>/schema`，显式覆盖优先，一次性归一化绝对路径、不可用即 exit 1；测试侧同源谓词 `tests/helpers/workspace-root.ts`，`DSH_RESEARCH_WORKSPACE_ROOT` 覆盖，不做父目录自动发现）；强制 smoke home（`$SMOKE_ROOT/dsh-home`）、exit 2/3 语义、flock 独占锁、端口 3199、TC-DSH-008 CLI pin 随上游取值（当前 `0.2.0-rc.2`；2026-10 train 迁移已重锚至 §2 测试实例同一 train，B-EB3-1 的 rc.8 起服缺陷随之解除，TC-DSH-008 世界复跑待迁移评审合入后执行）、`DSH_SMOKE_ROOT` 覆盖（并行运行时仍建议指向 `tests/dsh-homes/` 内独立子目录） |
+| `scripts/e2e-run.sh` | 默认 smoke root `<repo>/tests/dsh-homes/.smoke`（工作区内，§3）；继承的 `DSH_HOME` 落在 `tests/dsh-homes/**` 内按隔离值归一化 | `E2E_SCHEMA_ROOT` 走上游 G0（`scripts/resolve-e2e-schema-root.sh`：默认 = 仓内已提交快照 `<repo>/schema`，显式覆盖优先，一次性归一化绝对路径、不可用即 exit 1；测试侧同源谓词 `tests/helpers/workspace-root.ts`，`DSH_RESEARCH_WORKSPACE_ROOT` 覆盖，不做父目录自动发现）；强制 smoke home（`$SMOKE_ROOT/dsh-home`）、exit 2/3 语义、flock 独占锁、端口 3199、TC-DSH-008 CLI pin 随上游取值（当前 `0.2.0-rc.2`；2026-10 train 迁移已重锚至 §2 测试实例同一 train，B-EB3-1 的 rc.8 起服缺陷随之解除，TC-DSH-008 世界复跑已完成（前置链 #27；迁移评审合入后 0.2 世界无头 t61/t63 全绿，见 MAINT 计划落地状态节））、`DSH_SMOKE_ROOT` 覆盖（并行运行时仍建议指向 `tests/dsh-homes/` 内独立子目录） |
 | `vitest.config.ts` | `exclude` 含 `references/**`、`tests/deepseek-harness/**`、`tests/dsh-homes/**` | 其余 include/exclude、decorator 插件 |
 | `tsconfig.json` | `exclude` 含 `references`、`tests/deepseek-harness`、`tests/dsh-homes` | 其余 compilerOptions、include |
 | `.gitignore` | 增加 `references/`、`tests/deepseek-harness/`、`tests/dsh-homes/*`（`!tests/dsh-homes/.gitkeep`）、`.scratch/`、`.npm-tmp/` | 其余条目 |

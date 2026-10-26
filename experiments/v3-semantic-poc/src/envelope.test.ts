@@ -319,3 +319,41 @@ describe('golden annotations（two-analyses / independent-support）', () => {
     })
   }
 })
+
+describe('SPEC v0.1 — 跨文件 based_on 解析表', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'poc-xref-'))
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+  const env = (run: string, seq: number, over: Record<string, unknown> = {}) => JSON.stringify({
+    schema: 'poc/prov-envelope/v0', source_project: 'x', run_id: run, event_seq: seq,
+    occurred_at: '2026-10-27T00:00:00Z', recorded_at: '2026-10-27T00:00:01Z',
+    snapshot_ref: { kind: 'none', id: 'x', content_sha256: null },
+    access_boundary: 'synthetic', channel: 'SOURCE_RECORD', kind: 'run.started',
+    payload: {}, unknowns: [], ...over,
+  })
+  it('整数=同文件；{run_id,seq}=解析表；未知 run/越界 seq/坏形状各自判红', () => {
+    const base = path.join(dir, 'base.jsonl')
+    writeFileSync(base, [env('RUN-A', 0), env('RUN-A', 1)].join('\n') + '\n')
+    const infer = (refs: unknown) => env('RUN-B', 0, {
+      channel: 'RESEARCHER_INFERENCE', kind: 'claim.candidate', payload: { based_on: refs },
+    })
+    const good = path.join(dir, 'b-good.jsonl')
+    writeFileSync(good, infer([{ run_id: 'RUN-A', seq: 1 }]) + '\n')
+    const known = new Map([['RUN-A', new Set([0, 1])]])
+    expect(parseEnvelopeFile(good, { knownRuns: known }).problems).toEqual([])
+    // 无解析表 → 外部引用悬空
+    expect(parseEnvelopeFile(good).problems.some((p) => p.kind === 'dangling_external_ref')).toBe(true)
+    // 越界 seq
+    const oob = path.join(dir, 'b-oob.jsonl')
+    writeFileSync(oob, infer([{ run_id: 'RUN-A', seq: 9 }]) + '\n')
+    expect(parseEnvelopeFile(oob, { knownRuns: known }).problems.some((p) => p.kind === 'dangling_external_ref')).toBe(true)
+    // 坏形状
+    const bad = path.join(dir, 'b-bad.jsonl')
+    writeFileSync(bad, infer([{ run_id: 'RUN-A' }]) + '\n')
+    expect(parseEnvelopeFile(bad, { knownRuns: known }).problems.some((p) => p.kind === 'bad_based_on')).toBe(true)
+    // 旧形状（整数）仍有效——向后兼容
+    const legacy = path.join(dir, 'b-legacy.jsonl')
+    writeFileSync(legacy, [env('RUN-B', 0, { kind: 'artifact.registered' }),
+      env('RUN-B', 1, { channel: 'RESEARCHER_INFERENCE', kind: 'claim.candidate', payload: { based_on: [0] } })].join('\n') + '\n')
+    expect(parseEnvelopeFile(legacy, { knownRuns: known }).problems).toEqual([])
+  })
+})

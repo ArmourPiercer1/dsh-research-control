@@ -23,7 +23,10 @@
 ```
 
 **硬规则（校验器 + 测试强制）**
-1. `channel` 三通道**不混存**：同一 run 文件内允许不同通道的事件行，但
+0. **一个文件一个 run**（v0.1 裁定，P0 双代理分歧暴露）：多 run 叙事分文件；
+   `event_seq` 文件内从 0 连续。跨 run 全局叙事顺序不属于信封层（由投影层
+   时间维度承担）。
+1. `channel` 三通道**不混存**：同一文件内允许不同通道的事件行，但
    `SOURCE_RECORD` 的 payload 不得含推测/建议字段（`inference|suggestion|llm_*`
    出现在 SOURCE_RECORD payload = 校验失败）；反之推测/建议通道必须引用
    `based_on: [event_seq...]`（指向其依据的源记录）。
@@ -62,6 +65,13 @@ experiments/v3-semantic-poc/
   samples/gpt-streak/# 真实 GPT 案例：deck(.in) + 观测规格（另一子代理产出）
   **/*.test.ts       # 仅由 pnpm run test:poc 收集（根门禁不收集）
 ```
+
+## v0.1 裁定（samples 暴露：跨 run 推理）
+- 推测/建议通道的 `payload.based_on` 数组元素二选一：**整数**（同文件 seq）
+  或 **`{"run_id": "...", "seq": n}`**（跨文件）。跨文件引用必须由调用方提供
+  已知 run 解析表（同目录信封文件的 run_id → 该文件 seq 集）；解析表里没有的
+  run 或越界 seq = `dangling_external_ref` 拒绝。孤立推理层（只有推测、依据
+  全在别处）是合法形态——通道隔离的本意。
 
 ## v0 落地裁定（P0 实现暴露的 SPEC 歧义，integrator 2026-10-27 裁定）
 1. `based_on` 位于 **`payload.based_on`**；`SOURCE_RECORD` 可选携带，若出现则

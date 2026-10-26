@@ -137,7 +137,8 @@ function collectSpeculationKeyPaths(node: unknown, trail: string): string[] {
  * 返回 events（按文件行序）与 problems（空数组 = 通过全部硬规则）。
  * 校验是累积式的：一行上的多个问题都会记录，便于 P0 调试。
  */
-export function parseEnvelopeFile(filePath: string): ParseResult {
+export interface ResolveOpts { /** v0.1：跨文件 based_on 解析表（run_id → 该 run 文件的合法 seq 集）。 */ knownRuns?: Map<string, Set<number>> }
+export function parseEnvelopeFile(filePath: string, opts: ResolveOpts = {}): ParseResult {
   const text = readFileSync(filePath, 'utf8')
   const problems: Problem[] = []
   const rawEvents: Array<{ line: number; value: unknown }> = []
@@ -163,7 +164,14 @@ export function parseEnvelopeFile(filePath: string): ParseResult {
   let firstRunId: string | null = null
   // 第一遍：逐事件形状校验。seq 集合与 based_on 引用目标供第二遍使用。
   const seqSet = new Set<number>()
-  const basedOnTargets: Array<{ line: number; seq: number | null; refs: number[] }> = []
+  type BasedRef = number | { run_id: string; seq: number }
+  const basedOnTargets: Array<{ line: number; seq: number | null; refs: BasedRef[] }> = []
+  const badRefs = (refs: unknown): refs is BasedRef[] =>
+    Array.isArray(refs) &&
+    refs.length > 0 &&
+    refs.every((r) =>
+      (Number.isInteger(r) && (r as number) >= 0) ||
+      (isPlainObject(r) && typeof r['run_id'] === 'string' && Number.isInteger(r['seq']) && (r['seq'] as number) >= 0))
   for (const { line, value } of rawEvents) {
     const push = (kind: string, message: string, seq: number | null = null): void => {
       problems.push({ line, event_seq: seq, kind, message: `第 ${line} 行：${message}` })
@@ -237,21 +245,22 @@ export function parseEnvelopeFile(filePath: string): ParseResult {
         // SOURCE_RECORD 的 based_on 可选；若提供则必须形状合法且不悬空。
         if ('based_on' in payload) {
           const refs = payload['based_on']
-          if (!Array.isArray(refs) || refs.length === 0 || !refs.every((r) => Number.isInteger(r) && (r as number) >= 0)) {
-            push('bad_based_on', 'payload.based_on 若出现必须为非负整数数组', seq)
+          if (!badRefs(refs)) {
+            push('bad_based_on', 'payload.based_on 若出现必须是非空数组，元素为非负整数或 {run_id, seq}（v0.1）', seq)
           } else {
-            basedOnTargets.push({ line, seq, refs: refs as number[] })
+            basedOnTargets.push({ line, seq, refs })
           }
         }
       } else if (SPECULATION_CHANNELS.has(channel)) {
-        // 硬规则 1（反向）：推测/建议通道必须 based_on 引用同文件内源记录 seq。
+        // 硬规则 1（反向）：推测/建议通道必须 based_on（整数=同文件 seq；
+        // {run_id, seq}=跨文件，经调用方 knownRuns 解析表——v0.1）。
         const refs = payload['based_on']
         if (!('based_on' in payload) || !Array.isArray(refs)) {
           push('missing_based_on', `${channel} 通道必须携带 payload.based_on: [event_seq...]`, seq)
-        } else if (refs.length === 0 || !refs.every((r) => Number.isInteger(r) && (r as number) >= 0)) {
-          push('bad_based_on', `${channel} 的 payload.based_on 必须为非空非负整数数组`, seq)
+        } else if (!badRefs(refs)) {
+          push('bad_based_on', `${channel} 的 payload.based_on 必须是非空数组，元素为非负整数或 {run_id, seq}（v0.1）`, seq)
         } else {
-          basedOnTargets.push({ line, seq, refs: refs as number[] })
+          basedOnTargets.push({ line, seq, refs })
         }
       }
     }
@@ -287,16 +296,29 @@ export function parseEnvelopeFile(filePath: string): ParseResult {
     orderedSeqs.push(seq)
   }
 
-  // 第二遍 B：based_on 引用必须存在于同文件（悬空 = 问题）。
+  // 第二遍 B：based_on 引用解析——整数查同文件 seq 集；{run_id, seq} 查
+  // knownRuns 解析表（缺失 run / 越界 seq = dangling_external_ref，v0.1）。
   for (const target of basedOnTargets) {
     for (const ref of target.refs) {
-      if (!seqSet.has(ref)) {
-        problems.push({
-          line: target.line,
-          event_seq: target.seq,
-          kind: 'dangling_based_on',
-          message: `第 ${target.line} 行：based_on 引用了本文件不存在的 event_seq ${ref}`,
-        })
+      if (typeof ref === 'number') {
+        if (!seqSet.has(ref)) {
+          problems.push({
+            line: target.line,
+            event_seq: target.seq,
+            kind: 'dangling_based_on',
+            message: `第 ${target.line} 行：based_on 引用了本文件不存在的 event_seq ${ref}`,
+          })
+        }
+      } else {
+        const runSeqs = opts.knownRuns?.get(ref.run_id)
+        if (!runSeqs || !runSeqs.has(ref.seq)) {
+          problems.push({
+            line: target.line,
+            event_seq: target.seq,
+            kind: 'dangling_external_ref',
+            message: `第 ${target.line} 行：跨文件 based_on {run_id:${ref.run_id}, seq:${ref.seq}} 不在解析表中（run 未知或 seq 越界）`,
+          })
+        }
       }
     }
   }

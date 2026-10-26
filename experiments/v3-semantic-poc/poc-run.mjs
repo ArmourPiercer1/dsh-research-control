@@ -19,7 +19,7 @@
  * 退出码：0 成功；1 校验失败/写入被拒；2 用法错误。
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -86,7 +86,27 @@ function main() {
   }
 
   const fixturePath = resolveFixture(opts.fixture)
-  const { events, problems } = parseEnvelopeFile(fixturePath)
+  // v0.1：跨文件 based_on 解析表 = 同目录所有 *.jsonl 的 run_id → seq 集
+  // （宽松收集：坏行忽略——解析表只用于引用目标存在性，不是二次校验）。
+  const dir = path.dirname(path.resolve(fixturePath))
+  /** @type {Map<string, Set<number>>} */
+  const knownRuns = new Map()
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith('.jsonl')) continue
+    let text = ''
+    try { text = readFileSync(path.join(dir, name), 'utf8') } catch { continue }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const o = JSON.parse(line)
+        if (o && typeof o.run_id === 'string' && Number.isInteger(o.event_seq)) {
+          if (!knownRuns.has(o.run_id)) knownRuns.set(o.run_id, new Set())
+          knownRuns.get(o.run_id).add(o.event_seq)
+        }
+      } catch { /* 解析表宽松 */ }
+    }
+  }
+  const { events, problems } = parseEnvelopeFile(fixturePath, { knownRuns })
   const unknownCount = events.reduce((sum, event) => sum + (Array.isArray(event.unknowns) ? event.unknowns.length : 0), 0)
 
   if (problems.length > 0) {

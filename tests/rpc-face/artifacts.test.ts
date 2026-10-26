@@ -95,14 +95,14 @@ describe('WP-4.1a build artifacts — the full 59-endpoint registered descriptor
       TYPERT: {
         package: string
         face: string
-        schemas: readonly { name: string; schema: unknown }[]
+        schemas: readonly { name: string; create: () => unknown }[]
         invocations: readonly {
           id: string
           service: string
           namespace: string
           method: string
           parameters: readonly unknown[]
-          result: { mode: string; schema: unknown }
+          result: { mode: string; create: () => unknown }
         }[]
         model: {
           services: readonly {
@@ -125,7 +125,7 @@ describe('WP-4.1a build artifacts — the full 59-endpoint registered descriptor
       expect(built!.parameters).toHaveLength(src.parameters.length)
       // The bundled result codec is a live zod v4 instance (strict).
       expect(built!.result.mode).toBe('strict')
-      expect('_zod' in (built!.result.schema as object), `${src.method} result codec zod brand`).toBe(true)
+      expect('_zod' in (built!.result.create() as object), `${src.method} result codec zod brand`).toBe(true)
     }
     expect(t.schemas).toHaveLength(115)
     const [service] = t.model.services
@@ -141,7 +141,7 @@ describe('WP-4.1a build artifacts — the full 59-endpoint registered descriptor
           id: string
           method: string
           parameters: readonly unknown[]
-          result: { mode: string; schema: unknown }
+          result: { mode: string; create: () => unknown }
         }[]
       }
     }
@@ -154,7 +154,7 @@ describe('WP-4.1a build artifacts — the full 59-endpoint registered descriptor
       expect(built!.id).toBe(src.id)
       expect(built!.parameters).toHaveLength(src.parameters.length)
       expect(built!.result.mode).toBe('strict')
-      expect('_zod' in (built!.result.schema as object), `${src.method} client result codec zod brand`).toBe(true)
+      expect('_zod' in (built!.result.create() as object), `${src.method} client result codec zod brand`).toBe(true)
     }
   })
 })

@@ -22,10 +22,11 @@
  *
  * The `session.prompt` doc contract（「single text block starting with `/`
  * dispatches a slash command」）is **not implemented on the apiproxy
- * carrier in dsh@0.1.0-rc.8** — its handler follows the line to the model
+ * carrier in the pinned dsh host** (wire-verified originally on
+ * dsh@0.1.0-rc.8, re-verified on the 0.2.0-rc.2 re-anchor e2e smoke) — its handler follows the line to the model
  * as an ordinary user message and always answers `{accepted:true}`
  * without the command slot（pinned bundle
- * `dsh-host-apiproxy@0.1.0-rc.8` `prompt` handler: no dispatch, no slot;
+ * `dsh-host-apiproxy` `prompt` handler (pin 版系): no dispatch, no slot;
  * the smoke run proved it live: a `/research-investigate …` line landed
  * in `session.history` as a `user/message`）. `commands/execute` IS the
  * carrier the host UI actually uses for commands（`/permission`, …）—

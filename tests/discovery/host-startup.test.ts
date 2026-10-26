@@ -184,9 +184,9 @@ function mountHost(workspaces: readonly string[], options: MountHostOptions = {}
     get: (name: string): unknown =>
       name === 'settings' && options.settings !== undefined
         ? {
-            register: (_ns: string, _schema: unknown): void => {},
-            get: (ns: string) =>
-              ns === 'dsh-research-control' ? options.settings : undefined,
+            // 0.2 SettingsForms shape: the plugin's own profile entry IS
+            // the research namespace (id = profile entry id).
+            describe: () => [{ ns: 'research-control', value: options.settings }],
           }
         : undefined,
     sessions: { list: (): [] => [] },
@@ -206,7 +206,7 @@ function mountHost(workspaces: readonly string[], options: MountHostOptions = {}
   // The schema default normally applies in the loader; a hand-built
   // config must carry the version floor or [Service.init] fails loud
   // (VERSION_UNREACHABLE) — pass the pinned baseline explicitly.
-  const svc = new ResearchControlService(ctx, { minDshVersion: '0.1.0-rc.8' })
+  const svc = new ResearchControlService(ctx, { minDshVersion: '0.2.0-rc.2' })
   return { svc, effectBodies, toolNames, workspaces }
 }
 

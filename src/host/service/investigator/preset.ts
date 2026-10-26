@@ -11,7 +11,7 @@
  *    行集 = 闭集 `INVESTIGATOR_PRESET_TOOL_NAMES`（types.ts）, 逐行
  *    `{id, name}` — **唯一例外**: `tool-fs-search` 行携带恰好一个
  *    上游必需 config 键 `sampleOverCapGlobResults: false`（pin 版
- *    dsh@0.1.0-rc.8: 该键 required 无 fallback — 缺失即 mount 失败
+ *    dsh@0.2.0-rc.2: 该键 required 无 fallback — 缺失即 mount 失败
  *    「$.sampleOverCapGlobResults missing required value」, 实机 TC-
  *    DSH-010 发现; 值 = 上游 standard/code preset 同行逐字。语义 =
  *    over-cap glob 分页的**读呈现**排序〔true 采样 / false 保 mtime
@@ -46,7 +46,7 @@ import { InvestigatorLaunchError } from './types.js'
 
 /**
  * The audited config face — the ONE upstream-required key the fs-search
- * row must carry（pin 版 dsh@0.1.0-rc.8 `dsh-tool-fs-search`: required,
+ * row must carry（pin 版 dsh@0.2.0-rc.2 `dsh-tool-fs-search`: required,
  * no fallback — the upstream `standard`/`code` presets set it to `false`
  * verbatim; checkout the shipped `standard` / `code` preset rows）. Pure
  * read-presentation ordering（over-cap glob pages: `false` keeps the
@@ -243,4 +243,34 @@ export function assertReadonlyPermissionPreset(name: string): void {
       message: `assertReadonlyPermissionPreset: "${name}" is not the read-only permission preset (the investigator launches ONLY "${READ_ONLY_PERMISSION_PRESET}" — every other preset carries a write-capable sandbox mode — INV-PERM-3)`,
     })
   }
+}
+
+/**
+ * 0.2 声明式 preset 定义（`register` 的输入 — 「文件即声明」退役后的
+ * 单一真源: 渲染文本 → 严格闭集解析 → 行数组, 与 0.1 的「落盘 + 回读
+ * 解析」共享同一解析门 — 定义本身先过 `parsePresetComposition`, 闭集
+ * 性质在构造期即成立, 不是运行期才发现）。
+ *
+ * 返回形状是 0.2 `PresetDefinition` 的结构切片（dsh-adapter 侧的
+ * `PresetDefinitionLike` — 本文件是 service 领地, 零 DSH import）。
+ *
+ * @returns the frozen declarative preset definition the launcher
+ *   registers into the host roster when the id is unknown.
+ */
+export function investigatorPresetDefinition(): {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly plugins: readonly { readonly id?: string; readonly name: string; readonly config?: unknown }[]
+} {
+  const spec = parsePresetComposition(
+    INVESTIGATOR_PRESET_ID,
+    renderInvestigatorPresetComposition(INVESTIGATOR_PRESET_ID),
+  )
+  return Object.freeze({
+    id: INVESTIGATOR_PRESET_ID,
+    name: 'Investigator (read-only)',
+    description: 'Read-only research investigator — closed read-only tool composition (dsh-research-control).',
+    plugins: spec.rows,
+  })
 }

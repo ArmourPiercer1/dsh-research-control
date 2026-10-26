@@ -3,7 +3,8 @@
  * （一键调查通道 + analysis 数据面通道的**共用**执行器 — 一条载包路径
  * 只有一处实现, 两个消费者不各自镜像封包契约）。
  *
- * ## 载包契约（冻结宿主面 — pin 版 dsh@0.1.0-rc.8 实机 wire 验证, 见
+ * ## 载包契约（冻结宿主面 — 原 pin 版 dsh@0.1.0-rc.8 实机 wire 验证,
+ * 0.2.0-rc.2 re-anchor 由本轮 e2e 冒烟再验证 — 契约文本未变, 见
  * `investigate.ts` 头注）:
  *  - 路由: `POST /api/commands/execute`（宿主 apiproxy 的 `/api` 载包
  *    代理注册域 `/<domain>/<method>` — 与 `/api/researchControl/<method>`

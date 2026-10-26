@@ -702,7 +702,7 @@ describe('WP-4.1a manifest — the full 59-endpoint registered face (V2-T3.2a + 
       expect(invocation.cancellation).toBeUndefined()
       expect(invocation.sourceLocation).toBeUndefined()
       const result = strictCodec(invocation.result)
-      expect('_zod' in (result.schema as object)).toBe(true)
+      expect('_zod' in (result.create() as object)).toBe(true)
       // The endpoint must survive the shared RPC carrier's segment grammar.
       expect(isTypertRemoteSegment(invocation.namespace)).toBe(true)
       expect(isTypertRemoteSegment(invocation.method)).toBe(true)
@@ -717,7 +717,7 @@ describe('WP-4.1a manifest — the full 59-endpoint registered face (V2-T3.2a + 
         continue
       }
       expect(invocation.parameters).toHaveLength(1)
-      expect(strictCodec(invocation.parameters[0].codec).schema).toBe(expected)
+      expect(strictCodec(invocation.parameters[0].codec).create()).toBe(expected)
     }
   })
 
@@ -788,12 +788,12 @@ describe('WP-4.1a manifest — the full 59-endpoint registered face (V2-T3.2a + 
         (i) => i.method === method,
       )
       expect(invocation, `descriptor for ${method}`).toBeDefined()
-      const schema = strictCodec(invocation!.result).schema
+      const schema = strictCodec(invocation!.result).create()
       // The named manifest schema entry is the same zod instance the codec carries.
-      const manifestSchema = (TYPERT.schemas as readonly { name: string; schema: unknown }[]).find(
+      const manifestSchema = (TYPERT.schemas as readonly { name: string; create: () => unknown }[]).find(
         (s) => s.name === strictCodec(invocation!.result).typeSymbol,
       )
-      expect(manifestSchema?.schema).toBe(schema)
+      expect(manifestSchema?.create()).toBe(schema)
       expect(schema).toBe(resultSchemaTable[method])
       // The fixture parses through the strict codec — wire validity.
       expect((schema as { parse(v: unknown): unknown }).parse(resultFixture)).toEqual(resultFixture)
@@ -805,7 +805,7 @@ describe('WP-4.1a manifest — the full 59-endpoint registered face (V2-T3.2a + 
     expect(names).toHaveLength(115)
     expect(new Set(names).size).toBe(115)
     for (const s of TYPERT.schemas) {
-      expect('_zod' in (s.schema as object), `${s.name} must be a live zod v4 instance`).toBe(true)
+      expect('_zod' in (s.create() as object), `${s.name} factory materializes a live zod v4 instance`).toBe(true)
     }
     for (const expected of [
       'PingResult',

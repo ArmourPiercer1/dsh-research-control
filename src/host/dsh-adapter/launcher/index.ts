@@ -5,24 +5,24 @@
  *
  * 本目录是 dsh-adapter 领地（INV-PERM-5 豁免）: 宿主面结构消费（零 DSH
  * devDep — 同 `../session.ts` 的 `RemoteContext` 模式）+ 已 pin 直接
- * 依赖 `@deepseek-ai/dsh-llm`（消息构造宿主同一真源）/
- * `@deepseek-ai/dsh-home-paths`（preset 根默认 — DSH_ADAPTER §9 先例）/
- * `node:fs`（preset 落盘 — 插件自有 DSH_HOME 数据区）。
+ * 依赖 `@deepseek-ai/dsh-llm`（消息构造宿主同一真源）。0.2.0-rc.2:
+ * preset 改走注册表声明式 `register`（`node:fs` 落盘与
+ * `@deepseek-ai/dsh-home-paths` preset 根随之退役 — 本目录零文件系统
+ * 副作用）。
  *
  * 生产装配（host service 构造此处实例 + 注入 `InvestigatorLauncher`）
  * 归后续接线 WP（非本 WP 授权路径 — 报告「未决问题」）; 本 WP 交付
  * injectable + 全测。
  */
 
-export {
-  HostAgentLauncherAdapter,
-  type HostAgentLauncherAdapterOptions,
-} from './adapter.js'
+export { HostAgentLauncherAdapter } from './adapter.js'
 export type {
   AgentCtxLike,
   AgentLike,
   AgentHandleLike,
-  AgentPresetRowLike,
+  AgentPresetLike,
+  AgentPresetDocumentLike,
+  PresetDefinitionLike,
   AgentPresetsLike,
   AgentsStoreLike,
   CommandExecutionLike,

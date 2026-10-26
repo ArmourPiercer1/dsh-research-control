@@ -2,12 +2,21 @@
  * WP-4.1a — loader `validateTypertManifest` semantics, re-implemented
  * locally for the rpc-face suite.
  *
- * Ported from checkout packages/typert/loader/src/index.ts:83-276 (rc.8);
- * error messages condensed, field-level semantics preserved 1:1. This is
- * the SAME mirror tests/rpc-spike.test.ts carries for the ping spike (the
- * WP-0.3 test keeps its own copy; the npm
- * `@deepseek-ai/dsh-typert-loader` is stale (0.0.1-rc.1, uninstallable)
- * and deliberately NOT imported — the mirror is the authority).
+ * Ported from checkout packages/typert/loader/src/index.ts:89-149
+ * (0.2.0-rc.2); error messages condensed, field-level semantics preserved
+ * 1:1. This mirror is the suite's fast structural check; the AUTHORITY is
+ * the REAL published loader, imported and run against the full face by
+ * tests/rpc-face/real-loader.test.ts (0.2.0-rc.2 re-anchor: the npm
+ * `@deepseek-ai/dsh-typert-loader` is published and installable — the
+ * historical staleness is gone).
+ *
+ * 0.2 shape changes vs the 0.1 mirror: `manifest.schemas` entries are
+ * `{name, create: () => schema}` FACTORIES (the loader requires
+ * `typeof create === 'function'`, :111-113) and strict codecs carry
+ * `create()` too (:281-283, with optional `decode`/`encode` functions
+ * :276-279). The old `_zod`-brand runtime checks no longer exist in the
+ * loader — schema validity is decided at boundary decode through the
+ * factory, not by manifest duck-typing.
  */
 
 const MEMBER_KINDS = new Set(['property', 'method', 'getter', 'setter', 'call', 'construct', 'index'])
@@ -62,13 +71,14 @@ function requireStrictCodec(value: unknown, subject: string): void {
   const codec = requireObject(value, subject)
   if (codec.mode !== 'strict') throw new Error(`${subject} must use a strict codec`)
   requireString(codec, 'typeSymbol', subject)
-  if (
-    typeof codec.schema !== 'object'
-    || codec.schema === null
-    || !('_zod' in (codec.schema as Record<string, unknown>))
-    || typeof (codec.schema as { parse?: unknown }).parse !== 'function'
-  ) {
-    throw new Error(`${subject} is not backed by a zod v4 schema`)
+  // Optional byte codecs: present ⇒ function (loader :276-279).
+  for (const method of ['decode', 'encode'] as const) {
+    if (codec[method] !== undefined && typeof codec[method] !== 'function') {
+      throw new Error(`${subject}.${method} must be a function`)
+    }
+  }
+  if (typeof codec.create !== 'function') {
+    throw new Error(`${subject} has no create() factory`)
   }
 }
 
@@ -157,12 +167,10 @@ export function validateTypertManifest(pkgName: string, exported: unknown): void
   for (const value of requireArray(manifest.schemas, 'TYPERT.schemas')) {
     const schema = requireObject(value, 'schema')
     requireString(schema, 'name', 'schema')
-    if (
-      typeof schema.schema !== 'object'
-      || schema.schema === null
-      || !('_zod' in (schema.schema as Record<string, unknown>))
-    ) {
-      throw new Error(`TYPERT schema "${String(schema.name)}" is not a zod v4 schema instance`)
+    // 0.2 loader: the entry is a {name, create} FACTORY — a bare schema
+    // value object (the 0.1 shape) fails exactly here (loader :111-113).
+    if (typeof schema.create !== 'function') {
+      throw new Error(`TYPERT schema "${String(schema.name)}" has no create() factory`)
     }
   }
   const model = requireObject(manifest.model, 'TYPERT.model')

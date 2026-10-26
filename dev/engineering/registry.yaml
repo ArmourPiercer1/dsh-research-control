@@ -36,8 +36,12 @@ stages:
       - tests/engineering/eb2-docs.test.ts
       - docs/decisions/ADR-0001-in-repo-canonical-source.md
   EB3_G3:
-    verdict: PENDING
+    verdict: PASS
     gate: docs/engineering-baseline/gates/G3.md
+    evidence:
+      - docs/engineering-baseline/gates/G3.md
+      - docs/engineering-baseline/gates/G3-baseline-ready.md
+      - dev/engineering/tsc-debt.ids
 
 host_pins:
   dependency_train: 0.1.2-alpha.3
@@ -49,6 +53,7 @@ host_pins:
 known_debts:
   typescript:
     kind: known-failing
-    baseline: docs/BASELINE_TSC_BASELINE.md
+    baseline: dev/engineering/tsc-debt.ids
+    baseline_prose: docs/BASELINE_TSC_BASELINE.md
     comparison: 归一化诊断身份（文件+错误码），禁止按条数相等判等
     upgrade_path: 独立清偿到零错误后升级为常规 tsc required 门

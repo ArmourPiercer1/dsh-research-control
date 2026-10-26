@@ -333,3 +333,111 @@ describe('save state machine (the §7.5 outcomes)', () => {
     await waitFor(() => expect(screen.getByTestId('settings-card-saved')).toBeTruthy())
   })
 })
+
+/* ------------------------------------------------------------------ *
+ * R5 (0.2): the row-config seat owner share — summary one-liner, the
+ * page-owner form as the display + write path, and the restoreFault
+ * second-fault rendering (the fenced-rollback tail never swallows).
+ * ------------------------------------------------------------------ */
+
+describe('R5 owner share (view / form) and restoreFault rendering', () => {
+  /** Render with the full owner share (face members + view/form). */
+  function renderWithProps(face: ResearchSettingsCardFace, extra: Record<string, unknown> = {}) {
+    return render(
+      <StrictMode>
+        <ResearchSettingsCard {...face} {...(extra as Partial<ResearchSettingsCardFace>)} />
+      </StrictMode>,
+    )
+  }
+
+  /** A page-owner form stand-in (the opaque `form` prop shape). */
+  function ownerForm(values: ResearchSettingsSection, revision = 3) {
+    return {
+      state: { status: 'ready', value: { ...values }, writable: true, revision },
+      mutate: async () => true,
+    }
+  }
+
+  it('view="summary" renders the one-liner only (no form, no save)', () => {
+    const { face } = makeFace(ready(DEFAULTS), async () => ({ status: 'saved' }))
+    renderWithProps(face, { view: 'summary' })
+    expect(screen.getByTestId('settings-card-summary').textContent).toContain('.research')
+    expect(screen.getByTestId('settings-card-summary').textContent).toContain('.research-control')
+    expect(screen.queryByTestId('settings-card')).toBeNull()
+    expect(screen.queryByTestId('settings-card-save')).toBeNull()
+  })
+
+  it('the page-owner form state DRIVES the display (custom owning ids keep their values end to end)', () => {
+    const { face } = makeFace({ status: 'loading', values: undefined, writable: false }, async () => ({ status: 'saved' }))
+    renderWithProps(face, { view: 'page', form: ownerForm({ projectTreeDir: '.rc-a', hubDir: '.rc-b' }) })
+    // The face snapshot says loading — the owner state wins:
+    expect((screen.getByTestId('settings-card-tree-dir') as HTMLInputElement).value).toBe('.rc-a')
+    expect((screen.getByTestId('settings-card-hub-dir') as HTMLInputElement).value).toBe('.rc-b')
+    expect(screen.queryByTestId('settings-card-loading')).toBeNull()
+  })
+
+  it('save passes the owner form back through the face (the adapter routes the transaction through it)', async () => {
+    const saveSpy = vi.fn<(next: ResearchSettingsSection, ownerForm?: unknown) => Promise<ResearchSettingsSaveOutcome>>(
+      async () => ({ status: 'saved' }),
+    )
+    const { face } = makeFace(ready(DEFAULTS), (next) => saveSpy(next))
+    // Rebuild the face so save forwards BOTH arguments (the stub above
+    // collapses them; this one mirrors the real face signature).
+    const full: ResearchSettingsCardFace = { ...face, save: (next, owner) => saveSpy(next, owner) }
+    const form = ownerForm(DEFAULTS)
+    renderWithProps(full, { view: 'page', form })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-card-save'))
+    })
+    expect(saveSpy).toHaveBeenCalledTimes(1)
+    expect(saveSpy.mock.calls[0]?.[1]).toBe(form)
+  })
+
+  it('missing + restoreFault: the banner ALSO renders the second fault (never a silent success)', async () => {
+    const { face } = makeFace(ready(DEFAULTS), async () => ({
+      status: 'missing',
+      hubLost: false,
+      hubPath: null,
+      lostTreePaths: ['/ws/.research'],
+      restoreFault: 'boom',
+    }))
+    renderCard(face)
+    setInputValue('settings-card-tree-dir', '.ghost')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-card-save'))
+    })
+    await waitFor(() => expect(screen.getByTestId('settings-card-warning')).toBeTruthy())
+    const restore = screen.getByTestId('settings-card-restore-fault')
+    expect(restore.textContent).toContain('回退后的目录仍未能恢复研究活动面（boom）')
+  })
+
+  it('rescan-error + restoreFault: the fault line is followed by the second fault', async () => {
+    const { face } = makeFace(ready(DEFAULTS), async () => ({
+      status: 'rescan-error',
+      message: '重扫失败（x），已回退到原目录名',
+      restoreFault: 'restore-down',
+    }))
+    renderCard(face)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-card-save'))
+    })
+    await waitFor(() => expect(screen.getByTestId('settings-card-fault')).toBeTruthy())
+    const restore = screen.getByTestId('settings-card-restore-fault')
+    expect(restore.textContent).toContain('restore-down')
+  })
+
+  it('restoreFault absent → no second-fault line (the plain banner stays exact)', async () => {
+    const { face } = makeFace(ready(DEFAULTS), async () => ({
+      status: 'missing',
+      hubLost: true,
+      hubPath: '/ws/.research-control',
+      lostTreePaths: [],
+    }))
+    renderCard(face)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-card-save'))
+    })
+    await waitFor(() => expect(screen.getByTestId('settings-card-warning')).toBeTruthy())
+    expect(screen.queryByTestId('settings-card-restore-fault')).toBeNull()
+  })
+})

@@ -156,3 +156,35 @@ F1–F4 + F5（settings 0.2 模型）全部落地；门禁与冒烟（2026-10，
   `--dump-config` 含 `- id: research-control` 行；停服端口释放。
   **B-EB3-1 正面回答：0.2.0-rc.2 世界可 boot**（rc.8 的 HMR 起服崩溃不在
   本 train；e2e CLI pin 已重锚，TC-DSH-008 全链复跑留待评审合入后）。
+
+## 客户端半环收口（R5：settings-card → configForms，branch `maint/settings-card-configforms`）
+
+迁移报告点名的遗留「浏览器侧设置卡片交互待后续 PR——host 面 F5 已完整」已
+收口（分支 `maint/settings-card-configforms`，评审合入前不碰 main）：
+
+- 席位：卡片注册到 0.2 的 KEYED `plugins.row.config`（bundle 配置席位），
+  键 `dsh-research-control#research-control`（config-ledger `rowConfigKey`，
+  按 `options.key` 路由——上游 DRAFT PR #8 草稿态误用 `id`，本迁移按一手
+  ledger 源码修正）；GUI 路径 插件管理 → Installed → dsh-research-control →
+  research-control。
+- 写面：一次原子 `form.mutate([set projectTreeDir, set hubDir],
+  expectedRevision)`（0.2 契约：全部 op 共享一条 revision 栅栏 + Host 校验 +
+  持久化裁决 + recovery read）；`false`＝未写入任何内容（不回退、不 rescan、
+  write-error）；失联补偿＝fenced 回退（fence＝我方被接受写产生的
+  revision，迟到写者不被踩踏）+ 恢复态 rescan；第二故障 `restoreFault`
+  随 outcome 上报并由卡片渲染。行页 owner `form` 为优先写路径（自定义
+  owning entry id 保身份），`configForms.get('research-control')` 为
+  fallback；两者皆无＝诚实「未就绪」拒绝（warn-once）。
+- 配对：entry id 单源入 `src/shared/research-settings.ts`
+  （`RESEARCH_SETTINGS_ENTRY_ID`，host 读面 re-export）；卡片注册无条件——
+  迟到服务经每次 face 构建到达（settingsScope 时代的 re-probe 定时器不再
+  需要，fix 分支的迟到注册负例在新形态下以更强断言保留：fake-timer 守卫 +
+  无服务注册 + 诚实拒绝三例）。
+- 门禁（本分支实测）：tsc-gate 21→20（清偿 settings-card TS2352 一条并同
+  提交重录基线）；lint OK；build RC=0（SNAPSHOT 31 双向绿，冻结面零触碰）；
+  `pnpm test` 352 files / 5062 tests 绿 / 21 skipped（settings 族 80→109，
+  其中新 `tests/views-settings/settings-card-adapter.test.ts` 17 例）；
+  pack:verify PASS；docs:check OK。
+- 遗留（如实）：GUI 浏览器走查（Installed 导航往返、`false` 拒绝路径、
+  unload/reload）——无头环境不可跑，列为评审后首台批次；live boot 未动用
+  （类型面一手核验 + 单测闭环，预算 ≤1 次用 0 次）。

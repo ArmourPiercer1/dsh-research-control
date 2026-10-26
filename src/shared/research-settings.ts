@@ -20,11 +20,28 @@ import type { PlaneStateSummary } from './rpc-contracts.js'
  * The DSH user-settings namespace owned by this plugin (frozen §7.5 —
  * 「按设置域 namespace 配对」). The host's `settingsNamespace()` brands
  * exactly this string pattern; the plugin keeps it as a plain string
- * because it does not devDep on `@deepseek-ai/dsh-settings`. The client
- * card registers into the `settings.plugin.item` slot under THIS key, so
- * the host and the browser half pair on the same name.
+ * because it does not devDep on `@deepseek-ai/dsh-settings`. 0.2.0-rc.2
+ * retired the namespace-registration API (a settings namespace IS a
+ * profile plugin entry), so the LIVE pairing key between the two halves
+ * is {@link RESEARCH_SETTINGS_ENTRY_ID}; this constant stays exported as
+ * the frozen §7.5 face and the plugin's npm package name (the bundle half
+ * of the row-config seat key `<package>#<row id>`).
  */
 export const RESEARCH_SETTINGS_NAMESPACE = 'dsh-research-control'
+
+/**
+ * The 0.2 settings-model pairing key (the R5 client-card migration): the
+ * HOST PROFILE ENTRY id whose config form the browser card edits and
+ * whose descriptor the host read path resolves. The client reaches the
+ * section through `ctx.configForms.get(entryId)` (host checkout
+ * `packages/client/ui-settings/src/client/config-form.ts`, `ConfigForms.get`
+ * :293 keyed by the entry id); the host read path finds the served
+ * `describe()` view by its `ns` — the same entry id (the profile patch
+ * declares `{ id: research-control, name: 'dsh-research-control' }`).
+ * The host half re-exports this constant (single source — the two halves
+ * cannot drift apart).
+ */
+export const RESEARCH_SETTINGS_ENTRY_ID = 'research-control'
 
 /** The project data directory name, default (the per-project declarative tree). */
 export const DEFAULT_PROJECT_TREE_DIR = '.research'
@@ -171,6 +188,44 @@ export function findLostDiscovery(
 }
 
 /* ------------------------------------------------------------------ *
+ * The config-form snapshot → card display derivation (shared pure core)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Pure narrowing of one config-form raw snapshot into the card's display
+ * values (R5: shared so the adapter face and the seat-rendered view derive
+ * the canonical and the page-OWNER forms through ONE function — belt-and-
+ * braces per-field guards over the schema, non-strings fall back to the
+ * composition defaults; the same per-field resilience the host read path
+ * documents).
+ *
+ * @param raw - the form snapshot narrowed to the three members the card
+ *  reads (`status` / `value` / `writable`; `base` / `user` / `revision` /
+ *  `mode` are irrelevant to the display).
+ * @param defaults - the composition defaults (per-field fallback).
+ * @returns the card display snapshot (values `undefined` before the first
+ *  acceptance, exactly like the raw section).
+ */
+export function deriveSettingsSectionFromRaw(
+  raw: { readonly status: 'loading' | 'ready' | 'unavailable'; readonly value: unknown; readonly writable: boolean },
+  defaults: ResearchSettingsSection,
+): { status: 'loading' | 'ready' | 'unavailable'; values: ResearchSettingsSection | undefined; writable: boolean } {
+  const record = typeof raw.value === 'object' && raw.value !== null ? (raw.value as Record<string, unknown>) : {}
+  return {
+    status: raw.status,
+    values:
+      raw.value === undefined
+        ? undefined
+        : {
+            projectTreeDir:
+              typeof record.projectTreeDir === 'string' ? record.projectTreeDir : defaults.projectTreeDir,
+            hubDir: typeof record.hubDir === 'string' ? record.hubDir : defaults.hubDir,
+          },
+    writable: raw.writable,
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * The §7.5 two-phase save — the outcome the client card renders
  * ------------------------------------------------------------------ */
 
@@ -197,6 +252,13 @@ export type ResearchSettingsSaveOutcome =
       readonly hubLost: boolean
       readonly hubPath: string | null
       readonly lostTreePaths: string[]
+      /** Set when the post-rollback RESCAN of the restored paths ALSO failed — the live plane did not come back (the card renders this second fault inside the banner; never a silent success). */
+      readonly restoreFault?: string
     }
-  | { readonly status: 'rescan-error'; readonly message: string }
+  | {
+      readonly status: 'rescan-error'
+      readonly message: string
+      /** Same second-fault channel as the `missing` arm (the rollback/restore tail failed after the rescan fault). */
+      readonly restoreFault?: string
+    }
   | { readonly status: 'write-error'; readonly message: string }

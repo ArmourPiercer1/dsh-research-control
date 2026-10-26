@@ -15,8 +15,10 @@ import {
   DEFAULT_HUB_DIR,
   DEFAULT_PROJECT_TREE_DIR,
   MAX_DIR_NAME_LENGTH,
+  RESEARCH_SETTINGS_ENTRY_ID,
   RESEARCH_SETTINGS_NAMESPACE,
   classifyDirNameViolation,
+  deriveSettingsSectionFromRaw,
   findLostDiscovery,
   validateDirName,
 } from '../../src/shared/research-settings.js'
@@ -24,6 +26,7 @@ import {
   DEFAULT_HUB_DIR as HOST_DEFAULT_HUB_DIR,
   DEFAULT_PROJECT_TREE_DIR as HOST_DEFAULT_PROJECT_TREE_DIR,
   MAX_DIR_NAME_LENGTH as HOST_MAX_DIR_NAME_LENGTH,
+  RESEARCH_SETTINGS_ENTRY_ID as HOST_ENTRY_ID,
   RESEARCH_SETTINGS_NAMESPACE as HOST_NAMESPACE,
   validateDirName as hostValidateDirName,
   type ResearchSettings as HostResearchSettings,
@@ -199,5 +202,54 @@ describe('findLostDiscovery (pre-save vs post-save discovery)', () => {
       hubPath: '/ws/hub',
       lostTreePaths: ['/ws/p1'],
     })
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * R5 (0.2 configForms migration) — the pairing key and the pure
+ * config-form → card derivation.
+ * ------------------------------------------------------------------ */
+
+describe('the 0.2 pairing key (the configForms get / describe() ns)', () => {
+  it('pins the entry id — the profile entry / descriptor ns the two halves pair on', () => {
+    expect(RESEARCH_SETTINGS_ENTRY_ID).toBe('research-control')
+    // NOT the retired 0.1 namespace (the package name stays distinct):
+    expect(RESEARCH_SETTINGS_ENTRY_ID).not.toBe(RESEARCH_SETTINGS_NAMESPACE)
+  })
+
+  it('the host read path resolves the SAME identity (re-export, not a copy)', () => {
+    expect(HOST_ENTRY_ID).toBe(RESEARCH_SETTINGS_ENTRY_ID)
+  })
+})
+
+describe('deriveSettingsSectionFromRaw (the shared card derivation)', () => {
+  const defaults = { projectTreeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
+
+  it('ready + string fields → verbatim', () => {
+    const raw = { status: 'ready' as const, value: { projectTreeDir: '.a', hubDir: '.b' }, writable: true }
+    expect(deriveSettingsSectionFromRaw(raw, defaults)).toEqual({
+      status: 'ready',
+      values: { projectTreeDir: '.a', hubDir: '.b' },
+      writable: true,
+    })
+  })
+
+  it('non-string / absent fields fall back PER FIELD (belt-and-braces over the schema)', () => {
+    const raw = { status: 'ready' as const, value: { projectTreeDir: 42, hubDir: '.b' }, writable: false }
+    const derived = deriveSettingsSectionFromRaw(raw, defaults)
+    expect(derived.values).toEqual({ projectTreeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: '.b' })
+    expect(derived.writable).toBe(false)
+  })
+
+  it('undefined value (pre-acceptance) → values undefined regardless of status', () => {
+    for (const status of ['loading', 'ready', 'unavailable'] as const) {
+      const derived = deriveSettingsSectionFromRaw({ status, value: undefined, writable: false }, defaults)
+      expect(derived).toEqual({ status, values: undefined, writable: false })
+    }
+  })
+
+  it('non-object value (a hand-edited / hostile doc) → per-field defaults with values still derived', () => {
+    const derived = deriveSettingsSectionFromRaw({ status: 'ready', value: 'nope', writable: true }, defaults)
+    expect(derived.values).toEqual(defaults)
   })
 })

@@ -236,3 +236,78 @@ strk-06#4 的跨文件 based_on 需两趟法解析表（P2 verifyScenario 同源
 `src/report.test.ts`（新增 20 例，test:poc 118→138）；
 `fixtures/argument/*.{scenario,expected}.json` ×3 + `fixtures/report/high-risk.jsonl`。
 
+
+## P4 机制层（2026-10-26，双图谱/联合召回/W3C 交换/受控建议）
+
+### 裁定回放（照此实现，未重新设计）
+
+- **双可重建视图（graph.ts）**：`buildViews(files, baseDir, scenarioFiles?)`
+  纯函数从同一批信封事件（P0 `parseEnvelopeFile` 复用 + 两趟 knownRuns 法）
+  派生 `{inference, association}` 两视图；**无独立存储**，两次 build
+  canonicalize 后逐字节相同（负例②，含入参乱序不变）。节点 id =
+  stableId(run_id+seq+kind 部件)；scope/version 缺失 = 'UNKNOWN' 占位禁补全。
+- **Association 边类型闭集**：SAME_RUN / SHARED_ARTIFACT / SHARED_DECK /
+  CROSS_RUN_BASIS / REGISTERED_FINDING / SOURCED_ASSOCIATION，超出即拒；每边
+  `{edge_type, origin:'STRUCTURAL'|'REGISTERED'|'SOURCED', provenance, scope,
+  version}`；**origin 构造期一次定死，模块面无任何改写 API**（弱边绝不升格）。
+  无锚 SOURCED_ASSOCIATION → 零入图 + 拒收账（负例①）；REGISTERED_FINDING
+  指向不存在对象 / based_on 断链 → broken_references 账，禁静默。
+- **读操作（queryView）**：start/direction/edgeTypes(闭集子集)/maxHops(1..6)/
+  prune/limit 自由组合，**无默认必查工作流**；返回恒定注记「关联不等于因果/
+  已支持」；truncated/dropped_count 为真实计数（超限继续枚举只计数不记录，
+  枚举上限同样入账；负例③）。
+- **视图属性投影即读法边界**：sha 引用状态只投影进 association 视图、
+  run 失败结局只投影进 inference 视图——某读法的盲区是设计事实，不做跨视图
+  补全（ab 矩阵逐格可核对）。
+- **W3C 交换（w3c.ts）**：零依赖手写 JSON-LD 导出/导入；@id 由 run_id/seq
+  确定性派生；**接纳状态门**：有 actor 确认记录（P2 confirmation 面形态：
+  RESEARCHER_INFERENCE + action=semantic_confirmation + actor +
+  confirming.claim_ref）才 `poc:status:'asserted'`，未确认 Assertion 一律
+  candidate 且零 sosa 事实谓词（构造期门 + `findGateViolations` 独立守卫，
+  负例④）；导入未知字段逐条 lossReport `{at, field, action:'dropped'}`，
+  exotic 字段恰好 1 条且点名（负例⑤）；往返对核心面（对象 ID、关系语义、
+  provenance、unknowns、candidate/asserted 状态、broken 账、确认账）语义
+  等价（逐字段断言）。
+- **受控建议（advisory.ts）**：stall 形态。授权三要素 granted_by/scope/
+  expires_at 缺任一 → NEEDS_AUTHORIZATION；过期 → EXPIRED（时钟由调用方以
+  `now` 参数注入，模块内无 Date.now）；越权 → OUT_OF_SCOPE。全路径零副作用
+  （无 fs/进程/网络 import；目录 sha 前后同，负例⑥）；有授权也只回「可审阅
+  材料」渲染文本（固定声明段与 P3 同语义）；**导出名白名单 = 4**（面上不
+  存在任何修改 FactStanding/Task/配置/命令的 API）。
+
+### strk-05/06 真实运行挂接 golden（真实事实，非构造）
+
+两 strk deck sha 不同 → **SHARED_DECK=0、SHARED_ARTIFACT=0**；
+strk-06#4 跨文件 based_on 指 strk-05#4 → **CROSS_RUN_BASIS=1**（origin
+REGISTERED）；SAME_RUN=10（10 事件）；inference EVIDENCE=2（#3 与跨 run #4
+两条入边）；rejections=0、broken=0。SHARED_DECK 的正例在场性由 ab 合成语料
+（RUN-AB-D/E 共享 deck）承担——**合成面补真实面没有的形态，两侧 golden 分开
+锁定**。
+
+### 两处 N/A（范围裁定 ≠ PASS）+ 与 #10 的实现面偏差
+
+- **「脱敏真实任务四组人工标注 A/B」= N/A**：素材不存在。`src/ab.ts` 的
+  四读法对照 = 合成任务包（fixtures/ab/corpus，7 信封 + 机器植入答案键
+  planted.json 7 缺口）上的**机械可达性测量**——「测量的是机器从该读法可达
+  的植入缺口，不是人类问题发现质量」这句话写死在文件头与输出 JSON。
+- **「live task 侧车试运行」= N/A**：素材不存在。advisory.ts 是 stall 形态
+  离线机械面，不声称 LIVE_REVIEW 解锁。
+- **SHACL 偏差**：validateShapes 为形状校验**子集**（node kind 必填属性/枚举
+  值域），非 RDF/SHACL 完整实现（无 path 表达式/约束组件库/目标选择器）。
+- **A/B 偏差**：四组 = 四读法（rawScan / inferenceOnly / associationOnly /
+  bothAlternating）而非人工标注四组；hits 一律回锚答案键定位，不可回锚者列
+  extras 不冒充（真实运行 extras=0）。
+
+### 运行数字（REPORT-P4.md 逐字同源，负结果照录）
+
+检出率 raw 4/7、inference 3/7、association 4/7、both 7/7；成本
+queries 7/5/1/6、nodes_visited 31/62/42/104；可追踪覆盖 43/43 边带
+provenance；hits 18 条中 resolvable_source=false 仅 GAP-05×2（明列）；导出面
+asserted 1/5、candidate 4/5、非 SUPPORTS 证据边 1/6、无锚联想入图 0。
+
+### 交付面（全新增，不改任何已跟踪文件；138 例原样）
+
+`src/graph.ts` `src/w3c.ts` `src/ab.ts` `src/advisory.ts`（机制）；
+`src/graph.test.ts` `src/w3c.test.ts` `src/ab.test.ts` `src/advisory.test.ts`
+（新增 35 例，test:poc 138→173）；`fixtures/ab/corpus/`（README + 7 信封 +
+planted.json）；`REPORT-P4.md`。

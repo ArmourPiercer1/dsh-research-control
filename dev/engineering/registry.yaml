@@ -46,11 +46,11 @@ stages:
       - dev/engineering/tsc-debt.ids
 
 host_pins:
-  dependency_train: 0.1.2-alpha.3
+  dependency_train: 0.2.0-rc.2
   instance_checkout: tests/deepseek-harness
-  instance_sha: dd6322d604
-  e2e_cli_pin: 0.1.0-rc.8
-  note: e2e_cli_pin 是 TC-DSH-008 的注册表 CLI 语义（与 §2 实例 train 的张力已知，EB3 宿主裁决处理）
+  instance_sha: c1b47e41fc
+  e2e_cli_pin: 0.2.0-rc.2
+  note: 2026-10 train 迁移（用户裁决：产品跟进上游）train/实例/CLI pin 三者重锚至 release(dsh): 0.2.0-rc.2；B-EB3-1 的 rc.8 起服缺陷随 pin 重定至 train CLI 解除，TC-DSH-008 世界复跑在本迁移评审合入后执行
 
 known_debts:
   typescript:

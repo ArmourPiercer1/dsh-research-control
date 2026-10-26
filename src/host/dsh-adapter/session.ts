@@ -61,7 +61,7 @@ import type {
   SessionSummary,
 } from '../../shared/host-adapter-ports.js'
 
-/** Minimal structural slice of one DSH session-log entry. */
+/** Minimal structural slice of one DSH session-log entry (event-bus payload). */
 interface SessionEventLike {
   /** Monotonic sequence number within the session. */
   readonly seq: number
@@ -71,7 +71,16 @@ interface SessionEventLike {
   readonly data?: unknown
 }
 
-/** Minimal structural slice of a live DSH `Session` (header + log). */
+/**
+ * Minimal structural slice of a live DSH `Session` — 0.2.0-rc.2 shape:
+ * header + id ONLY. The 0.1 `session.events` property is GONE (and
+ * `Session.snapshotEvents()` is `@deprecated` with the upstream Agent Note
+ * prohibition: "new calls are prohibited … new aliases or wrappers that
+ * expose the same synchronous historical access are prohibited as well",
+ * checkout packages/core/session/src/index.ts:629-663). Nothing on this
+ * adapter reads the event log; everything log-derived flows through the
+ * sessionProjections face below.
+ */
 export interface SessionLike {
   /** Session id (the real `SessionId` is branded; structurally a string). */
   readonly id: string
@@ -80,11 +89,10 @@ export interface SessionLike {
     readonly cwd?: string
     readonly parentSession?: string
     readonly origin?: 'subagent'
+    /** Creation FACT only — the current preset selection is the `agentPreset` projection. */
     readonly agentPreset?: string
     readonly createdAt: number
   }
-  /** The append-only event log. */
-  readonly events: readonly SessionEventLike[]
 }
 
 /** Minimal structural slice of the DSH `ctx.sessions` store this port reads. */
@@ -94,9 +102,44 @@ export interface SessionStoreLike {
 }
 
 /**
+ * Structural slice of `ctx.sessionProjections` (0.2
+ * `@deepseek-ai/dsh-session-projection`) as consumed here: read-only
+ * `stateOf` over the three units this adapter needs —
+ *  - `title`        → `string | null` (session-title unit: last committed
+ *                     `session/title` fold — replaces scanning the old
+ *                     `session.events` log for `session/title`);
+ *  - `turnBoundary` → `{ openTurnStartSeq, lastTurn, … } | undefined`
+ *                     (agent-loop unit, host-only: blank = no turn started,
+ *                     mirroring the registry's own blank rule);
+ *  - `agentPreset`  → `string | null` (agent-preset-registry unit: CURRENT
+ *                     selection — header.agentPreset is only the creation
+ *                     fact; `agent-preset/selected` advances the unit).
+ *
+ * `stateOf` returns `undefined` for an unregistered key (deployment
+ * without the owning package) — every read below degrades explicitly,
+ * never by guessing. The returned value is LIVE; treat as read-only.
+ */
+export interface SessionProjectionsLike {
+  stateOf(session: object, key: 'title'): string | null | undefined
+  stateOf(session: object, key: 'turnBoundary'): TurnBoundaryLike | undefined
+  stateOf(session: object, key: 'agentPreset'): string | null | undefined
+  stateOf(session: object, key: string): unknown
+}
+
+/** The agent-loop `turnBoundary` unit state (structural subset read here). */
+export interface TurnBoundaryLike {
+  readonly openTurnStartSeq: number | null
+  readonly lastTurn: number
+}
+
+/**
  * Structural stand-in for the host context the adapter binds to (the
  * WP-0.3 `RemoteContext` pattern): the base cordis `Context` plus the
  * injected `sessions` service in its minimal local shape.
+ * `sessionProjections` is read through the optional-service face
+ * (`ctx.get`) — a deployment without the projection registry still loads
+ * and lists (title/blank/preset-selection then carry their documented
+ * degradation, never a fabricated value).
  */
 export type SessionHostContext = Context & { sessions: SessionStoreLike }
 
@@ -104,14 +147,6 @@ export type SessionHostContext = Context & { sessions: SessionStoreLike }
 interface AgentRegistryLike {
   /** Look up the live agent for one session id. */
   get(id: string): { readonly status?: string } | undefined
-}
-
-/** The last event of one type in a session log (append-only: scan back). */
-function lastEventOf(events: readonly SessionEventLike[], type: string): SessionEventLike | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    if (events[i].type === type) return events[i]
-  }
-  return undefined
 }
 
 /**
@@ -153,19 +188,31 @@ export class HostSessionAdapter implements DshSessionAdapter {
   /**
    * Map `ctx.sessions.list()` to the port payload.
    *
-   * Field sources: `id`/`cwd`/`parentId`/`origin`/`agentPreset`/
-   * `createdAt` from the session header; `title` from the latest
-   * `session/title` event; `blank` from the log (no `turn/start` yet —
-   * the apiproxy `sessionBlank` rule); `running` from the agent registry
-   * (`status === 'running'` — the apiproxy `host/session-status`
-   * derivation), defaulting to `false` when the registry is absent (a
-   * session's own log cannot know its agent's state).
+   * Field sources (0.2.0-rc.2 — projection-derived, NEVER a log scan):
+   * `id`/`cwd`/`parentId`/`origin`/`createdAt` from the session header;
+   * `title` from the `title` projection unit; `blank` from the
+   * `turnBoundary` unit (started = `openTurnStartSeq !== null ||
+   * lastTurn > 0` — the same blank rule the preset registry's `select`
+   * gate applies, checkout agent-preset-registry/src/index.ts:321-323);
+   * `agentPreset` from the `agentPreset` unit (CURRENT selection — the
+   * header value is only the creation fact, used solely when the unit is
+   * unregistered); `running` from the agent registry
+   * (`status === 'running'`), defaulting to `false` when the registry is
+   * absent. Degradations (projection registry absent / unit unregistered):
+   * `title` omitted, `blank` false (never claim blankness unseen),
+   * `agentPreset` falls back to the header creation fact.
    */
   listSessions(): SessionSummary[] {
     const agents = this.#ctx.get('agents') as AgentRegistryLike | undefined
+    const projections = this.#ctx.get('sessionProjections') as unknown as
+      | SessionProjectionsLike
+      | undefined
     return this.#ctx.sessions.list().map((session): SessionSummary => {
-      const titleEvent = lastEventOf(session.events, 'session/title')
-      const title = (titleEvent?.data as { title?: string } | undefined)?.title
+      const title = projections?.stateOf(session, 'title') ?? undefined
+      const turn = projections?.stateOf(session, 'turnBoundary')
+      const started = turn === undefined ? false : turn.openTurnStartSeq !== null || turn.lastTurn > 0
+      const preset = projections?.stateOf(session, 'agentPreset')
+      const agentPreset = preset === undefined ? session.header.agentPreset : preset ?? undefined
       return {
         id: session.id,
         ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
@@ -173,9 +220,9 @@ export class HostSessionAdapter implements DshSessionAdapter {
         running: agents?.get(session.id)?.status === 'running',
         ...session.header.parentSession === undefined ? {} : { parentId: session.header.parentSession },
         ...session.header.origin === undefined ? {} : { origin: session.header.origin },
-        ...session.header.agentPreset === undefined ? {} : { agentPreset: session.header.agentPreset },
+        ...agentPreset === undefined ? {} : { agentPreset },
         createdAt: session.header.createdAt,
-        blank: !session.events.some(event => event.type === 'turn/start'),
+        blank: !started,
       }
     })
   }

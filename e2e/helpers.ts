@@ -1,7 +1,7 @@
 /**
  * WP-0.6 — shared smoke helpers (browser flow + node-side wire probes).
  *
- * Selector notes (pinned `dsh@0.1.0-rc.8` web build — stable css-module
+ * Selector notes (pinned `dsh@0.2.0-rc.2` web build — stable css-module
  * prefixes observed in the smoke run, role/aria/text preferred where they
  * exist):
  * - API-key onboarding modal: button "Configure later" (the no-key path).

@@ -3,17 +3,18 @@
  * WP-4.1a: the full 13-RPC client face).
  *
  * U4 fallback (STATUS E009): the typert generator cannot run in this
- * workspace (npm registry is stale at 0.0.1-rc.1; the harness checkout has
- * no node_modules), so this module mirrors the shape of the generated
+ * workspace, so this module mirrors the shape of the generated
  * `lib/typert.host.{js,d.ts}` by hand: a named `TYPERT` export of the
  * contribution manifest. The `dsh-typert-loader` imports `./typert`,
  * validates `mod.TYPERT` field-by-field (`validateTypertManifest`,
- * checkout packages/typert/loader/src/index.ts:83-142) and registers the
+ * checkout packages/typert/loader/src/index.ts:89-149) and registers the
  * contribution into `ctx.typert`; tests/rpc-spike.test.ts (ping) and
  * tests/rpc-face/manifest.test.ts (the full face) replicate those rules.
  *
  * WP-4.1a: the manifest now carries the FULL service model, every wire
- * schema as a live zod v4 instance (the loader's `_zod` brand check),
+ * schema behind a `create: () => schema` factory (0.2.0-rc.2 loader:
+ * `TYPERT.schemas` entries and strict codecs must carry `create()` —
+ * checkout packages/typert/loader/src/index.ts:105-113, 270-284),
  * and the strict invocation descriptors — the SAME shared objects the
  * client `./remote` contribution exports (no drift by construction, the
  * WP-0.3 rule extended from ping to the whole face). V2-T3.2a: the
@@ -26,7 +27,9 @@
  * bodies (T3.2b).
  *
  * Type note: the whole-manifest type is the LOCAL `TypertContributionMirror`
- * (registry package stale/uninstallable) — 以 loader 运行时校验为准. The
+ * (kept structural — 以 loader 运行时校验为准, and the 0.2 REAL loader is
+ * now exercised against this artifact by tests/rpc-face/real-loader.test.ts).
+ * The
  * `invocations` field is deliberately typed with the REAL protocol
  * `InvocationDescriptor`: that structural check proves the shared
  * hand-written descriptors stay identical to what the gateway dispatch
@@ -39,7 +42,7 @@
 import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol'
 
 /**
- * 0.1.2-alpha.3 typert train: merge the owner's domain failure codes into
+ * 0.2.0-rc.2 typert train: merge the owner's domain failure codes into
  * the shared `RemoteErrorDetailsMap` (the gateway merges its infrastructure
  * codes the same way — `remote-error-codes.ts`). Every `PLANE_*` code the
  * host throws via `PlaneError` (the closed 13-code vocabulary, frozen list
@@ -212,8 +215,10 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
 }
 
 /**
- * Every wire schema the face uses, as a live zod v4 instance (the loader
- * requires the `_zod` brand on each `TYPERT.schemas` entry). 97 entries:
+ * Every wire schema the face uses, behind a `create: () => schema` factory
+ * returning the shared zod v4 instance (the 0.2 loader requires
+ * `create()` on each `TYPERT.schemas` entry —
+ * loader/src/index.ts:105-113). 115 entries:
  * ping's result + the 13 RPCs' args/results (the two zero-arg queries
  * carry no args schema) + the 3 read-only plane RPCs' args/results
  * (V2-T3.2a) + the 6 change-family plane RPCs' args/results (V2-T3.2b —
@@ -231,131 +236,131 @@ export interface TypertHostManifest extends Omit<TypertContributionMirror, 'face
  * brief §3).
  */
 const ALL_SCHEMAS: readonly TypertSchemaMirror[] = [
-  { name: 'PingResult', schema: PingResultSchema },
-  { name: 'DashboardSnapshot', schema: DashboardSnapshotSchema },
-  { name: 'ProjectSnapshot', schema: ProjectSnapshotSchema },
-  { name: 'GetTopicArgs', schema: GetTopicArgsSchema },
-  { name: 'TopicSnapshot', schema: TopicSnapshotSchema },
-  { name: 'GetWorkstreamArgs', schema: GetWorkstreamArgsSchema },
-  { name: 'WorkstreamSnapshot', schema: WorkstreamSnapshotSchema },
-  { name: 'QueryHistoryArgs', schema: QueryHistoryArgsSchema },
-  { name: 'QueryHistoryResult', schema: QueryHistoryResultSchema },
-  { name: 'ReorderPlanArgs', schema: ReorderPlanArgsSchema },
-  { name: 'ReorderPlanResult', schema: ReorderPlanResultSchema },
-  { name: 'SelectPlanForkArgs', schema: SelectPlanForkArgsSchema },
-  { name: 'SelectPlanForkResult', schema: SelectPlanForkResultSchema },
-  { name: 'DismissPlanForkArgs', schema: DismissPlanForkArgsSchema },
-  { name: 'DismissPlanForkResult', schema: DismissPlanForkResultSchema },
-  { name: 'UpdateInterventionStateArgs', schema: UpdateInterventionStateArgsSchema },
-  { name: 'UpdateInterventionStateResult', schema: UpdateInterventionStateResultSchema },
-  { name: 'RegisterInteractionArgs', schema: RegisterInteractionArgsSchema },
-  { name: 'RegisterInteractionResult', schema: RegisterInteractionResultSchema },
-  { name: 'SaveResearchCheckpointArgs', schema: SaveResearchCheckpointArgsSchema },
-  { name: 'SaveResearchCheckpointResult', schema: SaveResearchCheckpointResultSchema },
-  { name: 'GetGitHistoryArgs', schema: GetGitHistoryArgsSchema },
-  { name: 'GetGitHistoryResult', schema: GetGitHistoryResultSchema },
-  { name: 'RestoreDeclarativeFileArgs', schema: RestoreDeclarativeFileArgsSchema },
-  { name: 'RestoreDeclarativeFileResult', schema: RestoreDeclarativeFileResultSchema },
+  { name: 'PingResult', create: () => PingResultSchema },
+  { name: 'DashboardSnapshot', create: () => DashboardSnapshotSchema },
+  { name: 'ProjectSnapshot', create: () => ProjectSnapshotSchema },
+  { name: 'GetTopicArgs', create: () => GetTopicArgsSchema },
+  { name: 'TopicSnapshot', create: () => TopicSnapshotSchema },
+  { name: 'GetWorkstreamArgs', create: () => GetWorkstreamArgsSchema },
+  { name: 'WorkstreamSnapshot', create: () => WorkstreamSnapshotSchema },
+  { name: 'QueryHistoryArgs', create: () => QueryHistoryArgsSchema },
+  { name: 'QueryHistoryResult', create: () => QueryHistoryResultSchema },
+  { name: 'ReorderPlanArgs', create: () => ReorderPlanArgsSchema },
+  { name: 'ReorderPlanResult', create: () => ReorderPlanResultSchema },
+  { name: 'SelectPlanForkArgs', create: () => SelectPlanForkArgsSchema },
+  { name: 'SelectPlanForkResult', create: () => SelectPlanForkResultSchema },
+  { name: 'DismissPlanForkArgs', create: () => DismissPlanForkArgsSchema },
+  { name: 'DismissPlanForkResult', create: () => DismissPlanForkResultSchema },
+  { name: 'UpdateInterventionStateArgs', create: () => UpdateInterventionStateArgsSchema },
+  { name: 'UpdateInterventionStateResult', create: () => UpdateInterventionStateResultSchema },
+  { name: 'RegisterInteractionArgs', create: () => RegisterInteractionArgsSchema },
+  { name: 'RegisterInteractionResult', create: () => RegisterInteractionResultSchema },
+  { name: 'SaveResearchCheckpointArgs', create: () => SaveResearchCheckpointArgsSchema },
+  { name: 'SaveResearchCheckpointResult', create: () => SaveResearchCheckpointResultSchema },
+  { name: 'GetGitHistoryArgs', create: () => GetGitHistoryArgsSchema },
+  { name: 'GetGitHistoryResult', create: () => GetGitHistoryResultSchema },
+  { name: 'RestoreDeclarativeFileArgs', create: () => RestoreDeclarativeFileArgsSchema },
+  { name: 'RestoreDeclarativeFileResult', create: () => RestoreDeclarativeFileResultSchema },
   // V2-T3.2a: the 3 read-only plane RPCs (design §12 rows 1-3).
-  { name: 'GetResearchPlaneStateArgs', schema: GetResearchPlaneStateArgsSchema },
-  { name: 'GetResearchPlaneStateResult', schema: GetResearchPlaneStateResultSchema },
-  { name: 'GetHubOverviewArgs', schema: GetHubOverviewArgsSchema },
-  { name: 'HubOverviewResult', schema: HubOverviewResultSchema },
-  { name: 'GetPortfolioInterventionsArgs', schema: GetPortfolioInterventionsArgsSchema },
-  { name: 'GetPortfolioInterventionsResult', schema: GetPortfolioInterventionsResultSchema },
+  { name: 'GetResearchPlaneStateArgs', create: () => GetResearchPlaneStateArgsSchema },
+  { name: 'GetResearchPlaneStateResult', create: () => GetResearchPlaneStateResultSchema },
+  { name: 'GetHubOverviewArgs', create: () => GetHubOverviewArgsSchema },
+  { name: 'HubOverviewResult', create: () => HubOverviewResultSchema },
+  { name: 'GetPortfolioInterventionsArgs', create: () => GetPortfolioInterventionsArgsSchema },
+  { name: 'GetPortfolioInterventionsResult', create: () => GetPortfolioInterventionsResultSchema },
   // V2-T3.2b: the 6 change-family plane RPCs (design §12 rows 4-6/8/9).
-  { name: 'SetHubArgs', schema: SetHubArgsSchema },
-  { name: 'SetHubResult', schema: SetHubResultSchema },
-  { name: 'BindProjectArgs', schema: BindProjectArgsSchema },
-  { name: 'BindProjectResult', schema: BindProjectResultSchema },
-  { name: 'UnbindProjectArgs', schema: UnbindProjectArgsSchema },
-  { name: 'UnbindProjectResult', schema: UnbindProjectResultSchema },
-  { name: 'RestoreProjectArgs', schema: RestoreProjectArgsSchema },
-  { name: 'RestoreProjectResult', schema: RestoreProjectResultSchema },
-  { name: 'RescanArgs', schema: RescanArgsSchema },
-  { name: 'RescanResult', schema: RescanResultSchema },
-  { name: 'AckMissingReminderArgs', schema: AckMissingReminderArgsSchema },
-  { name: 'AckMissingReminderResult', schema: AckMissingReminderResultSchema },
-  { name: 'SetCurrentFocusArgs', schema: SetCurrentFocusArgsSchema },
-  { name: 'SetCurrentFocusResult', schema: SetCurrentFocusResultSchema },
-  { name: 'GetCurrentFocusArgs', schema: GetCurrentFocusArgsSchema },
-  { name: 'GetCurrentFocusResult', schema: GetCurrentFocusResultSchema },
+  { name: 'SetHubArgs', create: () => SetHubArgsSchema },
+  { name: 'SetHubResult', create: () => SetHubResultSchema },
+  { name: 'BindProjectArgs', create: () => BindProjectArgsSchema },
+  { name: 'BindProjectResult', create: () => BindProjectResultSchema },
+  { name: 'UnbindProjectArgs', create: () => UnbindProjectArgsSchema },
+  { name: 'UnbindProjectResult', create: () => UnbindProjectResultSchema },
+  { name: 'RestoreProjectArgs', create: () => RestoreProjectArgsSchema },
+  { name: 'RestoreProjectResult', create: () => RestoreProjectResultSchema },
+  { name: 'RescanArgs', create: () => RescanArgsSchema },
+  { name: 'RescanResult', create: () => RescanResultSchema },
+  { name: 'AckMissingReminderArgs', create: () => AckMissingReminderArgsSchema },
+  { name: 'AckMissingReminderResult', create: () => AckMissingReminderResultSchema },
+  { name: 'SetCurrentFocusArgs', create: () => SetCurrentFocusArgsSchema },
+  { name: 'SetCurrentFocusResult', create: () => SetCurrentFocusResultSchema },
+  { name: 'GetCurrentFocusArgs', create: () => GetCurrentFocusArgsSchema },
+  { name: 'GetCurrentFocusResult', create: () => GetCurrentFocusResultSchema },
   // V2-UI-0.4 Task 3: the 2 hierarchy-create management RPCs (D §8.1
   // UI-2A create pair).
-  { name: 'CreateTopicArgs', schema: CreateTopicArgsSchema },
-  { name: 'CreateTopicResult', schema: CreateTopicResultSchema },
-  { name: 'CreateWorkstreamArgs', schema: CreateWorkstreamArgsSchema },
-  { name: 'CreateWorkstreamResult', schema: CreateWorkstreamResultSchema },
+  { name: 'CreateTopicArgs', create: () => CreateTopicArgsSchema },
+  { name: 'CreateTopicResult', create: () => CreateTopicResultSchema },
+  { name: 'CreateWorkstreamArgs', create: () => CreateWorkstreamArgsSchema },
+  { name: 'CreateWorkstreamResult', create: () => CreateWorkstreamResultSchema },
   // V2-UI-0.4 UI-2: the 4 hierarchy update/drop management RPCs (UI-2A) +
   // the 2 local-project management RPCs (UI-2B).
-  { name: 'UpdateProjectMetadataArgs', schema: UpdateProjectMetadataArgsSchema },
-  { name: 'UpdateProjectMetadataResult', schema: UpdateProjectMetadataResultSchema },
-  { name: 'UpdateTopicArgs', schema: UpdateTopicArgsSchema },
-  { name: 'UpdateTopicResult', schema: UpdateTopicResultSchema },
-  { name: 'UpdateWorkstreamArgs', schema: UpdateWorkstreamArgsSchema },
-  { name: 'UpdateWorkstreamResult', schema: UpdateWorkstreamResultSchema },
-  { name: 'DropWorkstreamArgs', schema: DropWorkstreamArgsSchema },
-  { name: 'DropWorkstreamResult', schema: DropWorkstreamResultSchema },
-  { name: 'InspectProjectDirectoryArgs', schema: InspectProjectDirectoryArgsSchema },
-  { name: 'InspectProjectDirectoryResult', schema: InspectProjectDirectoryResultSchema },
-  { name: 'CreateLocalResearchProjectArgs', schema: CreateLocalResearchProjectArgsSchema },
-  { name: 'CreateLocalResearchProjectResult', schema: CreateLocalResearchProjectResultSchema },
+  { name: 'UpdateProjectMetadataArgs', create: () => UpdateProjectMetadataArgsSchema },
+  { name: 'UpdateProjectMetadataResult', create: () => UpdateProjectMetadataResultSchema },
+  { name: 'UpdateTopicArgs', create: () => UpdateTopicArgsSchema },
+  { name: 'UpdateTopicResult', create: () => UpdateTopicResultSchema },
+  { name: 'UpdateWorkstreamArgs', create: () => UpdateWorkstreamArgsSchema },
+  { name: 'UpdateWorkstreamResult', create: () => UpdateWorkstreamResultSchema },
+  { name: 'DropWorkstreamArgs', create: () => DropWorkstreamArgsSchema },
+  { name: 'DropWorkstreamResult', create: () => DropWorkstreamResultSchema },
+  { name: 'InspectProjectDirectoryArgs', create: () => InspectProjectDirectoryArgsSchema },
+  { name: 'InspectProjectDirectoryResult', create: () => InspectProjectDirectoryResultSchema },
+  { name: 'CreateLocalResearchProjectArgs', create: () => CreateLocalResearchProjectArgsSchema },
+  { name: 'CreateLocalResearchProjectResult', create: () => CreateLocalResearchProjectResultSchema },
   // V2-UI-0.4 UI-4 (D §10): the 7 attention RPCs — the CurrentExecution
   // projection read + the objective/next-action/blocker mutation faces.
-  { name: 'GetWorkstreamCurrentArgs', schema: GetWorkstreamCurrentArgsSchema },
-  { name: 'GetWorkstreamCurrentResult', schema: GetWorkstreamCurrentResultSchema },
-  { name: 'UpdateObjectiveArgs', schema: UpdateObjectiveArgsSchema },
-  { name: 'UpdateObjectiveResult', schema: UpdateObjectiveResultSchema },
-  { name: 'CreateNextActionArgs', schema: CreateNextActionArgsSchema },
-  { name: 'CreateNextActionResult', schema: CreateNextActionResultSchema },
-  { name: 'PromoteNextActionArgs', schema: PromoteNextActionArgsSchema },
-  { name: 'PromoteNextActionResult', schema: PromoteNextActionResultSchema },
-  { name: 'DismissNextActionArgs', schema: DismissNextActionArgsSchema },
-  { name: 'DismissNextActionResult', schema: DismissNextActionResultSchema },
-  { name: 'CreateBlockerArgs', schema: CreateBlockerArgsSchema },
-  { name: 'CreateBlockerResult', schema: CreateBlockerResultSchema },
-  { name: 'ClearBlockerArgs', schema: ClearBlockerArgsSchema },
-  { name: 'ClearBlockerResult', schema: ClearBlockerResultSchema },
+  { name: 'GetWorkstreamCurrentArgs', create: () => GetWorkstreamCurrentArgsSchema },
+  { name: 'GetWorkstreamCurrentResult', create: () => GetWorkstreamCurrentResultSchema },
+  { name: 'UpdateObjectiveArgs', create: () => UpdateObjectiveArgsSchema },
+  { name: 'UpdateObjectiveResult', create: () => UpdateObjectiveResultSchema },
+  { name: 'CreateNextActionArgs', create: () => CreateNextActionArgsSchema },
+  { name: 'CreateNextActionResult', create: () => CreateNextActionResultSchema },
+  { name: 'PromoteNextActionArgs', create: () => PromoteNextActionArgsSchema },
+  { name: 'PromoteNextActionResult', create: () => PromoteNextActionResultSchema },
+  { name: 'DismissNextActionArgs', create: () => DismissNextActionArgsSchema },
+  { name: 'DismissNextActionResult', create: () => DismissNextActionResultSchema },
+  { name: 'CreateBlockerArgs', create: () => CreateBlockerArgsSchema },
+  { name: 'CreateBlockerResult', create: () => CreateBlockerResultSchema },
+  { name: 'ClearBlockerArgs', create: () => ClearBlockerArgsSchema },
+  { name: 'ClearBlockerResult', create: () => ClearBlockerResultSchema },
   // V2-UI-0.4 UI-5 (brief §3): the 5 plan-editor RPCs — the plan-item
   // create/update/remove face + the 2 dependency-edge RPCs.
-  { name: 'CreatePlanItemArgs', schema: CreatePlanItemArgsSchema },
-  { name: 'CreatePlanItemResult', schema: CreatePlanItemResultSchema },
-  { name: 'UpdatePlanItemArgs', schema: UpdatePlanItemArgsSchema },
-  { name: 'UpdatePlanItemResult', schema: UpdatePlanItemResultSchema },
-  { name: 'RemovePlanItemArgs', schema: RemovePlanItemArgsSchema },
-  { name: 'RemovePlanItemResult', schema: RemovePlanItemResultSchema },
-  { name: 'AddDependencyArgs', schema: AddDependencyArgsSchema },
-  { name: 'AddDependencyResult', schema: AddDependencyResultSchema },
-  { name: 'RemoveDependencyArgs', schema: RemoveDependencyArgsSchema },
-  { name: 'RemoveDependencyResult', schema: RemoveDependencyResultSchema },
-  { name: 'CreateWorkstreamForkArgs', schema: CreateWorkstreamForkArgsSchema },
-  { name: 'CreateWorkstreamForkResult', schema: CreateWorkstreamForkResultSchema },
-  { name: 'CreatePlannedMergeArgs', schema: CreatePlannedMergeArgsSchema },
-  { name: 'CreatePlannedMergeResult', schema: CreatePlannedMergeResultSchema },
-  { name: 'GetMergeContractArgs', schema: GetMergeContractArgsSchema },
-  { name: 'GetMergeContractResult', schema: GetMergeContractResultSchema },
-  { name: 'SaveMergeContractArgs', schema: SaveMergeContractArgsSchema },
-  { name: 'SaveMergeContractResult', schema: SaveMergeContractResultSchema },
-  { name: 'DropTopologyEdgeArgs', schema: DropTopologyEdgeArgsSchema },
-  { name: 'DropTopologyEdgeResult', schema: DropTopologyEdgeResultSchema },
-  { name: 'RecordFactArgs', schema: RecordFactArgsSchema },
-  { name: 'RecordFactResult', schema: RecordFactResultSchema },
-  { name: 'RecordClaimArgs', schema: RecordClaimArgsSchema },
-  { name: 'RecordClaimResult', schema: RecordClaimResultSchema },
-  { name: 'RetractClaimArgs', schema: RetractClaimArgsSchema },
-  { name: 'RetractClaimResult', schema: RetractClaimResultSchema },
-  { name: 'RegisterArtifactArgs', schema: RegisterArtifactArgsSchema },
-  { name: 'RegisterArtifactResult', schema: RegisterArtifactResultSchema },
-  { name: 'MarkArtifactMissingArgs', schema: MarkArtifactMissingArgsSchema },
-  { name: 'MarkArtifactMissingResult', schema: MarkArtifactMissingResultSchema },
-  { name: 'AddRelationArgs', schema: AddRelationArgsSchema },
-  { name: 'AddRelationResult', schema: AddRelationResultSchema },
-  { name: 'RemoveRelationArgs', schema: RemoveRelationArgsSchema },
-  { name: 'RemoveRelationResult', schema: RemoveRelationResultSchema },
-  { name: 'QueryRecordsArgs', schema: QueryRecordsArgsSchema },
-  { name: 'QueryRecordsResult', schema: QueryRecordsResultSchema },
-  { name: 'QueryAttentionArgs', schema: QueryAttentionArgsSchema },
-  { name: 'QueryAttentionResult', schema: QueryAttentionResultSchema },
+  { name: 'CreatePlanItemArgs', create: () => CreatePlanItemArgsSchema },
+  { name: 'CreatePlanItemResult', create: () => CreatePlanItemResultSchema },
+  { name: 'UpdatePlanItemArgs', create: () => UpdatePlanItemArgsSchema },
+  { name: 'UpdatePlanItemResult', create: () => UpdatePlanItemResultSchema },
+  { name: 'RemovePlanItemArgs', create: () => RemovePlanItemArgsSchema },
+  { name: 'RemovePlanItemResult', create: () => RemovePlanItemResultSchema },
+  { name: 'AddDependencyArgs', create: () => AddDependencyArgsSchema },
+  { name: 'AddDependencyResult', create: () => AddDependencyResultSchema },
+  { name: 'RemoveDependencyArgs', create: () => RemoveDependencyArgsSchema },
+  { name: 'RemoveDependencyResult', create: () => RemoveDependencyResultSchema },
+  { name: 'CreateWorkstreamForkArgs', create: () => CreateWorkstreamForkArgsSchema },
+  { name: 'CreateWorkstreamForkResult', create: () => CreateWorkstreamForkResultSchema },
+  { name: 'CreatePlannedMergeArgs', create: () => CreatePlannedMergeArgsSchema },
+  { name: 'CreatePlannedMergeResult', create: () => CreatePlannedMergeResultSchema },
+  { name: 'GetMergeContractArgs', create: () => GetMergeContractArgsSchema },
+  { name: 'GetMergeContractResult', create: () => GetMergeContractResultSchema },
+  { name: 'SaveMergeContractArgs', create: () => SaveMergeContractArgsSchema },
+  { name: 'SaveMergeContractResult', create: () => SaveMergeContractResultSchema },
+  { name: 'DropTopologyEdgeArgs', create: () => DropTopologyEdgeArgsSchema },
+  { name: 'DropTopologyEdgeResult', create: () => DropTopologyEdgeResultSchema },
+  { name: 'RecordFactArgs', create: () => RecordFactArgsSchema },
+  { name: 'RecordFactResult', create: () => RecordFactResultSchema },
+  { name: 'RecordClaimArgs', create: () => RecordClaimArgsSchema },
+  { name: 'RecordClaimResult', create: () => RecordClaimResultSchema },
+  { name: 'RetractClaimArgs', create: () => RetractClaimArgsSchema },
+  { name: 'RetractClaimResult', create: () => RetractClaimResultSchema },
+  { name: 'RegisterArtifactArgs', create: () => RegisterArtifactArgsSchema },
+  { name: 'RegisterArtifactResult', create: () => RegisterArtifactResultSchema },
+  { name: 'MarkArtifactMissingArgs', create: () => MarkArtifactMissingArgsSchema },
+  { name: 'MarkArtifactMissingResult', create: () => MarkArtifactMissingResultSchema },
+  { name: 'AddRelationArgs', create: () => AddRelationArgsSchema },
+  { name: 'AddRelationResult', create: () => AddRelationResultSchema },
+  { name: 'RemoveRelationArgs', create: () => RemoveRelationArgsSchema },
+  { name: 'RemoveRelationResult', create: () => RemoveRelationResultSchema },
+  { name: 'QueryRecordsArgs', create: () => QueryRecordsArgsSchema },
+  { name: 'QueryRecordsResult', create: () => QueryRecordsResultSchema },
+  { name: 'QueryAttentionArgs', create: () => QueryAttentionArgsSchema },
+  { name: 'QueryAttentionResult', create: () => QueryAttentionResultSchema },
 ]
 
 export const TYPERT: TypertHostManifest = {

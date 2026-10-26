@@ -1,7 +1,8 @@
 /**
  * WP-7.4 / G7 S1b — 一键调查通道（client 半）测试。
  *
- * 覆盖（fetch 结构化 stub — 载包契约逐字钉, 契约按 pin 版 dsh@0.1.0-rc.8
+ * 覆盖（fetch 结构化 stub — 载包契约逐字钉, 契约按 pin 版宿主面（原
+ * 0.1.0-rc.8 实机验证, 0.2.0-rc.2 re-anchor e2e 再验证）
  * 实机 wire 验证 — 见 investigate.ts 头注「Why not session.prompt」）:
  *  - 请求面: /api/commands/execute + client-request 载包（type/rpcId/
  *    method='commands/execute' 逐字）+ payload = 网关 remote-args 契约

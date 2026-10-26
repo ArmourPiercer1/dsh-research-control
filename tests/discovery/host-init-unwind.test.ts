@@ -178,7 +178,7 @@ function mountHost(workspaces: readonly string[]): HostHarness {
     },
   } as unknown as Context
   return {
-    svc: new ResearchControlService(ctx, { minDshVersion: '0.1.0-rc.8' }),
+    svc: new ResearchControlService(ctx, { minDshVersion: '0.2.0-rc.2' }),
     toolNames,
   }
 }

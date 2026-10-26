@@ -37,22 +37,23 @@
  *    failure: a typoed value must not take down the 13-RPC plane).
  *
  * The field-level name rule ({@link validateDirName}) is deliberately
- * NOT expressed as a schemastery constraint: the host settings provider
- * REJECTS the whole namespace registration (and therefore fails this
- * plugin's fiber) when a stored section fails its schema, while the
- * frozen design requires the read path to fall back and warn instead.
+ * NOT expressed as a schemastery constraint: a hard schema rejection
+ * would fail the plugin's activation (0.1: rejecting the namespace
+ * registration; 0.2: rejecting the plugin config), while the frozen
+ * design requires the read path to fall back and warn instead.
  * The write side is guarded by the §7.5 two-phase save transaction
  * (write → rescan → validate the discovery → roll the field back) and
  * may pre-check values with {@link validateDirName} before writing.
  *
- * ## Effect discipline (registration is an effect)
+ * ## 0.2 settings model (registration retired)
  *
- * `settings.register` registers the un-registration as an effect on
- * the CALLING fiber (the host service resolves the effect through the
- * traced caller context), so the namespace disappears with this
- * plugin's fiber unmount — there is no separate disposer to hold, and
- * {@link registerResearchSettings} is safe to call once from
- * `[Service.init]` regardless of spike mode (the settings card is a
+ * 0.2.0-rc.2 retired `settings.register`: a settings namespace IS a
+ * profile plugin entry and its form schema IS the plugin `Config`
+ * schema. The two §7.5 fields therefore live in `static Config` and the
+ * namespace id is the profile entry id
+ * ({@link RESEARCH_SETTINGS_ENTRY_ID}); reads ride the `describe()`
+ * view (live on every call). {@link registerResearchSettings} keeps its
+ * boot call site purely for observability (the settings card stays a
  * global preference the operator configures before any research tree
  * exists — §7.4 「全局偏好不在设置页，在 DSH 设置的插件卡片」).
  *
@@ -158,11 +159,48 @@ export const RESEARCH_SETTINGS_SCHEMA: s<ResearchSettings> = s.object({
  * the shape structurally — the same discipline as the launcher
  * adapter's `AgentsStoreLike`).
  */
+/**
+ * One `describe()` view of a settings namespace. 0.2.0-rc.2 model
+ * (`@deepseek-ai/dsh-settings` `SettingsForms`): a namespace IS a profile
+ * plugin entry (`SettingsNamespaceView` — one view per profile plugin
+ * entry), so `id` is the profile entry id and `value` the schema-resolved
+ * section (schema defaults → composition base → user layer). Only the two
+ * members the plugin reads; the host runtime satisfies it structurally.
+ */
+export interface SettingsDescriptorLike {
+  /** The namespace key: the profile entry id (`entry.options.id` — the
+   *  descriptor member is `ns`, NOT `id`; the real host proved it). */
+  readonly ns: string
+  readonly value: unknown
+}
+
+/**
+ * The 0.2 host settings service, structural slice (INV-PERM-5 exemption
+ * zone; the plugin does NOT devDep `@deepseek-ai/dsh-settings`). 0.1's
+ * `register`/`get` are retired (the real-host boot caught the stale
+ * assumption): registration no longer exists — the plugin's own profile
+ * entry IS its settings namespace — and reads ride `describe()`.
+ */
 export interface SettingsServiceLike {
-  /** Register one namespace schema (an effect on the calling fiber). */
-  register(ns: string, schema: unknown): void
-  /** Read one namespace's resolved value (schema defaults applied). */
-  get(ns: string): unknown
+  describe(options?: unknown): readonly SettingsDescriptorLike[]
+}
+
+/**
+ * The service-owned fallback section (the plugin's loader-resolved
+ * Config — defaults + composition + user layer, e2e-verified): used when
+ * the describe() view cannot answer (this fiber's own boot window, or a
+ * service-degraded read). Fields pass the SAME per-field validation as
+ * served values (a hand-edited profile layer must not smuggle a bad
+ * name through the fallback path).
+ */
+export interface ResearchDirNamesFallback {
+  /** Raw or cosmokit volatile-cell (`{ get(): string }` — the 0.2
+   *  convention: host plugins read volatile Config fields through
+   *  `.get()`, the bash-local `config.timeoutMs.get()` precedent; the
+   *  loader mounts volatile fields as live cells). Unwrapped before the
+   *  per-field validation. */
+  readonly projectTreeDir?: unknown
+  readonly hubDir?: unknown
 }
 
 /** The discovery-facing directory names (design §4 step 1 output). */
@@ -179,19 +217,20 @@ export interface ResearchDirNames {
  * back per-field to the default with a warn for every violation
  * (frozen §4 step 1: 非法即回退默认并告警).
  *
- * Behavior matrix:
- *  - `settings === undefined` → both defaults, NO warn (the
- *    service-absent warn is fired exactly once by
- *    {@link registerResearchSettings} — the read path stays silent so
- *    repeated rescans do not re-log a boot-time fact);
- *  - section `undefined` (service present but the namespace is not
- *    registered — a deployment anomaly) → both defaults + one warn;
- *  - a field `undefined` → the default silently (schema-default
- *    inheritance, the documented no-override path);
+ * Behavior matrix (0.2 authorities: served describe() view → service
+ * Config fallback → frozen defaults):
+ *  - `settings === undefined` → fallback when wired (silently), else
+ *    both defaults with NO warn (the service-absent warn is fired
+ *    exactly once by {@link registerResearchSettings});
+ *  - service present but the entry view not served (THIS fiber's own
+ *    boot window, or a degraded read) → fallback when wired (silently),
+ *    else both defaults + one warn;
+ *  - a served/fallback field `undefined` → the default silently
+ *    (schema-default inheritance, the documented no-override path);
  *  - a field of the wrong type (a hand-edited document) → the default
  *    + a warn (the section crosses the durable-file boundary — the
  *    type check lives in the schema at registration, this is the
- *    read-side guard);
+ *    read-side guard; the fallback path runs the SAME guard);
  *  - a string field failing {@link validateDirName} → the default + a
  *    warn naming the field, the value, and the violation.
  *
@@ -204,24 +243,74 @@ export interface ResearchDirNames {
 export function resolveResearchDirNames(
   settings: SettingsServiceLike | undefined,
   warn: (message: string) => void,
+  fallback?: ResearchDirNamesFallback | undefined,
 ): ResearchDirNames {
   if (settings === undefined) {
-    return { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
+    // No service at all: the service-owned config (user layer included)
+    // is the remaining authority; absent both, the frozen defaults.
+    return fallback === undefined
+      ? { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
+      : namesFromSection(fallback, warn)
   }
-  const section = settings.get(RESEARCH_SETTINGS_NAMESPACE)
-  if (section === undefined || section === null) {
+  // Runtime shape guard (the real host taught this lesson): a settings
+  // service WITHOUT the 0.2 describe() face cannot answer — fall back
+  // loudly instead of throwing inside discovery.
+  if (typeof settings.describe !== 'function') {
     warn(
-      `the research settings section "${RESEARCH_SETTINGS_NAMESPACE}" is not registered ` +
-        '(the host settings service answered without the namespace) — using the defaults ' +
+      'the host settings service does not expose the 0.2 describe() face — the research ' +
+        'settings namespace cannot be read, using the service config fallback ' +
+        '(or the frozen defaults when no fallback is wired)',
+    )
+    return fallback === undefined
+      ? { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
+      : namesFromSection(fallback, warn)
+  }
+  const entry = settings.describe().find(view => view.ns === RESEARCH_SETTINGS_ENTRY_ID)
+  const section = entry?.value
+  if (section === undefined || section === null) {
+    // The boot window (and service-degraded reads): describe() only serves
+    // ACTIVE entries, so while this plugin's own fiber is still mounting
+    // its view is absent — the service-owned Config (loader-resolved, the
+    // user layer included — e2e-verified on dsh@0.2.0-rc.2) carries the
+    // configured names through exactly that window. No warn while a
+    // fallback exists: the window is the documented behavior, not an
+    // anomaly; the warn fires only when BOTH authorities are missing.
+    if (fallback !== undefined) {
+      return namesFromSection(fallback, warn)
+    }
+    warn(
+      `the research settings namespace (profile entry "${RESEARCH_SETTINGS_ENTRY_ID}", the plugin's ` +
+        'own settings view in the 0.2 model) is not served by the host settings service and no ' +
+        'service config fallback is wired — using the frozen defaults ' +
         `"${DEFAULT_PROJECT_TREE_DIR}" / "${DEFAULT_HUB_DIR}"`,
     )
     return { treeDir: DEFAULT_PROJECT_TREE_DIR, hubDir: DEFAULT_HUB_DIR }
   }
-  const record = section as { projectTreeDir?: unknown; hubDir?: unknown }
+  return namesFromSection(section as { projectTreeDir?: unknown; hubDir?: unknown }, warn)
+}
+
+/** Resolve both fields of one section (served view or Config fallback) with the SAME per-field rule. */
+function namesFromSection(
+  section: { projectTreeDir?: unknown; hubDir?: unknown },
+  warn: (message: string) => void,
+): ResearchDirNames {
   return {
-    treeDir: resolveDirField('projectTreeDir', record.projectTreeDir, DEFAULT_PROJECT_TREE_DIR, warn),
-    hubDir: resolveDirField('hubDir', record.hubDir, DEFAULT_HUB_DIR, warn),
+    treeDir: resolveDirField('projectTreeDir', unwrapVolatile(section.projectTreeDir), DEFAULT_PROJECT_TREE_DIR, warn),
+    hubDir: resolveDirField('hubDir', unwrapVolatile(section.hubDir), DEFAULT_HUB_DIR, warn),
   }
+}
+
+/**
+ * Unwrap one cosmokit volatile config cell (`{ get(): … }` — what the
+ * loader mounts for `.volatile()` fields, read live like the host's own
+ * `config.timeoutMs.get()` convention). Plain values pass through
+ * untouched (the served describe() view is already plain).
+ */
+function unwrapVolatile(value: unknown): unknown {
+  if (value !== null && typeof value === 'object' && typeof (value as { get?: unknown }).get === 'function') {
+    return (value as { get: () => unknown }).get()
+  }
+  return value
 }
 
 /** Resolve one directory-name field (the matrix above, per field). */
@@ -292,6 +381,30 @@ function readSettingsService(ctx: Context): SettingsServiceLike | undefined {
  *
  * @param ctx - the host context owning the plugin fiber.
  */
+/**
+ * The 0.2 settings namespace identity of this plugin: the PROFILE ENTRY id
+ * (the `dsh web` dump-config row `id: research-control`). 0.2 retired the
+ * register-a-namespace API: a namespace IS a profile plugin entry and its
+ * form schema IS the plugin `Config` schema, so `projectTreeDir` / `hubDir`
+ * are Config fields and the entry id is what `describe()` keys on. The
+ * legacy frozen constant {@link RESEARCH_SETTINGS_NAMESPACE} (the package
+ * name, the 0.1 namespace) stays exported for the client half and the
+ * frozen face.
+ */
+export const RESEARCH_SETTINGS_ENTRY_ID = 'research-control'
+
+let loggedSettingsModel = false
+
+/**
+ * Boot hook, 0.2 semantics: NOTHING to register (0.1's
+ * `settings.register` is retired — the plugin's own profile entry is its
+ * settings namespace and the two §7.5 fields ride `static Config`). This
+ * function keeps its call site and its observability: service absent →
+ * ONE `console.warn` + defaults (unchanged); service present → ONE
+ * `console.log` naming where the fields live.
+ *
+ * @param ctx - the host context owning the plugin fiber.
+ */
 export function registerResearchSettings(ctx: Context): void {
   const settings = readSettingsService(ctx)
   if (settings === undefined) {
@@ -299,18 +412,22 @@ export function registerResearchSettings(ctx: Context): void {
       warnedSettingsAbsent = true
       console.warn(
         '[research-control] the host exposes no settings service — the research settings ' +
-          `card (namespace "${RESEARCH_SETTINGS_NAMESPACE}") is unavailable and the directory ` +
+          `namespace (profile entry "${RESEARCH_SETTINGS_ENTRY_ID}") is unreadable and the directory ` +
           `names stay at the defaults ("${DEFAULT_PROJECT_TREE_DIR}" / "${DEFAULT_HUB_DIR}"); ` +
           'discovery is unaffected (warned once)',
       )
     }
     return
   }
-  settings.register(RESEARCH_SETTINGS_NAMESPACE, RESEARCH_SETTINGS_SCHEMA)
-  console.log(
-    `[research-control] registered the research settings namespace "${RESEARCH_SETTINGS_NAMESPACE}" ` +
-      `(projectTreeDir / hubDir — the discovery layer reads them through getResearchDirNames)`,
-  )
+  if (!loggedSettingsModel) {
+    loggedSettingsModel = true
+    console.log(
+      `[research-control] research settings ride the 0.2 settings model — profile entry ` +
+        `"${RESEARCH_SETTINGS_ENTRY_ID}" is its own settings namespace (projectTreeDir / hubDir are ` +
+        'plugin Config fields, edited in DSH 设置 → 插件; the discovery layer reads them live ' +
+        'through getResearchDirNames)',
+    )
+  }
 }
 
 /**
@@ -325,11 +442,19 @@ export function registerResearchSettings(ctx: Context): void {
  *
  * @param ctx - the host context (the settings service is re-read on
  *  every call through `ctx.get`).
+ * @param fallback - the service-owned loader-resolved Config (the boot
+ *  window + service-degraded authority; the served describe() view wins
+ *  whenever it answers).
  * @returns the validated names, default-applied per the §4 step 1 rule.
  */
-export function getResearchDirNames(ctx: Context): ResearchDirNames {
+export function getResearchDirNames(
+  ctx: Context,
+  fallback?: ResearchDirNamesFallback | undefined,
+): ResearchDirNames {
   const settings = readSettingsService(ctx)
-  return resolveResearchDirNames(settings, (message) =>
-    console.warn(`[research-control] ${message}`),
+  return resolveResearchDirNames(
+    settings,
+    (message) => console.warn(`[research-control] ${message}`),
+    fallback,
   )
 }

@@ -41,12 +41,21 @@ describe('host mount skeleton (WP-0.2)', () => {
     expect(typeof config['~standard']).toBe('object')
     expect(typeof config['~standard'].validate).toBe('function')
     // Config carries the WP-2.6 `minDshVersion` field (schemastery, default
-    // `0.1.0-rc.8`): validating an empty config resolves the default.
+    // `0.2.0-rc.2`): validating an empty config resolves the default.
     const result = (await Promise.resolve(config['~standard'].validate({}))) as
       | { value: unknown; issues?: never }
       | { issues: readonly unknown[]; value?: never }
     expect((result as { issues?: readonly unknown[] }).issues).toBeUndefined()
-    expect((result as { value: unknown }).value).toEqual({ minDshVersion: '0.1.0-rc.8' })
+        const value = (result as { value: Record<string, unknown> }).value
+    const plain = (v: unknown): unknown =>
+      typeof v === 'object' && v !== null && typeof (v as { get?: unknown }).get === 'function'
+        ? (v as { get: () => unknown }).get()
+        : v
+    expect({
+      minDshVersion: value['minDshVersion'],
+      projectTreeDir: plain(value['projectTreeDir']),
+      hubDir: plain(value['hubDir']),
+    }).toEqual({ minDshVersion: '0.2.0-rc.2', projectTreeDir: '.research', hubDir: '.research-control' })
   })
 
   it('implements [Service.init] as an async own method on the prototype', () => {

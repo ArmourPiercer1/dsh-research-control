@@ -61,7 +61,7 @@ describe('renderInvestigatorPresetComposition（闭集构造 — 逐字钉）', 
       + "\n  name: '@deepseek-ai/dsh-tool-bash'"
       + '\n- id: tool-fs-search'
       + "\n  name: '@deepseek-ai/dsh-tool-fs-search'"
-      // WP-7.4 / G7 S2: pin 版 dsh@0.1.0-rc.8 该键 required 无 fallback —
+      // WP-7.4 / G7 S2: pin 版宿主（0.1.0-rc.8 与 0.2.0-rc.2 同）该键 required 无 fallback —
       // 上游 standard/code preset 同行逐字（缺此键实机 mount 失败, TC-
       // DSH-010 发现）。纯读呈现排序控制 — 零写能力面。
       + '\n  config:'

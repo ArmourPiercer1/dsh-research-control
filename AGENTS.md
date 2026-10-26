@@ -8,6 +8,10 @@
 ## 0. 开发基线（2026-10-26 用户指令）
 
 - **基线 = 上游 `origin/main`**（G5 工具闭环收口，train `0.1.2-alpha.3`）。
+- **train 迁移（用户裁决「产品要跟进上游更新」）**：目标 train `0.2.0-rc.2`
+  （release 提交 `c1b47e41fc`），在分支 `maint/train-0.2.0-rc.2` 落地（迁移记录
+  `docs/MAINT_0_2_0_RC2_PLAN.md`）；依赖 pin、§2 测试实例、TC-DSH-008 CLI pin
+  三者随 train 一并重锚（登记 `dev/engineering/registry.yaml` host_pins）。
 - 本地的 **0.1.5-rc.2 适配已取消**（用户判定：该版本已少人使用）。工作未删除，
   完整保留在本地分支 `archive/dsh-0.1.5-rc.2-adaptation`（含 rebase 收编、
   agent.id 适配与全绿门禁记录；**不入上游、不推送**）；其中与版本无关的
@@ -25,8 +29,9 @@
 
 - DSH 宿主源码的**参考副本**（2026-09-18 实测版本：`0.1.5-rc.2`），是查证 DSH
   API 真实签名、行为与文档的一手验证落点（`DSH_ADAPTER.md` 的 [V] 标记在此续作）。
-  **注意**：副本版本（0.1.5-rc.2）比当前基线 train（0.1.2-alpha.3）更新——在其中
-  查证到的 API 形状不可直接当作基线 pin 下的真值引用，须先核对版本。
+  **注意**：2026-10 train 迁移（0.2.0-rc.2）后，副本版本（0.1.5-rc.2）比当前基线
+  train **更旧**——在其中查证到的 API 形状不可直接当作 train pin 下的真值引用，
+  须先核对版本（新基线的一手验证落点是 `tests/deepseek-harness/` 的 train checkout）。
 - **纪律：只读。** 禁止对该目录做任何写操作（edit / write / delete / 任何 git
   变更 / 安装依赖 / 构建产物写入）。在其中发现与文档不符之处：只记录（含文件
   路径 + 行号 + 证据），不修改。
@@ -44,13 +49,14 @@
   `tests/deepseek-harness/**` / `tests/dsh-homes/**` / `references/**`——该
   checkout 自带大量 spec 与 TS 文件，绝不可被本仓的测试收集器 / 类型检查器收编；
   如改动收集面，保持这几条排除。
-- **版本对齐（2026-10-26 完成，用户指令「更新本地测试用例 + 探针」）**：checkout 已切到
-  基线 train 的 release-merge 提交 `dd6322d604`（= `release(dsh): 0.1.2-alpha.3` 的
-  PR 合流，root package.json 版本核验一致）。**train 切换必做**：先 `pnpm run clean`
+- **版本对齐（2026-10 train 迁移更新）**：checkout 已切到 train `0.2.0-rc.2` 的
+  release 提交 `c1b47e41fc`（= `release(dsh): 0.2.0-rc.2`，root package.json 版本
+  核验一致；上一对齐为 0.1.2-alpha.3 @ `dd6322d604`，2026-10-26）。**train 切换必做**：先 `pnpm run clean`
   再 `pnpm run build`——`lib/` 等产物是 gitignored 且 tsc 增量不删孤儿文件，实测
   0.1.5 残留（`DockSurface.js` → tsdown UNRESOLVED_IMPORT；残留 CLI → import 旧
   train 才有的 `dsh-http-proxy`）会同时毒化构建与运行面。live-boot 冒烟已通过
-  （证据：`tests/dsh-homes/live-probe-20261026/`，探针配方：`DSH_HOME`、`HOME`
+  （0.2.0-rc.2 证据：`tests/dsh-homes/live-maint-rc2/`，见
+  `docs/MAINT_0_2_0_RC2_PLAN.md` 落地状态节；旧 train 证据 `tests/dsh-homes/live-probe-20261026/`；探针配方：`DSH_HOME`、`HOME`
   （pnpm 11 的 sqlite 状态落在 `$HOME` 下，沙箱必须一并收进工作区）、pnpm storeDir
   三者全落 `tests/dsh-homes/` 内；起服 / 探测 / 关停必须写在**同一个** bash 调用里
   ——会话会在调用边界回收后台进程）。
@@ -81,7 +87,7 @@
 
 | 文件 | 本地增量（相对上游） | 上游语义（不变项） |
 |---|---|---|
-| `scripts/e2e-run.sh` | 默认 smoke root `<repo>/tests/dsh-homes/.smoke`（工作区内，§3）；继承的 `DSH_HOME` 落在 `tests/dsh-homes/**` 内按隔离值归一化 | `E2E_SCHEMA_ROOT` 走上游 G0（`scripts/resolve-e2e-schema-root.sh`：默认 = 仓内已提交快照 `<repo>/schema`，显式覆盖优先，一次性归一化绝对路径、不可用即 exit 1；测试侧同源谓词 `tests/helpers/workspace-root.ts`，`DSH_RESEARCH_WORKSPACE_ROOT` 覆盖，不做父目录自动发现）；强制 smoke home（`$SMOKE_ROOT/dsh-home`）、exit 2/3 语义、flock 独占锁、端口 3199、TC-DSH-008 CLI pin 随上游取值（当前 `0.1.0-rc.8`；与 §2 测试实例 train 的版本对齐一并在版本决策中处理）、`DSH_SMOKE_ROOT` 覆盖（并行运行时仍建议指向 `tests/dsh-homes/` 内独立子目录） |
+| `scripts/e2e-run.sh` | 默认 smoke root `<repo>/tests/dsh-homes/.smoke`（工作区内，§3）；继承的 `DSH_HOME` 落在 `tests/dsh-homes/**` 内按隔离值归一化 | `E2E_SCHEMA_ROOT` 走上游 G0（`scripts/resolve-e2e-schema-root.sh`：默认 = 仓内已提交快照 `<repo>/schema`，显式覆盖优先，一次性归一化绝对路径、不可用即 exit 1；测试侧同源谓词 `tests/helpers/workspace-root.ts`，`DSH_RESEARCH_WORKSPACE_ROOT` 覆盖，不做父目录自动发现）；强制 smoke home（`$SMOKE_ROOT/dsh-home`）、exit 2/3 语义、flock 独占锁、端口 3199、TC-DSH-008 CLI pin 随上游取值（当前 `0.2.0-rc.2`；2026-10 train 迁移已重锚至 §2 测试实例同一 train，B-EB3-1 的 rc.8 起服缺陷随之解除，TC-DSH-008 世界复跑待迁移评审合入后执行）、`DSH_SMOKE_ROOT` 覆盖（并行运行时仍建议指向 `tests/dsh-homes/` 内独立子目录） |
 | `vitest.config.ts` | `exclude` 含 `references/**`、`tests/deepseek-harness/**`、`tests/dsh-homes/**` | 其余 include/exclude、decorator 插件 |
 | `tsconfig.json` | `exclude` 含 `references`、`tests/deepseek-harness`、`tests/dsh-homes` | 其余 compilerOptions、include |
 | `.gitignore` | 增加 `references/`、`tests/deepseek-harness/`、`tests/dsh-homes/*`（`!tests/dsh-homes/.gitkeep`）、`.scratch/`、`.npm-tmp/` | 其余条目 |

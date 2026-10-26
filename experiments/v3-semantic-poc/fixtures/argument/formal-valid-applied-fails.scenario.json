@@ -1,0 +1,40 @@
+{
+  "_note": "反例 3（最小 Theory 严格对照；合成命题 + 真实运行信封）：一条「薄透镜线性模型」形式命题。数学可信基=线性代数推演自洽（method=deductive，scope 限定「线性、薄透镜、无空间电荷」）；工程适用性=strk-05/06 实测签名不符 → Assessment 历史在同一条 argument 上追加「数学可信 ✓（CONFIRM）」与「物理适用范围失败 ✗（ATTACK, applicability 形态）」两条记录，互不覆盖。失败限定在适用范围，不外推为「命题本身为假」。素材：samples/gpt-streak/envelopes.strk-05/06（真实 GPT 运行、合成研究场景）。",
+  "scenario_id": "ARG-FVAF",
+  "argument": {
+    "argument_id": "ARG-LENS-LINEAR",
+    "revision_id": "rev-0",
+    "claim": "薄透镜线性模型下，四极梯度 +10% 的屏面光斑签名（stdx/stdy 相对变化）可由线性传递矩阵 + 漂移解析外推预估",
+    "method": "deductive",
+    "scope": "线性、薄透镜、无空间电荷",
+    "open_obligations": ["非线性源（空间电荷/边缘场/有限透镜厚度）在 scope 外，未建模"],
+    "support": {
+      "type": "AND",
+      "children": [
+        { "type": "LEAF", "premise": "P0: 近轴薄透镜线性传递矩阵推导自洽（线性代数，逐行复核）" },
+        { "type": "LEAF", "premise": "P1: 漂移段解析传输（屏面 z=0.60 m 位于漂移区）" }
+      ]
+    }
+  },
+  "assessment_history": [
+    {
+      "at_type": "CONFIRM",
+      "op": "confirm",
+      "target": "ARG-LENS-LINEAR",
+      "reason": "数学可信：线性代数推演自洽（method=deductive，推导逐行复核通过；合成审查记录）",
+      "actor": "researcher:synthetic-reviewer",
+      "source": { "file": "samples/gpt-streak/envelopes.strk-03.jsonl", "run_id": "RUN-STRK-03", "seq": 2 }
+    },
+    {
+      "at_type": "ATTACK",
+      "op": "undercut",
+      "target": "applicability:线性、薄透镜、无空间电荷",
+      "reason": "物理适用范围失败：strk-05/06 实测签名 (+7.4%, +15.0%) 与线性预估 (+21.8%, +6.7%) 不符——在声明 scope 之外的真实工况上适用性不成立；不据此断言命题在数学上为假",
+      "source": { "file": "samples/gpt-streak/envelopes.strk-06-live-quaderr.jsonl", "run_id": "RUN-STRK-06", "seq": 4 },
+      "evidence_refs": [
+        { "file": "samples/gpt-streak/envelopes.strk-05-live-nominal.jsonl", "run_id": "RUN-STRK-05", "seq": 4 },
+        { "file": "samples/gpt-streak/envelopes.strk-06-live-quaderr.jsonl", "run_id": "RUN-STRK-06", "seq": 3 }
+      ]
+    }
+  ]
+}

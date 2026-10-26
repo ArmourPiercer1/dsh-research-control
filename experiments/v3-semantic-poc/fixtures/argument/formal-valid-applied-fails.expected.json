@@ -1,0 +1,16 @@
+{
+  "_note": "golden 期望表（标注者=integrator）。核心断言：同一条 argument 上 CONFIRM（数学可信）与 ATTACK（适用范围失败）两条追加记录**并存互不覆盖**；攻击目标为 applicability 三形态之一且限定词=argument 的 scope 字段（失败被限定在适用范围，不外推到命题本身为假）。",
+  "sequence": ["CONFIRM", "ATTACK"],
+  "latest_for_type": "ATTACK",
+  "coexist": {
+    "confirm_reason_contains": "数学可信",
+    "attack_reason_contains": "适用范围失败",
+    "confirm_entry_unchanged": true
+  },
+  "attack_target_form": "applicability",
+  "attack_target_scope_equals_argument_scope": true,
+  "evidence_anchor_files": [
+    "samples/gpt-streak/envelopes.strk-05-live-nominal.jsonl",
+    "samples/gpt-streak/envelopes.strk-06-live-quaderr.jsonl"
+  ]
+}

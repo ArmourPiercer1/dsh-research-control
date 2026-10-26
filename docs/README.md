@@ -76,6 +76,7 @@
 | `docs/engineering-baseline/gates/G3.md` | Current |
 | `docs/packaging.md` | Current |
 | `docs/poc/V3_POC_EXECUTION_PLAN.md` | Proposed |
+| `docs/poc/gates/P0.md` | Proposed |
 | `docs/testing.md` | Current |
 | `experiments/v3-semantic-poc/README.md` | Unranked |
 | `experiments/v3-semantic-poc/SPEC.md` | Unranked |

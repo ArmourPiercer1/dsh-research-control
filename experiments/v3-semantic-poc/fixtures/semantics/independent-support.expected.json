@@ -1,0 +1,7 @@
+{
+  "_note": "标注者=会话 integrator（P2 合成范围）。攻击=undercut(机制读数 MR2)：H1 型场景——机制解释被疑，独立观测支撑不受影响。",
+  "attack": { "op": "undercut", "target": "MR2" },
+  "affected_paths": ["P-mech"],
+  "unaffected_paths": ["P-direct"],
+  "claim_status": "OPEN"
+}

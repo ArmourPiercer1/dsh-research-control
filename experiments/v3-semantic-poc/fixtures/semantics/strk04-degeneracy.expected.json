@@ -1,0 +1,7 @@
+{
+  "_note": "LLM 质疑是 undercut 型（攻独立性假设）：受影响=束斑对比路径；未受影响=v2 残余修正路径与其记录本身（SOURCE_RECORD 记录不是被质疑的推理适用性）；claim 存在性保留。",
+  "attack": { "op": "undercut", "target": "ASSUME-INDEP" },
+  "affected_paths": ["P-spot-compare"],
+  "unaffected_paths": ["P-residual-v2"],
+  "claim_status": "OPEN"
+}

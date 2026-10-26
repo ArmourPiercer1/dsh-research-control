@@ -1,0 +1,15 @@
+{
+  "scenario_id": "SCN-INDSUP",
+  "_note": "合成场景（P0 fixtures 的论证结构显式化）。结构=人工声明，非从 based_on 推断。O2 的机制读数单独成节点：它是「质疑机制」的靶，撤销它不撤销 O2 观测本身。",
+  "nodes": [
+    { "node_id": "O1", "kind": "observation_record", "source_ref": { "file": "fixtures/independent-support.jsonl", "run_id": "RUN-SYNTH-INDSUP-1", "seq": 3 } },
+    { "node_id": "O2", "kind": "observation_record", "source_ref": { "file": "fixtures/independent-support.jsonl", "run_id": "RUN-SYNTH-INDSUP-1", "seq": 6 } },
+    { "node_id": "MR2", "kind": "mechanism_reading", "source_ref": { "file": "fixtures/independent-support.jsonl", "run_id": "RUN-SYNTH-INDSUP-1", "seq": 6 } },
+    { "node_id": "CL", "kind": "claim", "source_ref": { "file": "fixtures/independent-support.jsonl", "run_id": "RUN-SYNTH-INDSUP-1", "seq": 7 } }
+  ],
+  "paths": [
+    { "path_id": "P-direct", "premises": ["O1"] },
+    { "path_id": "P-mech", "premises": ["O2"], "via_mechanism_of": "MR2" }
+  ],
+  "claim": "CL"
+}

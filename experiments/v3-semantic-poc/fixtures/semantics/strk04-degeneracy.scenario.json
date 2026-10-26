@@ -1,0 +1,16 @@
+{
+  "scenario_id": "SCN-STRK04",
+  "_note": "strk-04 真实推演靶标映射（裁定版）。challenges_event_seq=10 是样本旧行号残留，本文件只用显式声明的图结构。攻击节点=strk-04#1（LLM 独立性质疑），攻击类型=undercut（攻击「两条路径 deck 层独立」这一推理适用性假设）。",
+  "nodes": [
+    { "node_id": "OBS-SPOT", "kind": "observation_record", "source_ref": { "file": "samples/gpt-streak/envelopes.strk-03.jsonl", "run_id": "RUN-STRK-03", "seq": 2 } },
+    { "node_id": "RES-V1", "kind": "analysis_result", "source_ref": { "file": "samples/gpt-streak/envelopes.strk-02.jsonl", "run_id": "RUN-STRK-02", "seq": 4 } },
+    { "node_id": "RES-V2", "kind": "analysis_result", "source_ref": { "file": "samples/gpt-streak/envelopes.strk-02.jsonl", "run_id": "RUN-STRK-02", "seq": 5 } },
+    { "node_id": "ASSUME-INDEP", "kind": "assumption", "assumption_text": "两条支撑路径在 deck 层相互独立（不同 deck、独立参数），束斑对比不构成共模" },
+    { "node_id": "CLM", "kind": "claim", "source_ref": { "file": "samples/gpt-streak/envelopes.strk-04.jsonl", "run_id": "RUN-STRK-04", "seq": 0 } }
+  ],
+  "paths": [
+    { "path_id": "P-spot-compare", "premises": ["OBS-SPOT", "RES-V1", "ASSUME-INDEP"] },
+    { "path_id": "P-residual-v2", "premises": ["RES-V2"] }
+  ],
+  "claim": "CLM"
+}

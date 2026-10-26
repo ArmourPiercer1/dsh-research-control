@@ -8,6 +8,10 @@
 # 本文件是人工文件（sync 禁写）。owner 是角色不是人名。
 schema_version: 1
 rules:
+  - glob: "experiments/**"
+    owner: poc-v3
+    risk: advisory
+    note: V3 侧车（#10 失败隔离）——advisory：其红绝不升级为 V1 门禁
   - glob: "schema/**"
     owner: contract-frozen
     risk: blocking

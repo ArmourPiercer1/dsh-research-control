@@ -77,6 +77,8 @@
 | `docs/packaging.md` | Current |
 | `docs/poc/V3_POC_EXECUTION_PLAN.md` | Unranked |
 | `docs/testing.md` | Current |
+| `experiments/v3-semantic-poc/README.md` | Unranked |
+| `experiments/v3-semantic-poc/SPEC.md` | Unranked |
 | `schema/README.md` | Unranked |
 | `src/host/persistence/hardening/README.md` | Unranked |
 <!-- docs:sync:end -->

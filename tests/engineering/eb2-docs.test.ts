@@ -190,6 +190,26 @@ describe('EB2 P4 — kernel integrity', () => {
   })
 })
 
+  it('docs:probe --paths 收到文档而非清单时 fail-loud（DX 守卫）', () => {
+    const d = mk()
+    const list = join(d, 'good-list.txt')
+    writeFileSync(list, 'docs/development.md\nsrc/host/index.ts\n')
+    const good = execFileSync('node', [join(REPO, 'scripts/docs/probe.mjs'), '--paths', list], { cwd: REPO, encoding: 'utf8' })
+    expect(good).toContain('docs:probe')
+    const doc = join(d, 'spec-like.md')
+    writeFileSync(doc, '# 某契约文档\n\n```jsonc\n{ "x": 1 }\n```\n\n| 列 | 列 |\n|---|---|\n\n**硬规则** 正文。\n')
+    let code = 0
+    let err = ''
+    try {
+      execFileSync('node', [join(REPO, 'scripts/docs/probe.mjs'), '--paths', doc], { cwd: REPO, encoding: 'utf8', stdio: 'pipe' })
+    } catch (e) {
+      code = (e as { status?: number }).status ?? -1
+      err = String((e as { stderr?: string }).stderr ?? e)
+    }
+    expect(code, `文档当清单传必须 exit 2，实际 ${code}（当前会把正文逐行当路径吞掉）`).toBe(2)
+    expect(err).toContain('--paths')
+  })
+
 describe('EB3 P5 — principled-Draft ADR class (docs/architecture/adr/, PR #9 intake)', () => {
   const adrFix = () => {
     const d = mk()

@@ -130,3 +130,36 @@ Gate P1 四条（#10 §4-P1）对账：
 - 实体身份合并优先按内容 sha256，其次按路径别名；合成 fixture 复用假 sha 会
   跨文件合并同名实体，`also_seen_in` 保留全部来源定位（真实数据下 sha 才是真值）。
 - `--project` 只 glob 目录内 `*.jsonl`（不递归）；`--fixture`/`--project` 互斥。
+
+## P2 机制层（2026-10-26，integrator 内联实现）
+
+> 前委两任代理均因探索期超时无产出被终止，本层由 integrator 按已裁定设计
+> 直接实现（设计裁定的完整链条在本目录 git 提交信息可查）。合成范围，无
+> Gate 声称。
+
+**实现裁定回放**：
+1. 论证结构 = scenario 文件**显式声明**（nodes+paths）；based_on 只作来源
+   线索不作结构推断（P1「派生≠证明」同源）。机制读数（observation 的
+   mechanism_reading）单独成节点——「质疑机制」有靶而不必撤销观测本体。
+2. undercut/rebut 分离：传播=「沿依赖边向下，只染可达路径」；独立路径不可达
+   ⇒ 不级联（#10 §1 问题 4）。rebut(claim) 是唯一撤 claim 通道；rebut 节点
+   只染节点+直接路径，claim 仍 OPEN。
+3. **确认约定**（信封 kind 枚举不可扩）：RESEARCHER_INFERENCE +
+   payload.action='semantic_confirmation' + payload.confirming
+   {candidate_id|l0_revision_id} 必填 + **payload.actor 必填**（我方加严：
+   无授权人=不可归因确认，停留 NEEDS_CLARIFICATION 并列账）。待 P2 Gate 评审。
+4. L0 不可变（reviseL0 产新对象 + based_on 指旧版）；槽位缺失恒 'UNKNOWN'
+   并记 uncertainties，全链无补全路径（本层无 LLM）。
+5. verifyScenario 两趟法：先对被引用信封文件宽松收集 knownRuns，再严格解析
+   （strk-04 的跨 run based_on 需解析表——v0.1 规则的复用）。
+
+**与 ARCHITECTURE_BASELINE §4 的出入**：a) 基线的 L1 语义确认是「人工/受授权
+动作」抽象——本层落为 payload 约定（上 3），词汇未动；b) 基线 WorldContext/
+ResearchScope 为对象字段，本层简化为字符串或 'UNKNOWN'（PoC 面够用，正式
+投影留给 V3 实现）；c) 「语义确认状态」基线未给持久形态，本层挂在 L1 记录上
+（confirmations[] 每条可回源到确认事件的 source_ref）。
+
+**真实素材衔接**：strk04-degeneracy 场景是合成论证结构 + 真实运行信封混合的
+前奏——2026-10-26 实测证伪线性预估签名（strk-06#4）正是「机制读数被疑、
+观测记录保留」的真实实例；待 P2 用真实场景文件复刻该攻击时，golden 期望表
+直接照抄 strk-06 的语义即可。

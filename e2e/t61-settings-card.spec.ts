@@ -305,9 +305,16 @@ test('V2-T6.1 设置插件卡片 — live 4-case rehearsal (cases 1 → 4 → 2 
   await expect
     .poll(() => rescanLogLines().length, { timeout: 30_000 })
     .toBeGreaterThan(logLinesBefore2)
-  const case2Rescan = rescanLogLines()[rescanLogLines().length - 1]
-  expect(case2Rescan).toContain('projects: 0')
-  expect(case2Rescan).toContain('missing: 1')
+  // §7.5 emits TWO fresh rescan blocks on the loss path: the ghost-state
+  // rescan that DETECTED the loss (projects: 0, missing: 1) and the restore
+  // rescan after the rollback (the old plane live again: projects: 1,
+  // missing: 0). Assert BOTH roles — detection happened and we ended
+  // restored — rather than pinning one positional line.
+  const newBlocks2 = rescanLogLines().slice(logLinesBefore2)
+  expect(newBlocks2.some((b) => b.includes('projects: 0') && b.includes('missing: 1'))).toBe(true)
+  const lastBlock2 = newBlocks2[newBlocks2.length - 1]!
+  expect(lastBlock2).toContain('projects: 1')
+  expect(lastBlock2).toContain('missing: 0')
   await page.screenshot({ path: new URL('03-case2-warning-rollback.png', SHOT_DIR).pathname })
 
   /* ---------------- CASE 3 — 非法输入拒绝（写前拦截） ---------------- */

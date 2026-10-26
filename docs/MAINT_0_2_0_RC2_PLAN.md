@@ -207,7 +207,12 @@ F1–F4 + F5（settings 0.2 模型）全部落地；门禁与冒烟（2026-10，
   `/api` 需 cookie。
 - **e2e spec 族 0.2 适配**（由探针派生，另包进行中）：helpers 关窗双语选择器、
   t61 导航重写走插件管理页、node 侧 RPC 带 cookie、t63 会话种子 v4+zstd。
-- **GUI 走查批次清单（更新）**：已保存瞬态观感；case2 失联回退/case3 拒绝路径
-  UI；unload-reload 重现；插件管理页真 enable/disable 泄漏环；investigator
-  一键调查；双主题。
+- **e2e 0.2 适配包**（PR #39）：t61 导航重写（行配置席位双语锚）+ cookie 上行 +
+  t63 生产后端会话种子 + helpers 双语关窗；**t61 全绿过程中抓出并修复一个真 (B)
+  回归**：0.2 行配置席位交的是渲染期 state 值拷贝（train PluginManagerPage.tsx:1258），
+  卡片回退 fence 读到陈旧 revision 必自冲突（盘留未验证值）——修复为快照未推进时
+  委托宿主自身镜像 revision 作 fence（新回归测试 + t61 CASE2 端到端复验）。
+- **GUI 走查批次清单（再更新）**：~~t61 读写往返/拒绝路径/失联回退~~ ✅无头全绿；
+  ~~双主题~~ ✅t63 截图覆盖；仍待人眼：已保存瞬态观感、插件管理页 unload-reload
+  重现、真 enable/disable 泄漏环、investigator 一键调查。
 - **investigator 一键调查 GUI 走查**：待浏览器批次（与上同批）。

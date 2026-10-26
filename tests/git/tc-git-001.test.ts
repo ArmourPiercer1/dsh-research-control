@@ -43,7 +43,7 @@ describe('TC-GIT-001 dirty working tree', () => {
     const log = await git.logFile(root, PLAN_PATH)
     expect(log).toHaveLength(1)
     expect(log[0]!.oid).toBe(headBefore)
-    expect(log[0]!.authorDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
+    expect(log[0]!.authorDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/) // EB3: UTC runner 上 git %aI 输出 'Z' 偏移（同 diff-history 修法，RFC3339 两种合法偏移）
 
     expect(await git.showFile(root, headBefore, PLAN_PATH)).toBe(PLAN_V1)
     expect(await git.lsFiles(root, '.research/')).toContain(PLAN_PATH)

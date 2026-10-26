@@ -36,8 +36,11 @@ stages:
       - tests/engineering/eb2-docs.test.ts
       - docs/decisions/ADR-0001-in-repo-canonical-source.md
   EB3_G3:
-    verdict: PENDING
+    verdict: PASS
     gate: docs/engineering-baseline/gates/G3.md
+    evidence:
+      - docs/engineering-baseline/gates/G3.md
+      - dev/engineering/tsc-debt.ids
 
 host_pins:
   dependency_train: 0.1.2-alpha.3

@@ -50,7 +50,7 @@ host_pins:
   instance_checkout: tests/deepseek-harness
   instance_sha: c1b47e41fc
   e2e_cli_pin: 0.2.0-rc.2
-  note: 2026-10 train 迁移（用户裁决：产品跟进上游）train/实例/CLI pin 三者重锚至 release(dsh): 0.2.0-rc.2；B-EB3-1 的 rc.8 起服缺陷随 pin 重定至 train CLI 解除，TC-DSH-008 世界复跑在本迁移评审合入后执行
+  note: 2026-10 train 迁移（用户裁决：产品跟进上游）train/实例/CLI pin 三者重锚至 release(dsh): 0.2.0-rc.2；B-EB3-1 的 rc.8 起服缺陷随 pin 重定至 train CLI 解除；TC-DSH-008 世界复跑已完成（前置链 #27；迁移评审合入后 0.2 世界无头 t61 设置卡往返 + t63 干净画像全绿，见 docs/MAINT_0_2_0_RC2_PLAN.md 落地状态节）
 
 known_debts:
   e2e_spec_layer:

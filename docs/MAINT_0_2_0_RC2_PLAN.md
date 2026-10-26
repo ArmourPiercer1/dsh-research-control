@@ -188,3 +188,9 @@ F1–F4 + F5（settings 0.2 模型）全部落地；门禁与冒烟（2026-10，
 - 遗留（如实）：GUI 浏览器走查（Installed 导航往返、`false` 拒绝路径、
   unload/reload）——无头环境不可跑，列为评审后首台批次；live boot 未动用
   （类型面一手核验 + 单测闭环，预算 ≤1 次用 0 次）。
+
+## 遗留缺口收编状态（2026-10-27，只追加）
+- **settings-card→configForms**：✅ PR #34（tsc 债 21→20 清偿一并入库）；
+  其遗留 = GUI 浏览器走查（读写往返/拒绝路径/unload-reload 重现）。
+- **load/unload/reload 泄漏环**：进行中（独立任务）。
+- **investigator 一键调查 GUI 走查**：待浏览器批次（与上同批）。

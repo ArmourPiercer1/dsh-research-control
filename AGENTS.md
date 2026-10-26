@@ -15,9 +15,9 @@
 - 本地的 **0.1.5-rc.2 适配已取消**（用户判定：该版本已少人使用）。工作未删除，
   完整保留在本地分支 `archive/dsh-0.1.5-rc.2-adaptation`（含 rebase 收编、
   agent.id 适配与全绿门禁记录；**不入上游、不推送**）；其中与版本无关的
-  settings-card 迟到注册修复单独摘到本地分支
-  `fix/settings-card-late-scope-registration`（已在新基线验证：tests/settings
-  38/38、tsc ZERO DIFF；待评审入主干）。
+  settings-card 迟到注册修复经评审并入：PR #34（configForms 迁移）逐 hunk
+  裁定——re-probe 阶梯被新形态**替代**、warn-once **收编重写**；本地分支已删。
+  遗留：GUI 浏览器走查（评审后首台批次，见 MAINT 计划落地状态节）。
 - 本文件三条硬纪律与 `references/` 只读副本、`tests/deepseek-harness/` 测试
   实例、`tests/dsh-homes/` 状态隔离**不随基线重置失效**（它们约束的是沙箱
   工作形态，与宿主版本无关）。

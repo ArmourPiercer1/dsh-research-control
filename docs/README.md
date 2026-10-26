@@ -46,6 +46,7 @@
 | `docs/G2_READONLY_TOOLS.md` | Unranked |
 | `docs/G3_SEMANTIC_WRITE_TOOLS.md` | Unranked |
 | `docs/G4_ATTENTION_WRITE_TOOLS.md` | Unranked |
+| `docs/MAINT_0_2_0_RC2_PLAN.md` | Unranked |
 | `docs/README.md` | Current |
 | `docs/TOOLS_TRACEABILITY.md` | Historical |
 | `docs/architecture/ARCHITECTURE_BASELINE.md` | Proposed |

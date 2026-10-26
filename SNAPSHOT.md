@@ -1,17 +1,17 @@
-# SNAPSHOT.md — 发布期快照清单（SI-001；生成物，勿编辑）
+# SNAPSHOT.md — 发布期契约清单（生成物，勿编辑）
 
-> 生成时间：2026-08-25T09:19:07.470Z
-> 源根（开发期正本，唯一）：`/home/armourpiercer/projects/dsh-plugins/research-control-plane`
-> 政策：`docs/execution/spec-issues/SI-001.md`（`resolved-compatibly`）+ ARCHITECTURE §2.1「目录结构（冻结目标）」。
-
-**只读声明**：本包内 `schema/**` 与 8 份根文档是工作区根冻结产物的**内容一致只读快照**
-（逐文件 sha256 核验，见下表）——它们**不是**契约正本；正本唯一留在源根，冻结变更只走
-解冻-修改-重冻结流程（计划书 §40）。快照文件权限 0444/0555；重新生成 = `pnpm run build`
-（`scripts/snapshot-release.mjs` 幂等重写）。
+> 生成命令：`pnpm run snapshot:update`（`scripts/snapshot-release.mjs --update`）。
+> 默认构建只做**校验**（与文件树双向逐文件 sha256），不写本文件。
+> 正源唯一且在 Git 内：本仓库的 `schema/**` 与 8 份根文档就是契约正源
+> （AD-EB-01；批准基准 `main@1d64d9e9`，Gate 记录 `docs/engineering-baseline/gates/`）。
+> 修订走冻结变更流程：改契约文件 → `pnpm run snapshot:update` → 契约文件与
+> 清单进同一个可评审提交。
+> 运行时解析（`#resolveSchemaRoot` 自 `<pkg>/schema`）与 `DSH_RESEARCH_SCHEMA_ROOT`
+> 显式部署覆盖的语义与本清单无关，保持不变。
 
 共 31 个文件（8 文档 + 23 schema）。
 
-| 文件（包内相对路径） | sha256 | 字节 |
+| 文件（仓内相对路径） | sha256 | 字节 |
 |---|---|---|
 | `ARCHITECTURE.md` | `b4ee4a221baeebcbcfe579ed0be94067a5838e9fe284cc357d6c6cf51a0aa9da` | 26130 |
 | `DOMAIN_SCHEMA.md` | `e015444da17e901fbe6132eae5e585e31fc0f595417867284f7e4a5137b1232a` | 34545 |

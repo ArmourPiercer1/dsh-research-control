@@ -49,6 +49,17 @@ export default defineConfig({
   test: {
     // e2e/*.spec.ts belong to Playwright (scripts/e2e-run.sh / test:e2e), not
     // the unit runner; vitest's default include would otherwise collect them.
-    exclude: [...defaultExclude, 'e2e/**'],
+    // 2026-09-18 workspace discipline (AGENTS.md §1–§3): the two DSH
+    // checkouts carry their own spec files — references/deepseek-harness/
+    // (read-only reference, §1) and tests/deepseek-harness/ (test instance,
+    // §2) — they belong to the DSH repo's own runners, never this repo's.
+    // tests/dsh-homes/ holds DSH_HOME state (no specs; excluded for symmetry).
+    exclude: [
+      ...defaultExclude,
+      'e2e/**',
+      'references/**',
+      'tests/deepseek-harness/**',
+      'tests/dsh-homes/**',
+    ],
   },
 })

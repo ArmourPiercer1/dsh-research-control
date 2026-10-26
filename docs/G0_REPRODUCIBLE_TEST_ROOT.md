@@ -85,3 +85,12 @@ pack/快照刷新仍用 `DSH_SNAPSHOT_SOURCE_ROOT=<workspace-root>`。
   `scripts/e2e-schema-root-check.sh` default/relative/absolute/invalid 全 PASS
   （`wt-07b`）；`e2e-run.sh` 接线探针 default=relative(两 cwd)=anchored absolute、
   invalid=启动即 exit 1（`wt-08b`）。未启动任何服务/UI，e2e 维持 NOT_RUN。
+
+---
+
+> **2026-10-26 附注（AD-EB-01 / EB1）**：本文件正文是 G0 当时的历史记录，不改写。
+> 此后 `DSH_SNAPSHOT_SOURCE_ROOT` 与「父→包」快照同步已随 AD-EB-01 **退役**
+> （`scripts/snapshot-release.mjs` 改为仓内正源校验 + 确定性发布清单，见
+> `docs/engineering-baseline/` 与 Gate 记录）；测试默认仓内 `schema/`、显式
+> `DSH_RESEARCH_WORKSPACE_ROOT` / 运行时 `DSH_RESEARCH_SCHEMA_ROOT` 覆盖语义
+> **不变**，G0 的可复现契约继续有效。

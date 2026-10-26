@@ -22,7 +22,7 @@ Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic /
 
 ```sh
 cd dsh-research-control
-pnpm install && pnpm run build     # 产出 lib/ + 发布期快照（SI-001）
+pnpm install && pnpm run build     # 产出 lib/ + 校验仓内契约面（AD-EB-01；SNAPSHOT.md 清单）
 pnpm pack                          # → dsh-research-control-<version>.tgz
 dsh plugin --profile web add ./dsh-research-control-<version>.tgz
 ```
@@ -51,7 +51,7 @@ dsh --profile web --dump-config    # 组合树中出现 id: research-control 行
 ### 数据与冻结契约快照
 
 - 运行数据（V2 布局，库随项目走）：受管项目 `<hubDir>/projects/<project-id>/research.sqlite`（中枢目录，默认 `.research-control`）/ 单工作区项目 `<treeDir>/state/research.sqlite`；目录名可经 DSH 设置插件卡片改名；旧路径 `$DSH_HOME/research-control/<id>/` 退役（启动期发现仅日志提示搬运建议）。启动完整性检查在打开前做 `quick_check` + `user_version` 门。
-- 冻结契约：发布包含**内容一致的只读快照**（SI-001 发布期半边）——包根 `schema/`（JSON Schema 2020-12，23 文件）+ 8 份工程文档 + 逐文件 sha256 的 `SNAPSHOT.md` 清单（文件权限 0444/0555）。正本唯一留在研究工作区根；快照不是正源。Host service 自包内 `lib/` 向上一级解析 `<pkg>/schema`；特殊部署可用 `DSH_RESEARCH_SCHEMA_ROOT` 覆盖（不合法即 fail-loud）。
+- 冻结契约：**仓内唯一正源**（AD-EB-01，取代 SI-001 发布期复制机制）——本仓库根的 `schema/`（JSON Schema 2020-12，23 文件）+ 8 份工程文档就是契约正源，随 Git 版本化；`SNAPSHOT.md` 是其确定性发布清单（生成物，构建时双向逐文件 sha256 校验，漂移即失败）。修订走冻结变更流程（改文件 + `pnpm run snapshot:update` + 同一提交评审）。Host service 自包内 `lib/` 向上一级解析 `<pkg>/schema`；特殊部署可用 `DSH_RESEARCH_SCHEMA_ROOT` 覆盖（不合法即 fail-loud）。
 
 ---
 
@@ -69,7 +69,7 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
    └── dsh-adapter/   DSH API → 插件自有接口的唯一映射面（INV-PERM-5：业务代码零 DSH import）
 ```
 
-冻结契约（Frozen V1；发布期以只读快照随包，见上节）：
+冻结契约（Frozen V1；仓内正源，发布清单见上节）：
 
 | 文档 | 内容 |
 |---|---|
@@ -92,14 +92,16 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 
 | script | 作用 |
 |---|---|
-| `pnpm run build` | `tsdown` 三相位（host `lib/` → client `lib/client.js` → e2e factory dist）+ SI-001 发布期快照（`scripts/snapshot-release.mjs`：工作区根 8 文档 + `schema/**` → 包根，只读 + sha256 清单） |
+| `pnpm run build` | `tsdown` 三相位（host `lib/` → client `lib/client.js` → e2e factory dist）+ 仓内契约面校验（`scripts/snapshot-release.mjs`：`SNAPSHOT.md` ↔ 文件树双向逐文件 sha256，零写入；清单重生成 = `pnpm run snapshot:update`） |
+| `pnpm run docs:probe / docs:check / docs:sync` | 变更影响探针（read-only，advisory）/ 全量静态一致性（与 CI 同内核，零写入）/ 派生索引白名单同步（只写 `docs/README.md`，其余 `SYNC_REFUSED`）；纪律见 [docs/development.md](docs/development.md) |
+| `pnpm run check:freshness` | 已提交 `lib/` 等预构建产物 == 当前构建的机器校验（`pack:verify` 已接入；唯一归一化 = 构建机路径注释噪声） |
 | `pnpm test` | vitest 单元/属性/集成全套（含真实工件 fixture：temp git 仓 + 真实 `.research` 树 + 真实冻结 schema） |
 | `pnpm run lint` | import 面审计（`scripts/check-imports.mjs`：INV-PERM-5 等业务代码零 DSH import 规则） |
 | `pnpm run test:perf` | 性能门禁（TC-PERF-001..006：10k 全谱系数据集；`DSH_RUN_PERF=1` 语义内置于 config） |
 | `pnpm run test:e2e` | Playwright 真机循环：隔离 smoke home（**绝不**触碰 `~/.dsh` 与 3080），TC-DSH-005/007/008/009/010 + TC-E2E 双相位 + N 轮 load/unload；`--reset` 显式重置种子面 |
-| `pnpm run pack:verify` | 发布门禁冒烟：`pnpm pack` 产物清单核查（files 面完整性 + 开发私有路径零泄漏）+ 解包后 node 实 import 主入口/`./typert`/`./remote` |
+| `pnpm run pack:verify` | 发布门禁冒烟：build → **产物新鲜度门**（`check:freshness`）→ `pnpm pack` 产物清单核查（files 面完整性 + 开发私有路径零泄漏）+ 解包后 node 实 import 主入口/`./typert`/`./remote` |
 
-四件套在 **standalone checkout（父层无 schema/文档 fixture）** 即可按上序跑通：测试默认读包内冻结快照 `schema/`，显式 `DSH_RESEARCH_WORKSPACE_ROOT` 可指向 canonical 工作区根正本；快照同步（`DSH_SNAPSHOT_SOURCE_ROOT`）与生产 `DSH_RESEARCH_SCHEMA_ROOT` 语义不变——契约与复现步骤见 [docs/G0_REPRODUCIBLE_TEST_ROOT.md](docs/G0_REPRODUCIBLE_TEST_ROOT.md)。
+四件套在 **standalone checkout（父层无 schema/文档 fixture）** 即可按上序跑通：测试默认读仓内 `schema/`（AD-EB-01 后它即正源），显式 `DSH_RESEARCH_WORKSPACE_ROOT` 覆盖语义不变；`DSH_SNAPSHOT_SOURCE_ROOT` 已随 SI-001 复制机制退役（设置为任何值 fail-loud）；生产 `DSH_RESEARCH_SCHEMA_ROOT` 运行时覆盖语义不变——契约与复现步骤见 [docs/G0_REPRODUCIBLE_TEST_ROOT.md](docs/G0_REPRODUCIBLE_TEST_ROOT.md)。
 
 源码布局见 [ARCHITECTURE.md §2.1](ARCHITECTURE.md)；测试策略与机器环境指纹见 TEST_MATRIX.md 与 `tests/` 各套件头注。
 
@@ -146,5 +148,5 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 - **未公开发布** — `0.1.0` + `private: true`，未上 npm 公共注册表，license 未定；当前分发面 = 本地 tarball（`pnpm pack`）或 git checkout / git host（`lib/` 预构建随树提交，两种 git 路径均开箱即用，无需 allowBuilds）。
 - **宿主无兼容承诺** — DSH 为 pre-release（「rename or repackage freely」）；本包以 peer 精确 pin `0.1.2-alpha.3`（`package.json` peer/dep/devDep 全量重锚；见 HEAD `0fa2b1a1` train 适配）+ 自持 `minDshVersion` fail-loud 门（默认下限 `0.1.0-rc.8`，`index.ts:12`）+ TC-DSH-008 compatibility smoke 承接升级风险，不提供跨宿主版本兼容。
 - **e2e 证据面** — 全绿证据基于隔离 smoke home（独立 DSH_HOME + 独立端口 + `--reset` 种子重置），非真实用户 profile 的长期运行；宿主侧长时行为（WAL checkpoint、profile 多 bundle 组合漂移）未覆盖。
-- **快照无自动新鲜度门** — `SNAPSHOT.md` 记录构建时 sha256，但没有机制在「工作区根冻结面变更」后自动重打包；发布流程须重跑 `pnpm run build && pnpm run pack:verify`（重跑即重算快照并逐文件断言内容一致）。
+- **清单重生成仍靠流程纪律** — `SNAPSHOT.md` ↔ 仓内正源的双向校验与 `lib/` 新鲜度门（`check:freshness`，`pack:verify` 已接入）使漂移必然红；但「冻结面变更 → `snapshot:update` → 同一提交」的顺序仍是评审纪律而非自动机器门（CI 只拒绝漂移，不代生成清单）。
 - **启动完整性检查的 V1 边界** — 四检查已接入生产（`[Service.init]` integrity gate，先于服务实例化；不可恢复损坏 fail-loud 阻断 ACTIVE，可恢复损坏 loud 告警 + 启动对账自动收敛，Git 冲突/缺失拒绝 managed mode 与 checkpoint）；但 **部分损坏的 `.research` 树在 V1 仍 fail-loud 拒绝启动**（wiring 的 WIRING_TREE 步保持「任何 load 错误即启动失败」的从严策略，被测试冻结）——ARCHITECTURE §10 行的「部分坏 → 只读可用面」降级语义已由 WP-8.1 分类器定义 + 测试 + e2e 实机证据（integrity gate 已暴露 `readSurface` 旗并在唯一树写路径 honor 它），V1 采纳该降级表面需放宽 WIRING_TREE 步，属后续 WP（G8 裁决书 host-integrator S2 的可选半边）。

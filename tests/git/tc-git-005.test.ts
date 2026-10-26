@@ -42,7 +42,7 @@ describe('TC-GIT-005 contract restore (W6/W7/W8 全链路)', () => {
     const log = await git.logFile(root, CONTRACT)
     expect(log.map((e) => e.oid)).toEqual([oid2, oid1])
     expect(log[0]!.subject).toBe('research: TC-005 contract v2')
-    expect(log[0]!.authorDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
+    expect(log[0]!.authorDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/) // EB3: UTC runner 上 git %aI 输出 'Z' 偏移（同 diff-history 修法，RFC3339 两种合法偏移）
 
     // W7 历史版本内容
     expect(await git.showFile(root, oid1, CONTRACT)).toBe(V1)

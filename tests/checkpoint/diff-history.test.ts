@@ -51,7 +51,7 @@ describe('WP-1.5 diffHistory', () => {
     expect(perFile.versions.map((v) => v.oid)).toEqual([oid2, oid1, oid0])
     expect(perFile.versions[0]!.subject).toBe('research: contract v2')
     for (const v of perFile.versions) {
-      expect(v.authorDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)
+      expect(v.authorDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/) // EB3: UTC runner 上 git %aI 输出 'Z' 偏移——RFC3339 两种偏移都合法（原正则隐含本机 TZ 假设，CI runner 暴露）
     }
 
     const whole = await diffHistory(root, { logger: new RecordingLogger() })

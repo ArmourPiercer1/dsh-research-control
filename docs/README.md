@@ -84,7 +84,9 @@
 | `docs/testing.md` | Current |
 | `experiments/v3-semantic-poc/NOTES.md` | Unranked |
 | `experiments/v3-semantic-poc/README.md` | Unranked |
+| `experiments/v3-semantic-poc/REPORT-P4.md` | Unranked |
 | `experiments/v3-semantic-poc/SPEC.md` | Unranked |
+| `experiments/v3-semantic-poc/fixtures/ab/corpus/README.md` | Unranked |
 | `experiments/v3-semantic-poc/samples/gpt-streak/README.md` | Unranked |
 | `experiments/v3-semantic-poc/samples/gpt-streak/observation-spec.md` | Unranked |
 | `schema/README.md` | Unranked |

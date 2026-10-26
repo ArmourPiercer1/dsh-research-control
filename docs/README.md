@@ -80,6 +80,7 @@
 | `docs/poc/gates/P0.md` | Proposed |
 | `docs/poc/gates/P1.md` | Proposed |
 | `docs/poc/gates/P2.md` | Proposed |
+| `docs/poc/gates/P3.md` | Proposed |
 | `docs/testing.md` | Current |
 | `experiments/v3-semantic-poc/NOTES.md` | Unranked |
 | `experiments/v3-semantic-poc/README.md` | Unranked |

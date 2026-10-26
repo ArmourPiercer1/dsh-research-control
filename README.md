@@ -2,7 +2,7 @@
 
 > DSH Research Control Plane V2 — DeepSeek Harness 的科研工作流 Cockpit 插件（平面模型：管理中枢 + 受管/单工作区项目；V2 使用指南见工作区根 `README.md` 及 `docs/design/V2_RESEARCH_PLANE_DESIGN.md`）。
 
-Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic / Workstream** 组织研究，用 **History / Current / Future** 分离过去、现在与未来；用 immutable **Agent PlanFork** 保护用户对计划的最终控制权；用 **Intervention** 平面管理稀缺的人类注意力；并把科学判断留给人和科研 Agent。插件面向 DSH **0.1.2-alpha.3** 构建（peer 精确 pin + 自持 `minDshVersion` fail-loud 版本门，无宿主兼容承诺；`minDshVersion` 默认下限仍为 `0.1.0-rc.8`，见 `src/host/dsh-adapter/host/index.ts:380`）。
+Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic / Workstream** 组织研究，用 **History / Current / Future** 分离过去、现在与未来；用 immutable **Agent PlanFork** 保护用户对计划的最终控制权；用 **Intervention** 平面管理稀缺的人类注意力；并把科学判断留给人和科研 Agent。插件面向 DSH **0.2.0-rc.2** 构建（peer 精确 pin + 自持 `minDshVersion` fail-loud 版本门，无宿主兼容承诺；`minDshVersion` 默认下限 `0.2.0-rc.2`，见 `src/host/dsh-adapter/host/index.ts` 的 `static Config`）。
 
 运行时面：
 
@@ -16,7 +16,7 @@ Git-backed、event-sourced 的科研工作流控制面：用 **Project / Topic /
 
 ## 安装
 
-前置：`dsh` CLI（DeepSeek Harness `0.1.2-alpha.3`，见 `package.json` peer 精确 pin）与 Node `^22.19.0 || >=24`。
+前置：`dsh` CLI（DeepSeek Harness `0.2.0-rc.2`，见 `package.json` peer 精确 pin）与 Node `^22.19.0 || >=24`。
 
 ### 方式一：tarball（推荐 — 不需要任何构建许可）
 
@@ -78,7 +78,7 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 | [HISTORY_EVENT_CATALOG.md](HISTORY_EVENT_CATALOG.md) | 事件信封 + 20 事件 payload、双时序回放、emitter 矩阵 |
 | [PLAN_FORK_SPEC.md](PLAN_FORK_SPEC.md) | PlanFork closure/blob 基准、SELECT 物化、stale、flooding |
 | [GIT_INTEGRATION.md](GIT_INTEGRATION.md) | W1–W13 Git 白名单、checkpoint 流程、实测行为 |
-| [DSH_ADAPTER.md](DSH_ADAPTER.md) | DSH API 逐项映射（冻结 V1 文档；映射在宿主 0.1.1-rc.2 下实证——本包当前 pin 已升至 0.1.2-alpha.3，见 `BASELINE_PROGRESS.md`）、打包 runbook、U1–U9 消解 |
+| [DSH_ADAPTER.md](DSH_ADAPTER.md) | DSH API 逐项映射（冻结 V1 文档；映射在宿主 0.1.1-rc.2 下实证——本包当前 pin 已升至 0.2.0-rc.2（0.2 破坏面适配记录见 `MAINT_0_2_0_RC2_PLAN.md`），见 `BASELINE_PROGRESS.md`）、打包 runbook、U1–U9 消解 |
 | [TEST_MATRIX.md](TEST_MATRIX.md) | 7 套件 ~111 用例、INV→TC→AC 三层追溯 |
 | [schema/](schema/README.md) | 机器可读契约（JSON Schema 2020-12；23 文件） |
 
@@ -146,7 +146,7 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 - **性能门时序波动** — `test:perf` 的 TC-PERF-006 为已知时序敏感项，重压机器上偶发；如实记录复跑，不调阈值。
 - **UI e2e 证据边界** — 18 条 UI journeys 与 `test:e2e` 仅在此前 UI 轮跑过；G5 为测试/文档轮，**本轮未执行 e2e**（NOT_RUN ≠ 失败，也非对后续授权的预设；见 TOOLS_TRACEABILITY §1 分层表）。
 - **未公开发布** — `0.1.0` + `private: true`，未上 npm 公共注册表，license 未定；当前分发面 = 本地 tarball（`pnpm pack`）或 git checkout / git host（`lib/` 预构建随树提交，两种 git 路径均开箱即用，无需 allowBuilds）。
-- **宿主无兼容承诺** — DSH 为 pre-release（「rename or repackage freely」）；本包以 peer 精确 pin `0.1.2-alpha.3`（`package.json` peer/dep/devDep 全量重锚；见 HEAD `0fa2b1a1` train 适配）+ 自持 `minDshVersion` fail-loud 门（默认下限 `0.1.0-rc.8`，`index.ts:12`）+ TC-DSH-008 compatibility smoke 承接升级风险，不提供跨宿主版本兼容。
+- **宿主无兼容承诺** — DSH 为 pre-release（「rename or repackage freely」）；本包以 peer 精确 pin `0.2.0-rc.2`（`package.json` peer/dep/devDep 全量重锚；train 迁移记录见 `docs/MAINT_0_2_0_RC2_PLAN.md`）+ 自持 `minDshVersion` fail-loud 门（默认下限 `0.2.0-rc.2`，schema 内默认）+ TC-DSH-008 compatibility smoke 承接升级风险，不提供跨宿主版本兼容。
 - **e2e 证据面** — 全绿证据基于隔离 smoke home（独立 DSH_HOME + 独立端口 + `--reset` 种子重置），非真实用户 profile 的长期运行；宿主侧长时行为（WAL checkpoint、profile 多 bundle 组合漂移）未覆盖。
 - **清单重生成仍靠流程纪律** — `SNAPSHOT.md` ↔ 仓内正源的双向校验与 `lib/` 新鲜度门（`check:freshness`，`pack:verify` 已接入）使漂移必然红；但「冻结面变更 → `snapshot:update` → 同一提交」的顺序仍是评审纪律而非自动机器门（CI 只拒绝漂移，不代生成清单）。
 - **启动完整性检查的 V1 边界** — 四检查已接入生产（`[Service.init]` integrity gate，先于服务实例化；不可恢复损坏 fail-loud 阻断 ACTIVE，可恢复损坏 loud 告警 + 启动对账自动收敛，Git 冲突/缺失拒绝 managed mode 与 checkpoint）；但 **部分损坏的 `.research` 树在 V1 仍 fail-loud 拒绝启动**（wiring 的 WIRING_TREE 步保持「任何 load 错误即启动失败」的从严策略，被测试冻结）——ARCHITECTURE §10 行的「部分坏 → 只读可用面」降级语义已由 WP-8.1 分类器定义 + 测试 + e2e 实机证据（integrity gate 已暴露 `readSurface` 旗并在唯一树写路径 honor 它），V1 采纳该降级表面需放宽 WIRING_TREE 步，属后续 WP（G8 裁决书 host-integrator S2 的可选半边）。

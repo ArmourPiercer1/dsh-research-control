@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { checkAdrs, checkAll, checkLinks, checkRegistry, globToRe, ownershipFor, parseMiniYaml, probeFindings, SYNC_WHITELIST } from '../../scripts/docs/kernel.mjs'
+import { checkAdrs, checkAll, checkLinks, checkRegistry, docTier, globToRe, ownershipFor, parseMiniYaml, probeFindings, SYNC_WHITELIST } from '../../scripts/docs/kernel.mjs'
 
 const REPO = dirname(dirname(__dirname))
 const roots: string[] = []
@@ -167,6 +167,13 @@ describe('EB2 P4 — kernel integrity', () => {
     expect(Array.isArray(own.rules)).toBe(true)
     expect(typeof own.rules[0].glob).toBe('string') // 首位存在即可（顺序=最具体优先，内容可演进）
     expect(own.rules.some((r: { glob?: string; owner?: string }) => r.glob === 'schema/**' && r.owner === 'contract-frozen')).toBe(true)
+  })
+  it('导航分层兑现 docs/README 图例：Proposed 层覆盖 V3 设计线，长稿归 Historical', () => {
+    expect(docTier('docs/architecture/CORE_SEMANTICS.md')).toBe('Proposed') // 设计线未生效提案
+    expect(docTier('docs/poc/V3_POC_EXECUTION_PLAN.md')).toBe('Proposed') // PoC 计划=提案非 Current
+    expect(docTier('docs/design/V3_TYPED_RESEARCH_EPISTEMICS_ARCHITECTURE_DRAFT.md')).toBe('Historical')
+    expect(docTier('docs/engineering-baseline/gates/G3.md')).toBe('Current') // 现行层不受影响
+    expect(docTier('docs/whatever-unranked.md')).toBe('Unranked') // 兜底语义保留
   })
   it('ownership: most-specific-first and OR-globs behave', () => {
     const rules = loadRules()

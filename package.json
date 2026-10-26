@@ -64,7 +64,8 @@
     "docs:check": "node scripts/docs/check.mjs",
     "check:types": "node scripts/tsc-gate.mjs",
     "tsc:record": "node scripts/tsc-gate.mjs --record",
-    "baseline:ready": "node scripts/baseline-ready.mjs"
+    "baseline:ready": "node scripts/baseline-ready.mjs",
+    "test:poc": "vitest run --config experiments/v3-semantic-poc/vitest.config.ts"
   },
   "engines": {
     "node": "^22.19.0 || >=24"

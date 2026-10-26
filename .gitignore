@@ -37,3 +37,4 @@ dsh-research-control-*.tgz
 .scratch/
 .npm-tmp/
 google-home-screenshot.png
+experiments/v3-semantic-poc/.poc-data/

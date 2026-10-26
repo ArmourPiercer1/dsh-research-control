@@ -1,0 +1,61 @@
+# dev/engineering/registry.yaml — 非推导状态与证据的人工注册表
+#
+# 规则（AD-EB-02）：
+#   - 本文件只登记**不可从代码/Git 推导**的事实：Gate 裁决、宿主 pin、债务例外、
+#     证据指针。派生信息（文件清单、哈希）永远不放这里（那是 SNAPSHOT.md /
+#     G0-inventory.yaml / docs/README.md 生成块的地盘）。
+#   - 状态词汇各自独立、不得互相推导：
+#       gate verdict: PASS | BLOCKED | PENDING | UNKNOWN
+#       adr status:   proposed | accepted | implemented | verified | released
+#     `docs:check` 拒绝把静态一致性冒充「已验证」：verdict=PASS 的 Gate 必须带
+#     存在的 evidence 路径；引用不存在的证据文件 = 检查失败（虚假 verified）。
+#   - 本文件是**人工**文件：`docs:sync --write` 被禁止写它（白名单之外）。
+#   - 仅支持受限 YAML 子集（两层缩进 map、标量、flow/block list）；解析器见
+#     scripts/docs/kernel.mjs。
+schema_version: 1
+
+stages:
+  EB0_G0:
+    verdict: PASS
+    gate: docs/engineering-baseline/gates/G0.md
+    source_sha: 1d64d9e94100ebd04f310b73561abb6862559e62
+    evidence:
+      - docs/engineering-baseline/gates/G0-inventory.yaml
+      - docs/BASELINE_TSC_BASELINE.md
+  EB1_G1:
+    verdict: PASS
+    gate: docs/engineering-baseline/gates/G1.md
+    merge_sha: 49fab818f847bbb80d0e8ff2690cd00b1ca4c0ec
+    evidence:
+      - docs/engineering-baseline/gates/G0-inventory.yaml
+      - tests/engineering/eb1-canonical.test.ts
+  EB2_G2:
+    verdict: PASS
+    gate: docs/engineering-baseline/gates/G2.md
+    merge_sha: a6966617355ad377e0851af87d85b7f2a2159192
+    evidence:
+      - tests/engineering/eb2-docs.test.ts
+      - docs/decisions/ADR-0001-in-repo-canonical-source.md
+  EB3_G3:
+    verdict: PASS
+    gate: docs/engineering-baseline/gates/G3.md
+    merge_sha: 2235e822bef299df28a63eb1b034d4819e88c7d2
+    evidence:
+      - docs/engineering-baseline/gates/G3.md
+      - docs/engineering-baseline/gates/G3-baseline-ready.md
+      - dev/engineering/tsc-debt.ids
+
+host_pins:
+  dependency_train: 0.1.2-alpha.3
+  instance_checkout: tests/deepseek-harness
+  instance_sha: dd6322d604
+  e2e_cli_pin: 0.1.0-rc.8
+  note: e2e_cli_pin 是 TC-DSH-008 的注册表 CLI 语义（与 §2 实例 train 的张力已知，EB3 宿主裁决处理）
+
+known_debts:
+  typescript:
+    kind: known-failing
+    baseline: dev/engineering/tsc-debt.ids
+    baseline_prose: docs/BASELINE_TSC_BASELINE.md
+    comparison: 归一化诊断身份（文件+错误码），禁止按条数相等判等
+    upgrade_path: 独立清偿到零错误后升级为常规 tsc required 门

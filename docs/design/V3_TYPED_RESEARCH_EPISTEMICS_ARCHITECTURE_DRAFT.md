@@ -1,6 +1,7 @@
 > **HISTORICAL DESIGN RECORD — 旧 V3 长篇讨论稿，不再是新基线**  
 > 讨论中使用的旧名称及候选 Schema 仅保留历史参考；请以新的 [架构索引](../architecture/README.md)、[核心语义](../architecture/CORE_SEMANTICS.md) 和 [W3C 对齐表](../architecture/W3C_ALIGNMENT.md) 为准。标准语义相同的旧名称（ResearchActivity、旧 Detection、旧 Observation 结果、通用 Artifact 等）已原则性废弃，分别按条件采用 `prov:Activity`、`sosa:Observation`、`sosa:Result`、`prov:Entity`。  
 > **请勿直接根据下面的旧字段、枚举或状态机进行开发。**
+> 编号说明（EB3 入库复核 d4）：下文 §11 的 `P0a–P10` 与 §12 的 `S0–S5` 均为**历史编号**；现行编号以 [架构索引](../architecture/README.md)（验收组 P0–P9 / 实施顺序 M0–M5）与 PR #10 阶段门（P0–P4）为准。
 ---
 
 # dsh-research-control V3：Typed Research State & Epistemic Reasoning Architecture
@@ -700,7 +701,7 @@ Context Compiler 产生带来源和版本的最小充分上下文：目标问题
 
 V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学推理检查；INV-REL-4 禁止沿科研 Relation 图推理。V3 **有意改变**这些产品边界，因此必须在 V3 ADR 和新契约中显式替换，而不是偷偷在冻结 V1 Schema 上加字段。
 
-现有 V1 文档、发布快照与工具面在本 PR 中保持原状，避免“写了设计就已经改了运行时”的误解。
+现有 V1 文档、SNAPSHOT.md（生成清单，AD-EB-01）与工具面在本 PR 中保持原状，避免“写了设计就已经改了运行时”的误解。
 
 ### 9.2 历史数据迁移
 
@@ -825,7 +826,7 @@ V1 的 INV-SCI-1..4 明确限定 Fact/Claim 为非形式化标签、不做科学
 - [HISTORY_EVENT_CATALOG.md](../../HISTORY_EVENT_CATALOG.md)：20 类冻结科研事件。
 - [PLAN_FORK_SPEC.md](../../PLAN_FORK_SPEC.md)：Agent 提案与用户 canonical plan 控制。
 - [src/host/domain/semantics](../../src/host/domain/semantics)：当前语义 reducer、状态机与关系合法性。
-- [docs/TOOLS_TRACEABILITY.md](../TOOLS_TRACEABILITY.md)：11 个研究工具及 G5 验收记录。
+- [docs/TOOLS_TRACEABILITY.md](../TOOLS_TRACEABILITY.md)：11 个研究工具及 WP 时代 G5 验收记录。
 
 **扩展参考资料（借鉴思想，不表示论文的 benchmark 等于我们的科研正确性验证）：**
 - [SHELDON: Reasoning through Dual Search over Hypothesis and Observation Spaces](https://arxiv.org/abs/2610.18025) · [Stanford OVAL 实现](https://github.com/stanford-oval/sheldon)：假设与观察独立搜索、未解释现象与新路线。

@@ -14,5 +14,12 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src", "tests", "tsdown.config.ts"],
-  "exclude": ["node_modules", "dist", "tests/fixtures"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests/fixtures",
+    "references",
+    "tests/deepseek-harness",
+    "tests/dsh-homes"
+  ]
 }

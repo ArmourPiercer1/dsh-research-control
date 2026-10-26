@@ -51,9 +51,13 @@ const log = (message) => console.log(`[pack-verify] ${message}`)
  * 1. Pack
  * ------------------------------------------------------------------ */
 
-log('running pnpm run build (refresh lib/ + snapshot), then pnpm pack')
+log('running pnpm run build (rebuild lib/ + verify in-repo canonical surface), freshness gate, then pnpm pack')
 const preBuild = spawnSync('pnpm', ['run', 'build'], { cwd: PLUGIN_ROOT, encoding: 'utf8' })
 if (preBuild.status !== 0) fail(`pnpm run build failed:\n${preBuild.stdout}\n${preBuild.stderr}`)
+// EB1 (AD-EB-01): the committed prebuilt artifacts must be exactly a fresh
+// build of the committed sources — no "remembered to rebuild" trust.
+const fresh = spawnSync('pnpm', ['run', 'check:freshness'], { cwd: PLUGIN_ROOT, encoding: 'utf8' })
+if (fresh.status !== 0) fail(`build-artifact freshness gate failed:\n${fresh.stdout}\n${fresh.stderr}`)
 const pack = spawnSync('pnpm', ['pack'], { cwd: PLUGIN_ROOT, encoding: 'utf8' })
 if (pack.status !== 0) fail(`pnpm pack failed:\n${pack.stdout}\n${pack.stderr}`)
 

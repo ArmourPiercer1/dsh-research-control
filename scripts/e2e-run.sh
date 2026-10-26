@@ -16,12 +16,20 @@
 # base `hmr` row is disabled there).
 #
 # Env overrides:
-#   DSH_SMOKE_ROOT  smoke root (default: <repo>/../.smoke)
+#   DSH_SMOKE_ROOT  smoke root (default: <repo>/tests/dsh-homes/.smoke —
+#                   WORKSPACE-CONTAINED per the 2026-09-18 workspace
+#                   discipline, AGENTS.md §3: all e2e state stays inside the
+#                   workspace so the run works under the DSH workspace-write
+#                   sandbox without escalation)
 #   DSH_HOME        NOT an override anymore (WP-0.7 / RR-003): the run ALWAYS
 #                   uses $DSH_SMOKE_ROOT/dsh-home. An inherited DSH_HOME that
-#                   resolves outside the smoke root (e.g. the caller's live
-#                   ~/.dsh in a DSH session shell) is FATAL (exit 2) with both
-#                   paths printed — loud failure, never a silent retarget.
+#                   resolves outside the smoke root AND outside the workspace
+#                   DSH_HOME root (tests/dsh-homes) — e.g. the caller's live
+#                   ~/.dsh in a DSH session shell — is FATAL (exit 2) with
+#                   both paths printed: loud failure, never a silent retarget.
+#                   Inherited values inside tests/dsh-homes/** are isolated
+#                   values: tolerated + normalized to the forced smoke home
+#                   (2026-09-18 workspace discipline, AGENTS.md §3).
 #   E2E_PORT        web port (default 3199 — never 3080)
 #   E2E_CYCLES      load/unload cycles N (default 2)
 #   E2E_STATE       run ONE phase only and exit: loaded | unloaded
@@ -64,7 +72,14 @@
 set -Eeuo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SMOKE_ROOT="${DSH_SMOKE_ROOT:-$(cd "$REPO_DIR/.." && pwd)/.smoke}"
+# 2026-09-18 workspace discipline (AGENTS.md §3): the smoke root is
+# WORKSPACE-CONTAINED by default — the profiles, pnpm store, sessions and
+# evidence it owns all live under <repo>/tests/dsh-homes/.smoke, so a plain
+# `pnpm run test:e2e` stays inside the workspace (workspace-write sandbox
+# safe). DSH_SMOKE_ROOT still selects an independent workspace for parallel
+# runs (its exclusive lock is per smoke root; keep overridden roots inside
+# tests/dsh-homes/ as well).
+SMOKE_ROOT="${DSH_SMOKE_ROOT:-$REPO_DIR/tests/dsh-homes/.smoke}"
 # WP-0.7 (G0 round-1 RR-003): the old `${DSH_HOME:-…}` inherited the caller's
 # DSH_HOME — a DSH session shell exports DSH_HOME=~/.dsh, which silently
 # retargeted the whole smoke run (storeDir write, plugin add, server home) at
@@ -73,17 +88,24 @@ SMOKE_ROOT="${DSH_SMOKE_ROOT:-$(cd "$REPO_DIR/.." && pwd)/.smoke}"
 # resolves outside the smoke root is FATAL (exit 2, both paths printed) so the
 # near-miss is auditable instead of silently overwritten; a value that stays
 # inside the smoke root is tolerated but still normalized to the forced home.
+# 2026-09-18 workspace discipline (AGENTS.md §3): the workspace DSH_HOME root
+# (tests/dsh-homes) is the designated home for ALL DSH homes this workspace
+# uses, so an inherited DSH_HOME inside it is likewise an isolated value —
+# tolerated + normalized. Anything outside BOTH roots (a live ~/.dsh, a
+# sandbox tmp, ...) stays FATAL.
 FORCED_DSH_HOME="$SMOKE_ROOT/dsh-home"
+HOMES_ROOT="$REPO_DIR/tests/dsh-homes"
 if [ -n "${DSH_HOME:-}" ] && [ "$DSH_HOME" != "$FORCED_DSH_HOME" ]; then
   SMOKE_ROOT_ABS="$(realpath -- "$SMOKE_ROOT" 2>/dev/null || printf '%s' "$SMOKE_ROOT")"
+  HOMES_ROOT_ABS="$(realpath -m -- "$HOMES_ROOT" 2>/dev/null || printf '%s' "$HOMES_ROOT")"
   INHERITED_ABS="$(realpath -m -- "$DSH_HOME" 2>/dev/null || printf '%s' "$DSH_HOME")"
   case "$INHERITED_ABS" in
-    "$SMOKE_ROOT_ABS" | "$SMOKE_ROOT_ABS"/*)
-      # isolated value — tolerated, normalized to the forced home below
+    "$SMOKE_ROOT_ABS" | "$SMOKE_ROOT_ABS"/* | "$HOMES_ROOT_ABS" | "$HOMES_ROOT_ABS"/*)
+      # workspace-isolated value — tolerated, normalized to the forced home below
       ;;
     *)
-      printf '[e2e-run] FATAL: inherited DSH_HOME=%s resolves outside the smoke root %s — refusing to run against a non-isolated home (forced smoke home: %s)\n' \
-        "$DSH_HOME" "$SMOKE_ROOT_ABS" "$FORCED_DSH_HOME" >&2
+      printf '[e2e-run] FATAL: inherited DSH_HOME=%s resolves outside the smoke root %s and the workspace DSH_HOME root %s — refusing to run against a non-isolated home (forced smoke home: %s)\n' \
+        "$DSH_HOME" "$SMOKE_ROOT_ABS" "$HOMES_ROOT_ABS" "$FORCED_DSH_HOME" >&2
       exit 2
       ;;
   esac

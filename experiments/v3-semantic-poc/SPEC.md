@@ -62,3 +62,14 @@ experiments/v3-semantic-poc/
   samples/gpt-streak/# 真实 GPT 案例：deck(.in) + 观测规格（另一子代理产出）
   **/*.test.ts       # 仅由 pnpm run test:poc 收集（根门禁不收集）
 ```
+
+## v0 落地裁定（P0 实现暴露的 SPEC 歧义，integrator 2026-10-27 裁定）
+1. `based_on` 位于 **`payload.based_on`**；`SOURCE_RECORD` 可选携带，若出现则
+   形状与悬空规则同样适用。
+2. `event_seq` **从 0 起**严格 +1。
+3. `normalizeExport` 保持行序（=文件行序=seq 序），递归排键；空输入=空串。
+4. 禁止键名正则 `/inference|suggestion|llm_/` **只作用于键名**、大小写敏感；
+   值中出现不触发（通道语义由 channel 字段承担）。
+5. `content_sha256` 的 hex = 64 位小写。
+6. 硬规则 4（LIVE_* 词汇）是**行文纪律**不作校验器规则；硬规则 5 由 kind
+   枚举排除 `FACT_RECORDED` 机械达成。

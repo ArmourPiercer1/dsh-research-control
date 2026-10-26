@@ -19,6 +19,15 @@ if (args.includes('--paths')) {
     process.exit(2)
   }
   files = readFileSync(p, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
+  // fail-loud 守卫（EB3 后 DX 坑）：曾把 md 文档直接当清单传，正文被逐行当
+  // 路径吞掉、输出满屏伪 UNOWNED。变更清单的正确来源是 git diff --name-only
+  // 之类的每行一路径文件；文档正文的 markdown 特征（标题/围栏/表格/加粗）
+  // 在合法清单中不会出现——出现两条即拒绝，不再静默。
+  const prose = files.slice(0, 20).filter((l) => /^(#\s|>|\||```|\|)/.test(l) || /\*\*.+\*\*/.test(l))
+  if (prose.length >= 2) {
+    console.error(`[docs:probe] FATAL: --paths 收到的不像路径清单（${p} 含 markdown 特征 ${prose.length} 行）。正确用法：--paths <每行一路径的清单文件>（如 git diff --name-only origin/main...HEAD > changed.txt）。`)
+    process.exit(2)
+  }
 } else {
   const base = opt('--base')
   if (!base) {

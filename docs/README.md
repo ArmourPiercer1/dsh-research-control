@@ -75,6 +75,7 @@
 | `docs/engineering-baseline/gates/G3-baseline-ready.md` | Current |
 | `docs/engineering-baseline/gates/G3.md` | Current |
 | `docs/packaging.md` | Current |
+| `docs/poc/V3_POC_EXECUTION_PLAN.md` | Unranked |
 | `docs/testing.md` | Current |
 | `schema/README.md` | Unranked |
 | `src/host/persistence/hardening/README.md` | Unranked |

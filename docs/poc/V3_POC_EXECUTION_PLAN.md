@@ -3,7 +3,7 @@
 > **Status: PROPOSED / PoC PLAN — 尚未开始 PoC 代码实施**
 >
 > 创建日期：2026-10-24。PoC 分支：`poc/v3-semantic-validation-20261024`。
-> 架构基线：[V3 架构](../architecture/ARCHITECTURE_BASELINE.md)、[核心语义](../architecture/CORE_SEMANTICS.md)、[W3C Crosswalk](../architecture/W3C_ALIGNMENT.md)、[D13–D20 ADR](../architecture/adr/README.md)。
+> 架构基线：[V3 架构](../architecture/ARCHITECTURE_BASELINE.md)、[核心语义](../architecture/CORE_SEMANTICS.md)、[W3C Crosswalk](../architecture/W3C_ALIGNMENT.md)、[D13–D20 ADR](../architecture/adr/README.md)、[PoC 验收组与实施顺序](../architecture/POC_IMPLEMENTATION_PLAN.md)（其「编号对账」表给出 验收组 P0–P9 / 顺序 M0–M5 ↔ 本文阶段门 P0–P4 的映射）。
 > Git 起点：`design/v3-typed-research-epistemics-20261018` @ `1a6c3dc5209a3564d8798dc3b425db28fe72b1e9`（[架构 Draft PR #9](https://github.com/ArmourPiercer1/dsh-research-control/pull/9)）。
 
 ## 0. 决策摘要：五阶段、两类真实任务接入门槛
@@ -14,9 +14,9 @@
 | --- | --- | --- | --- |
 | **P0 — 隔离与样本契约** | 冻结测试范围、隔离工作区、选取最小案例及负例 | 合成数据端到端 fixture | 仅人工筛选样本，不自动接入真实历史 |
 | **P1 — PROV/SOSA 来源与事件重放** | `prov:Activity/Entity`、`sosa:Observation/Result`、Run/Artifact 历史映射、确定性重放 | **允许开始真实任务历史轨迹整理（只读、离线）** | **H1：离线历史试接入** |
-| **P2 — L0/L1 与历史语义整理** | 结构化 Finding、词汇/Scope/版本、语义确认、引用来源与未知项 | 可形成有来源、带不确定性的真实任务复盘；**允许与正在运行的任务被动并行采集** | **H2 / L1：离线语义整理 + live passive shadow** |
-| **P3 — Evidence/Argument 与非单调认识** | 证据关系、论证多路径、攻击/削弱、Assessment/FactStanding、受影响路径 | **允许真实任务旁路生成需人工审阅的论证与风险报告** | **L2：live review-only sidecar** |
-| **P4 — 双图谱、灵活召回与互操作** | Association/Inference 联合查询、路径来源、JSON-LD 往返、代表性评估 | **允许在明确授权下把建议反馈给真实科研 Agent；完成继续正式开发的 Go/No-Go 评审** | **L3：controlled advisory（仍不直接写 V1）** |
+| **P2 — L0/L1 与历史语义整理** | 结构化 Finding、词汇/Scope/版本、语义确认、引用来源与未知项 | 可形成有来源、带不确定性的真实任务复盘；**允许与正在运行的任务被动并行采集** | **H2 / LIVE_PASSIVE：离线语义整理 + live passive shadow** |
+| **P3 — Evidence/Argument 与非单调认识** | 证据关系、论证多路径、攻击/削弱、Assessment/FactStanding、受影响路径 | **允许真实任务旁路生成需人工审阅的论证与风险报告** | **LIVE_REVIEW：live review-only sidecar** |
+| **P4 — 双图谱、灵活召回与互操作** | Association/Inference 联合查询、路径来源、JSON-LD 往返、代表性评估 | **允许在明确授权下把建议反馈给真实科研 Agent；完成继续正式开发的 Go/No-Go 评审** | **CONTROLLED_ADVISORY：受控建议（仍不直接写 V1）** |
 
 **针对用户的两个时间点：**
 1. **整理既有任务历史轨迹：P1 验收后即可开始**，不需要等待完整 Argument、FactStanding 或双图谱。P1 只承诺来源/事件重建；真正自动做“科研语义复盘”要到 P2。
@@ -128,7 +128,7 @@ PoC **首先复用这些历史和测试契约**，但使用非侵入的 adapter 
 - 被动侧车中断、输入重复、顺序乱序、主任务异常终止时不影响主任务，也不更新 V1。
 - 观察服务不向研究 Agent、Task、Gate 或 canonical Plan 回填任何结果。
 
-**解锁：L1 — 可以和真实任务**并行运行只读旁路观察**。它能持续整理科研轨迹，但主 Agent 默认完全不受影响；不声称能当场诊断科学错误。
+**解锁：LIVE_PASSIVE — 可以和真实任务**并行运行只读旁路观察**。它能持续整理科研轨迹，但主 Agent 默认完全不受影响；不声称能当场诊断科学错误。
 
 ### P3 — EvidenceRelation、Argument 与非单调科研评价
 
@@ -148,7 +148,7 @@ PoC **首先复用这些历史和测试契约**，但使用非侵入的 adapter 
 - 自动生成报告经人工核对不出现**把相关性说成因果、把 Run 测试通过说成科研证明、把 LLM 置信分说成 FactStanding**的高风险误报。
 - 与真实任务并行时报告发布在隔离审查渠道或独立文件，默认**仅供人阅览**，不得自动注入主 Agent 指令。
 
-**解锁：L2 — 可以对真实任务旁路提供“候选论证、依赖缺口、异常及风险”人工复审报告**；依然只读，绝不自动干预科研执行。
+**解锁：LIVE_REVIEW — 可以对真实任务旁路提供“候选论证、依赖缺口、异常及风险”人工复审报告**；依然只读，绝不自动干预科研执行。
 
 ### P4 — 双图谱、联合召回、互操作与真实任务 A/B
 
@@ -168,7 +168,7 @@ PoC **首先复用这些历史和测试契约**，但使用非侵入的 adapter 
 - 对照实验提交问题发现率、无根据质疑率、路径可溯源比例、检索成本和错判案例；**不要求预先断言双图一定优于其他组**。若代价高或误报过多，PoC 应保留负结论。
 - 对至少一个 live task 验证“建议由外部系统按授权交付、PoC 出错不影响主任务、用户可立即停止侧车”；仍然**不写入 V1 生产科研状态**。
 
-**解锁：L3 — 可讨论控制范围内对真实科研任务反馈检索和审查建议**；Go/Iterate/Stop 的结果决定是否进入后续正式开发 PR。
+**解锁：CONTROLLED_ADVISORY — 可讨论控制范围内对真实科研任务反馈检索和审查建议**；Go/Iterate/Stop 的结果决定是否进入后续正式开发 PR。
 
 ## 5. 真实数据接入级别与强制边界
 
@@ -177,11 +177,11 @@ PoC **首先复用这些历史和测试契约**，但使用非侵入的 adapter 
 | **H0 合成** | P0 | synthetic fixtures | 离线测试/模型输出 | 访问未经授权的真实轨迹 |
 | **H1 离线真实历史** | P1 Gate 通过 | 完整性可验证的归档 Run、ResearchHistory、Artifact 只读副本 | 隔离重建、来源差异、未知报告 | 写回旧历史、推断缺失科研事实 |
 | **H2 历史科研整理** | P2 Gate 通过 | H1 + 任务文字、程序/文档只读样本 | L0/L1 候选、人工可审复盘 | 未确认 L1 直接进入全局 Fact |
-| **L1 在线被动** | P2 Gate 通过 | 当前科研任务**只读镜像** | PoC 自有状态/日志 | 干预科研 Agent、改变任务/计划/权限 |
-| **L2 在线审查** | P3 Gate 通过 | L1 + 论证输入 | 单独的人类审查报告 | 自动把报告发为 Agent 指令或 Gate |
-| **L3 受控建议** | P4 Gate 通过 | L2 + 双图路径 | 用户/外部调度明确批准的候选建议 | 直接修改主任务科研状态、执行实验、自动批准 Fact |
+| **LIVE_PASSIVE 在线被动** | P2 Gate 通过 | 当前科研任务**只读镜像** | PoC 自有状态/日志 | 干预科研 Agent、改变任务/计划/权限 |
+| **LIVE_REVIEW 在线审查** | P3 Gate 通过 | LIVE_PASSIVE + 论证输入 | 单独的人类审查报告 | 自动把报告发为 Agent 指令或 Gate |
+| **CONTROLLED_ADVISORY 受控建议** | P4 Gate 通过 | LIVE_REVIEW + 双图路径 | 用户/外部调度明确批准的候选建议 | 直接修改主任务科研状态、执行实验、自动批准 Fact |
 
-这里的 **L1/L2/L3 是旁路接入级别**，不要与科研形式化的 **L0/L1/L2–L5** 混淆；正式文档/代码推荐用 `LIVE_PASSIVE / LIVE_REVIEW / CONTROLLED_ADVISORY` 标识旁路模式，以避免同名等级产生误解。
+本文旁路接入级别一律用 `LIVE_PASSIVE / LIVE_REVIEW / CONTROLLED_ADVISORY` 标识（原 `L1/L2/L3` 简写自 EB3 入库复核 M2 起弃用）；`L0/L1` 与 `L2–L5` 恒指科研形式化等级（[架构基线](../architecture/ARCHITECTURE_BASELINE.md) §4），不再与接入级别共用字母。
 
 ## 6. 质量指标与停止条件
 

@@ -1,6 +1,7 @@
 # AGENTS.md — 工作区执行纪律（代理与会话必读）
 
-> 状态：**Active**（2026-09-18 用户指令记入；2026-10-26 基线重置时同步改写）。
+> 状态：**Active**（2026-09-18 用户指令记入；2026-10-26 基线重置时同步改写；
+> 同日 EB1 单正源迁移后更新 §5）。
 > 性质：执行纪律（**非**冻结契约）。变更仅由用户指令驱动；变更时更新本文件。
 > 适用：在本工作区（`dsh-research-control` 插件仓）执行任何读取 / 修改 / 构建 / 测试的会话，含一切子代理委派（委派前同时遵守 `SUBAGENT_ROUTING.md` 的三级模型路由与审查面板）。
 
@@ -97,9 +98,13 @@
 
 ## 5. 继续有效的既有纪律
 
-- **冻结面（SI-001）**：8 份根文档 + `schema/` + `SNAPSHOT.md` 的内容一致纪律；
-  本文件**不在**冻结面（非 `FROZEN_DOCS`、不在 `package.json` files、不入发布
-  包），可随纪律更新，不触发快照漂移。
+- **冻结面（AD-EB-01，2026-10-26 起为仓内正源）**：8 份根文档 + `schema/**` 是
+  Git 内唯一可编辑契约正源（批准基准哈希 `docs/engineering-baseline/gates/G0-inventory.yaml`）；
+  `SNAPSHOT.md` 为生成清单，构建双向 sha256 校验。修订必须走冻结变更流程：改契约
+  文件 → `pnpm run snapshot:update` → 契约与清单同一提交评审；未经该流程的改动会
+  直接构建红（CONTRACT_DRIFT）。本文件**不在**冻结面（非 FROZEN_DOCS、不在
+  `package.json` files、不入发布包），可随纪律更新。`DSH_SNAPSHOT_SOURCE_ROOT` 已退役
+  （设置即 fail-loud）；运行时 `DSH_RESEARCH_SCHEMA_ROOT` 覆盖语义不变。
 - **`SUBAGENT_ROUTING.md`**：子代理三级模型路由（默认 → 升级 → 暂停待裁决）与
   审查代理面板——一切委派通道拉起前必读。
 - **README「开发」节**：标准四件套顺序（tsc → lint → build → test）与发布门禁

@@ -56,7 +56,9 @@
     "test:e2e": "bash scripts/e2e-run.sh",
     "test:e2e:playwright": "playwright test --config e2e/playwright.config.ts",
     "test:perf": "vitest run --config tests/perf/vitest.perf.config.ts",
-    "pack:verify": "node scripts/pack-verify.mjs"
+    "pack:verify": "node scripts/pack-verify.mjs",
+    "snapshot:update": "node scripts/snapshot-release.mjs --update",
+    "check:freshness": "node scripts/check-build-freshness.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24"

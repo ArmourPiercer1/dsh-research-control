@@ -10,4 +10,4 @@
 
 只在真正等价时强映射，不把科学假设变成默认 RDF 物理事实，不把数据派生当逻辑证明。不强制 RDF 原生存储；详细 crosswalk 见 ../W3C_ALIGNMENT.md。
 
-**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变已冻结的 V1 运行时代码和工具。
+**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变 V1 冻结契约与既有工具面。

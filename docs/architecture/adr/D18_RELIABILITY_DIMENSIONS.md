@@ -10,4 +10,4 @@ Semantic Validity 管语义是否稳定；Inferential Validity 管已声明推�
 
 SHACL、Lean 与 DQV 的成功验证各有不同的保证范围，不能合并为通用“正确”评分。
 
-**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变已冻结的 V1 运行时代码和工具。
+**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变 V1 冻结契约与既有工具面。

@@ -10,4 +10,4 @@
 
 SKOS 不能替代正式谓词签名、物理量单位、Lean 命题对应关系；这些仍为领域扩展。
 
-**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变已冻结的 V1 运行时代码和工具。
+**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变 V1 冻结契约与既有工具面。

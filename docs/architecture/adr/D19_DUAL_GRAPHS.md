@@ -10,4 +10,4 @@ Inference Graph 维护有推理意义的前提、EvidenceRelation、Argument、�
 
 关联边不自动产生因果、逻辑蕴涵、Fact 或义务。由外部 LLM 选择图、跳数和剪枝；检索算法与接口尚待讨论。
 
-**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变已冻结的 V1 运行时代码和工具。
+**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变 V1 冻结契约与既有工具面。

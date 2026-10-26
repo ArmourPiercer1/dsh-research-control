@@ -10,4 +10,4 @@ L0 规范化自然语言提交后，原研究者可在带来源与不确定性�
 
 L2–L5 仅为候选能力等级，尚未冻结，可能最终转化为偏序能力配置；Formalizer 的分派、唤醒和 SLA 不属于本服务。
 
-**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变已冻结的 V1 运行时代码和工具。
+**执行前提**：与 [V3 基线](../ARCHITECTURE_BASELINE.md) 和 [W3C Crosswalk](../W3C_ALIGNMENT.md) 一致；本 ADR 不改变 V1 冻结契约与既有工具面。

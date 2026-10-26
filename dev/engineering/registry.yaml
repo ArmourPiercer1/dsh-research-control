@@ -40,6 +40,7 @@ stages:
     gate: docs/engineering-baseline/gates/G3.md
     evidence:
       - docs/engineering-baseline/gates/G3.md
+      - docs/engineering-baseline/gates/G3-baseline-ready.md
       - dev/engineering/tsc-debt.ids
 
 host_pins:

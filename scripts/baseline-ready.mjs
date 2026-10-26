@@ -8,7 +8,7 @@
  * re-run it whenever the view must be current. `--emit <path>` writes a
  * snapshot for evidence, headed by the SHA it describes.
  */
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process' // --emit 前置 docs:sync（视图自入册），杜绝视图提交自身 DOCS_INDEX_STALE
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'

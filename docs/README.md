@@ -56,6 +56,8 @@
 | `docs/engineering-baseline/gates/G0.md` | Current |
 | `docs/engineering-baseline/gates/G1.md` | Current |
 | `docs/engineering-baseline/gates/G2.md` | Current |
+| `docs/engineering-baseline/gates/G3-baseline-ready.md` | Current |
+| `docs/engineering-baseline/gates/G3.md` | Current |
 | `docs/packaging.md` | Current |
 | `docs/testing.md` | Current |
 | `schema/README.md` | Unranked |

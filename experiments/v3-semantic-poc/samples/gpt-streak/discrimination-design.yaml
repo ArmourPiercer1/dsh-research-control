@@ -1,0 +1,49 @@
+schema: experiment-design
+date: "2026-10-27"
+origin: "strk-06 证伪的线性签名（观测 +7.4%/+15.0%/×0.998 vs 薄透镜预估 +21.8%/+6.7%/A1>1.30），信封 unknowns 挂『不归因』待破"
+deck_sha256_nominal: f9368cf6692d269b92bcbc7c2d62be3d3f4a8ae4d52f4cb41b5c3ee1865c1c79
+deck_sha256_quaderr: 556952412ef0eec09cdd4d0e856b729cac942415700a79a3d2c2b6751c5dcadb
+engine_facts:
+  - "Qtot=0 且无 spacecharge 元素 ⇒ 确定性引擎（无随机种子），run 间位级可重复"
+  - "argv 覆盖面（deck !defined 守卫）：Go / nps / zscr"
+targets:
+  - "H1p：预估模型类错误（薄透镜+解析外推不适用于厚透镜 hard-edge + 输运矩阵 rms 光学，含焦点趋近效应）——与数据本身无冲突"
+  - "H2p：参数层错位（deck 实现的梯度与名义 Go 约定不一致，等效梯度 Go_eff≠Go）"
+  - "H3p：宏粒子采样粒度（rms 统计对 nps 敏感，两点响应的偏差部分是粒度）"
+experiments:
+  - description: "T0 复现锚：名义与 quad+10% 两 deck 原样复跑（nps=100, zscr=0.60）"
+    varied_factors: []
+    held_constant: ["deck 文件本体（sha 已登记）", "nps=100", "zscr=0.60"]
+    blocking_factors: ["single_session_block（12 次运行跨分钟级，同机同会话；显式声明）"]
+    randomized_order: true
+    replication_plan: "n=1×2；理由：确定性引擎，重复的随机不确定度不适用；与已登记 gdf sha256 的位同一性检验替代 replication（确定性验证）"
+    readouts: ["screen@zscr: stdx stdy nemixrms numpar", "tseries 尾部: avgG numpar_alive", "输出 .gdf sha256 对账"]
+    discriminating_prediction: "若复现值与已登记信封值逐位同 ⇒ 引擎/环境无漂移，后续所有响应差都归 treatment；若不同 ⇒ 实验作废（环境事实变化），先修事实面"
+  - description: "T1 响应曲线：Go ∈ {0.24, 0.27, 0.315, 0.36}（±20%/±10%）@ nps=100, zscr=0.60；与 T0 两点合成 6 点曲线"
+    varied_factors: ["Go（四极子梯度 T/m）"]
+    held_constant: ["nps=100", "zscr=0.60", "束流/枪/漂移/精度全参数（deck 未动行）"]
+    blocking_factors: ["single_session_block"]
+    randomized_order: true
+    replication_plan: "n=1；确定层结论不需要随机重复；粒度由 T2 专门处理"
+    readouts: ["stdx(Go) stdy(Go) nemix(Go) 六点曲线（screen@0.60）"]
+    discriminating_prediction: "若曲线光滑、且在 Go∈[0.285,0.345] 的局部斜率与 T0 两点差分（+7.4%/+15.0%）一致 ⇒ 薄透镜预估的模型类错误成立（H1p 得证）而数据正确；若六点反而精确落在薄透镜预估直线上（唯独 T0 差分不在）⇒ 矛盾态，指向 H2p；若 nemix(Go) 明显漂移 ⇒ 另有守恒破缺，另案"
+  - description: "T2 粒度阶梯：(Go=0.30 & Go=0.33) × nps=200，另 Go=0.30 × nps=50"
+    varied_factors: ["nps"]
+    held_constant: ["各自 Go 值", "zscr=0.60", "其余同 T0"]
+    blocking_factors: ["single_session_block"]
+    randomized_order: true
+    replication_plan: "n=1 per (Go,nps)；阶梯本身是 replicate 的替代——粒度效应用 nps 响应差估计"
+    readouts: ["响应差 Δ%(nps) = [stdx(0.33)/stdx(0.30)] 随 nps∈{50,100,200} 的变化"]
+    discriminating_prediction: "若 |Δ%(200) − Δ%(100)| > 1 个百分点 ⇒ 粒度对两点响应有实质贡献（H3p 在场，曲线结论需带粒度带）；若 < 0.5 个百分点 ⇒ 粒度排除，响应差是确定性光学事实"
+  - description: "T3 双屏指纹：zscr ∈ {0.45} × {Go=0.30, 0.33}（zscr 覆盖同时改 Ld2，deck 内公式一致）"
+    varied_factors: ["zscr（诊断屏位置——观测面，不是物理激励）"]
+    held_constant: ["两臂各自的 Go", "nps=100", "束线其余全部"]
+    blocking_factors: ["single_session_block"]
+    randomized_order: true
+    replication_plan: "n=1；指纹判据对重复不敏感（确定性）"
+    readouts: ["z=0.45 处 stdx stdy nemix；与 z=0.60 值的响应比"]
+    discriminating_prediction: "若 x 向响应幅度/符号随 z 系统性变化（如 0.45 处 stdx 响应 ≈0 或变号而 0.60 处被压缩）⇒ 焦点在 0.45–0.60 间穿越，x 响应对薄透镜预估的偏离由输运矩阵光学解释（H1p 机制实锤）；若两 z 的响应结构一致 ⇒ 排除焦点穿越，H1p 的具体机制改为厚透镜/非线性项"
+run_order: "11 个 run 按固定伪随机序执行（种子 20261027，置换见执行日志）；T0 两件在序中位置不固定"
+cost_estimate: "11 次 smoke 级运行（nps≤200，历史单 run 秒级~分钟级，参照 strk-05/06 会话实测）；数据面：.gdf 解析后即删（sha256 先登记），信封 11 份 ×≤6 事件"
+expected_informative_effect: "六点 stdx/stdy 响应曲线 + nps 阶梯 + 双屏指纹三者合判：曲线光滑且局部斜率复现 T0 差分 ⇒ H1p（预估模型类错误）成立且给出正确曲率；Go_eff 拟合常数≠1 ⇒ H2p；nps 敏感 ⇒ H3p 带。任一组合下 strk-06 的『不归因』都能被证据化处置（定案或有界挂账）"
+verdict: DESIGN_READY

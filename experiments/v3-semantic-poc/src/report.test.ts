@@ -66,7 +66,8 @@ describe('P3 generateCandidateReport（CANDIDATE_REVIEW_ONLY）', () => {
 
   it('正例通路：真实运行信封（合成研究场景）产出候选论证 + 锚点可回源', () => {
     const { report } = generateCandidateReport(path.join(POC_DIR, 'samples/gpt-streak'), POC_DIR)
-    expect(report.files.length).toBe(6)
+    // 18 = 6（合成 4 + strk-05/06 真实 2）+ 12（判别实验 strk-07a..k + 分析 strk-08）
+    expect(report.files.length).toBe(18)
     const claim = report.argument_candidates.find((c) => c.source_ref.run_id === 'RUN-STRK-06' && c.source_ref.seq === 4)
     expect(claim).toBeDefined()
     expect(claim!.status).toBe('candidate') // 克制措辞（实测记录措辞）不被降级

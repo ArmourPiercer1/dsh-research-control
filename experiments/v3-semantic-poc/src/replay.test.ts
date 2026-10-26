@@ -176,8 +176,10 @@ describe('断链与坏输入：不报错也不静默', () => {
     importRunFiles(state, listEnvelopeFiles(SAMPLE_DIR))
     const view = buildReplayView(state)
     expect(view.unresolved.filter((u) => u.kind === 'validator_dangling_external_ref')).toEqual([])
-    // 6 = 合成样本 4 run + 2026-10-26 真实运行 2 run（strk-05/06，interop 首跑）
-    expect(view.stats.run_count).toBe(6)
+    // 18 = 合成样本 4 run + 2026-10-26 真实运行 2 run（strk-05/06，interop 首跑）
+    //      + 判别实验 11 run（strk-07a..k，2026-10-27，design=discrimination-design.yaml）
+    //      + 判别分析 1 run（strk-08：行语义修正 + H1′/H3′ 判定 + H2′ 挂账）
+    expect(view.stats.run_count).toBe(18)
   })
 
   it('导入不存在的文件 → file_unreadable 入账，不抛', () => {

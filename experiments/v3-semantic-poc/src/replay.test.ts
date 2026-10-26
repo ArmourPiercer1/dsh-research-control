@@ -176,7 +176,8 @@ describe('断链与坏输入：不报错也不静默', () => {
     importRunFiles(state, listEnvelopeFiles(SAMPLE_DIR))
     const view = buildReplayView(state)
     expect(view.unresolved.filter((u) => u.kind === 'validator_dangling_external_ref')).toEqual([])
-    expect(view.stats.run_count).toBe(4)
+    // 6 = 合成样本 4 run + 2026-10-26 真实运行 2 run（strk-05/06，interop 首跑）
+    expect(view.stats.run_count).toBe(6)
   })
 
   it('导入不存在的文件 → file_unreadable 入账，不抛', () => {

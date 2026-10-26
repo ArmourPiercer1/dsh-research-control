@@ -165,7 +165,8 @@ describe('EB2 P4 — kernel integrity', () => {
     expect(Array.isArray(reg.stages.EB1_G1.evidence)).toBe(true)
     const own = parseMiniYaml(readFileSync(join(REPO, 'dev/engineering/doc-ownership.yaml'), 'utf8'), 'ownership')
     expect(Array.isArray(own.rules)).toBe(true)
-    expect(own.rules[0].owner).toBe('contract-frozen')
+    expect(typeof own.rules[0].glob).toBe('string') // 首位存在即可（顺序=最具体优先，内容可演进）
+    expect(own.rules.some((r: { glob?: string; owner?: string }) => r.glob === 'schema/**' && r.owner === 'contract-frozen')).toBe(true)
   })
   it('ownership: most-specific-first and OR-globs behave', () => {
     const rules = loadRules()

@@ -93,6 +93,7 @@ host service ctx.researchControl（lib/index.js，service 形态 default-export�
 | script | 作用 |
 |---|---|
 | `pnpm run build` | `tsdown` 三相位（host `lib/` → client `lib/client.js` → e2e factory dist）+ 仓内契约面校验（`scripts/snapshot-release.mjs`：`SNAPSHOT.md` ↔ 文件树双向逐文件 sha256，零写入；清单重生成 = `pnpm run snapshot:update`） |
+| `pnpm run docs:probe / docs:check / docs:sync` | 变更影响探针（read-only，advisory）/ 全量静态一致性（与 CI 同内核，零写入）/ 派生索引白名单同步（只写 `docs/README.md`，其余 `SYNC_REFUSED`）；纪律见 [docs/development.md](docs/development.md) |
 | `pnpm run check:freshness` | 已提交 `lib/` 等预构建产物 == 当前构建的机器校验（`pack:verify` 已接入；唯一归一化 = 构建机路径注释噪声） |
 | `pnpm test` | vitest 单元/属性/集成全套（含真实工件 fixture：temp git 仓 + 真实 `.research` 树 + 真实冻结 schema） |
 | `pnpm run lint` | import 面审计（`scripts/check-imports.mjs`：INV-PERM-5 等业务代码零 DSH import 规则） |

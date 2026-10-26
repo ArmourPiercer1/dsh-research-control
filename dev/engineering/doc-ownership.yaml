@@ -1,0 +1,62 @@
+# dev/engineering/doc-ownership.yaml — 归属映射（最具体 glob 优先）
+#
+# docs:probe 用它回答「这块改动归谁、动到什么契约面」。risk：
+#   blocking = 高风险面（冻结契约/宿主适配/权限持久化/门禁与发布工具），
+#              影响必列且 Gate 记录须点名；
+#   advisory = 其余（未匹配任何条目的地块 → UNOWNED，advisory 提示
+#              DOC_IMPACT_UNOWNED，不强拦——AD-EB-02 渐进升级策略）。
+# 本文件是人工文件（sync 禁写）。owner 是角色不是人名。
+schema_version: 1
+rules:
+  - glob: "schema/**"
+    owner: contract-frozen
+    risk: blocking
+    note: 冻结契约正源（AD-EB-01）；变更=冻结变更流程 + snapshot:update + T2
+  - glob: "ARCHITECTURE.md|DOMAIN_SCHEMA.md|DSH_ADAPTER.md|GIT_INTEGRATION.md|HISTORY_EVENT_CATALOG.md|PLAN_FORK_SPEC.md|SUBAGENT_ROUTING.md|TEST_MATRIX.md"
+    owner: contract-frozen
+    risk: blocking
+    note: 同上（8 份根文档）
+  - glob: "SNAPSHOT.md"
+    owner: contract-frozen
+    risk: blocking
+    note: 生成清单，只经 snapshot:update
+  - glob: "src/host/history/**"
+    owner: epistemics
+    risk: blocking
+    note: 历史事件/重放语义——Frozen V1 关联面；tests/history-* 全量
+  - glob: "src/host/dsh-adapter/**"
+    owner: host-integrator
+    risk: blocking
+    note: 宿主适配面；改必读 DSH_ADAPTER.md，宿主行为断言须 T3 真机
+  - glob: "src/host/persistence/**|src/host/audit/**|src/host/git/**"
+    owner: store-integrity
+    risk: blocking
+    note: 持久化/审计/Git 真源面；权限与数据语义变更须 T2 以上
+  - glob: "src/host/**"
+    owner: host-integrator
+    risk: advisory
+  - glob: "src/client/**"
+    owner: ui
+    risk: advisory
+  - glob: "src/**"
+    owner: development
+    risk: advisory
+  - glob: "tests/**"
+    owner: development
+    risk: advisory
+  - glob: "scripts/**|dev/**|.github/**"
+    owner: tooling
+    risk: blocking
+    note: 门禁/工具自身（docs:* 内核、snapshot、pack、CI）——改它=改规则本身，PR 须点名
+  - glob: "docs/**|README.md|AGENTS.md"
+    owner: docs
+    risk: advisory
+    note: docs:check 覆盖范围；AGENTS.md 变更由用户指令驱动
+  - glob: "package.json|tsconfig.json|vitest.config.ts|tsdown.config.ts|cordis.patch.yml"
+    owner: tooling
+    risk: blocking
+    note: 构建/发布/包面；pack:verify 全序必跑
+  - glob: "lib/**|dist/**|factory-dist/**"
+    owner: tooling
+    risk: blocking
+    note: 预构建产物；只随源码提交一起更新（check:freshness）

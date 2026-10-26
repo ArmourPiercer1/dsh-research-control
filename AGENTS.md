@@ -84,13 +84,13 @@
 | `scripts/e2e-run.sh` | 默认 smoke root `<repo>/tests/dsh-homes/.smoke`（工作区内，§3）；继承的 `DSH_HOME` 落在 `tests/dsh-homes/**` 内按隔离值归一化 | `E2E_SCHEMA_ROOT` 走上游 G0（`scripts/resolve-e2e-schema-root.sh`：默认 = 仓内已提交快照 `<repo>/schema`，显式覆盖优先，一次性归一化绝对路径、不可用即 exit 1；测试侧同源谓词 `tests/helpers/workspace-root.ts`，`DSH_RESEARCH_WORKSPACE_ROOT` 覆盖，不做父目录自动发现）；强制 smoke home（`$SMOKE_ROOT/dsh-home`）、exit 2/3 语义、flock 独占锁、端口 3199、TC-DSH-008 CLI pin 随上游取值（当前 `0.1.0-rc.8`；与 §2 测试实例 train 的版本对齐一并在版本决策中处理）、`DSH_SMOKE_ROOT` 覆盖（并行运行时仍建议指向 `tests/dsh-homes/` 内独立子目录） |
 | `vitest.config.ts` | `exclude` 含 `references/**`、`tests/deepseek-harness/**`、`tests/dsh-homes/**` | 其余 include/exclude、decorator 插件 |
 | `tsconfig.json` | `exclude` 含 `references`、`tests/deepseek-harness`、`tests/dsh-homes` | 其余 compilerOptions、include |
-| `.gitignore` | 增加 `references/`、`tests/deepseek-harness/`、`tests/dsh-homes/*`（`!tests/dsh-homes/.gitkeep`） | 其余条目 |
+| `.gitignore` | 增加 `references/`、`tests/deepseek-harness/`、`tests/dsh-homes/*`（`!tests/dsh-homes/.gitkeep`）、`.scratch/`、`.npm-tmp/` | 其余条目 |
 
 - 单元测试（`pnpm test`）本身不触碰 DSH_HOME（纯逻辑 + 临时文件），§3 不改变
   其行为；§2 只影响"需要真实 DSH"的测试（e2e / live 冒烟 / CLI 操作）。
-- `pnpm run build` 的 SI-001 快照在本工作区的行为：父根无冻结正本（`schema/`
-  与 8 根文档均不在 `<repo>/..`）→ `scripts/snapshot-release.mjs` 走"大声跳过"
-  （exit 0 + 日志行，不触碰已提交的快照面），与 git 安装等价。
+- `pnpm run build` 的契约校验（EB1 起）：`scripts/snapshot-release.mjs` 只校验
+  仓内正源 ↔ `SNAPSHOT.md`（双向逐文件 sha256，零写入；漂移即构建红），不再读取
+  任何仓外路径；`DSH_SNAPSHOT_SOURCE_ROOT` 设置即 fail-loud（退役）。
 - `pack:verify` 设计上会预跑 `build`（refresh lib/）：构建产物的
   `//#region \0rcm-css:<abs-path>` 注释内嵌**构建机绝对路径**，上游 lib/ 出自上游
   机器，故本机跑 build / pack:verify 后 `lib/` 出现的差异若仅为该路径注释，属
@@ -109,3 +109,9 @@
   审查代理面板——一切委派通道拉起前必读。
 - **README「开发」节**：标准四件套顺序（tsc → lint → build → test）与发布门禁
   （`pack:verify`、`test:e2e` 隔离面）。
+- **文档纪律（EB2/ADR-0002）**：变更影响与静态一致性走 `pnpm run docs:probe /
+  docs:check / docs:sync`（共享内核 `scripts/docs/kernel.mjs`，CI 同规则）；归属
+  `dev/engineering/doc-ownership.yaml`，非推导事实 `dev/engineering/registry.yaml`
+  （两者人工，sync 禁写）；文档分层导航 `docs/README.md`，纪律 `docs/development.md`，
+  测试环境的坑 `docs/testing.md`，决策 `docs/decisions/`。状态词汇不互推：
+  `verified/released` 无真实证据路径 = `docs:check` 红。

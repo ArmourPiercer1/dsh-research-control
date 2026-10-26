@@ -99,3 +99,10 @@ deck 语法、单位（SI，能量 eV、角度 rad）、`gdfa` prog 名与 `grou
 入库补记（integrator）：seq 1 的 payload.based_on 已由 {03,1}+{03,2} 修正为
 {02,4}+{02,5}+{03,2}（质疑行的文字依据是两次分析+一次观测；B 留给
 主责裁定的引用-支撑不符项，见其 §2.1 末尾）。
+
+## 更新（2026-10-26）：真实运行已入库（strk-05/06）
+interop 启用后用宿主机 gpt.exe（Oct 14 2024）真跑两套 deck（nps=100）。
+`envelopes.strk-05-live-nominal.jsonl` / `envelopes.strk-06-live-quaderr.jsonl`
+为真实运行 SOURCE_RECORD + 一条推理对比；合成样本（strk-01..04）保留原样作
+P0 历史。样本升级路径中 sanitized-snapshot→live 段就此打通（GPT 运行真实；
+数据仍为合成研究场景，非实验数据）。

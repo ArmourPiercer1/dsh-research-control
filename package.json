@@ -61,7 +61,9 @@
     "check:freshness": "node scripts/check-build-freshness.mjs",
     "docs:probe": "node scripts/docs/probe.mjs",
     "docs:sync": "node scripts/docs/sync.mjs",
-    "docs:check": "node scripts/docs/check.mjs"
+    "docs:check": "node scripts/docs/check.mjs",
+    "check:types": "node scripts/tsc-gate.mjs",
+    "tsc:record": "node scripts/tsc-gate.mjs --record"
   },
   "engines": {
     "node": "^22.19.0 || >=24"

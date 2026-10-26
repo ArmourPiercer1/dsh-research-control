@@ -1,0 +1,60 @@
+# EB3 — CI = the same local gate commands (single kernel; AD-EB-02).
+# Honest labels: check:types passes by REPRODUCING known TS debt exactly
+# (see dev/engineering/tsc-debt.ids) — the job name/step names never claim a
+# clean typecheck. Required status is only configured after the first real
+# GitHub Actions red/green observations (G3 plan rule).
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  gate:
+    name: gate (tsc-debt / lint / build / freshness / docs / test / pack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # test-world fix for the G0-registered defect: store fixtures commit in
+      # the sandboxed repo; give them an explicit identity instead of relying
+      # on ambient config (fixture self-hardening tracked separately).
+      GIT_AUTHOR_NAME: dsh-ci
+      GIT_AUTHOR_EMAIL: ci@example.invalid
+      GIT_COMMITTER_NAME: dsh-ci
+      GIT_COMMITTER_EMAIL: ci@example.invalid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: install (frozen lockfile, registry-public @deepseek-ai train)
+        run: pnpm install --frozen-lockfile
+      - name: tsc identity gate (known-failing debt must reproduce EXACTLY)
+        run: pnpm run check:types
+      - name: lint (INV-PERM-5)
+        run: pnpm run lint
+      - name: build (contract verify included)
+        run: pnpm run build
+      - name: prebuilt-artifact freshness
+        run: pnpm run check:freshness
+      - name: docs static consistency
+        run: pnpm run docs:check
+      - name: docs derived index current
+        run: pnpm run docs:sync
+      - name: full test suite
+        run: pnpm test
+      - name: pack:verify (unpack smoke incl.)
+        run: pnpm run pack:verify
+      - name: change-impact probe (advisory)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          pnpm run docs:probe --base "$BASE" --json | tee probe.json
+          { echo "## docs:probe (advisory)"; echo '```'; jq -r '.findings[] | "\(.severity) \(.codes|join(",")) — \(.paths|length // 1) file(s)"' probe.json 2>/dev/null || cat probe.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

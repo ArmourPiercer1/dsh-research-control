@@ -51,6 +51,11 @@ jobs:
         run: pnpm test
       - name: pack:verify (unpack smoke incl.)
         run: pnpm run pack:verify
+      - name: PoC sidecar health (advisory, non-voting)
+        # #10 §2.1 失败隔离：PoC 红**绝不**成为主门禁的依赖——此步
+        # continue-on-error，只为每次 PR 顺带看见侧车健康度。
+        continue-on-error: true
+        run: pnpm run test:poc
       - name: change-impact probe (advisory)
         if: github.event_name == 'pull_request'
         continue-on-error: true

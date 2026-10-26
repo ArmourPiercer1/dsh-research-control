@@ -5,7 +5,7 @@
  * 本地与 CI 因此共享一致结果（G2 判据「不得两份相异规则」）。
  */
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -179,6 +179,48 @@ describe('EB2 P4 — kernel integrity', () => {
   it('the real repo passes the full static check (same kernel CI will run)', () => {
     const tracked = execFileSync('git', ['ls-files'], { cwd: REPO, encoding: 'utf8' }).split('\n').filter(Boolean)
     expect(checkAll(REPO, tracked)).toEqual([])
+  })
+})
+
+describe('EB3 P5 — principled-Draft ADR class (docs/architecture/adr/, PR #9 intake)', () => {
+  const adrFix = () => {
+    const d = mk()
+    mkdirSync(join(d, 'docs/architecture/adr'), { recursive: true })
+    writeFileSync(join(d, 'docs/architecture/adr/D90_ALPHA.md'), '# D90 — alpha\n\n**状态**：原则已同意，2026-10；实现未冻结。\n')
+    writeFileSync(join(d, 'docs/architecture/adr/D91_BETA.md'), '# D91 — beta\n\n**状态**：暂时同意待 PoC。\n')
+    writeFileSync(join(d, 'docs/architecture/adr/README.md'), '# idx\n| D90 | [D90_ALPHA](D90_ALPHA.md) |\n| D91 | [D91_BETA](D91_BETA.md) |\n')
+    return d
+  }
+  const adrFiles = ['docs/architecture/adr/D90_ALPHA.md', 'docs/architecture/adr/D91_BETA.md', 'docs/architecture/adr/README.md']
+  it('正例：id 唯一 + 状态行 + 入索引 = clean（词汇内容自由，不做状态映射）', () => {
+    expect(checkAdrs(adrFix(), adrFiles)).toEqual([])
+  })
+  it('负例：重复 D-id / 缺状态行 / 索引孤儿各自红', () => {
+    const d = adrFix()
+    writeFileSync(join(d, 'docs/architecture/adr/D90_DUP.md'), '# D90 dup\n\n**状态**：x。\n')
+    writeFileSync(join(d, 'docs/architecture/adr/README.md'), '# idx\n| D90 | [D90_ALPHA](D90_ALPHA.md) | [D90_DUP](D90_DUP.md) |\n| D91 | [D91_BETA](D91_BETA.md) |\n')
+    let p = checkAdrs(d, [...adrFiles, 'docs/architecture/adr/D90_DUP.md'])
+    expect(p.some((x) => x.code === 'ADR_DUP_ID' && String(x.detail).includes('D90'))).toBe(true)
+    const d2 = adrFix()
+    writeFileSync(join(d2, 'docs/architecture/adr/D90_ALPHA.md'), '# D90 — alpha\n\n没有状态行。\n')
+    p = checkAdrs(d2, adrFiles)
+    expect(p.some((x) => x.code === 'ADR_STATUS' && x.where.includes('D90_ALPHA'))).toBe(true)
+    const d3 = adrFix()
+    writeFileSync(join(d3, 'docs/architecture/adr/README.md'), '# idx\n| D90 | [D90_ALPHA](D90_ALPHA.md) |\n')
+    p = checkAdrs(d3, adrFiles)
+    expect(p.some((x) => x.code === 'ADR_ORPHAN' && x.where.includes('D91'))).toBe(true)
+  })
+  it('正例：PR #9 真实八件套通过类规则（试运行树存在时核对）', () => {
+    const adrDir = join(REPO, '.scratch/wt9/docs/architecture/adr')
+    if (!existsSync(adrDir)) return // 试运行 worktree 是本地证据面，缺失不算红
+    const d = mk()
+    mkdirSync(join(d, 'docs/architecture/adr'), { recursive: true })
+    const files = readdirSync(adrDir).map((f) => {
+      copyFileSync(join(adrDir, f), join(d, 'docs/architecture/adr', f))
+      return `docs/architecture/adr/${f}`
+    })
+    expect(files.length).toBeGreaterThanOrEqual(9) // 8 件 + 索引
+    expect(checkAdrs(d, files)).toEqual([])
   })
 })
 

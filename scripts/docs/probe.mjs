@@ -1,5 +1,11 @@
 #!/usr/bin/env node
-/** docs:probe — read-only 变更影响探针（不改退出码语义：advisory 永远是 0）。 */
+/**
+ * docs:probe — read-only 变更影响探针。
+ * 默认 advisory 语义（永远 exit 0，人工参考）；CI 冻结契约审查门用
+ * `--fail-on-blocking`（审查意见 P0#1）：任一 BLOCKING 发现即 exit 1，
+ * 除非 `--review-marker-file <path>` 指向的文本含机验审查标记行
+ * `Frozen-Face-Review: <日期> <批准人>`——哈希/清单同步绝不代替审查。
+ */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
@@ -53,6 +59,24 @@ if (args.includes('--json')) {
     for (const d of f.docs ?? []) console.log(`    影响文档: ${d}`)
     for (const t of f.tests ?? []) console.log(`    相关测试: ${t}`)
     for (const a of f.actions ?? []) console.log(`    动作: ${a}`)
+  }
+}
+const blocking = findings.filter((f) => f.severity === 'blocking')
+if (blocking.length > 0 && args.includes('--fail-on-blocking')) {
+  // 投票面 = 实质变更需要人工审查的欠账面（审查意见 P0#1 点名：冻结契约、
+  // 事件不变量、权限与持久化格式）。其余 blocking 标签（宿主适配 pin、门禁
+  // 工具、产物）照报不投票——它们每个工程 PR 都会路过，逐 PR 求人工批准行
+  // 只会把标记稀释成每日图章（审查意见：普通修改保持轻量流程）。
+  const VOTING = ['FROZEN_CONTRACT_ROOT', 'CONTRACT_SURFACE', 'EVENT_REPLAY_SEMANTICS', 'HISTORY_CONTRACT', 'PERSISTENCE_OR_PERMISSION']
+  const voting = blocking.filter((f) => f.codes.some((c) => VOTING.includes(c)))
+  if (voting.length > 0) {
+    const markerPath = opt('--review-marker-file')
+    const markerText = markerPath ? readFileSync(markerPath, 'utf8') : ''
+    const reviewed = /^Frozen-Face-Review:\s*\d{4}-\d{2}-\d{2}\s+\S+/m.test(markerText)
+    if (!reviewed) {
+      console.error(`[docs:probe] BLOCKING×${voting.length}（${voting.map((f) => f.codes.join('+')).join(', ')}）且未提供审查标记。实质变更面必须在 PR body 写明一行：Frozen-Face-Review: <YYYY-MM-DD> <批准人>（人工批准，快照哈希不代替审查）。`)
+      process.exit(1)
+    }
   }
 }
 process.exit(0)

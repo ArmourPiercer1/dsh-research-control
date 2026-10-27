@@ -108,7 +108,10 @@
   Git 内唯一可编辑契约正源（批准基准哈希 `docs/engineering-baseline/gates/G0-inventory.yaml`）；
   `SNAPSHOT.md` 为生成清单，构建双向 sha256 校验。修订必须走冻结变更流程：改契约
   文件 → `pnpm run snapshot:update` → 契约与清单同一提交评审；未经该流程的改动会
-  直接构建红（CONTRACT_DRIFT）。本文件**不在**冻结面（非 FROZEN_DOCS、不在
+  直接构建红（CONTRACT_DRIFT）。2026-10-27 起另有**机验审查门**（审查意见 P0#1）：
+  CI probe 对冻结契约/事件不变量/权限持久化面投票，变更此类面的 PR 必须在 body 写
+  `Frozen-Face-Review: <日期> <批准人>`（人工批准标记，哈希同步不代替审查；细则见
+  `docs/development.md`「冻结变更的机器门」）。本文件**不在**冻结面（非 FROZEN_DOCS、不在
   `package.json` files、不入发布包），可随纪律更新。`DSH_SNAPSHOT_SOURCE_ROOT` 已退役
   （设置即 fail-loud）；运行时 `DSH_RESEARCH_SCHEMA_ROOT` 覆盖语义不变。
 - **`SUBAGENT_ROUTING.md`**：子代理三级模型路由（默认 → 升级 → 暂停待裁决）与

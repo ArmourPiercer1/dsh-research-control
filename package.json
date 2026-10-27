@@ -65,6 +65,9 @@
     "check:types": "node scripts/tsc-gate.mjs",
     "tsc:record": "node scripts/tsc-gate.mjs --record",
     "baseline:ready": "node scripts/baseline-ready.mjs",
+    "check:smoke-guard": "bash scripts/smoke-root-guard-check.sh",
+    "test:e2e:v2:bootstrap": "bash e2e/world-bootstrap.sh",
+    "test:e2e:v2": "bash e2e/run.sh",
     "test:poc": "vitest run --config experiments/v3-semantic-poc/vitest.config.ts"
   },
   "engines": {

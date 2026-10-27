@@ -17,7 +17,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -72,4 +72,38 @@ if (stale.length > 0) {
       stale.map((s) => `\n  - ${s}`).join(''),
   )
 }
-console.log(`[check-freshness] fresh: ${tracked.length} committed artifact(s) match the current build (only the documented rcm-css build-path noise normalized away)`)
+
+/* ---- reverse direction (审查意见 P1#3, 2026-10-27) --------------------- *
+ * The loop above proves: every COMMITTED artifact == fresh build. The mirror
+ * question is equally load-bearing: does the BUILD produce anything Git does
+ * not carry? An untracked extra under lib/ silently ships via pack (files:
+ * ["lib"]) while git-install consumers never get it — the two install routes
+ * then run different artifact SETS. List untracked + ignored-but-inside-lib
+ * files and refuse any that a real build produced. `git clean -n` semantics
+ * (untracked, incl. nested) come straight from git — same source of truth. */
+const trackedSet = new Set(tracked)
+const walk = (dir) => {
+  const out = []
+  let entries = []
+  try {
+    entries = readdirSync(join(ROOT, dir), { withFileTypes: true })
+  } catch {
+    return out // dir absent — nothing the build emitted there
+  }
+  for (const e of entries) {
+    const rel = `${dir}/${e.name}`
+    if (e.isDirectory()) out.push(...walk(rel))
+    else out.push(rel)
+  }
+  return out
+}
+const extra = DIRS.flatMap(walk).filter((rel) => !trackedSet.has(rel))
+if (extra.length > 0) {
+  fail(
+    'LIB_UNTRACKED_ARTIFACTS',
+    `${extra.length} build output file(s) under ${DIRS.join('/')} are NOT in git — pack ships them but git-install does not ` +
+      '(审查意见 P1#3: 产物集合必须 Git↔build↔tarball 一致)。commit them or clean them up:' +
+      extra.slice(0, 20).map((s) => `\n  - ${s}`).join('') + (extra.length > 20 ? `\n  … +${extra.length - 20} more` : ''),
+  )
+}
+console.log(`[check-freshness] fresh: ${tracked.length} committed artifact(s) match the current build (only the documented rcm-css build-path noise normalized away); reverse direction clean (no untracked build outputs)`)

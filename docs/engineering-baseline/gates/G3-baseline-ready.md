@@ -1,11 +1,11 @@
 # BASELINE_READY view（生成物 — 重跑 `pnpm run baseline:ready` 即最新）
 
-> Generated: git `maint/eb-baseline-refresh@bfb3caa82387` · worktree DIRTY (view describes committed HEAD; uncommitted paths excluded) · node v24.21.0 · pnpm 11.7.0
+> Generated: git `maint/review-hardening-202610@02c70380fc0d` · worktree DIRTY (view describes committed HEAD; uncommitted paths excluded) · node v24.21.0 · pnpm 11.7.0
 > 来源：Git + 机器检测 + `dev/engineering/registry.yaml`（人工事实）。本视图不新增真相，不做手工维护。
 
 | 项 | 状态 | 依据 |
 |---|---|---|
-| 类型债务 | KNOWN-FAILING 精确复现（20 条）— 非全绿 | dev/engineering/tsc-debt.ids |
+| 类型债务 | KNOWN-FAILING 精确复现（19 条）— 非全绿 | dev/engineering/tsc-debt.ids |
 | 契约正源 | 正源↔清单一致（AD-EB-01 批准哈希） | SNAPSHOT.md ↔ schema/** + 8 docs |
 | 预构建产物 | committed == fresh build（仅 rcm-css 噪声归一化） | scripts/check-build-freshness.mjs |
 
@@ -29,6 +29,7 @@
 - `e2e_spec_layer`（obsolete-reference）：scripts/e2e-run.sh 终段引用的 e2e/smoke.*.spec.ts 已在 9275eef（V2 全量验收、V1 specs archived）移入 e2e/v1-archived/，且两份 playwright 配置均显式 testIgnore 归档目录——脚本在 pin 世界起服后必然 No tests found。基线自带、非 2026-10 train 迁移引入（rc.2 世界实证：pin 校验/播种/research seed/起服全过，唯 spec 层死引用）。
 - `typescript`（known-failing）：基线清单 `dev/engineering/tsc-debt.ids`
 - SI-001 裁决书原件 / 外部 V2 设计 / 计划书 = UNKNOWN（仓外不可访问，不伪造）。
-- V3（#9/#10）= Draft，未生效；本视图不为其状态背书。
+- V3（design_prs）：#9/#10（V2 设计与 PoC 计划）已合并——历史设计通道关闭，不再是执行依据
+- V3（formal_contract）：docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md = PROPOSAL（人工批准前不生效；批准状态由人工在评审中给出，本登记不冒充批准）
 - CI required status 配置与否见 G3 记录（观察先于强制）。
 

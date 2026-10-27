@@ -1,13 +1,13 @@
 # BASELINE_READY view（生成物 — 重跑 `pnpm run baseline:ready` 即最新）
 
-> Generated: git `main@3d5bd184d9d6` · worktree DIRTY (view describes committed HEAD; uncommitted paths excluded) · node v24.21.0 · pnpm 11.7.0
+> Generated: git `maint/review-hardening-202610@02c70380fc0d` · worktree DIRTY (view describes committed HEAD; uncommitted paths excluded) · node v24.21.0 · pnpm 11.7.0
 > 来源：Git + 机器检测 + `dev/engineering/registry.yaml`（人工事实）。本视图不新增真相，不做手工维护。
 
 | 项 | 状态 | 依据 |
 |---|---|---|
-| 类型债务 | NEW DEBT — 基线不 READY | dev/engineering/tsc-debt.ids |
+| 类型债务 | KNOWN-FAILING 精确复现（19 条）— 非全绿 | dev/engineering/tsc-debt.ids |
 | 契约正源 | 正源↔清单一致（AD-EB-01 批准哈希） | SNAPSHOT.md ↔ schema/** + 8 docs |
-| 预构建产物 | STALE — 基线不 READY | scripts/check-build-freshness.mjs |
+| 预构建产物 | committed == fresh build（仅 rcm-css 噪声归一化） | scripts/check-build-freshness.mjs |
 
 ## 阶段 Gate（registry 事实，非推导）
 

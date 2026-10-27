@@ -94,6 +94,11 @@ if (checkIdx !== -1) {
   }
   const strip = (t) => t.split('\n').filter((l) => !l.startsWith('> Generated:')).join('\n').trimEnd()
   if (strip(committed) !== strip(text)) {
+    const a = strip(committed).split('\n')
+    const b = strip(text).split('\n')
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      if (a[i] !== b[i]) console.error(`  diff@${i + 1}:\n    committed: ${a[i] ?? '(absent)'}\n    generated: ${b[i] ?? '(absent)'}`)
+    }
     console.error('[baseline-ready] STALE：已提交证书与当前生成内容不一致（忽略 Generated 头后仍有差异）。事实已变化——运行 pnpm run baseline:ready --emit docs/engineering-baseline/gates/G3-baseline-ready.md 并随本 PR 提交。')
     process.exit(1)
   }

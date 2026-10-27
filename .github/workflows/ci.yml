@@ -26,6 +26,8 @@ jobs:
       GIT_COMMITTER_EMAIL: ci@example.invalid
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # probe --base 需要 base ref 可解析；浅克隆曾把该步毒成 exit 2（被 continue-on-error 掩盖过）
       - uses: pnpm/action-setup@v4
         with:
           version: 11.7.0

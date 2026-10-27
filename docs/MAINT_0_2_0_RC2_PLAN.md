@@ -242,3 +242,15 @@ F1–F4 + F5（settings 0.2 模型）全部落地；门禁与冒烟（2026-10，
 - 审查遗留（未入四包、待排期）：真实 Host 组合批次（11 工具调用、Agent/USER
   权限隔离、investigator 写拒绝、歧义拒绝、unload-reload——浏览器/live 面，
   与 GUI 人眼批次同批）；`known_debts.e2e_spec_layer` 维持登记（上游语义）。
+
+## 设计代次谱系（B+）落地（2026-10-27，只追加）
+
+- 用户批准执行 B+（PR #45，main `b68c759`，ADR-0003）：设计文档代次语义获得
+  机验落点——supersedes 边（悬空/旧版冒充现行/缺回链 = 红）、
+  `registry.design_lines`（现行/首代/切换锚 80e546e/封存策略）、
+  `docs/architecture/superseded/` 哈希封存门（append-only + origin 必填）。
+- 语义边界记录在案：**「哪一代生效」保持人工事实**，机器只保证登记的
+  路径、状态词汇与锚不撒谎；V3 首代封存待 V3 契约批准同 PR 执行
+  （seal_policy 已登记于 design_lines.v3）。
+- 过程自纠一次：docs:sync 只索引 tracked 文件，ADR-0003 提交前跑 sync 造成
+  CI 索引红——提交后 sync→amend 修复（红→绿在 PR #45 两次 run 对比）。

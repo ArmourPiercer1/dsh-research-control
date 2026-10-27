@@ -4,6 +4,7 @@
 
 | 文档 | 职责 | 裁决状态 |
 | --- | --- | --- |
+| [H/S/R 系统级设计审查稿](H_S_R_SYSTEM_DESIGN_DRAFT.md) | 逐系统问题、功能边界、对象—关系架构、推理方法、多系统合同与缺口矩阵 | Draft 候选／逐项待裁 |
 | [H/S/R 顶层架构讨论基线](H_S_R_TOP_LEVEL_ARCHITECTURE_DRAFT.md) | 使命、问题边界、三正交系统、共用不变量与后续讨论项 | Draft 提案，非实施契约 |
 | [ARCHITECTURE_BASELINE](ARCHITECTURE_BASELINE.md) | 使命、边界、顶层分层、图谱、可靠性 | 原则性基线 |
 | [CORE_SEMANTICS](CORE_SEMANTICS.md) | Activity / Entity / Result 到 Assertion / Evidence / Argument | 语义候选 |

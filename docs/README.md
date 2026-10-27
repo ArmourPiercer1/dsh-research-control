@@ -51,6 +51,7 @@
 | `docs/TOOLS_TRACEABILITY.md` | Historical |
 | `docs/architecture/ARCHITECTURE_BASELINE.md` | Proposed |
 | `docs/architecture/CORE_SEMANTICS.md` | Proposed |
+| `docs/architecture/H_S_R_SYSTEM_DESIGN_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_TOP_LEVEL_ARCHITECTURE_DRAFT.md` | Proposed |
 | `docs/architecture/OPEN_DESIGN_QUESTIONS.md` | Proposed |
 | `docs/architecture/POC_IMPLEMENTATION_PLAN.md` | Proposed |

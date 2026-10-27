@@ -1,11 +1,15 @@
 # V3 科研语义架构｜文档索引
 
-> **上层讨论基线，非运行时规范** · PR #9 形成既有架构方向，2026-10-27 增补 H/S/R 顶层讨论稿。仓库根目录现有 `ARCHITECTURE.md` / `DOMAIN_SCHEMA.md` 仍为 V1 实现的正式契约；本目录**尚未实现**。
+> **上层讨论基线，非运行时规范** · PR #42 最新主基线为五类对象 × H/S/R。旧稿保留但以最新主基线裁决为先。仓库根目录现有 `ARCHITECTURE.md` / `DOMAIN_SCHEMA.md` 仍为 V1 实现的正式契约；本目录**尚未实现**。
 
 | 文档 | 职责 | 裁决状态 |
 | --- | --- | --- |
-| [H/S/R 系统级设计审查稿](H_S_R_SYSTEM_DESIGN_DRAFT.md) | 逐系统问题、功能边界、对象—关系架构、推理方法、多系统合同与缺口矩阵 | Draft 候选／逐项待裁 |
-| [H/S/R 顶层架构讨论基线](H_S_R_TOP_LEVEL_ARCHITECTURE_DRAFT.md) | 使命、问题边界、三正交系统、共用不变量与后续讨论项 | Draft 提案，非实施契约 |
+| [H/S/R × 五类对象：统一架构设计](H_S_R_FIVE_OBJECT_ARCHITECTURE_DRAFT.md) | **本轮最新主基线**：五类对象、三正交系统、级别、身份、共同不变量 | Draft · 优先阅读 |
+| [五类对象与旧设计归属对账](H_S_R_OBJECT_MAPPING_DRAFT.md) | PROV/SOSA、Concept、World/Scope、Evidence/Argument、Assessment/Fact、V1 对象逐项归类 | Draft · 含候选映射 |
+| [H/S/R 系统级详细合同](H_S_R_SYSTEM_CONTRACTS_DRAFT.md) | 逐系统问题、对象关系、L0/L1、案例、跨界约束 | Draft · 非 Schema |
+| [方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md) | 既定共识、候选推断、F-01–F-09、旧设计冲突 | Draft · 审查索引 |
+| [H/S/R 早期系统级审查稿](H_S_R_SYSTEM_DESIGN_DRAFT.md) | 保留上一轮对象关系/缺口视图；未按最新五类完全改写 | 较早 Draft |
+| [H/S/R 早期三系统顶层基线](H_S_R_TOP_LEVEL_ARCHITECTURE_DRAFT.md) | 保留本 PR 首轮 H/S/R 讨论历史；旧 Assertion/L1 术语需以最新主基线为准 | 较早 Draft |
 | [ARCHITECTURE_BASELINE](ARCHITECTURE_BASELINE.md) | 使命、边界、顶层分层、图谱、可靠性 | 原则性基线 |
 | [CORE_SEMANTICS](CORE_SEMANTICS.md) | Activity / Entity / Result 到 Assertion / Evidence / Argument | 语义候选 |
 | [W3C_ALIGNMENT](W3C_ALIGNMENT.md) | 完整 crosswalk、标准术语、冲突和迁移 | D20 对齐基线 |

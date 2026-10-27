@@ -56,6 +56,22 @@ pnpm run pack:verify                            # 发布门禁（含新鲜度门
 - 归属与风险面见 `dev/engineering/doc-ownership.yaml`（最具体 glob 优先）；
   probe 报 `DOC_IMPACT_UNOWNED` 时补条目或确认忽略。
 
+## 冻结变更的机器门（审查意见 P0#1，2026-10-27）
+
+`blocking` 不是标签：CI 的 probe 步以 `--fail-on-blocking` 运行，**投票面** =
+冻结契约（8 根文档 / `schema/**` / `SNAPSHOT.md`）、事件不变量、权限与持久化
+格式（`src/host/history|persistence|audit|git`）。这些面被变更时，PR body 必须
+含一行——
+
+```
+Frozen-Face-Review: <YYYY-MM-DD> <批准人>
+```
+
+这是人工批准的机验标记：快照哈希与清单同步**绝不代替审查**（同时改契约和清单
+能过哈希门，过不了标记门）。其余 blocking 面（宿主适配 pin、门禁工具、产物）
+照报不投票——每个工程 PR 都会路过，逐 PR 求人工批准只会把标记稀释成图章；
+普通文档修改维持轻量流程。本地复现投票：`docs:probe --paths … --fail-on-blocking`。
+
 ## 非推导事实登记
 
 宿主 pin、Gate 裁决、TS 债务基线等在 `dev/engineering/registry.yaml`（人工维护，

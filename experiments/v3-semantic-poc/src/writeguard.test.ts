@@ -4,7 +4,8 @@
  * 断言：对 src/、schema/、.research/、仓根 lib/ 的相对与绝对形态路径全部
  * 拒绝（FATAL），`..` 归一化逃逸同样拒绝；拒绝时零文件创建。
  */
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
@@ -107,5 +108,39 @@ describe('assertWritable：拒绝即 FATAL 且零文件创建', () => {
     }
     expect(snapshotDirs()).toEqual(before)
     expect(existsSync(path.join(REPO_ROOT, '.research'))).toBe(researchExistedBefore)
+  })
+})
+
+/* ---------------- 符号链接逃逸（审查意见 P0#2，2026-10-27） ---------------- */
+
+describe('assertWritable：符号链接逃逸拒绝', () => {
+  const mk = (name: string) => path.join(ALLOWED_WRITE_ROOT, name)
+  it('允许区内指向区外的符号链接目录分量被拒绝（词法在内、真实在外）', () => {
+    mkdirSync(ALLOWED_WRITE_ROOT, { recursive: true })
+    const outside = mkdtempSync(path.join(tmpdir(), 'wg-escape-'))
+    const link = mk('link-out')
+    try {
+      if (existsSync(link)) rmSync(link, { recursive: true })
+      symlinkSync(outside, link, 'dir')
+      expect(() => assertWritable(path.join(link, 'x.json'))).toThrow(/符号链接逃逸/)
+      unlinkSync(link)
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+      if (existsSync(link)) unlinkSync(link)
+    }
+  })
+  it('允许区内指向区内他处的符号链接仍放行（真实落点在允许区内即合法）', () => {
+    mkdirSync(ALLOWED_WRITE_ROOT, { recursive: true })
+    const inner = mk('inner-real')
+    const link = mk('link-in')
+    try {
+      mkdirSync(inner, { recursive: true })
+      if (existsSync(link)) unlinkSync(link)
+      symlinkSync(inner, link, 'dir')
+      expect(assertWritable(path.join(link, 'x.json'))).toContain('link-in')
+    } finally {
+      if (existsSync(link)) unlinkSync(link)
+      rmSync(inner, { recursive: true, force: true })
+    }
   })
 })

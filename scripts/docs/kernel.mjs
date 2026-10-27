@@ -107,6 +107,19 @@ export function ownershipFor(rules, path) {
  * ------------------------------------------------------------------ */
 const PROBE_RULES = [
   {
+    // The 8 root contracts themselves (审查意见 P0#1, 2026-10-27): before this
+    // rule existed, editing ARCHITECTURE.md/DOMAIN_SCHEMA.md produced NO probe
+    // finding at all — `blocking` in doc-ownership was a label without a
+    // detection lane. Ownership stays the severity source (contract-frozen =
+    // blocking); this rule gives the frozen面 its 变更识别.
+    glob: 'ARCHITECTURE.md|DOMAIN_SCHEMA.md|DSH_ADAPTER.md|GIT_INTEGRATION.md|HISTORY_EVENT_CATALOG.md|PLAN_FORK_SPEC.md|SUBAGENT_ROUTING.md|TEST_MATRIX.md',
+    codes: ['FROZEN_CONTRACT_ROOT'],
+    docs: ['SNAPSHOT.md', 'docs/engineering-baseline/STRUCTURE_DESIGN.md'],
+    tests: ['tests/engineering/eb1-canonical.test.ts'],
+    gate: 'T2 + 冻结变更审查标记（CI 机验，见 docs/development.md「冻结变更的机器门」）',
+    actions: ['冻结变更流程：改契约 → pnpm run snapshot:update → 契约与清单同一提交', 'PR body 加一行 `Frozen-Face-Review: <日期> <批准人>`——人工批准的机验标记，哈希同步绝不代替审查'],
+  },
+  {
     glob: 'schema/**|SNAPSHOT.md',
     codes: ['CONTRACT_SURFACE'],
     docs: ['DOMAIN_SCHEMA.md', 'SNAPSHOT.md', 'docs/packaging.md'],

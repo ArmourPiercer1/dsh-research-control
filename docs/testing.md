@@ -40,6 +40,21 @@
 `tests/git/tc-git-001` + `tests/git/tc-git-005`（run 40273888910）；修法附
 `TZ=UTC` 本地复验。写新断言时不要复刻本机时区假设。
 
+## V2 验收正式入口（2026-10-27，审查意见 P0#2）
+
+```sh
+pnpm run test:e2e:v2:bootstrap          # 世界 = tests/dsh-homes/e2e-v2（可弃，AGENTS §3）
+pnpm run test:e2e:v2 t61-settings-card.spec.ts t63-clean-probe.spec.ts
+```
+
+- 入口在**本仓 git 内**（`e2e/world-bootstrap.sh` + `e2e/run.sh` +
+  `e2e/seed-fixtures.mts`），不再是 .scratch 私产；世界根经
+  `scripts/smoke-root-guard.sh` 机验（隔离区内或带 `.dsh-smoke-root` 标记），
+  矩阵自检 `pnpm run check:smoke-guard`。
+- 旧命令 `pnpm run test:e2e` 的 spec 终段仍引用已归档 V1 用例（registry
+  `known_debts.e2e_spec_layer`，上游测试语义，不本地私改）——**V2 验收以上述
+  入口为准**；`e2e-run.sh` 的起服/播种/锁等前置链仍是 TC-DSH-008 的钉扎面。
+
 ## 0.2 世界无头浏览器注记（2026-10-27，探针实证，只追加）
 - 本机 chromium 缺系统库（libnspr4/libnss3/libasound → exit 127）：可用世界内
   lib-shim（如 /snap/gnome-* 借库）+ `LD_LIBRARY_PATH` 修复——属环境面，勿记

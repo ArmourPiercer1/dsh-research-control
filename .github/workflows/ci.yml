@@ -39,6 +39,9 @@ jobs:
         run: pnpm run check:types
       - name: lint (INV-PERM-5)
         run: pnpm run lint
+      - name: smoke-root guard matrix (P0#2)
+        # rm -rf 面的机械守卫：红/绿矩阵必须逐例真实触发拒绝/放行。
+        run: pnpm run check:smoke-guard
       - name: build (contract verify included)
         run: pnpm run build
       - name: prebuilt-artifact freshness
@@ -47,6 +50,11 @@ jobs:
         run: pnpm run docs:check
       - name: docs derived index current
         run: pnpm run docs:sync
+      - name: BASELINE_READY certificate currency (P1#4)
+        # 历史证书不冒充最新状态：registry 事实/债务台账变化后必须同 PR
+        # `baseline:ready --emit` 重生成（比较时忽略含 SHA/机器检测的
+        # Generated 头，跨 CI 镜像可比）。
+        run: node scripts/baseline-ready.mjs --check docs/engineering-baseline/gates/G3-baseline-ready.md
       - name: full test suite
         run: pnpm test
       - name: pack:verify (unpack smoke incl.)
@@ -56,10 +64,16 @@ jobs:
         # continue-on-error，只为每次 PR 顺带看见侧车健康度。
         continue-on-error: true
         run: pnpm run test:poc
-      - name: change-impact probe (advisory)
+      - name: change-impact probe (voting for BLOCKING lanes)
+        # 审查意见 P0#1（2026-10-27）：blocking 不再是标签——冻结契约/宿主适配/
+        # 权限持久化面的变更必须带人工审查标记才放行（快照哈希不代替审查）。
+        # advisory 发现仍只报告不拦（AD-EB-02 渐进升级策略不变）。
         if: github.event_name == 'pull_request'
-        continue-on-error: true
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          set -o pipefail  # 否则 tee 吞掉 probe 的 exit 1，投票变哑票
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
-          pnpm run docs:probe --base "$BASE" --json | tee probe.json
-          { echo "## docs:probe (advisory)"; echo '```'; jq -r '.findings[] | "\(.severity) \(.codes|join(",")) — \(.paths|length // 1) file(s)"' probe.json 2>/dev/null || cat probe.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s' "$PR_BODY" > .pr-body.txt
+          pnpm run docs:probe --base "$BASE" --json --fail-on-blocking --review-marker-file .pr-body.txt | tee probe.json
+          { echo "## docs:probe"; echo '```'; jq -r '.findings[] | "\(.severity) \(.codes|join(",")) — \(.paths|length // 1) file(s)"' probe.json 2>/dev/null || cat probe.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -73,6 +73,35 @@ describe('EB2 P1 — docs:probe impact mapping (plan PoC matrix)', () => {
     const un = f.find((x) => x.codes.includes('DOC_IMPACT_UNOWNED'))
     expect(un?.severity).toBe('advisory')
   })
+  // 审查意见 P0#1（2026-10-27）负测试：八份根契约的变更必须被识别为 blocking。
+  it('root contract doc change → FROZEN_CONTRACT_ROOT blocking (was: invisible to the probe)', () => {
+    for (const doc of ['ARCHITECTURE.md', 'DOMAIN_SCHEMA.md', 'HISTORY_EVENT_CATALOG.md']) {
+      const f = probeFindings(mk(), [doc])
+      const hit = f.find((x) => x.codes.includes('FROZEN_CONTRACT_ROOT'))
+      expect(hit?.severity, doc).toBe('blocking')
+      expect(hit?.actions?.join() ?? '', doc).toContain('Frozen-Face-Review')
+    }
+  })
+  it('probe CLI: --fail-on-blocking really exits 1 on a root-contract change, and the human marker line exempts it', () => {
+    const d = mk()
+    const list = join(d, 'changed.txt')
+    writeFileSync(list, 'ARCHITECTURE.md\n')
+    const run = (extra: string[]) => {
+      try {
+        execFileSync(process.execPath, [join(REPO, 'scripts/docs/probe.mjs'), '--paths', list, ...extra], { cwd: REPO, encoding: 'utf8', stdio: 'pipe' })
+        return 0
+      } catch (e: any) {
+        return e.status as number
+      }
+    }
+    expect(run([])).toBe(0) // 默认 advisory 语义不变（人工参考）
+    expect(run(['--fail-on-blocking'])).toBe(1) // 真拦：无标记即红
+    const marker = join(d, 'body.txt')
+    writeFileSync(marker, 'some PR text\nFrozen-Face-Review: 2026-10-27 用户\nmore text\n')
+    expect(run(['--fail-on-blocking', '--review-marker-file', marker])).toBe(0) // 人工批准行放行
+    writeFileSync(marker, 'Frozen-Face-Review: soon bob\n') // 日期不合式 = 不放行
+    expect(run(['--fail-on-blocking', '--review-marker-file', marker])).toBe(1)
+  })
 })
 
 describe('EB2 P2 — docs:check negatives (plan PoC: 坏链接 / 重复 ADR ID / 虚假 verified evidence)', () => {

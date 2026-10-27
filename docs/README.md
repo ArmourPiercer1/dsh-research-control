@@ -13,13 +13,13 @@
 | 工程纪律（Current） | `AGENTS.md`、`docs/development.md`、`docs/testing.md` | 执行纪律，用户指令驱动；不改契约 |
 | 决策记录（Current） | `docs/decisions/ADR-*.md` | 决策的正式落点；`supersedes` 只指向被替代记录的标识 |
 | 工程基线（Current） | `docs/engineering-baseline/` + `gates/` | PR #11 计划与各 Gate 裁决记录 |
-| 提案（Proposed） | Draft PR #9 / #10 分支 | **未生效**——不得按已生效契约引用；合流前不入库为 Current |
+| 提案（Proposed） | `docs/architecture/**`、`docs/poc/**` | **未生效**——即使设计文档已合入 main，也不得按 Current 实施契约引用 |
 | 历史（Historical） | `docs/BASELINE_*`、`docs/G1_TRUSTED_BOUNDARY.md`…`docs/G4_*`、`docs/TOOLS_TRACEABILITY.md`、`docs/evidence/**` | Stage-0/WP 时代记录；只追加更正，不改写原文 |
 
 > **命名撞车说明**：旧 WP 阶段的 `G0–G5` 文档（上表 Historical 行）与工程基线的
 > Gate `G0–G3`（`docs/engineering-baseline/gates/`）不是同一序列；引用时写全路径。
-> V3 类型化研究面（#9）与 PoC 计划（#10）保持 Draft，本仓任何 Current 文档都不得
-> 替它们宣布生效。
+> V3 类型化研究面（#9）与 PoC 计划（#10）已合入，但仍属于 Proposed；本仓任何 Current 文档都不得
+> 替它们宣布运行时生效。
 
 ## 派生索引（docs:sync 生成，勿编辑）
 
@@ -51,6 +51,7 @@
 | `docs/TOOLS_TRACEABILITY.md` | Historical |
 | `docs/architecture/ARCHITECTURE_BASELINE.md` | Proposed |
 | `docs/architecture/CORE_SEMANTICS.md` | Proposed |
+| `docs/architecture/H_S_R_TOP_LEVEL_ARCHITECTURE_DRAFT.md` | Proposed |
 | `docs/architecture/OPEN_DESIGN_QUESTIONS.md` | Proposed |
 | `docs/architecture/POC_IMPLEMENTATION_PLAN.md` | Proposed |
 | `docs/architecture/README.md` | Proposed |

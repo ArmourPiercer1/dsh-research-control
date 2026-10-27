@@ -1,9 +1,10 @@
 # V3 科研语义架构｜文档索引
 
-> **上层讨论基线，非运行时规范** · 2026-10-23 · Draft PR #9。仓库根目录现有 `ARCHITECTURE.md` / `DOMAIN_SCHEMA.md` 仍为 V1 实现的正式契约；本目录**尚未实现**。
+> **上层讨论基线，非运行时规范** · PR #9 形成既有架构方向，2026-10-27 增补 H/S/R 顶层讨论稿。仓库根目录现有 `ARCHITECTURE.md` / `DOMAIN_SCHEMA.md` 仍为 V1 实现的正式契约；本目录**尚未实现**。
 
 | 文档 | 职责 | 裁决状态 |
 | --- | --- | --- |
+| [H/S/R 顶层架构讨论基线](H_S_R_TOP_LEVEL_ARCHITECTURE_DRAFT.md) | 使命、问题边界、三正交系统、共用不变量与后续讨论项 | Draft 提案，非实施契约 |
 | [ARCHITECTURE_BASELINE](ARCHITECTURE_BASELINE.md) | 使命、边界、顶层分层、图谱、可靠性 | 原则性基线 |
 | [CORE_SEMANTICS](CORE_SEMANTICS.md) | Activity / Entity / Result 到 Assertion / Evidence / Argument | 语义候选 |
 | [W3C_ALIGNMENT](W3C_ALIGNMENT.md) | 完整 crosswalk、标准术语、冲突和迁移 | D20 对齐基线 |

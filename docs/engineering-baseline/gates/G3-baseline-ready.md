@@ -1,6 +1,6 @@
 # BASELINE_READY view（生成物 — 重跑 `pnpm run baseline:ready` 即最新）
 
-> Generated: git `maint/review-hardening-202610@02c70380fc0d` · worktree DIRTY (view describes committed HEAD; uncommitted paths excluded) · node v24.21.0 · pnpm 11.7.0
+> Generated: git `main@049c37da198c` · worktree DIRTY (view describes committed HEAD; uncommitted paths excluded) · node v24.21.0 · pnpm 11.7.0
 > 来源：Git + 机器检测 + `dev/engineering/registry.yaml`（人工事实）。本视图不新增真相，不做手工维护。
 
 | 项 | 状态 | 依据 |
@@ -32,4 +32,8 @@
 - V3（design_prs）：#9/#10（V2 设计与 PoC 计划）已合并——历史设计通道关闭，不再是执行依据
 - V3（formal_contract）：docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md = PROPOSAL（人工批准前不生效；批准状态由人工在评审中给出，本登记不冒充批准）
 - CI required status 配置与否见 G3 记录（观察先于强制）。
+
+## 设计线（registry.design_lines 派生）
+
+- `v3`：现行 = `docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md`（DRAFT-PROPOSAL——人工批准前不生效；生效/冻结由人裁定，机器只查路径与锚）· 切换锚 `80e546e` · 首代 `docs/poc/V3_POC_EXECUTION_PLAN.md` · 封存：V3 契约批准的同 PR 对首代原件哈希封存（scripts/seal-superseded.mjs --write，树 docs/architecture/superseded/，然后补登记 seal_manifest）
 

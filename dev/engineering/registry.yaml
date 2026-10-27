@@ -68,3 +68,14 @@ known_debts:
 v3_status:
   design_prs: #9/#10（V2 设计与 PoC 计划）已合并——历史设计通道关闭，不再是执行依据
   formal_contract: docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md = PROPOSAL（人工批准前不生效；批准状态由人工在评审中给出，本登记不冒充批准）
+
+design_lines:
+  v3:
+    line: V3 语义接线与接入契约——首代设计通道 #9/#10 已合并关闭，不再是执行依据
+    current: docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md
+    current_state: DRAFT-PROPOSAL——人工批准前不生效；生效/冻结由人裁定，机器只查路径与锚
+    first_gen: docs/poc/V3_POC_EXECUTION_PLAN.md
+    switch_anchor: 80e546e
+    switch_note: §8 用户裁定 ITERATE + 准许起草 V3 正式契约（该提交）；切换前首代文档仍是执行依据
+    seal_policy: V3 契约批准的同 PR 对首代原件哈希封存（scripts/seal-superseded.mjs --write，树 docs/architecture/superseded/，然后补登记 seal_manifest）
+

@@ -77,6 +77,13 @@ const lines = [
   ...Object.entries(registry.v3_status ?? { missing: 'registry.v3_status 缺失——补登记（人工事实）' }).map(([k, v]) => `- V3（${k}）：${v}`),
   '- CI required status 配置与否见 G3 记录（观察先于强制）。',
   '',
+  // 设计线（ADR-0003）：现行代/切换锚/封存策略全部 registry 派生——本视图
+  // 不手写任何代次状态（手写 = 上次失真的成因）。
+  '## 设计线（registry.design_lines 派生）',
+  '',
+  ...Object.entries(registry.design_lines ?? {}).map(([k, v]) =>
+    `- \`${k}\`：现行 = \`${v.current}\`（${v.current_state}）· 切换锚 \`${v.switch_anchor}\` · 首代 \`${v.first_gen}\` · 封存：${v.seal_policy}`),
+  '',
 ]
 const text = lines.join('\n')
 // 证书新鲜度（审查意见 P1#4）：`--check <path>` 比较生成内容与已提交文件，

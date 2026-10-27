@@ -39,6 +39,17 @@ const mk = () => {
       writeFileSync(join(d, ev), 'stub\n')
     }
   }
+  // design_lines 声明的路径同样落桩（fixture 起点必须干净，与 stages 同理）
+  for (const dl of Object.values<any>(reg.design_lines ?? {})) {
+    for (const key of ['current', 'seal_manifest']) if (dl[key]) {
+      mkdirSync(dirname(join(d, dl[key])), { recursive: true })
+      writeFileSync(join(d, dl[key]), '# stub\n')
+    }
+    for (const pth of String(dl.first_gen ?? '').split(',').map((x: string) => x.trim()).filter(Boolean)) {
+      mkdirSync(dirname(join(d, pth)), { recursive: true })
+      writeFileSync(join(d, pth), '# stub\n')
+    }
+  }
   execFileSync(process.execPath, [join(d, 'scripts/snapshot-release.mjs'), '--update'])
   return d
 }
@@ -282,3 +293,58 @@ describe('EB3 P5 — principled-Draft ADR class (docs/architecture/adr/, PR #9 i
 })
 
 const loadRules = () => parseMiniYaml(readFileSync(join(REPO, 'dev/engineering/doc-ownership.yaml'), 'utf8'), 'ownership').rules
+
+/* ---------------- B+：取代语义机验（2026-10-27，正反 PoC） ---------------- */
+
+describe('B+ supersedes 机验边', () => {
+  const adr = (d: string, file: string, body: string) => {
+    mkdirSync(join(d, 'docs/decisions'), { recursive: true })
+    writeFileSync(join(d, `docs/decisions/${file}`), body)
+  }
+  it('仓内 id 形态但目标不存在 → SUPERSEDE_DANGLING；仓外散文化引用（SI-001）不建边', () => {
+    const d = mk()
+    adr(d, 'ADR-050-a.md', '---\nid: ADR-050\nstatus: accepted\ntitle: t\ndate: 2026-10-27\nsupersedes: ADR-999\n---\nb\n')
+    adr(d, 'ADR-051-b.md', '---\nid: ADR-051\nstatus: implemented\ntitle: t\ndate: 2026-10-27\nsupersedes: SI-001（仓外裁决书，UNKNOWN 缺口）\nevidence: [ARCHITECTURE.md]\n---\nb\n')
+    const files = ['docs/decisions/ADR-050-a.md', 'docs/decisions/ADR-051-b.md']
+    const p = checkAdrs(d, files)
+    expect(p.some((x: any) => x.code === 'SUPERSEDE_DANGLING' && x.where.includes('ADR-050'))).toBe(true)
+    expect(p.some((x: any) => x.code === 'SUPERSEDE_DANGLING' && x.where.includes('ADR-051'))).toBe(false)
+  })
+  it('旧版冒充现行 → 红；superseded+回链 → 绿；缺回链 → 红；proposed 边未生效 → 绿', () => {
+    const d = mk()
+    const old = (status: string, body: string) => adr(d, 'ADR-052-old.md', `---\nid: ADR-052\nstatus: ${status}\ntitle: t\ndate: 2026-10-26\nevidence: [ARCHITECTURE.md]\n---\n${body}\n`)
+    const nw = (status: string) => adr(d, 'ADR-053-new.md', `---\nid: ADR-053\nstatus: ${status}\ntitle: t\ndate: 2026-10-27\nsupersedes: ADR-052\nevidence: [ARCHITECTURE.md]\n---\n取代 ADR-052\n`)
+    const files = ['docs/decisions/ADR-052-old.md', 'docs/decisions/ADR-053-new.md']
+    old('accepted', '旧决策')
+    nw('accepted')
+    let p = checkAdrs(d, files)
+    expect(p.some((x: any) => x.code === 'SUPERSEDE_STALE_AUTHORITY')).toBe(true)
+    expect(p.some((x: any) => x.code === 'SUPERSEDE_BACKLINK')).toBe(true)
+    old('superseded', '旧决策；已被 ADR-053 取代，理由见彼文')
+    p = checkAdrs(d, files)
+    expect(p.some((x: any) => x.code === 'SUPERSEDE_STALE_AUTHORITY' || x.code === 'SUPERSEDE_BACKLINK')).toBe(false)
+    old('superseded', '旧决策（无回链）')
+    p = checkAdrs(d, files)
+    expect(p.some((x: any) => x.code === 'SUPERSEDE_BACKLINK')).toBe(true)
+    nw('proposed')
+    old('accepted', '旧决策仍是现行——第二代只是草案')
+    p = checkAdrs(d, files)
+    expect(p.some((x: any) => x.code === 'SUPERSEDE_STALE_AUTHORITY' || x.code === 'SUPERSEDE_BACKLINK')).toBe(false)
+  })
+})
+
+describe('B+ design_lines 谱系登记', () => {
+  it('现行文档缺失/锚形态错 → 各自红；fixture 正常登记 → 绿', () => {
+    const d = mk()
+    expect(checkRegistry(d).some((x: any) => String(x.code).startsWith('DESIGN_'))).toBe(false)
+    const reg = join(d, 'dev/engineering/registry.yaml')
+    const base = readFileSync(reg, 'utf8')
+    writeFileSync(reg, base.replace('current: docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md', 'current: docs/architecture/NOPE.md'))
+    expect(checkRegistry(d).some((x: any) => x.code === 'DESIGN_CURRENT_MISSING')).toBe(true)
+    writeFileSync(reg, base.replace('switch_anchor: 80e546e', 'switch_anchor: 昨天开会说的'))
+    expect(checkRegistry(d).some((x: any) => x.code === 'DESIGN_ANCHOR_BAD')).toBe(true)
+  })
+  it('真仓：design_lines 全绿（锚 80e546e 在 git 上下文可解析）', () => {
+    expect(checkRegistry(REPO).some((x: any) => String(x.code).startsWith('DESIGN_'))).toBe(false)
+  })
+})

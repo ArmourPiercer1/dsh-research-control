@@ -19,7 +19,7 @@ CheckReport = {
 
 | 编号 | 规则 |
 | --- | --- |
-| **编号** | SCR 编号按族分配而非连续：`SCR-0x` 报告形态、`SCR-1x` finding、`SCR-2x` verdict 与归约、`SCR-3x` 缺口与覆盖、`SCR-5x` 两视图与脱敏、`SCR-6x` 理由码注册、`SCR-7x` 规则注册表。跨节引用以编号为准 |
+| **编号** | SCR 编号按族分配而非连续：`SCR-01`～`SCR-06` 报告形态、`SCR-10`～`SCR-14` finding、`SCR-20`～`SCR-23` verdict 与归约、`SCR-30`～`SCR-33` 缺口与覆盖、`SCR-50`～`SCR-56` 两视图与脱敏、`SCR-60`～`SCR-62` 理由码注册、`SCR-70`～`SCR-75` 规则注册表。跨节引用以编号为准 |
 | SCR-01 | 报告是**非对象记录**（ID-08）：有 `report_id`，可被 `rec:` 引用（SF-24），但**没有** `object_id`/`revision_id`，也不得被赋给对象引用槽位。 |
 | SCR-02 | `target` 是精确引用：`"${object_id}@${revision_id}"` 或带表示片段，**或** `rec:` 形式（可用性检查记录等被检目标）。缺 `@rev` → 形态非法。 |
 | SCR-03 | 三个版本字段（`contract_version`、`schema_version`、`rule_set_version`）**全部必填**，缺一即形态非法：报告必须可追溯到"当时按哪套规则判的"（RPT-01、SF-63）。 |

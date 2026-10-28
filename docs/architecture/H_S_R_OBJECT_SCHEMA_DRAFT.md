@@ -240,7 +240,7 @@ subtype_entry = { subtype_code, kind, slot_set[], identity_slots[],
 
 **形态类**（任何对象）：`{"@st":"DECLARED","v":[]}`；缺 `@st`；缺槽位；`UNKNOWN` 带 `v`；集合元素位放 `NOT_APPLICABLE`/`UNKNOWN`（SF-14）；无版本引用、`latest`、`space:` 前缀；`rec:` 赋给端点槽位；载荷重复信封键（SS-09）；键名以 `@` 开头（SF-02a）。
 
-**禁止键（封闭集，按对象；校验器按此表逐字拒绝，出现即形态非法）**：
+**禁止键（封闭集，按对象；校验器按此表逐字拒绝，出现即形态非法）**——五类中有四类逐字取自各自契约的禁令小节，Argumentation 一行是本层补充并已标出（见该行出处列与 A-11）：
 
 | 对象 | 禁止键（逐字取自契约的"明确禁止存在的字段"） | 出处 |
 | --- | --- | --- |
@@ -249,7 +249,7 @@ subtype_entry = { subtype_code, kind, slot_set[], identity_slots[],
 | Concept | `is_correct`、`recommended_definition`、`auto_merged_into`、`scientific_validity_score`、任何"版本信任级/信任阶梯"字段 | Concept 契约 §3.4 |
 | Association | `validity`、`reliability_score`、`superseded`（作布尔位）、`conflict_refs`、`supersede_refs`、任何"系统已确认现状"隐含状态 | Association 契约 §2 |
 | Proposition | `global_probability`、`fact_status`、`merged_into` | Proposition 契约 §2.4 |
-| Argumentation | `passed`、`is_valid`（作机器裁决位）、`support_score`（无尺度的支持度聚合）、`verified`（把检查通过当验证） | 论证契约的检查/验证分离（`AR-*`、`RV-*`）、CS-11 |
+| Argumentation | `passed`、`is_valid`（作机器裁决位）、`support_score`（无尺度的支持度聚合）、`verified`（把检查通过当验证） | **本层补充，非契约抄件**：论证契约没有「明确禁止存在的字段」小节（Entity/Concept/Proposition 有「明确禁止存在的字段」，Association 有「明确不存在或永不出现的字段」）。这四个键由本层依其语义禁令拟定——`:17` 机器检查 PASS 不得自动晋升、`AR-*`/`RV-*` 检查≠验证、`:121` 不要求数值概率——并作为修订请求 **A-11** 提交契约层确认；在契约层采纳前，本行只具本层效力 |
 
 **本表是封闭集**：新增禁止键 = 契约层变更，本层不得自行扩充（否则等于偷偷新增领域禁令）。理由列在契约侧（DF-01/DF-05/DF-07、C02/C11、D13），本层只负责把它变成可逐字校验的形态规则。
 

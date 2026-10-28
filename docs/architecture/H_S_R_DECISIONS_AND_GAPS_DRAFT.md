@@ -133,6 +133,6 @@ S-L2 的精确语言/签名及可靠去重算法、World 严格等价证明、Le
 4. [早期架构基线](ARCHITECTURE_BASELINE.md)、[核心语义](CORE_SEMANTICS.md)、[W3C Crosswalk](W3C_ALIGNMENT.md)、[开放问题](OPEN_DESIGN_QUESTIONS.md)、[D13–D20 ADR](adr/README.md)。
 5. [PoC 素材](../poc/gates/POC-COMPLETION-REVIEW.md)及[PR #33 实施契约草案](V3_IMPLEMENTATION_CONTRACT-DRAFT.md)：结论仍 ITERATE；机械 173/173、构造 7/7 不证明新五类架构已实证。
 
-**本轮验证边界**：细化层内容是设计走查与可测试性要求，**未编写或运行** validator、Schema、PoC 或真实科研任务；文档一致性检查仅覆盖仓库静态一致性（链接、索引、归属），不验证领域语义的正确性。CS-01–CS-24 与 XC-01–XC-12 是未来测试预期，不是通过证据。
+**本轮验证边界**：细化层内容是设计走查与可测试性要求，**未编写或运行** validator、Schema、PoC 或真实科研任务；文档一致性检查仅覆盖仓库静态一致性（链接、索引、归属），不验证领域语义的正确性。CS-01–CS-24 与 XC-01–XC-28 是未来测试预期，不是通过证据。
 
 **后续目标**：结束无界顶层扩张，依据既定语义、C01–C12 与本层字段/操作/检查契约开展 Schema、事件与查询协议、Scheme 注册及授权策略的细化设计与分阶段实施准备；F-01–F-09 与 D1 清单按分工落实。仅当出现无法用现有类别/合同无损表达的新反例时，才重新升级为顶层裁决。当前仍为 Draft，不自动改写 V1 Current 或解锁 LIVE_*。

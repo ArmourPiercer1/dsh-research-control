@@ -16,7 +16,7 @@
 | 工具名 (IC) | 必填 | 可选 | 成功响应 | 失败码 | 视图 | 测试锚点 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `hsr_record_append` (IC-H1) | `object_kind`, `payload`（规范形态，槽位穷尽）, `source_refs` | `claimed_time` | `object_id` + `r1` + `record_id` + `report_refs[]` | `F-SCHEMA-INVALID`(→H 原始记录), `F-UNRESOLVED`, `F-WITHHELD`, `F-INCOMPLETE` | `—`/`A`(后续读) | 载荷非法必须落 H 原始记录而非拒收；缺字段不得被补默认值（SI-12、UN-02） |
-| `hsr_revision_append` (IC-H2) | `object_id`, `expected_head_revision`, `changeset`, `revision_class`, `reason` | `completion_basis`(必填于补全), `truth_condition_claim`(Proposition 必填) | 新 `revision_id` + `record_id` + `report_refs[]` | `F-PRECONDITION-REVISION`(见 SI-24), `F-INCOMPLETE`, `F-CONFLICT` | `—` | 前置不匹配不产生记录；身份构成字段变更必须被要求转新建（G-REV） |
+| `hsr_revision_append` (IC-H2) | `object_id`, `expected_head_revision`, `changeset`, `revision_class`, `reason` | `completion_basis`(必填于补全), `truth_condition_claim`(Proposition 必填) | 新 `revision_id` + `record_id` + `report_refs[]` | `F-PRECONDITION-REVISION`(见 SI-24), `F-INCOMPLETE`, `F-CONFLICT` | `—` | 前置不匹配不产生记录；身份构成字段变更必须被要求转新建（G-REV）；幂等键是四元组且永久绑定首次结果（SI-41）；对无可见权目标与"对象不存在"完全同形，`detail` 不带真实 head（SI-33、SI-35a、SI-22a）。 |
 | `hsr_raw_record_register` (IC-H3) | `raw_text`, `source_refs`, `declarant_ref`（声明者，可 `UNKNOWN(reason)`） | `candidate_hint` | `record_id`（**无** `object_id`） | `F-RETRYABLE` | `—` | 响应绝不返回 `object_id`；原文字节不被改写（SF-42） |
 | `hsr_assertion_link_append` (IC-H4) | `chain_ref`(新或旧), `member` = `ref`(命题), `relation_claim` ∈ {CONTINUES, REVISES, REPLACES, UNKNOWN}, `reason` | `chain_title` | `chain_id` + `record_id` | `F-UNRESOLVED`, `F-DENIED-AUTH` | `—` | 链成员序不被重排；链不携带真值（ID-06）；非链主声明另记不覆盖 |
 | `hsr_availability_check_record` (IC-H5) | `target` = `ref`, `method`, `result` ∈ A8 取值, `checked_at`, `checker` | `evidence_refs` | `record_id` + A8 投影回执 | `F-WITHHELD`, `F-RETRYABLE` | `—` | 检查失败不删除对象、不改旧检查记录（IC-H5 不变量） |
@@ -29,7 +29,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `hsr_object_register` (IC-S1) | `object_kind`, `payload`, `source_refs` | — | `object_id` + `r1` + 首轮 `report_refs[]`（`status = ACCEPTED_WITH_FINDINGS` 若含 FAIL） | `F-SCHEMA-INVALID`, `F-INCOMPLETE`, `F-UNRESOLVED`, `F-WITHHELD` | `—` | 保存永不被结构 FAIL 阻断（SI-21、DF-07） |
 | `hsr_check_request` (IC-S2) | `target` = `ref` 或 `ref#rep` | `contract_version`, `checker_hint`, `scope`(检查范围) | `report_id`（异步时 + 轮询参数） | `F-CHECK-UNAVAILABLE`(→报告 `INDETERMINATE`), `F-RETRYABLE` | `A`/`S` | 每次产生新 `report_id`；不可用不得折叠为不通过（SI-23） |
-| `hsr_check_report_get` (SCR/SI-63) | `report_id` | — | 审计视图或脱敏呈现视图（按调用者授权，SI-30） | `F-WITHHELD` | `A`/`S` | 同请求两世界逐字节同形（SCR-54） |
+| `hsr_check_report_get` (SCR/SI-63) | `report_id` | — | 审计视图或脱敏呈现视图（按调用者授权，SI-30） | `F-WITHHELD` | `A`/`S` | 同请求两世界逐字节同形（SCR-54）；授权从被检对象派生，无权目标的报告同规则拒绝或脱敏，`report_refs[]` 不含其 `report_id`（SI-36）。 。非契约只读操作，属 ICX-06 封闭清单，不产生记录、不改变领域状态。 |
 | `hsr_object_amend` (IC-S3) | `object_id`, `expected_head_revision`, `changeset` | `truth_condition_claim`, `completion_basis`, `reason` | 新 `revision_id` + `report_refs[]` | `F-INCOMPLETE`, `F-CONFLICT`, `F-PRECONDITION-REVISION` | `—` | 概念/World 新版本不得倒灌旧含义（C11） |
 | `hsr_proposition_establish` (IC-S4) | `payload`(含 `truth_condition_claim = CHANGED`), `source_refs` | `chain_ref`, `diff_note` | 新 `PropositionID` + `report_refs[]` | `F-CONFLICT`(并存不合并) | `—` | 同 ID 承载真值条件变化必须被拒（PR-ID-4） |
 | `hsr_concept_revise` (IC-S5) | `object_id`, `expected_head_revision`, `revision_class` ∈ {LEXICAL, SUBSTANTIVE}, `changeset`, `reason` | `impact_self_report`(SUBSTANTIVE 必填于该分支) | 新 `revision_id` + 定向重检提示（受影响引用清单） | `F-CONFLICT`, `F-PRECONDITION-REVISION` | `—` | 提示不改写历史 PASS；`revision_class` 与实际改动字段集矛盾必须 FAIL（`SL1-CON-02`） |
@@ -70,15 +70,15 @@
 | `hsr_context_compile` (IC-P2) | `subject`(`ref` 集合或范围), `budget` | `must_include[]`, `as_of`, `perspective` | 上下文包 **或** `status = INSUFFICIENT_BUDGET` + 缺口清单 | `F-PARTIAL` | `S`(按参与者授权) | 必需前提/量词/World/版本引用不得静默截断；预算不足必须拒发而非编造（SI-54） |
 | `hsr_scope_export` (IC-P3) | `scope`, `profile` | `version_selection`, `loss_policy` ∈ {REPORT, REFUSE_ON_CORE} | 导出工件 + `lossReport[]`(位置/字段/动作) | `F-PARTIAL`, `F-WITHHELD` | `S` | 核心面（身份/来源/版本/未知/状态）往返无损；不得改写 W3C 语义（DF-10） |
 | `hsr_summary_query` (IC-P4) | `scope` | `axes[]`, `as_of` | 摘要 + 明确的"未包含"清单 | `F-PARTIAL` | `A`/`S` | 不得由摘要运算生成程度值/通过率（C02、C06、NEV-06） |
-| `hsr_object_query` (IC-P5) | `query` | `filters`, `as_of`, `cursor`, `limit`, `sort_key` | 结果 + 来源 + 冲突提示 + 缺失范围 + 层级 + `boundary` | `F-PARTIAL`, `F-WITHHELD` | `S`(权限类) | 排序键受限（SI-52a）；跨空间过滤必须按 SP-03 粒度假装不可见；**任何截断必须报告**（`exhausted` + 截断量，不得静默少返，IC-P5、SI-55） |
+| `hsr_object_query` (IC-P5) | `query` | `filters`, `as_of`, `cursor`, `limit`, `sort_key` | 结果 + 来源 + 冲突提示 + 缺失范围 + 层级 + `boundary` | `F-PARTIAL`, `F-WITHHELD` | `S`(权限类) | 排序键受限（SI-52a）；跨空间过滤必须按 SP-03 粒度假装不可见；**任何截断必须报告**（`exhausted` + 截断量，不得静默少返，IC-P5、SI-55）；`boundary` 恒定在场、空结果只在 `coverage = COMPLETE` 时才可读作"不存在"（SI-14、SI-15）；页长由可见集填满（SI-50）。 |
 
 ## 7. 元操作
 
 | 工具名 | 必填 | 可选 | 成功响应 | 说明 |
 | --- | --- | --- | --- | --- |
-| `hsr_capabilities_get` (SI-70) | — | — | 当前 `contract_version` / `schema_version` 集合 / `rule_set_version` / 词表版本 / 支持的时间视角与投影类型 | 只读，跨空间无关 |
-| `hsr_rule_registry_query` (SCR-70) | — | `kind`, `level`, `rule_id` | 规则注册表条目（索引，不含规则正文） | 使"检查依据哪条规则"可被外部审计 |
-| `hsr_object_get` | `target` = `ref` | `projection` ∈ {canonical, view} | 规范形态或指定投影（按授权脱敏） | **只接受精确引用**；无版本请求在参数层就被拒（SI-10、SF-23） |
+| `hsr_capabilities_get` (SI-70) | — | — | 当前 `contract_version` / `schema_version` 集合 / `rule_set_version` / 词表版本 / 支持的时间视角与投影类型 | 只读，跨空间无关。非契约只读操作，属 ICX-06 封闭清单，不产生记录、不改变领域状态。 |
+| `hsr_rule_registry_query` (SCR-70) | — | `kind`, `level`, `rule_id` | 规则注册表条目（索引，不含规则正文） | 使"检查依据哪条规则"可被外部审计。非契约只读操作，属 ICX-06 封闭清单，不产生记录、不改变领域状态。 |
+| `hsr_object_get` | `target` = `ref` | `projection` ∈ {canonical, view} | 规范形态或指定投影（按授权脱敏） | **只接受精确引用**；无版本请求在参数层就被拒（SI-10、SF-23）。非契约只读操作，属 ICX-06 封闭清单，不产生记录、不改变领域状态。 |
 
 ## 7.5 修订类入口是**同一个写原型**的四个 profile
 

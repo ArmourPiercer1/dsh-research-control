@@ -259,6 +259,48 @@ export function checkLinks(root, mdFiles) {
   return problems
 }
 
+/**
+ * 表格形状检查（审查意见 P2：`docs:check` 绿不代表字段表/决策表的行列结构与渲染正确）。
+ * 缺陷类：两行被粘成一行（多出一组单元格）或一行被截成两行（缺尾列）。
+ * 范围限于 `docs/architecture/**`——本轮契约层是该缺陷的实际发生处，且该层字段表是
+ * 后续 Schema 设计的输入。根目录冻结契约与既有 gate 文档存在合法的跨行枚举与
+ * code span 内未转义 `|`，且冻结面不可改，故不纳入本检查。转义分隔符写作 `\|`。
+ */
+export const TABLE_SHAPE_SCOPE = 'docs/architecture/'
+const tablePipeCount = (line) => (line.match(/(?<!\\)\|/g) ?? []).length
+
+export function checkTableShapes(root, mdFiles) {
+  const problems = []
+  for (const f of mdFiles.filter((p) => p.startsWith(TABLE_SHAPE_SCOPE) && p.endsWith('.md'))) {
+    const lines = readFileSync(join(root, f), 'utf8').split('\n')
+    let block = []
+    let fenced = false
+    const flush = () => {
+      if (block.length >= 2) {
+        const freq = new Map()
+        for (const row of block) freq.set(row.n, (freq.get(row.n) ?? 0) + 1)
+        if (freq.size > 1) {
+          const modal = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]
+          for (const row of block) {
+            if (row.n !== modal) {
+              problems.push({ code: 'DOCS_TABLE_SHAPE', where: `${f}:${row.i}`, detail: `表格行列数 ${row.n} ≠ 本表主流列数 ${modal}（两行被合并或行被截断？单元格内的竖线须转义为 \\|）` })
+            }
+          }
+        }
+      }
+      block = []
+    }
+    lines.forEach((line, idx) => {
+      if (/^ {0,3}(```|~~~)/.test(line)) { fenced = !fenced; flush(); return }
+      if (fenced) return
+      if (/^ {0,3}\|/.test(line)) block.push({ n: tablePipeCount(line), i: idx + 1 })
+      else flush()
+    })
+    flush()
+  }
+  return problems
+}
+
 export function checkAdrs(root, mdFiles) {
   const problems = []
   const ids = new Map()
@@ -476,7 +518,7 @@ export const spliceIndex = (text, generated) => {
 /** 根入口：全量 docs:check（CLI 与测试共用）。 */
 export function checkAll(root, trackedFiles, { trackedMd } = {}) {
   const md = trackedMd ?? trackedFiles.filter((f) => f.endsWith('.md'))
-  const problems = [...checkLinks(root, md), ...checkAdrs(root, md), ...checkRegistry(root), ...checkSnapshot(root)]
+  const problems = [...checkLinks(root, md), ...checkAdrs(root, md), ...checkRegistry(root), ...checkSnapshot(root), ...checkTableShapes(root, md)]
   const readme = join(root, 'docs', 'README.md')
   if (existsSync(readme)) {
     try {

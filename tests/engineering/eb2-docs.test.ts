@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { checkAdrs, checkAll, checkLinks, checkRegistry, docTier, globToRe, ownershipFor, parseMiniYaml, probeFindings, SYNC_WHITELIST } from '../../scripts/docs/kernel.mjs'
+import { checkAdrs, checkAll, checkLinks, checkRegistry, checkTableShapes, docTier, globToRe, ownershipFor, parseMiniYaml, probeFindings, SYNC_WHITELIST } from '../../scripts/docs/kernel.mjs'
 
 const REPO = dirname(dirname(__dirname))
 const roots: string[] = []
@@ -123,6 +123,25 @@ describe('EB2 P2 — docs:check negatives (plan PoC: 坏链接 / 重复 ADR ID /
     expect(checkLinks(d, ['docs/x.md']).some((p) => p.code === 'BROKEN_LINK')).toBe(true)
     writeFileSync(join(d, 'docs/missing.md'), 'now here\n')
     expect(checkLinks(d, ['docs/x.md'])).toEqual([])
+  })
+  it('markdown table shape (PR #42 review): merged row / truncated row fail; escaped pipes, fences and out-of-scope files pass', () => {
+    const d = mk()
+    mkdirSync(join(d, 'docs/architecture'), { recursive: true })
+    const rel = 'docs/architecture/T_SHAPE_DRAFT.md'
+    // 正例：转义分隔符 \| 不算列分隔；code fence 内的类表格内容不检查
+    const good = '# t\n\n| id | 说明 |\n| --- | --- |\n| A | x \\| y |\n| B | z |\n\n```\n| not | a |\n| table | really |\n```\n'
+    writeFileSync(join(d, rel), good)
+    expect(checkTableShapes(d, [rel])).toEqual([])
+    // 负例①：两行被粘成一行（PR #42 实际发生过的形态：`... |` 紧跟 `| XC-18 | ...`）
+    writeFileSync(join(d, rel), '# t\n\n| id | 说明 |\n| --- | --- |\n| A | x || B | y |\n| C | z |\n')
+    expect(checkTableShapes(d, [rel]).filter((p: any) => p.code === 'DOCS_TABLE_SHAPE')).toHaveLength(1)
+    // 负例②：一行被截断（缺尾列 / 缺尾竖线）
+    writeFileSync(join(d, rel), '# t\n\n| id | 说明 |\n| --- | --- |\n| A | x |\n| B\n')
+    expect(checkTableShapes(d, [rel])).toHaveLength(1)
+    // 范围边界：docs/architecture/** 之外不检查（冻结契约与既有 gate 文档存在合法跨行枚举）
+    writeFileSync(join(d, rel), good)
+    writeFileSync(join(d, 'docs/other.md'), '# t\n\n| id | 说明 |\n| --- | --- |\n| A | x || B | y |\n')
+    expect(checkTableShapes(d, [rel, 'docs/other.md'])).toEqual([])
   })
   it('duplicate ADR id fails; clean ADRs pass', () => {
     const d = mk()

@@ -35,6 +35,9 @@ export const GATE_VERDICTS: string[];
 export const ADR_STATUSES: string[];
 export function isLinkChecked(p: string): boolean;
 export function checkLinks(root: string, mdFiles: string[]): CheckProblem[];
+/** 表格行列形状检查；范围由 TABLE_SHAPE_SCOPE 限定（范围与理由见 kernel.mjs）。 */
+export const TABLE_SHAPE_SCOPE: string;
+export function checkTableShapes(root: string, mdFiles: string[]): CheckProblem[];
 export function checkAdrs(root: string, mdFiles: string[]): CheckProblem[];
 export function checkRegistry(root: string): CheckProblem[];
 export function checkSnapshot(root: string): CheckProblem[];

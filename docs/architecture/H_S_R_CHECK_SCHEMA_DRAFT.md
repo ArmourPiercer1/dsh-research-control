@@ -106,6 +106,7 @@ rule_entry = { rule_id, doc_ref, level, applies_to{kind, subtypes[], scheme_role
 | SCR-74 | 规则集变更一律 bump `rule_set_version`；新增规则可能改变历史 verdict，但**只产生新报告**，历史报告按其钉住的旧版本重放（SF-62、DF-06）。 |
 | SCR-75 | 规则注册表自身是**非对象记录**（`rec:` 可引用），不是第六类对象；其条目状态机同注册表生命周期（`ACTIVE/DEPRECATED`，SF-64）。 |
 | SCR-76 | **`na_allowed` 与 `unknown_allowed` 对称**：规则条目必须声明其槽位是否允许登记方标注 `NOT_APPLICABLE`，以及允许的理由集 `na_reasons[]`（缺省 `na_allowed: false`）。据此：槽位值为 `NOT_APPLICABLE` 而规则未允许 → `FAIL(NOT_APPLICABLE_UNDECLARED, DEFICIENCY)`；理由不在集内 → `FAIL(NOT_APPLICABLE_SCOPE_MISMATCH, DEFICIENCY)`。一致性检查另须捕获"契约声明该槽位可缺却未给任何规则声明 `na_allowed`"（否则缺失只能靠 `ABSENT` 表达，两者语义不同，SF-12）。这条封堵的是**形态合法但语义后门**的通路：自由文本"不适用"曾是本层最大的必填逃逸口。 |
+| SCR-77 | **沉默不得等于通过**：对任一已注册的 `kind` × 子型 × Scheme 组合，若该层**没有任何规则适用**，该层 verdict 必须是 `INDETERMINATE(RULE_UNREGISTERED)`，**不得**为 `PASS`（RPT-05、SCR-71）。理由：`SCR-71` 规定不适用的规则不产出 finding，而注册表可增子型与 Scheme——若某组合一条规则都不匹配，"检查通过"就只是无人检查的别名；新注册一个子型即可让该类对象永久干净。规则注册表的一致性检查必须枚举所有已注册组合并报告零覆盖者。 |
 
 ## 8. 负面清单
 

@@ -67,7 +67,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 | SI-21 | 写操作的"保存成功但结构不完整"是**成功响应 + `failure` 附注**：对象已保存（DF-07、IC-01），响应 `status = ACCEPTED_WITH_FINDINGS` 并携带新 `report_refs[]`；**不得**返回工具失败，否则实现者会被迫拒绝保存（违反 DF-07）。 |
 | SI-22 | 授权类失败严格按 SP-09 分道：无写权限 → `F-DENIED-WRITE`（目标空间不产生任何记录、不返回内容）；有写权限但缺业务授权 → `F-DENIED-AUTH`（登记为未生效声明 `AUTHORITY_UNVERIFIED`，响应成功但 `status = ACCEPTED_UNVERIFIED`，不进任何投影）。 |
 | SI-23 | 检查器/资源不可用 → `F-CHECK-UNAVAILABLE`：这是**响应成功**且报告记 `INDETERMINATE(CHECKER_UNAVAILABLE)`，绝不折叠成"检查未通过＝结论为假"（IC §1.1、NEV-05）。 |
-| SI-24 | **待回写契约层的新码（修订请求，非本层裁决）**：修订类写入的乐观前置（`expected_head_revision` 不匹配）在既有 `F-*` 中无对应码；`F-CONFLICT` 是**语义**上的"可能同一事项不相容主张"，不得挪用为并发前置失败。建议新增 `F-PRECONDITION-REVISION`（拒绝写入、不产生记录、可重试）。在契约层采纳前，实现只能返回 `TOOL_INPUT` 级拒绝并在 `detail.precondition` 说明——该退化必须在测试中钉住。 |
+| SI-24 | **待回写契约层的新码（修订请求，非本层裁决）**：修订类写入的乐观前置（`expected_head_revision` 不匹配）在既有 `F-*` 中无对应码；`F-CONFLICT` 是**语义**上的"可能同一事项不相容主张"，不得挪用为并发前置失败。建议新增 `F-PRECONDITION-REVISION`（拒绝写入、不产生记录、可重试）。在契约层采纳前，实现只能返回 `TOOL_INPUT` 级拒绝，并使用 §3 登记的**前置专用键集** `detail{serviceCode:"PRECONDITION_FAILED", step:"expected_head_revision", expected_head_revision, actual_head_revision}`（不新造 `precondition` 这类未登记键）——该退化必须在测试中钉住：断言键集恰为此四项。 |
 | SI-25 | 错误响应同样受 §4 的脱敏约束：错误消息、`detail` 字段、日志行都不得泄漏被屏蔽目标的标识、计数或存在性（SP-07、RPT-09）。 |
 
 ## 4. 两视图与存在性侧信道防护（接口层强制点）
@@ -96,10 +96,10 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 
 | 编号 | 规则 |
 | --- | --- |
-| SI-50 | 分页沿用既有**约定**而非既有游标：游标制、默认页大小、超上限**拒绝而非钳制**（现状默认 100 / 上限 1000，越界 `TOOL_INPUT`）、每页回显 `limit`/`next_cursor`/`exhausted`。**HSR 使用自己的不透明游标，不封装既有的 `after_seq`/`before_seq`/`next_after_seq` 整数 seq 协议**——那套 seq 是 per-workstream 的 V1 事件日志序号，而 HSR 记录是否进入该日志正是未裁决项（SD-07）；把它当作 HSR 的排序轴等于偷偷预设裁决。游标可排序轴本身依赖 SD-07，本层只规定游标必须自包含（SI-51）且不暴露底层 seq。 |
+| SI-50 | 分页沿用既有**约定**而非既有游标：游标制、默认页大小、超上限**拒绝而非钳制**（现状默认 100 / 上限 1000，越界 `TOOL_INPUT`）、每页回显 `limit`/`next_cursor`/`exhausted`。**HSR 使用自己的不透明游标，不封装既有的 `after_seq`/`before_seq`/`next_after_seq` 整数 seq 协议**——那套 seq 是 per-workstream 的 V1 事件日志序号，而 HSR 记录是否进入该日志正是未裁决项（SD-07）；把它当作 HSR 的排序轴等于偷偷预设裁决。排序轴用 HSR 自有信封字段（SI-52a 的 `(recorded_at, record_id)`），**不依赖 SD-07**——SD-07 只决定这些记录将来是否与 V1 事件日志合一，不决定它们能否被排序。本层只规定游标必须自包含（SI-51）且不暴露 V1 底层 seq。 |
 | SI-51 | 游标必须**自包含知识截点**（编码 `recorded_as_of` 与查询指纹）：晚到登记不得使同一游标翻页时重复或漏项；游标跨越截点 → 拒绝并要求新查询（否则"历史重建"结果不可复现，T-02）。 |
 | SI-52 | 排序不得引入语义优先：不得以"更可信/更可能正确"排序；允许的排序键是时间类、标识、显式程度值（且须带尺度引用，`RL1-08`）。 |
-| SI-52a | **默认全序必须唯一确定**：缺省按 `(recorded_at, record_id)` 升序，二者都相同时按 `record_id` 字典序打破平手，使游标分页不重不漏。排序键与方向必须编码进游标；换排序键即作废旧游标并要求新查询（否则同一游标在不同键下指向不同位置，翻页会静默漏项）。返回顺序不得被解释为语义权重（SI-52）。 |
+| SI-52a | **默认全序必须唯一确定**：缺省按 `(recorded_at, record_id)` 升序；`record_id` 唯一，故该二元组本身已是**严格全序**，不需要额外平手条款（写"二者都相同时再按 record_id 破平手"是空转句：`record_id` 已在序之中）。排序键与方向必须编码进游标；换排序键即作废旧游标并要求新查询（否则同一游标在不同键下指向不同位置，翻页会静默漏项）。返回顺序不得被解释为语义权重（SI-52）。 |
 | SI-53 | 双时相读：`recorded_as_of` 与 `described_*` 可任意组合；实现顺序固定为**先**按知识截点过滤可见记录，**再**按对象时间过滤（IC-H6 不变量），两步不得交换或合并。 |
 | SI-54 | 上下文编译（给 Agent 的上下文包）预算不足时返回**缺口清单**或拒发，绝不编造完备上下文；必需前提、量词范围、World 标识、版本引用不得静默截断；条件性内容必须带 `OPEN` 义务与继承路径（IC-P2）。 |
 | SI-55 | 投影（状态视图、摘要、看板、导出）不得生成新状态、新程度值或通过率；省略某轴必须显式标注"本视图未包含 X"（AX-02、IC-P1、IC-P4）。导出必须逐条 `lossReport`（IC-P3）。 |

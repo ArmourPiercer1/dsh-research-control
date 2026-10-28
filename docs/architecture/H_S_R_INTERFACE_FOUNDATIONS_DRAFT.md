@@ -55,7 +55,7 @@
 | SI-17 | 裁决前允许的实现形态：单一默认空间（全部记录同空间），使接口与形态可以先被测试；该默认必须在配置中显式命名，不得隐含在代码里（避免"默认空间"变成事实上的全局空间而无法拆分） |
 ## 3. 错误模型（不改既有工具错误词表）
 
-既有工具层错误码 `TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED / TOOL_INPUT / TOOL_ABORTED / TOOL_NOT_IMPLEMENTED / TOOL_SERVICE` 是宿主映射面，**保持不变**。领域失败码通过结构化 `detail` 承载，`ToolError.detail` 在宿主侧是开放 `Record`，但既有实现只用到 `serviceCode`/`step`/`path`/`tool`/`plannedService` 五个键；本层**沿用这五个键**，并只额外登记一组前置专用键 `{serviceCode:"PRECONDITION_FAILED", step:"expected_head_revision", expected_head_revision, actual_head_revision}`（见 SI-24）。除此之外的新键即新造平行字段，须先登记：
+既有工具层错误码 `TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED / TOOL_INPUT / TOOL_ABORTED / TOOL_NOT_IMPLEMENTED / TOOL_SERVICE` 是宿主映射面，**保持不变**。领域失败码通过结构化 `detail` 承载，`ToolError.detail` 在宿主侧是开放 `Record`，但既有实现只用到 `serviceCode`/`step`/`path`/`tool`/`plannedService` 五个键；本层**沿用这五个键**，并只额外登记两组专用键：**前置** `{serviceCode:"PRECONDITION_FAILED", step:"expected_head_revision", expected_head_revision, actual_head_revision}`（SI-24）与**幂等键复用** `{serviceCode:"IDEMPOTENCY_KEY_REUSED", step:"client_request_id"}`（SI-41）。除此之外的新键即新造平行字段，须先登记：
 
 ```
 ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr_object_get', step: 'resolve_reference', path: '/fields/world_membership' } }
@@ -88,7 +88,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 | 编号 | 规则 |
 | --- | --- |
 | SI-40 | 写操作只有**追加**效果（新对象/新修订/新记录/新报告），没有就地改写（IC-01）。接口不得提供 PATCH 语义；"修改"= 提交新修订。 |
-| SI-41 | 幂等：同一 `(actor, client_request_id)` 的重复请求必须返回**首次结果**且**不产生第二条记录/第二个修订**（网络重试是常态；重试造成双修订是缺陷）。幂等键的主体粒度固定为**宿主注入的主体标识本身**：USER 取 `actor.user_id`，AGENT 取 `actor.run_id`；缺该字段即不参与去重，每次都产生新记录——宁可重复，不可吞掉一次真实登记。**幂等键对首次结果永久绑定**：`(actor, client_request_id) → 首次结果` 的索引永久保存，任意时刻的字节相同重放都必须返回首次结果、零新记录。去重窗口只是**缓存**策略而非语义边界：超窗必须重查索引，**不得当作新请求**——原条款"窗口外按新请求处理"与首句"不得产生第二条记录/第二个修订"直接矛盾（我此前自相矛盾，现裁决首句优先）：同一事实挂两个 `record_id`，"这条登记过几次"就永远说不清。确需再登记一次必须换新的 `client_request_id`（客户端责任，本条显式声明）。测试钉住：把窗口配置调小后重放，仍必须返回首次结果且零新记录。 |
+| SI-41 | **幂等键是四元组** `(actor_ref, space_id, operation, client_request_id)`，四者缺一即不是同一个键；且首次请求体的规范字节摘要（SF-50）随键一并保存。同一键的重复请求必须返回**首次结果**且**不产生第二条记录/第二个修订**（网络重试是常态；重试造成双修订是缺陷）。**键相同但请求体摘要不同 → 不是重放**，必须拒绝（`TOOL_INPUT` + `detail{serviceCode:"IDEMPOTENCY_KEY_REUSED", step:"client_request_id"}`，§3 登记键集的第二处扩展）并**不产生任何记录**：把 A 请求的结果交给 B 请求，等于交回一个本接口从未写过的 `record_id`，是数据正确性缺陷而非泄漏。此前键只有 `(actor, client_request_id)`，不含操作与空间范围——同一主体用同一 id 写两个不同对象就会串；本条把范围补齐，因为下一条规则使键永久有效，串键故障也随之变成永久。幂等键的主体粒度固定为**宿主注入的主体标识本身**：USER 取 `actor.user_id`，AGENT 取 `actor.run_id`；缺该字段即不参与去重，每次都产生新记录——宁可重复，不可吞掉一次真实登记。**幂等键对首次结果永久绑定**：`(actor, client_request_id) → 首次结果` 的索引永久保存，任意时刻的字节相同重放都必须返回首次结果、零新记录。去重窗口只是**缓存**策略而非语义边界：超窗必须重查索引，**不得当作新请求**——原条款"窗口外按新请求处理"与首句"不得产生第二条记录/第二个修订"直接矛盾（我此前自相矛盾，现裁决首句优先）：同一事实挂两个 `record_id`，"这条登记过几次"就永远说不清。确需再登记一次必须换新的 `client_request_id`（客户端责任，本条显式声明）。测试钉住：把窗口配置调小后重放，仍必须返回首次结果且零新记录。 |
 | SI-42 | 修订类写入必须携带 `expected_head_revision`；不匹配 → 拒绝写入，不产生记录（乐观前置，避免 last-write-wins 覆盖历史）。 |
 | SI-43 | 批量接口只做**同质追加**（一批彼此独立的新对象/新修订），不得表达跨记录事务、不得"原子地"更新轴状态或跨对象改写（IC-04：跨轴效果必须由另一个显式操作产生）。部分成功逐条报告，禁止静默丢弃。 |
 | SI-44 | 任何接口都不得提供"设当前版本""标记已验证""同步为现状""一键对齐"之类的原语——它们把派生投影写回真源（AX-03、DF-03、IC §7）。 |
@@ -98,7 +98,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 | 编号 | 规则 |
 | --- | --- |
 | SI-50 | 分页沿用既有**约定**而非既有游标：游标制、默认页大小、超上限**拒绝而非钳制**（现状默认 100 / 上限 1000，越界 `TOOL_INPUT`）、每页回显 `limit`/`next_cursor`/`exhausted`。**分页必须以"可见集填满页长"为准**：服务端向后取记录，直到填满 `limit` 条**调用者可见**的项或到达可见集末尾；**禁止"先取 `limit` 行再按权限过滤"的实现**——那种实现下短页长度就是被屏蔽条数的 oracle（100 的页返回 87 条即泄漏"本窗口有 13 条被屏蔽"），换个 `recorded_as_of` 重放还能还原被屏蔽记录的时间分布。`exhausted` 只描述可见集，不描述底层总量。**HSR 使用自己的不透明游标，不封装既有的 `after_seq`/`before_seq`/`next_after_seq` 整数 seq 协议**——那套 seq 是 per-workstream 的 V1 事件日志序号，而 HSR 记录是否进入该日志正是未裁决项（SD-07）；把它当作 HSR 的排序轴等于偷偷预设裁决。排序轴用 HSR 自有信封字段（SI-52a 的 `(recorded_at, record_id)`），**不依赖 SD-07**——SD-07 只决定这些记录将来是否与 V1 事件日志合一，不决定它们能否被排序。本层只规定游标必须自包含（SI-51）且不暴露 V1 底层 seq。 |
-| SI-51 | 游标必须**自包含知识截点**（编码 `recorded_as_of` 与查询指纹）：晚到登记不得使同一游标翻页时重复或漏项；游标跨越截点 → 拒绝并要求新查询（否则"历史重建"结果不可复现，T-02）。 |
+| SI-51 | 游标必须**自包含知识截点**（编码 `recorded_as_of` 与查询指纹）：晚到登记不得使同一游标翻页时重复或漏项；游标与**授权类绑定**：游标内含生成它的授权类标识，跨授权类提交（或他空间/他调用者生成的游标）一律拒绝且不解释差异细节（按 SI-33 形态），否则一份高授权游标可被用来按特权视图继续翻页；游标跨越截点 → 拒绝并要求新查询（否则"历史重建"结果不可复现，T-02）。 |
 | SI-52 | 排序不得引入语义优先：不得以"更可信/更可能正确"排序；允许的排序键是时间类、标识、显式程度值（且须带尺度引用，`RL1-08`）。 |
 | SI-52a | **默认全序必须唯一确定**：缺省按 `(recorded_at, record_id)` 升序；`record_id` 唯一，故该二元组本身已是**严格全序**，不需要额外平手条款（写"二者都相同时再按 record_id 破平手"是空转句：`record_id` 已在序之中）。排序键与方向必须编码进游标；换排序键即作废旧游标并要求新查询（否则同一游标在不同键下指向不同位置，翻页会静默漏项）。返回顺序不得被解释为语义权重（SI-52）。 |
 | SI-53 | 双时相读：`recorded_as_of` 与 `described_*` 可任意组合；实现顺序固定为**先**按知识截点过滤可见记录，**再**按对象时间过滤（IC-H6 不变量），两步不得交换或合并。 |
@@ -132,7 +132,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 1. **侧信道（两世界差分测试，覆盖 SI-33 三类可观察量）**：构造"目标存在于他空间"与"目标不存在"两个数据库，同一请求必须得到 ① 同形同键集（含 `boundary` **恒在场**，SI-14）② 同量级（数组长度、**页长**、占位长度）③ 同工作量（无早退）。逐条断言：`boundary` 键的存在不随命中与否变化；页长由可见集填满（构造 100 条中 13 条被屏蔽，页必须仍满且 `exhausted` 只描述可见集）；无可见权者拿到的报告必须逐字节等于 SCR-57 的 `S` 常量（禁止现算，`level_results[]` 元素数不得随被屏蔽对象 kind 变化）。
 1a. **写路径 oracle**：对无读权限调用者，`hsr_revision_append` 在"对象不存在 / 对象存在但不可见"两种世界下必须同码同 `detail`；断言任何分支的 `detail` 都不含真实 head；并断言不存在"能写不能读"的授权组合（SI-35a）。
 1b. **缓存**：同一授权类连查两次的时延差不得区分两世界；断言缓存中不存在任何脱敏前形态，且两分支 TTL 相同（SI-34）。
-2. **幂等（永久绑定）**：同一 `(actor, client_request_id)` 重放 3 次仅 1 个修订；**把去重窗口配置调小后再次重放，仍必须返回首次结果且零新记录**（超窗当新请求是缺陷，SI-41 / T-GAP-05）。
+2. **幂等（永久绑定）**：同一四元组键重放 3 次仅 1 个修订；同键**不同请求体**必须被拒且零记录（不得返回首次结果）；不同 `space_id` 或不同 `operation` 下的同名 `client_request_id` 必须互不干扰；**把去重窗口配置调小后再次重放，仍必须返回首次结果且零新记录**（超窗当新请求是缺陷，SI-41 / T-GAP-05）。
 3. **保存不被阻断**：必填缺失（`F-INCOMPLETE`）必须是成功响应 + findings；`F-SCHEMA-INVALID` 必须落 H 原始记录。
 4. **授权分道**：`F-DENIED-WRITE` 不产生任何目标空间记录（含"未生效声明"）；`F-DENIED-AUTH` 产生但不进投影。
 5. **回显完备**：所有查询响应缺 `echo` 即测试红。

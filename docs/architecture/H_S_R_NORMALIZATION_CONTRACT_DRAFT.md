@@ -83,12 +83,12 @@
 
 ### 4.1 Entity（`SL1-ENT-*`）
 
-`SL1-ENT-01` 活动个体的导出形态声明为活动而非资源；`SL1-ENT-02` 观测子型的结果引用允许缺失但须显式（失败观测可无 Result，`NOT_APPLICABLE` 需理由）；`SL1-ENT-03` 资源个体若声明载体则哈希形态合法；未声明载体 → `PASS` + `declared_gaps`（RPT-05）；`SL1-ENT-04` 可用性**不作为布尔字段**存在（检查其有无，有即 FAIL）；`SL1-ENT-05` 关系类内容（上下游、使用、生成）不得写进 Entity 字段（FAIL）；`SL1-ENT-06` RegistryEntry 与被登记资源的引用方向正确；`SL1-ENT-07` 计划态与已发生态互斥取值。
+`SL1-ENT-01` 活动个体的导出形态声明为活动而非资源；`SL1-ENT-02` 观测子型的结果引用允许缺失但须显式（失败观测可无 Result，`NOT_APPLICABLE` 需理由）；`SL1-ENT-03` 资源个体若声明载体则哈希形态合法；未声明载体 → `PASS` + `declared_gaps`（RPT-05）；`SL1-ENT-04` 可用性**不作为布尔字段**存在（检查其有无，有即 FAIL）；`SL1-ENT-05` Entity 内**不得出现关系类字段名/结构**（`upstream`/`downstream`/`uses`/`generated_by` 等，出现即 FAIL）；**不**扫描说明文本中是否提到关系（那是语义判断，RPT-07）；`SL1-ENT-06` RegistryEntry 与被登记资源的引用方向正确；`SL1-ENT-07` 计划态与已发生态互斥取值。
 **负例**：给失败采集伪造 `sosa:Result` 以通过检查；把设备上下游塞进 `Entity.upstream`；把跨空间不可用呈现为“资源不存在”。
 
 ### 4.2 Concept（`SL1-CON-*`）
 
-`SL1-CON-01` `concept_subtype` 明确；`SL1-CON-02` 词法字段（label/altLabel）与含义字段（definition/signature）分离，词法修订不得标 `SUBSTANTIVE`；`SL1-CON-03` WorldType 声明为开放类型（出现封闭枚举集合即 FAIL）；`SL1-CON-04` `PredicateSignature`（若有）自洽：参数角色齐备、量纲引用可解析——**只查自洽，不查它是否与某命题匹配**；`SL1-CON-05` Scheme 定义见 §5；`SL1-CON-06` W3C 别名仅在声明精确等价时存在；`SL1-CON-07` 维度/选项定义之间无重复 option 标识。
+`SL1-CON-01` `concept_subtype` 明确；`SL1-CON-02` 词法字段（label/altLabel）与含义字段（definition/signature）分离；修订声明与**实际改动字段集合**不得自相矛盾：只改词法字段却标 `SUBSTANTIVE` → FAIL，改了含义字段却标 `LEXICAL` → FAIL。**机器只查“声明 vs 改了哪些字段”的一致性，不判断该改动在语义上是否真的实质**（RPT-07；实质性的争议由 CO-REV-1 硬集合声明与 A6 评价承担）；`SL1-CON-03` WorldType 声明为开放类型（出现封闭枚举集合即 FAIL）；`SL1-CON-04` `PredicateSignature`（若有）自洽：参数角色齐备、量纲引用可解析——**只查自洽，不查它是否与某命题匹配**；`SL1-CON-05` Scheme 定义见 §5；`SL1-CON-06` W3C 别名仅在声明精确等价时存在；`SL1-CON-07` 维度/选项定义之间无重复 option 标识。
 **负例**：把 Theory/Simulation/Engineering 写成封闭三值；`skos:closeMatch` 被当作等价证明；给谓词签名加上“已验证”。
 
 ### 4.3 Association（`SL1-ASS-*`）

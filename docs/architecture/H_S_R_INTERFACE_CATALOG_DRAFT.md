@@ -27,7 +27,7 @@
 
 | 工具名 (IC) | 必填 | 可选 | 成功响应 | 失败码 | 视图 | 测试锚点 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `hsr_object_register` (IC-S1) | `object_kind`, `payload`, `source_refs` | `register_note` | `object_id` + `r1` + 首轮 `report_refs[]`（`status = ACCEPTED_WITH_FINDINGS` 若含 FAIL） | `F-SCHEMA-INVALID`, `F-INCOMPLETE`, `F-UNRESOLVED`, `F-WITHHELD` | `—` | 保存永不被结构 FAIL 阻断（SI-21、DF-07） |
+| `hsr_object_register` (IC-S1) | `object_kind`, `payload`, `source_refs` | — | `object_id` + `r1` + 首轮 `report_refs[]`（`status = ACCEPTED_WITH_FINDINGS` 若含 FAIL） | `F-SCHEMA-INVALID`, `F-INCOMPLETE`, `F-UNRESOLVED`, `F-WITHHELD` | `—` | 保存永不被结构 FAIL 阻断（SI-21、DF-07） |
 | `hsr_check_request` (IC-S2) | `target` = `ref` 或 `ref#rep` | `contract_version`, `checker_hint`, `scope`(检查范围) | `report_id`（异步时 + 轮询参数） | `F-CHECK-UNAVAILABLE`(→报告 `INDETERMINATE`), `F-RETRYABLE` | `A`/`S` | 每次产生新 `report_id`；不可用不得折叠为不通过（SI-23） |
 | `hsr_check_report_get` (SCR/SI-63) | `report_id` | — | 审计视图或脱敏呈现视图（按调用者授权，SI-30） | `F-WITHHELD` | `A`/`S` | 同请求两世界逐字节同形（SCR-54） |
 | `hsr_object_amend` (IC-S3) | `object_id`, `expected_head_revision`, `changeset` | `truth_condition_claim`, `completion_basis`, `reason` | 新 `revision_id` + `report_refs[]` | `F-INCOMPLETE`, `F-CONFLICT`, `F-PRECONDITION-REVISION` | `—` | 概念/World 新版本不得倒灌旧含义（C11） |

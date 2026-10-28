@@ -70,7 +70,8 @@ level_result = { level, verdict }    // level ∈ {"S-L0","S-L1","R-L0","R-L1"}
 | SCR-51 | `sanitize()` 的形态映射固定：`FAIL(REF_UNRESOLVED)` 与 `INDETERMINATE(WITHHELD_REFERENCE)` 两条 finding 合并为**一条** `UNVERIFIABLE_REFERENCE`（`outcome = INDETERMINATE`，对外码 `UNVERIFIABLE_REFERENCE`）；`coverage → NOT_DISCLOSED`；被合并项移除后若该层级曾受其影响，`verdict → UNVERIFIABLE_TO_YOU`（RPT-09/RPT-10）。 |
 | SCR-52 | `UNVERIFIABLE_REFERENCE` 与 `UNVERIFIABLE_TO_YOU` 是**呈现层专用取值，永不出现在存储形态中**（与 SCR-33 同理）。二者必须位于与存储枚举**分离的类型空间**，防止实现者图省事直接落库。 |
 | SCR-53 | 脱敏不得泄漏：合并后的 finding 的 `field_path` 必须替换为该层级的**固定占位**（如 `/fields`），不得保留被屏蔽字段名；被移除项的条数、原 `rule_id`、被屏蔽空间标识一律不出现（RPT-09(c)）。 |
-| SCR-54 | **逐字节同形**（XC-25）：对同一请求，"目标存在于他空间"与"目标不存在"两个世界产生的呈现视图必须具有**相同的规范字节形态**（同键集合、同占位值、同数组长度、同 `report_digest` 之外的稳定形态；`report_id`/`checked_at` 等每次都变的字段不计入同形判定，但必须同形于各自类型与长度）。 |
+| SCR-54 | **逐字节同形**（XC-25）：对同一请求（同一调用者、同一授权类、同一时间参数），"目标存在于他空间"与"目标不存在"两个世界产生的呈现视图必须具有**相同的规范字节形态**（同键集合、同占位值、同数组长度、同 `report_digest` 之外的稳定形态；`report_id`/`checked_at` 等每次都变的字段不计入同形判定，但必须同形于各自类型与长度）。 |
+| SCR-55 | 跨授权类的形态差异**只允许出现在"是否给出审计视图 A"这一条授权边界上**：有权者见 A、无权者见恒定脱敏形态 S。任何更细的差异（S 内部再分档、按对象种类改变字段名、按被遮蔽项数量改变数组长度）都会把"存在性"泄漏给本来不该知道它的人，一律禁止。 |
 | SCR-55 | 脱敏是纯函数且无副作用；不得按调用者身份做除授权类以外的细分美化（避免形成"按人改写历史"的观感，SP-10）。 |
 
 ## 6. 理由码注册表

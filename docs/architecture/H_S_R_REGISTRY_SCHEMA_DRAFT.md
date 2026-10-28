@@ -1,6 +1,6 @@
 # 注册表与词表的 Schema（编码层词表，不是领域定义）
 
-> **PR #43 · DRAFT-PROPOSAL · 2026-10-29。** 规定**编码层自身**的开放/封闭词表条目形态、注册与退役纪律、名称映射表形态。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)。**Proposed，不表示已实施。**
+> **PR #47 · DRAFT-PROPOSAL · 2026-10-29。** 规定**编码层自身**的开放/封闭词表条目形态、注册与退役纪律、名称映射表形态。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)。**Proposed，不表示已实施。**
 
 ## 1. 本文只管一类东西：编码层词表
 

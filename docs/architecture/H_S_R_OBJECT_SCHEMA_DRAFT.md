@@ -1,6 +1,6 @@
 # 五类对象的 Schema：信封、槽位表与子型注册
 
-> **PR #43 · DRAFT-PROPOSAL · 2026-10-29。** 把五类对象的字段定义编码为规范形态。**字段的语义、必填性与修订判据只在各对象契约中定义一次**（[Entity](H_S_R_ENTITY_CONTRACT_DRAFT.md)、[Concept](H_S_R_CONCEPT_CONTRACT_DRAFT.md)、[Association](H_S_R_ASSOCIATION_CONTRACT_DRAFT.md)、[Argumentation](H_S_R_ARGUMENTATION_CONTRACT_DRAFT.md)、[Proposition](H_S_R_PROPOSITION_CONTRACT_DRAFT.md)，均属 PR #42，未合并）；本文只做机械映射并补充形态约束，凡冲突以契约层为准。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)。**Proposed，不表示已实施。**
+> **PR #47 · DRAFT-PROPOSAL · 2026-10-29。** 把五类对象的字段定义编码为规范形态。**字段的语义、必填性与修订判据只在各对象契约中定义一次**（[Entity](H_S_R_ENTITY_CONTRACT_DRAFT.md)、[Concept](H_S_R_CONCEPT_CONTRACT_DRAFT.md)、[Association](H_S_R_ASSOCIATION_CONTRACT_DRAFT.md)、[Argumentation](H_S_R_ARGUMENTATION_CONTRACT_DRAFT.md)、[Proposition](H_S_R_PROPOSITION_CONTRACT_DRAFT.md)，均属 PR #42，未合并）；本文只做机械映射并补充形态约束，凡冲突以契约层为准。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)。**Proposed，不表示已实施。**
 
 ## 1. 读法
 
@@ -36,6 +36,7 @@ ObjectRevisionEnvelope = {
   subtype_code,                    // 指向子型注册表（§5），决定载荷槽位集
   identity_slot_set_digest,        // 该子型当时声明的身份构成槽位集合摘要（只读校验用）
   completion_basis?,               // 补全分支
+  external_citations[],            // 跨平面断言（SF-28）：{plane, v1_kind, v1_id, role, basis}，非端点、非身份、不可解析
   payload
 }
 ```
@@ -46,6 +47,7 @@ ObjectRevisionEnvelope = {
 | SS-11 | **不存 `head_revision` 或 `is_head`**：链首是登记簿的派生属性，写进记录就变成可被写歪的第二真源（AX-03、DF-03）。查询 `version_selection = latest` 只用于导航（ID-05、SF-23）。 |
 | SS-12 | `identity_slot_set_digest` 的摘要对象是**子型注册表声明的槽名集合**（按 SF-50 规范字节形态取摘要），不是记录内容，与 SF-20「禁止内容寻址身份」无关；它记录"当时该子型声明了哪些身份构成槽位"，使旧修订的判定可**按当时的声明**重放；它不改变契约层的身份判据，只是防漂移（SF-60、RV-04）。 |
 | SS-13 | `subtype_code` 必须解析到子型注册表条目；解析不到 → 保存成功 + `FAIL(SUBTYPE_UNREGISTERED, DEFICIENCY)`（SRG-21）。 |
+| SS-15 | `external_citations[]` 只能出现在信封，**不得**进入 `payload` 的任何端点/参与者/正式声明槽位；它是"本记录涉及某 V1 对象"的断言，不参与身份判定、不隐含存在性校验（SF-28、SD-20）。 |
 | SS-14 | 非对象记录（检查报告、采用记录、可用性检查、H 原始记录、Assertion 链成员声明）**不使用本信封**：它们有各自的记录形态，且不得被赋对象引用类型（ID-08、SCR-01、SF-24）。 |
 
 ## 3. 五类对象载荷槽位表

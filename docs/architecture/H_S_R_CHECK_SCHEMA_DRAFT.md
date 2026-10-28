@@ -1,6 +1,6 @@
 # 检查报告与规则注册表的 Schema
 
-> **PR #43 · DRAFT-PROPOSAL · 2026-10-29。** 把[规范化契约](H_S_R_NORMALIZATION_CONTRACT_DRAFT.md)（PR #42，未合并）的 `CheckReport`、`finding`、`level_result`、`declared_gap`、`coverage`、两视图与规则编号落到编码层。**判定语义由规范化契约裁决，本文只裁决形态**；凡冲突以契约层为准。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)。**Proposed，不表示已实施。**
+> **PR #47 · DRAFT-PROPOSAL · 2026-10-29。** 把[规范化契约](H_S_R_NORMALIZATION_CONTRACT_DRAFT.md)（PR #42，未合并）的 `CheckReport`、`finding`、`level_result`、`declared_gap`、`coverage`、两视图与规则编号落到编码层。**判定语义由规范化契约裁决，本文只裁决形态**；凡冲突以契约层为准。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)。**Proposed，不表示已实施。**
 
 ## 1. 报告记录形态（真源 = 审计视图）
 

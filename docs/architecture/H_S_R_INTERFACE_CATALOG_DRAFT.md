@@ -1,6 +1,6 @@
 # 接口目录：IC-\* 操作到工具形态的映射
 
-> **PR #43 · DRAFT-PROPOSAL · 2026-10-29。** 把[领域交互契约](H_S_R_INTERACTION_CONTRACT_DRAFT.md)（PR #42，未合并）的每个 IC-\* 操作映射为一个工具入口的请求/响应形态。**操作语义、前置条件与不变量由契约层裁决，本文只裁决形态**；凡冲突以契约层为准。通用纪律（包络、错误、两视图、幂等、分页、双时相）见[接口基座](H_S_R_INTERFACE_FOUNDATIONS_DRAFT.md)，本文不重复。
+> **PR #47 · DRAFT-PROPOSAL · 2026-10-29。** 把[领域交互契约](H_S_R_INTERACTION_CONTRACT_DRAFT.md)（PR #42，未合并）的每个 IC-\* 操作映射为一个工具入口的请求/响应形态。**操作语义、前置条件与不变量由契约层裁决，本文只裁决形态**；凡冲突以契约层为准。通用纪律（包络、错误、两视图、幂等、分页、双时相）见[接口基座](H_S_R_INTERFACE_FOUNDATIONS_DRAFT.md)，本文不重复。
 >
 > **工具名是本层的建议命名**，落地前属冻结面变更（SI-02）。所有写操作隐含：主体与 `run_id` 由宿主注入（SI-01）、`client_request_id` 必填（SI-41）、`space_id` 必填（接口基座 §2.1）。**Proposed，不表示已实施。**
 

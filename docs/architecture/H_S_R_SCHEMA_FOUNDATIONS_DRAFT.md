@@ -1,6 +1,6 @@
 # 上层领域契约 Schema 基座：规范形态、编码与版本纪律
 
-> **PR #43 · DRAFT-PROPOSAL · 2026-10-29。** 把[上层领域契约](H_S_R_DOMAIN_FOUNDATIONS_DRAFT.md)（PR #42，未合并）落到**可机器校验的编码层**：规定规范形态（canonical form）、字段编码、引用语法、时间/数量表示、注册表形态与版本纪律。本文件**不改变任何领域语义**；凡与 PR #42 契约层冲突，以契约层为准并应报错修正本文。
+> **PR #47 · DRAFT-PROPOSAL · 2026-10-29。** 把[上层领域契约](H_S_R_DOMAIN_FOUNDATIONS_DRAFT.md)（PR #42，未合并）落到**可机器校验的编码层**：规定规范形态（canonical form）、字段编码、引用语法、时间/数量表示、注册表形态与版本纪律。本文件**不改变任何领域语义**；凡与 PR #42 契约层冲突，以契约层为准并应报错修正本文。
 >
 > **层级位置**：契约层（语义）→ **本层（编码与形态）** → 实现层（服务、存储、序列化后端）。本层只裁决"同一语义如何唯一地写成字节与键名"，不引入新的领域概念、新的对象类别、新的状态系统。
 >
@@ -57,13 +57,14 @@
 
 | 编号 | 规则 |
 | --- | --- |
-| SF-20 | `object_id`、`revision_id`、`record_id`、`report_id`、`vocabulary_code` 都是**不透明字符串**（长度固定、大小写敏感、由登记方在创建时分配）。**禁止内容寻址身份**：不得由载荷内容哈希派生 ID。理由：内容相同即 ID 相同会**自动合并**同内容登记，直接违反 ID-07（合并永远是登记行为）与 RV-05（同指称冲突不自动合并）。摘要可以算，但不充当身份。 |
+| SF-20 | `object_id`、`revision_id`、`record_id`、`report_id`、`vocabulary_code` 都是**不透明字符串**（长度上限 64 字符、大小写敏感、由登记方在创建时分配；上限是硬约束，实际长度可变，不存在「长度固定」这一承诺）。**禁止内容寻址身份**：不得由载荷内容哈希派生 ID。理由：内容相同即 ID 相同会**自动合并**同内容登记，直接违反 ID-07（合并永远是登记行为）与 RV-05（同指称冲突不自动合并）。摘要可以算，但不充当身份。 |
 | SF-21 | `revision_id` 是对象内**单调递增序号**（`r1, r2, …`）的稳定编码，不得由内容摘要或时间戳充当；旧修订永不被改写或复用（ID-03）。 |
-| SF-22 | 精确引用编码为字符串 `"${object_id}@${revision_id}"`，可带表示片段 `"@rev#<representation_id>"`。语法固定为 `^[A-Za-z0-9_-]{1,64}@(r[0-9]{1,9})(#[A-Za-z0-9_-]{1,64})?$`，解析失败 → 形态非法。 |
+| SF-22 | 精确引用编码为字符串 `"${object_id}@${revision_id}"`，可带表示片段 `"@rev#<representation_id>"`。语法固定为 `^(HENT\|HCON\|HASS\|HARG\|HPRO)-[A-Za-z0-9_-]{1,58}@(r[0-9]{1,9})(#[A-Za-z0-9_-]{1,64})?$`，解析失败 → 形态非法。**注意**：该语法只保证形状，不保证与 V1 标识互斥——互斥由 SF-26 的封闭前缀注册表与 SF-27/SF-28 的槽位类型校验共同保证，不由语法自身保证。 |
 | SF-23 | **逻辑引用（无版本）在 HCF 中不可表达**：正式槽位的引用类型只接受精确形式；"跟随当前"只允许出现在接口查询参数与界面导航参数中，且参数名必须显式为 `version_selection`（ID-05、RF-02、`SL1-COM-01`）。 |
 | SF-24 | 非对象记录（H 记录、来源引用、检查报告、采用记录、快照）的引用使用独立前缀语法 `"rec:${record_id}"`，类型上**不能**赋给对象引用槽位（ID-08、RF-05）。需要"关于某条记录的论点"时改登记高阶 Proposition（RF-06），不得放宽槽位类型。 |
-| SF-26 | HSR `object_id` 必须使用**登记前缀命名空间**（建议 `HENT-`/`HCON-`/`HASS-`/`HARG-`/`HPRO-`；前缀只作命名隔离，不承载语义），与 V1 `schema/common.schema.json` `$defs` 的 25 个 ID pattern 前缀（`WS-`/`C-`/`F-`/`A-`/`REL-`…）**互斥**。V1 的 `typedRef = {kind, id}` 与 HSR 字符串引用**没有隐式转换**，前缀互斥使二者不可能被误当作同一身份（SI-03、SD-12） |
+| SF-26 | HSR `object_id` 的前缀是**封闭注册集** `{HENT-, HCON-, HASS-, HARG-, HPRO-}`（前缀只作命名隔离，不承载语义；增删前缀等价于注册面变更，须走冻结流程）。**V1 前缀注册表是冻结面**：`DOMAIN_SCHEMA.md` §1.1 明写「新增前缀必须 bump `.research/schema-version`」，`src/shared/ids/registry.ts` 是其机读镜像且注释禁止静默扩展，解析规则为**最长前缀优先**（`H` 与 `HENT` 存在包含关系）。因此本层裁决：HSR 前缀**不进入** V1 那 25 项注册表；任何被提交的标识先做一次 V1 冻结前缀最长匹配判定，命中即拒（不交给 `src/shared/ids` 解析器，也不得落进 HSR 槽位）。与 V1 的 25 个 ID pattern（`WS-`/`C-`/`F-`/`A-`/`REL-`…）**互斥**由「封闭前缀注册表 + 该校验」保证，不由字符串语法保证（SI-03、SD-12、A-10） |
 | SF-27 | HSR `object_kind`（五值封闭）与 V1 `objectKind`（24 值，含 `CLAIM/FACT/ARTIFACT/RELATION`…）是**两个独立词表**：不共用注册表、不做隐式映射、不得互相填充；跨层联系只能显式登记（SI-03、DF-04） |
+| SF-28 | **跨平面引用是唯一被许可的 HSR↔V1 连接形态**，且只能在 HSR 侧登记：记录可携带 `external_citations[] = {plane = V1, v1_kind, v1_id, role, basis}`，其中 `v1_id` 必须匹配 V1 冻结 25 pattern 之一。它是**断言**（「本记录涉及某个 V1 对象」），不是可解析的 `typedRef`：不参与身份判定、不得出现在端点/参与者/正式声明槽位、不隐含存在性校验（解析失败按未解析引用处理，走 `F-UNRESOLVED` 语义）。**禁止**把 V1 标识塞进 `external_identifiers[]` 等自由文本槽位当非正式连接通道——那会把身份文本变成隐式外键（EN-ID-1、`SL1-ENT-08` 同类风险）。V1 侧引用 HSR 标识需要新增事件字段，属冻结面变更，本层不做（SD-20、A-09） |
 | SF-25 | `space_id` 不出现在引用字符串里；跨空间引用不存在（SP-05：复用只能靠导出/导入产生目标空间内的新对象）。任何形如 `space:obj@rev` 的写法都是形态非法。 |
 
 ## 5. 时间编码
@@ -131,7 +132,7 @@
 | 编号 | 规则 |
 | --- | --- |
 | SF-70 | 本层设计的工件在获得批准前**只以设计文档形态存在**于 `docs/architecture/**`（Proposed）。本轮 PR **不新增、不修改任何 `schema/**` 文件**。 |
-| SF-71 | 落地时的最小顺序（登记，不排期）：① 新增 `schema/hsr/*.schema.json` 工件 → ② `pnpm run snapshot:update` 使契约与清单同一提交 → ③ PR body 写 `Frozen-Face-Review:` 人工批准行 → ④ 才谈实现。跳过任一步会直接构建红或 probe 红。 |
+| SF-71 | 落地时的最小顺序（登记，不排期）：**⓪ ID 前缀命名空间裁决**——本层的临时裁决是「HSR 前缀不进 V1 冻结 25 表」（否则必须同时改 `DOMAIN_SCHEMA.md` §1.1、bump `.research/schema-version`、同步 `src/shared/ids/registry.ts` 镜像与 `schema/common.schema.json` 的 25 个 pattern，四处同一提交）；若改为进表，则本条与 SF-26 需一并重写 → ① 新增 `schema/hsr/*.schema.json` 工件 → ② `pnpm run snapshot:update` 使契约与清单同一提交 → ③ PR body 写 `Frozen-Face-Review:` 人工批准 → ④ probe 面投票通过。缺任何一步，构建或门禁会红 |
 | SF-72 | HSR 工件与既有 `schema/declarative/**`、`schema/history/**`、`schema/operational/**` **命名空间分离**，不复用、不修改既有事件信封与声明式记录类型；需要新的历史事件族时，那是**另一次**冻结面变更 + 独立评审，不得借道本层。 |
 | SF-73 | 在事件族问题被裁决前，本层**不声称** HSR 记录已进入"单一事件真源"；只声称：HSR 记录自身的追加式存储由本层编码定义，与 V1 历史面的关系是待裁决项（见[Schema 决策与遗留](H_S_R_SCHEMA_DECISIONS_DRAFT.md) SD-07、SR-OPEN）。 |
 

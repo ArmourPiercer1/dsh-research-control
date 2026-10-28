@@ -1,6 +1,6 @@
 # 上层领域接口基座：调用包络、呈现边界与兼容纪律
 
-> **PR #43 · DRAFT-PROPOSAL · 2026-10-29。** 把[领域交互契约](H_S_R_INTERACTION_CONTRACT_DRAFT.md)（PR #42，未合并）的 IC-\* 操作语义落到**对外接口形态**：调用包络、错误与授权呈现、两视图脱敏、幂等、分页、双时相参数、异步检查、兼容纪律。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)；逐操作形态见[接口目录](H_S_R_INTERFACE_CATALOG_DRAFT.md)。
+> **PR #47 · DRAFT-PROPOSAL · 2026-10-29。** 把[领域交互契约](H_S_R_INTERACTION_CONTRACT_DRAFT.md)（PR #42，未合并）的 IC-\* 操作语义落到**对外接口形态**：调用包络、错误与授权呈现、两视图脱敏、幂等、分页、双时相参数、异步检查、兼容纪律。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)；逐操作形态见[接口目录](H_S_R_INTERFACE_CATALOG_DRAFT.md)。
 >
 > **本文件不是服务设计**：不规定 HTTP/MCP 路由、函数签名、进程边界、事务隔离、调用顺序或部署拓扑。H/S/R 是**职责正交**，不要求三个服务（IC 头部原文）。本文只裁决"一次调用怎样被写成请求与响应，才能不违反领域不变量"。**Proposed，不表示已实施。**
 
@@ -28,7 +28,7 @@
 
 | 编号 | 规则 |
 | --- | --- |
-| SI-10 | 请求里**禁止**出现：`latest` 引用、跨空间目标引用、被屏蔽目标的任何标识、调用方自报的 `recorded_at`（登记时间由系统产生）、任何用于跳过检查的标志位。 |
+| SI-10 | 请求里**禁止**出现：`latest` 引用、跨空间目标引用、被屏蔽目标的任何标识、调用方自报的 `recorded_at`（登记时间由系统产生）、任何用于跳过检查的标志位。修订类请求（追加新修订）另禁止提交 `object_kind` 与 `space_id`：二者在 `r1` 固定，提交即 `TOOL_INPUT` 拒绝且不产生记录（ID-01、ID-02、SS-10）。 |
 | SI-11 | 稀疏提交合法（只提交想声明的槽位）；服务端展开时未提交的可空槽位一律 `ABSENT`，**永不**填默认值（SF-04、UN-02）。 |
 | SI-12 | 请求体非法（语法、未知键、类型、缺 `kind`）→ 工具层 `TOOL_INPUT`，业务层不落任何记录；`F-SCHEMA-INVALID`（可解析为记录但非正式对象）→ **落 H 原始记录**而不是拒收（IC-H3、`SL0-COM-01`）。 |
 
@@ -46,9 +46,16 @@
 | SI-14 | `boundary` 只在结果可能不完整时出现，且遵循 SP-03 的**按权限量粒度**：对被屏蔽范围无可见权时，一律 `NOT_DISCLOSED`（既不说是也不说否），永不给计数、标识、时间分布或可反推存在性的派生量。 |
 | SI-15 | 空结果必须携带 `boundary`，使"没查到"不被读成"不存在"（C12、CS-24）。 |
 
+
+### 2.4 `space_id` 的宿主映射（未裁决，登记为实现前置）
+
+| 编号 | 规则 |
+| --- | --- |
+| SI-80 | `space_id` 是每次调用的必填槽位并在 `r1` 固定（ID-02），但**它与宿主既有概念的映射尚未裁决**：候选是「一 Project 一空间」「一 Workstream 一空间」或独立于二者的新维度；V1 侧没有 space 概念（`schema/common.schema.json` 无 space，V1 对照表亦记「不同维度，不互相推导」）。裁决前不得由实现自行选择——空间粒度一旦定错，隔离边界与可见性判定（SP-03）会整体错位且无法事后重划。 |
+| SI-81 | 裁决前允许的实现形态：单一默认空间（全部记录同空间），使接口与形态可以先被测试；该默认必须在配置中显式命名，不得隐含在代码里（避免"默认空间"变成事实上的全局空间而无法拆分） |
 ## 3. 错误模型（不改既有工具错误词表）
 
-既有工具层错误码 `TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED / TOOL_INPUT / TOOL_ABORTED / TOOL_NOT_IMPLEMENTED / TOOL_SERVICE` 是宿主映射面，**保持不变**。领域失败码通过结构化 `detail` 承载，**沿用既有 detail 键名**（`serviceCode`/`step`/`path`/`tool`，见 `src/host/tools/types.ts` 的 `ToolError.detail` 与各工具实现），不新造平行字段：
+既有工具层错误码 `TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED / TOOL_INPUT / TOOL_ABORTED / TOOL_NOT_IMPLEMENTED / TOOL_SERVICE` 是宿主映射面，**保持不变**。领域失败码通过结构化 `detail` 承载，`ToolError.detail` 在宿主侧是开放 `Record`，但既有实现只用到 `serviceCode`/`step`/`path`/`tool`/`plannedService` 五个键；本层**沿用这五个键**，并只额外登记一组前置专用键 `{serviceCode:"PRECONDITION_FAILED", step:"expected_head_revision", expected_head_revision, actual_head_revision}`（见 SI-24）。除此之外的新键即新造平行字段，须先登记：
 
 ```
 ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr_object_get', step: 'resolve_reference', path: '/fields/world_membership' } }
@@ -79,7 +86,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 | 编号 | 规则 |
 | --- | --- |
 | SI-40 | 写操作只有**追加**效果（新对象/新修订/新记录/新报告），没有就地改写（IC-01）。接口不得提供 PATCH 语义；"修改"= 提交新修订。 |
-| SI-41 | 幂等：同一 `(actor, client_request_id)` 的重复请求必须返回**首次结果**且**不产生第二条记录/第二个修订**（网络重试是常态；重试造成双修订是缺陷）。幂等窗口与结果一致性由服务端保证，超窗后重复请求按新请求处理并可能得到 `F-PRECONDITION-REVISION`（SI-24）。 |
+| SI-41 | 幂等：同一 `(actor, client_request_id)` 的重复请求必须返回**首次结果**且**不产生第二条记录/第二个修订**（网络重试是常态；重试造成双修订是缺陷）。幂等键的主体粒度固定为**宿主注入的主体标识本身**：USER 取 `actor.user_id`，AGENT 取 `actor.run_id`；缺该字段即不参与去重，每次都产生新记录——宁可重复，不可吞掉一次真实登记。去重窗口时长属实现参数，必须登记为配置并写测试：窗口内重试返回首次结果，窗口外重试按新请求处理并可能得到 `F-PRECONDITION-REVISION`（SI-24），且两条记录都必须完整可审计（禁止窗口外静默合并）。 |
 | SI-42 | 修订类写入必须携带 `expected_head_revision`；不匹配 → 拒绝写入，不产生记录（乐观前置，避免 last-write-wins 覆盖历史）。 |
 | SI-43 | 批量接口只做**同质追加**（一批彼此独立的新对象/新修订），不得表达跨记录事务、不得"原子地"更新轴状态或跨对象改写（IC-04：跨轴效果必须由另一个显式操作产生）。部分成功逐条报告，禁止静默丢弃。 |
 | SI-44 | 任何接口都不得提供"设当前版本""标记已验证""同步为现状""一键对齐"之类的原语——它们把派生投影写回真源（AX-03、DF-03、IC §7）。 |
@@ -88,7 +95,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 
 | 编号 | 规则 |
 | --- | --- |
-| SI-50 | 分页沿用既有约定及其常量语义：**游标制**、默认页大小、超上限**拒绝而非钳制**（现状默认 100 / 上限 1000，越界 `TOOL_INPUT`），每页回显 `limit`/`next_cursor`/`exhausted`。HSR 的 `next_cursor` 是对既有 `next_after_seq` 游标协议的封装（内含知识截点，SI-51），不改变「拒绝而非静默钳制」这条既有语义。 |
+| SI-50 | 分页沿用既有**约定**而非既有游标：游标制、默认页大小、超上限**拒绝而非钳制**（现状默认 100 / 上限 1000，越界 `TOOL_INPUT`）、每页回显 `limit`/`next_cursor`/`exhausted`。**HSR 使用自己的不透明游标，不封装既有的 `after_seq`/`before_seq`/`next_after_seq` 整数 seq 协议**——那套 seq 是 per-workstream 的 V1 事件日志序号，而 HSR 记录是否进入该日志正是未裁决项（SD-07）；把它当作 HSR 的排序轴等于偷偷预设裁决。游标可排序轴本身依赖 SD-07，本层只规定游标必须自包含（SI-51）且不暴露底层 seq。 |
 | SI-51 | 游标必须**自包含知识截点**（编码 `recorded_as_of` 与查询指纹）：晚到登记不得使同一游标翻页时重复或漏项；游标跨越截点 → 拒绝并要求新查询（否则"历史重建"结果不可复现，T-02）。 |
 | SI-52 | 排序不得引入语义优先：不得以"更可信/更可能正确"排序；允许的排序键是时间类、标识、显式程度值（且须带尺度引用，`RL1-08`）。 |
 | SI-53 | 双时相读：`recorded_as_of` 与 `described_*` 可任意组合；实现顺序固定为**先**按知识截点过滤可见记录，**再**按对象时间过滤（IC-H6 不变量），两步不得交换或合并。 |

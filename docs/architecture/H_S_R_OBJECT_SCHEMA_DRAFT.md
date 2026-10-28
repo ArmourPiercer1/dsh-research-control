@@ -156,7 +156,7 @@ ObjectRevisionEnvelope = {
 | `alignment_claims[]` | `{from_ref, to_ref, relation ∈ enum(EXACT_MAP, DECLARED_MAP, ASSUMED, UNKNOWN), basis_ref}` 集合 | D / A | — | `RL1-10`、CS-12、CS-13 |
 | `shared_dependency_refs[]` | `ref` 集合 | D / U / A | — | `RL1-11`、C09 |
 | `support_paths[]` | `{path_id, premise_refs[]}` 序列（序敏感，`path_id` 不重排） | D / A | `path_id` 稳定 | `RL1-06`、C08、AR-ID-5、SF-51 |
-| `path_conditions[]` | `{condition_id, condition_prop_rev: ref, status ∈ enum(ASSERTED, OPEN, DISCHARGED, CONTESTED, UNKNOWN), path_scope[], discharge_basis?}` 集合 | D / A | `condition_id` 稳定 | `RL1-07`、`RL1-13`、CS-08、C07 |
+| `path_conditions[]` | `{condition_id, condition_prop_rev: ref, status ∈ enum(ASSERTED, OPEN, DISCHARGED, CONTESTED, UNKNOWN), path_scope[], discharge_basis?}` 集合——**`status` 是本次修订登记时所声称的状态（修订内快照）**，不是可就地更新的当前值：条件的解除/质疑由状态变化记录承载（IC-R4 结果 = 状态变化记录），当前状态是这些记录的派生投影 | D / A | `condition_id` 稳定 | `RL1-07`、`RL1-13`、AR-ID-3、CS-08、C07、AX-03 |
 | `degree_value` | `{value: decimal, scale_ref: ref?, allowed_operations[]（可为空集 `NONE`）, declared_range}` | D / U / A | — | `RL1-08`、CS-10、SF-40、SF-41 |
 | `local_outcome` | `vocab(scheme_outcome)`（取值域 = Scheme 声明词表）+ 声明者 + 时间 | D（`NONE_YET` 合法） | — | `RL1-05`、C02、CN-04 |
 | `construction_state` | `enum(DRAFT, SUBMITTED, CLOSED_DRAFT, WITHDRAWN, TERMINATED_BY_SCOPE)` | D | — | AR-ID-4、C03、A1 轴 |
@@ -164,7 +164,7 @@ ObjectRevisionEnvelope = {
 | `verification_records[]` | `rec:` 集合（报告引用） | D / A | — | C11、RPT-01、`verification_status` 非字段 |
 | `composition_records[]` | `rec:` 集合 | D / A | — | C06 |
 | `obligation_refs[]` | `ref` 集合（证明义务） | D / A | — | D15、`RL1-*` 义务面 |
-| `attack_links[]` | `{kind ∈ enum(REBUT, UNDERCUT), target_argumentation_rev: ref, target_path?, target_condition?, meta_proposition_rev?}` 集合 | D / A | — | `RL1-09`、`RL1-15`、CN-04、CS-09 |
+| `attack_links[]` | **非可写载荷槽位**——由攻击登记记录派生的阅读视图；主张内容（`kind`、`target_argumentation_rev`、`target_path?`、`target_condition?`、`meta_proposition_rev?`）只存在于攻击登记记录（SS-49） | 不可写 | — | `RL1-09`、`RL1-15`、AR-ID-3、IC-R5、CN-04 |
 | `inference_method` / `logical_force` | `vocab(...)` | D / U | — | `SL1-*`（与 Scheme 声明一致性只查声明） |
 | `verification_status` / `current_status` | **无槽位**（派生视图） | 不可写 | — | RPT-04、AX-03 |
 | 禁止键 | `confidence`、`support_score`、`is_valid`、`truth_value`、单一 `status` 汇总 | 出现即形态非法 | — | `SL1-COM-04`、NEV-06 |
@@ -200,6 +200,7 @@ ObjectRevisionEnvelope = {
 | SS-46 | `SAME_TRUTH_CONDITIONS` 且 `added_assumptions[]` 非空 → 形态级 FAIL（`SL1-PRO-04`、CS-22）；这是**形态矛盾**检查，不判等价性真伪（RPT-07）。 |
 | SS-47 | `world_ref` 的两半角色分离与 Entity 的 `world_membership` 同构（SS-30）；`representation_id` 是对象内稳定标识，不复用、不随内容变（A-05）。 |
 | SS-48 | 命题端的 `mention_refs[].target` 允许 `rec:`（高阶命题讨论 H 记录），但它**不是**论证端点：论证绑定仍受 SS-05 约束（RF-05）。 |
+| SS-49 | **主张的两类承载，不得并存**：**(甲) 随修订追加的载荷集合**——`alignment_claims[]`、`shared_dependency_refs[]`、`obligation_refs[]`、`path_conditions[]` 等，只随新修订增长，不得原地编辑已有元素（改一条 = 新修订，旧修订原样可回放）；**(乙) 以独立记录承载的主张**——攻击（IC-R5）、验证（IC-R6）、采用（AD-01）、可用性检查（A8）、评价（A6）、接纳（PR-A1），其主张内容只存在于记录里，载荷侧只允许 `rec:` 引用或**派生视图**，禁止把同样的子字段再写进载荷。判据一句话：**主张内容只有一份**；H 记录只存登记事件（谁、何时、依何），不复制主张内容，反之载荷不复制事件字段。`hsr_attack_register` 只产生记录（IC-R5 结果 = 攻击记录），不产生"载荷里的攻击字段"——两者都写就是双真源，只写载荷就是不按契约登记。 |
 
 
 

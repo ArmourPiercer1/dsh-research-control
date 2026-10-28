@@ -5,9 +5,10 @@
 | 文档 | 职责 | 裁决状态 |
 | --- | --- | --- |
 | [H/S/R × 五类对象：统一架构设计](H_S_R_FIVE_OBJECT_ARCHITECTURE_DRAFT.md) | **本轮最新主基线**：五类对象、三正交系统、级别、身份、共同不变量 | Draft · 优先阅读 |
+| [组合语义合同与收口审查](H_S_R_COMPOSITION_SEMANTICS_DRAFT.md) | 关联时间/使用、局部结局、Draft、条件/冲突/循环/版本组合；24 类设计反例 | Draft · 顶层基本运行语义 |
 | [五类对象与旧设计归属对账](H_S_R_OBJECT_MAPPING_DRAFT.md) | PROV/SOSA、Concept、World/Scope、Evidence/Argument、Assessment/Fact、V1 对象逐项归类 | Draft · 含候选映射 |
 | [H/S/R 系统级详细合同](H_S_R_SYSTEM_CONTRACTS_DRAFT.md) | 逐系统问题、对象关系、L0/L1、案例、跨界约束 | Draft · 非 Schema |
-| [方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md) | 既定共识、候选推断、F-01–F-09、旧设计冲突 | Draft · 审查索引 |
+| [方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md) | 既定共识、组合收口、F-01–F-09 实施准备分类、旧设计冲突 | Draft · 审查索引 |
 | [H/S/R 早期系统级审查稿](H_S_R_SYSTEM_DESIGN_DRAFT.md) | 保留上一轮对象关系/缺口视图；未按最新五类完全改写 | 较早 Draft |
 | [H/S/R 早期三系统顶层基线](H_S_R_TOP_LEVEL_ARCHITECTURE_DRAFT.md) | 保留本 PR 首轮 H/S/R 讨论历史；旧 Assertion/L1 术语需以最新主基线为准 | 较早 Draft |
 | [ARCHITECTURE_BASELINE](ARCHITECTURE_BASELINE.md) | 使命、边界、顶层分层、图谱、可靠性 | 原则性基线 |

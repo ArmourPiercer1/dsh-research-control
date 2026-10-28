@@ -138,6 +138,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 4. **授权分道**：`F-DENIED-WRITE` 不产生任何目标空间记录（含"未生效声明"）；`F-DENIED-AUTH` 产生但不进投影。
 5. **回显完备**：所有查询响应缺 `echo` 即测试红。
 6. **游标稳定**：翻页过程中插入晚到登记，既有游标序列不重复不漏项。
+6a. **页长填满（SI-50 的唯一暴露方式）**：fixture 必须让**首屏窗口内混有不可见行**（底层 ≥ limit+13 条、其中前 limit 条里有若干对本授权类不可见），断言返回条数恰为 `limit` 且 `exhausted=false`。"先取 `limit` 行再按权限过滤"是 SQL/ORM 的默认写法，且**在小数据量下两种实现逐字节同果**——不专门构造混窗 fixture，这条 oracle 永远不会红（SI-33 第②类量级恒定的分页实例）。
 7. **报告不可覆盖**：重检后旧 `report_id` 内容逐字节不变。
 8. **回放**：历史请求包络 + 截点重放得到同形呈现视图（SI-73）。
 9. **身份锚定**：注册 `identity_slots: []` 的 Entity 子型必须被注册一致性检查判为非法（SS-54）；对已声明身份槽位提交变化集并标 `completion_basis = SAME_INTENT_CONFIRMED`，必须被 `F-CONFLICT` 拒绝（SS-55）。

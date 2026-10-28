@@ -37,7 +37,7 @@ ObjectRevisionEnvelope = {
   subtype_code,                    // 指向子型注册表（§5），决定载荷槽位集
   identity_slot_set_digest,        // 该子型当时声明的身份构成槽位集合摘要（只读校验用）
   completion_basis?,               // 补全分支
-  external_citations[],            // 跨平面断言（SF-28）：{plane, v1_kind, v1_id, role, basis}，非端点、非身份、不可解析
+  external_citations[],            // 跨平面断言（SF-28）：{plane, v1_kind, v1_id, citation_role, basis_refs[], basis_text}，非端点、非身份、不可解析
   payload
 }
 ```
@@ -157,7 +157,7 @@ ObjectRevisionEnvelope = {
 | `alignment_claims[]` | `{from_ref, to_ref, relation ∈ enum(EXACT_MAP, DECLARED_MAP, ASSUMED, UNKNOWN), basis_ref}` 集合 | D / A | — | `RL1-10`、CS-12、CS-13 |
 | `shared_dependency_refs[]` | `ref` 集合 | D / U / A | — | `RL1-11`、C09 |
 | `support_paths[]` | `{path_id, premise_refs[]}` 序列（序敏感，`path_id` 不重排） | D / A | `path_id` 稳定 | `RL1-06`、C08、AR-ID-5、SF-51 |
-| `path_conditions[]` | `{condition_id, condition_prop_rev: ref, status ∈ enum(ASSERTED, OPEN, DISCHARGED, CONTESTED, UNKNOWN), path_scope[], discharge_basis?}` 集合——**`status` 是本次修订登记时所声称的状态（修订内快照）**，不是可就地更新的当前值：条件的解除/质疑由状态变化记录承载（IC-R4 结果 = 状态变化记录），当前状态是这些记录的派生投影 | D / A | `condition_id` 稳定 | `RL1-07`、GAP-01、AR-ID-3、CS-08、C07、AX-03 |
+| `path_conditions[]` | `{condition_id, condition_prop_rev: ref, status ∈ enum(ASSERTED, OPEN, DISCHARGED, CONTESTED, UNKNOWN), path_scope[]}`——**载荷不含 `discharge_basis`**：解除/质疑依据是 IC-R4 状态变化记录的输入（该契约 IC-R4 输入列已列 `discharge_basis`），把它同时放进载荷就制造了第二个真源，违反 SS-49「主张内容只有一份」 集合——**`status` 是本次修订登记时所声称的状态（修订内快照）**，不是可就地更新的当前值：条件的解除/质疑由状态变化记录承载（IC-R4 结果 = 状态变化记录），当前状态是这些记录的派生投影 | D / A | `condition_id` 稳定 | `RL1-07`、GAP-01、AR-ID-3、CS-08、C07、AX-03 |
 | `degree_value` | `{value: decimal, scale_ref: ref?, allowed_operations[]（可为空集 `NONE`）, declared_range}` | D / U / A | — | `RL1-08`、CS-10、SF-40、SF-41 |
 | `local_outcome` | `vocab(scheme_outcome)`（取值域 = Scheme 声明词表）+ 声明者 + 时间 | D（`NONE_YET` 合法） | — | `RL1-05`、C02、CN-04 |
 | `construction_state` | `enum(DRAFT, SUBMITTED, CLOSED_DRAFT, WITHDRAWN, TERMINATED_BY_SCOPE)` | D | — | AR-ID-4、C03、A1 轴 |

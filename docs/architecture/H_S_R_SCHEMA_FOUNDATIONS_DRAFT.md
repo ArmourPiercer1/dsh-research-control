@@ -61,6 +61,8 @@
 | SF-22 | 精确引用编码为字符串 `"${object_id}@${revision_id}"`，可带表示片段 `"@rev#<representation_id>"`。语法固定为 `^[A-Za-z0-9_-]{1,64}@(r[0-9]{1,9})(#[A-Za-z0-9_-]{1,64})?$`，解析失败 → 形态非法。 |
 | SF-23 | **逻辑引用（无版本）在 HCF 中不可表达**：正式槽位的引用类型只接受精确形式；"跟随当前"只允许出现在接口查询参数与界面导航参数中，且参数名必须显式为 `version_selection`（ID-05、RF-02、`SL1-COM-01`）。 |
 | SF-24 | 非对象记录（H 记录、来源引用、检查报告、采用记录、快照）的引用使用独立前缀语法 `"rec:${record_id}"`，类型上**不能**赋给对象引用槽位（ID-08、RF-05）。需要"关于某条记录的论点"时改登记高阶 Proposition（RF-06），不得放宽槽位类型。 |
+| SF-26 | HSR `object_id` 必须使用**登记前缀命名空间**（建议 `HENT-`/`HCON-`/`HASS-`/`HARG-`/`HPRO-`；前缀只作命名隔离，不承载语义），与 V1 `schema/common.schema.json` `$defs` 的 25 个 ID pattern 前缀（`WS-`/`C-`/`F-`/`A-`/`REL-`…）**互斥**。V1 的 `typedRef = {kind, id}` 与 HSR 字符串引用**没有隐式转换**，前缀互斥使二者不可能被误当作同一身份（SI-03、SD-12） |
+| SF-27 | HSR `object_kind`（五值封闭）与 V1 `objectKind`（24 值，含 `CLAIM/FACT/ARTIFACT/RELATION`…）是**两个独立词表**：不共用注册表、不做隐式映射、不得互相填充；跨层联系只能显式登记（SI-03、DF-04） |
 | SF-25 | `space_id` 不出现在引用字符串里；跨空间引用不存在（SP-05：复用只能靠导出/导入产生目标空间内的新对象）。任何形如 `space:obj@rev` 的写法都是形态非法。 |
 
 ## 5. 时间编码
@@ -69,7 +71,7 @@
 
 | 槽位类别 | HCF 形态 | 规则 |
 | --- | --- | --- |
-| 瞬时（`recorded_at`、`adoption_at`、`checked_at`） | `{"@st":"DECLARED","v":{"iso":"2026-10-29T03:14:15+08:00","precision":"SECOND"}}` | 必须带**显式偏移**；禁止无偏移的本地时间；`precision ∈ {SECOND, MINUTE, HOUR, DAY, MONTH, YEAR}` 表达来源精度，禁止把低精度值补零伪装成高精度 |
+| 瞬时（`recorded_at`、`adoption_at`、`checked_at`） | `{"@st":"DECLARED","v":{"epoch_ms":1761936855000,"display":{"iso":"2026-10-29T03:14:15+08:00","precision":"SECOND"}}}` | `epoch_ms` 与既有冻结 `$defs/epochMs`（`schema/common.schema.json`）同形，供排序与比较；`display.iso` 必须带**显式偏移**，禁止无偏移本地时间；`precision ∈ {SECOND, MINUTE, HOUR, DAY, MONTH, YEAR}` 表达**来源声明的精度**，禁止把低精度值补零伪装成高精度；两者换算后不在同一精度窗内 → 形态非法 |
 | 声称时间 `claimed_time` | 同上，另有 `"kind": {"iso":…} \| {"interval":…} \| UNKNOWN` | 与 `recorded_at` 是两个槽位；混用即 `SL1-COM-06` FAIL |
 | 描述区间 `described_interval` | `{"from": …, "to": …, "open_start": bool, "open_end": bool}` 或五态之一 | 开区间必须显式；缺省不等于全时域（契约层允许 `UNKNOWN`） |
 | 采用范围 `adoption_scope` | 引用集合（稳定标识） | 采用时间与采用范围不可互相推导（AD-01…AD-04） |

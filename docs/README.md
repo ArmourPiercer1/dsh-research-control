@@ -53,6 +53,7 @@
 | `docs/architecture/CORE_SEMANTICS.md` | Proposed |
 | `docs/architecture/H_S_R_ARGUMENTATION_CONTRACT_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_ASSOCIATION_CONTRACT_DRAFT.md` | Proposed |
+| `docs/architecture/H_S_R_CHECK_SCHEMA_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_COMPOSITION_MATRIX_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_COMPOSITION_SEMANTICS_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_CONCEPT_CONTRACT_DRAFT.md` | Proposed |
@@ -61,9 +62,15 @@
 | `docs/architecture/H_S_R_ENTITY_CONTRACT_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_FIVE_OBJECT_ARCHITECTURE_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_INTERACTION_CONTRACT_DRAFT.md` | Proposed |
+| `docs/architecture/H_S_R_INTERFACE_CATALOG_DRAFT.md` | Proposed |
+| `docs/architecture/H_S_R_INTERFACE_FOUNDATIONS_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_NORMALIZATION_CONTRACT_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_OBJECT_MAPPING_DRAFT.md` | Proposed |
+| `docs/architecture/H_S_R_OBJECT_SCHEMA_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_PROPOSITION_CONTRACT_DRAFT.md` | Proposed |
+| `docs/architecture/H_S_R_REGISTRY_SCHEMA_DRAFT.md` | Proposed |
+| `docs/architecture/H_S_R_SCHEMA_DECISIONS_DRAFT.md` | Proposed |
+| `docs/architecture/H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_SYSTEM_CONTRACTS_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_SYSTEM_DESIGN_DRAFT.md` | Proposed |
 | `docs/architecture/H_S_R_TOP_LEVEL_ARCHITECTURE_DRAFT.md` | Proposed |

@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | `contract_version` | 可选整数 | 缺省 = 服务端当前版本；**检查类与写入类响应必须回显实际生效版本**（SF-63） |
 | `space_id` | 必填（除注册表读） | 每次调用只针对一个空间；不存在跨空间调用（ID-02、SP-04） |
-| 主体上下文 | **调用方不得自报身份** | 主体、`run_id` 由宿主执行上下文注入并冻结（沿用既有 `allowedActorKinds` + 写操作要求正式 `run_id` 的机制）；请求里出现的 `actor` 字段只作**声明性主体**（"某人声称…"），绝不作为授权依据（IC-02、A6/A7 的主体区分） |
+| 主体上下文 | **调用方不得自报身份** | 主体、`run_id` 由宿主执行上下文注入并冻结（沿用既有 `allowedActorKinds` 与 `requiresRun` 机制；既有组装期自检要求 `requiresRun ≡ (access === 'write')`，故 HSR 只读工具**不得**要求 run、写工具**必须**要求 run，该既有约束原样继承）；请求里出现的 `actor` 字段只作**声明性主体**（"某人声称…"），绝不作为授权依据（IC-02、A6/A7 的主体区分） |
 | `client_request_id` | 写操作必填 | 幂等键，见 §5 |
 | 时间条件 | `recorded_as_of` / `described_at` / `described_during` | 查询类可用；缺省必须回显（T-05） |
 | `version_selection` | 枚举 | 唯一允许表达"跟随当前"的位置；正式声明槽位永远精确（SF-23、ID-05） |
@@ -48,10 +48,10 @@
 
 ## 3. 错误模型（不改既有工具错误词表）
 
-既有工具层错误码 `TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED / TOOL_INPUT / TOOL_ABORTED / TOOL_NOT_IMPLEMENTED / TOOL_SERVICE` 是宿主映射面，**保持不变**。领域失败码通过结构化 `detail` 承载：
+既有工具层错误码 `TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED / TOOL_INPUT / TOOL_ABORTED / TOOL_NOT_IMPLEMENTED / TOOL_SERVICE` 是宿主映射面，**保持不变**。领域失败码通过结构化 `detail` 承载，**沿用既有 detail 键名**（`serviceCode`/`step`/`path`/`tool`，见 `src/host/tools/types.ts` 的 `ToolError.detail` 与各工具实现），不新造平行字段：
 
 ```
-ToolError{ code: 'TOOL_SERVICE', detail: { domain_code: 'F-WITHHELD', op: 'hsr_object_get', ... } }
+ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr_object_get', step: 'resolve_reference', path: '/fields/world_membership' } }
 ```
 
 | 编号 | 规则 |
@@ -88,7 +88,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { domain_code: 'F-WITHHELD', op: 'hsr_o
 
 | 编号 | 规则 |
 | --- | --- |
-| SI-50 | 分页沿用既有约定：**游标制**、默认页大小、超限**拒绝而非钳制**、每页回显 `limit`/`next_cursor`/`exhausted`。 |
+| SI-50 | 分页沿用既有约定及其常量语义：**游标制**、默认页大小、超上限**拒绝而非钳制**（现状默认 100 / 上限 1000，越界 `TOOL_INPUT`），每页回显 `limit`/`next_cursor`/`exhausted`。HSR 的 `next_cursor` 是对既有 `next_after_seq` 游标协议的封装（内含知识截点，SI-51），不改变「拒绝而非静默钳制」这条既有语义。 |
 | SI-51 | 游标必须**自包含知识截点**（编码 `recorded_as_of` 与查询指纹）：晚到登记不得使同一游标翻页时重复或漏项；游标跨越截点 → 拒绝并要求新查询（否则"历史重建"结果不可复现，T-02）。 |
 | SI-52 | 排序不得引入语义优先：不得以"更可信/更可能正确"排序；允许的排序键是时间类、标识、显式程度值（且须带尺度引用，`RL1-08`）。 |
 | SI-53 | 双时相读：`recorded_as_of` 与 `described_*` 可任意组合；实现顺序固定为**先**按知识截点过滤可见记录，**再**按对象时间过滤（IC-H6 不变量），两步不得交换或合并。 |

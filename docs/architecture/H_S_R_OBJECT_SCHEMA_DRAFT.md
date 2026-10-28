@@ -105,7 +105,7 @@ ObjectRevisionEnvelope = {
 | `standard_vocabulary_alias` | 标准 URI（仅精确等价） | D / A | — | CO-SKOS-2、DF-10 |
 | `predicate_signature[]` | `{role, type_ref: ref?, dimension_ref: ref?, world_constraint: ref?}` 集合 | D / U / A（空合法） | ★ 参数/类型/量纲变化 → 新 Concept | CO-ID-4、CO-REV-5、`SL1-CON-04` |
 | `quantifier_scope` | `{kind ∈ vocab, scope_ref: ref?}` | D / U / A | ★ 量词类型变化 → 新 Concept | CO-REV-5 |
-| `hard_constituent_set` | 硬含义构成集声明（签名/量词/尺度等的集合化声明） | D / U | ★（越过硬集合 → 新 Concept） | CO-REV-5、RD-23 |
+| `hard_constituent_set` | 硬含义构成集声明（签名/量词/尺度等的集合化声明） | D / U | ★（越过硬集合 → 新 Concept） | CO-REV-5、RD-23（[方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md)，同 PR #42） |
 | `scheme_input_roles[]` | `{role_name, allowed_kinds[], cardinality, required}` 集合 | D / A（非 Scheme 子型 → NA 带 reason） | ★ 必需集合/角色类型约束变化 → 新 Concept | SCHEME-1 |
 | `scheme_condition_slots[]` | `{slot_name, meaning, on_failure}` 集合 | D / A（空合法；`on_failure` 缺省即规范默认） | ★ 槽位删除/含义变化 → 新 Concept | SCHEME-2 |
 | `scheme_target_form` | `{conclusion_form = PROPOSITION_REVISION, discussion_forms[]}` | D（**不可** `UNKNOWN`） | ★ | SCHEME-3、ID-05、DF-03 |
@@ -131,12 +131,12 @@ ObjectRevisionEnvelope = {
 
 | 槽位 | 类型 | 状态 | 身份 | 规则 |
 | --- | --- | --- | --- | --- |
-| `relation_type_ref` | `ref`（Concept@rev，关系类型定义） | D（不允许 `UNKNOWN`；类型未定须先登记候选类型 Concept） | ★ | `SL1-ASS-01`、AS-ID-2 |
+| `relation_type_ref` | `ref`（Concept@rev，关系类型定义） | D（不允许 `UNKNOWN`；类型未定须先登记候选类型 Concept） | ★ | `SL1-ASS-01`、Association 契约 §4 身份构成表、G-REV |
 | `participants[]` | `{role_ref, endpoint_ref: ref, is_standard_subject?: bool}` 集合（≥2） | D | ★（端点或角色改变 → 新关联；`UNRESOLVED → 已登记` 是修订） | `SL1-ASS-02`、AS-ID-3、SS-05 |
-| `directionality` | `enum(DIRECTED / SYMMETRIC / UNSPECIFIED)` | D | ★ 不可变 | `SL1-ASS-03`、AS-ID-6 |
+| `directionality` | `enum(DIRECTED / SYMMETRIC / UNSPECIFIED)` | D | ★ 不可变 | `SL1-ASS-03`、Association 契约 §3 槽位表「不可变」 |
 | `described_interval` | `{kind ∈ enum(TIMEPOINT, INTERVAL, UNTIL_REVOKED, TIMELESS), from: time?, to: time?}` | D / U(reason) / A | ◐ `UNKNOWN → 区间` 修订；`区间 A → 区间 B` 新关联 | `SL1-ASS-04`、AS-ID-1、AS-ID-4、CS-01、SF/A-06 |
 | `applicability_context` | `(ref)` 集合（World/Scope/配置语境） | D / U | ◐ 实质改变适用范围 → 新关联 | AS-ID-1 |
-| `source_assertion` | `{registrant_ref, actor_ref?, voice ∈ enum(SELF, REPORTED, IMPORTED, TOOL_OUTPUT), basis_refs[]}` | `registrant_ref` D（不可 `UNKNOWN`，由写入事件赋予）；`actor_ref` D / U | `registrant_ref` 不可变、非身份槽位；`actor_ref` — | `SL1-ASS-05`、RD-35、IC-02 |
+| `source_assertion` | `{registrant_ref, actor_ref?, voice ∈ enum(SELF, REPORTED, IMPORTED, TOOL_OUTPUT), basis_refs[]}` | `registrant_ref` D（不可 `UNKNOWN`，由写入事件赋予）；`actor_ref` D / U | `registrant_ref` 不可变、非身份槽位；`actor_ref` — | `SL1-ASS-05`、RD-35（[方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md)，同 PR #42）、IC-02 |
 | `recorded_via` | `rec:`（登记事件） | D（H 侧必须存在） | ★ 不可变（H 拥有） | IC-02 |
 | `standard_predicate_alias` | 标准 URI（仅精确等价） | D / A | — | N-04、DF-10 |
 | 冲突/替代/采用内联字段 | **无槽位**（冲突与替代是独立主张记录；采用是独立记录） | 不可写 | — | `SL1-ASS-07`、`SL1-ASS-08`、AS-CF-1、AD-01 |
@@ -156,7 +156,7 @@ ObjectRevisionEnvelope = {
 | `alignment_claims[]` | `{from_ref, to_ref, relation ∈ enum(EXACT_MAP, DECLARED_MAP, ASSUMED, UNKNOWN), basis_ref}` 集合 | D / A | — | `RL1-10`、CS-12、CS-13 |
 | `shared_dependency_refs[]` | `ref` 集合 | D / U / A | — | `RL1-11`、C09 |
 | `support_paths[]` | `{path_id, premise_refs[]}` 序列（序敏感，`path_id` 不重排） | D / A | `path_id` 稳定 | `RL1-06`、C08、AR-ID-5、SF-51 |
-| `path_conditions[]` | `{condition_id, condition_prop_rev: ref, status ∈ enum(ASSERTED, OPEN, DISCHARGED, CONTESTED, UNKNOWN), path_scope[], discharge_basis?}` 集合——**`status` 是本次修订登记时所声称的状态（修订内快照）**，不是可就地更新的当前值：条件的解除/质疑由状态变化记录承载（IC-R4 结果 = 状态变化记录），当前状态是这些记录的派生投影 | D / A | `condition_id` 稳定 | `RL1-07`、`RL1-13`、AR-ID-3、CS-08、C07、AX-03 |
+| `path_conditions[]` | `{condition_id, condition_prop_rev: ref, status ∈ enum(ASSERTED, OPEN, DISCHARGED, CONTESTED, UNKNOWN), path_scope[], discharge_basis?}` 集合——**`status` 是本次修订登记时所声称的状态（修订内快照）**，不是可就地更新的当前值：条件的解除/质疑由状态变化记录承载（IC-R4 结果 = 状态变化记录），当前状态是这些记录的派生投影 | D / A | `condition_id` 稳定 | `RL1-07`、GAP-01、AR-ID-3、CS-08、C07、AX-03 |
 | `degree_value` | `{value: decimal, scale_ref: ref?, allowed_operations[]（可为空集 `NONE`）, declared_range}` | D / U / A | — | `RL1-08`、CS-10、SF-40、SF-41 |
 | `local_outcome` | `vocab(scheme_outcome)`（取值域 = Scheme 声明词表）+ 声明者 + 时间 | D（`NONE_YET` 合法） | — | `RL1-05`、C02、CN-04 |
 | `construction_state` | `enum(DRAFT, SUBMITTED, CLOSED_DRAFT, WITHDRAWN, TERMINATED_BY_SCOPE)` | D | — | AR-ID-4、C03、A1 轴 |
@@ -164,6 +164,7 @@ ObjectRevisionEnvelope = {
 | `verification_records[]` | `rec:` 集合（报告引用） | D / A | — | C11、RPT-01、`verification_status` 非字段 |
 | `composition_records[]` | `rec:` 集合 | D / A | — | C06 |
 | `obligation_refs[]` | `ref` 集合（证明义务） | D / A | — | D15、`RL1-*` 义务面 |
+| `gap_crossings[]` | `{gap_kind, from_ref: ref, to_ref: ref, basis_ref}` 集合（Scheme 要求声明语义跨越时必填） | D / NA(Scheme 未要求时带 reason) / A | — | GAP-01、`RL1-13`、`SCHEME-7` |
 | `attack_links[]` | **非可写载荷槽位**——由攻击登记记录派生的阅读视图；主张内容（`kind`、`target_argumentation_rev`、`target_path?`、`target_condition?`、`meta_proposition_rev?`）只存在于攻击登记记录（SS-49） | 不可写 | — | `RL1-09`、`RL1-15`、AR-ID-3、IC-R5、CN-04 |
 | `inference_method` / `logical_force` | `vocab(...)` | D / U | — | `SL1-*`（与 Scheme 声明一致性只查声明） |
 | `verification_status` / `current_status` | **无槽位**（派生视图） | 不可写 | — | RPT-04、AX-03 |
@@ -176,7 +177,7 @@ ObjectRevisionEnvelope = {
 | `proposition_subtype` | `subtype_code`（`PLAIN/ASSESSMENT/FACT_DESIGNATION/DECISION_BASIS/PROOF_OBLIGATION/META`） | D（不可变） | ★ | `SL1-PRO-09` |
 | `primary_expression` | `{text, language}` | D（不得 `UNKNOWN`；原文残缺按原始材料登记） | ◐ 数值/量词/构成性定义变化 → 新命题 | `SL1-PRO-01`、PR-ID-3 |
 | `declaration_kind` | `vocab(declaration_kind)` | D / U / A | — | PR-ID-1 |
-| `sublanguage_tag` | `ref?` | D / U / A | — | `SL1-PRO-05` |
+| `sublanguage_tag` | `ref?` | D / U / A | — | `SL1-COM-01`、ID-05 |
 | `representations[]` | `{representation_id, representation_kind, text, language, equivalence_claim: {claim ∈ enum(SAME_TRUTH_CONDITIONS, APPROXIMATE, DISPUTED, UNKNOWN), declarant_ref: ref?, basis_refs[], added_assumptions[]}}` 集合 | 槽位 D / A（空合法）；元素内 `equivalence_claim` 缺 = `ABSENT`（≠ `UNKNOWN`） | — | `SL1-PRO-02`、`SL1-PRO-03`、`SL1-PRO-04`、RP-03、RP-04、RP-05、CS-22 |
 | `concept_refs[]` | `ref` 集合（`SEMANTIC`） | D / U / A（空合法） | ◐ 构成性定义版本改变 → 新命题 | `SL1-COM-01`、PR-ID-3 |
 | `world_ref` | `{individual_ref: ref?（Entity@rev，具体世界）, kind_ref: ref?（Concept@rev，泛指类别）}` | D / U | ★ 具体世界改变 → 新命题 | `SL1-PRO-05`、PR-ID-3、PR-ID-4、EN-W-6 |

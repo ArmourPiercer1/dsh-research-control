@@ -19,6 +19,7 @@ CheckReport = {
 
 | 编号 | 规则 |
 | --- | --- |
+| **编号** | SCR 编号按族分配而非连续：`SCR-0x` 报告形态、`SCR-1x` finding、`SCR-2x` verdict 与归约、`SCR-3x` 缺口与覆盖、`SCR-5x` 两视图与脱敏、`SCR-6x` 理由码注册、`SCR-7x` 规则注册表。跨节引用以编号为准 |
 | SCR-01 | 报告是**非对象记录**（ID-08）：有 `report_id`，可被 `rec:` 引用（SF-24），但**没有** `object_id`/`revision_id`，也不得被赋给对象引用槽位。 |
 | SCR-02 | `target` 是精确引用：`"${object_id}@${revision_id}"` 或带表示片段，**或** `rec:` 形式（可用性检查记录等被检目标）。缺 `@rev` → 形态非法。 |
 | SCR-03 | 三个版本字段（`contract_version`、`schema_version`、`rule_set_version`）**全部必填**，缺一即形态非法：报告必须可追溯到"当时按哪套规则判的"（RPT-01、SF-63）。 |
@@ -37,7 +38,7 @@ finding = { finding_id, rule_id, outcome, severity?, field_path?, reason_code?, 
 | SCR-10 | `outcome` 是封闭枚举 `{"PASS","FAIL","NOT_APPLICABLE","INDETERMINATE"}`；`severity` **仅当** `outcome = FAIL` 时存在且 ∈ `{DEFICIENCY, VIOLATION}`，其余取值携带 `severity` → 形态非法。 |
 | SCR-11 | `NOT_APPLICABLE` 与 `INDETERMINATE` **必须**携带 `reason_code`；`INDETERMINATE` 的 `reason_code` ∈ `{WITHHELD_REFERENCE, CHECKER_UNAVAILABLE, DEPENDENCY_MISSING, RULE_UNREGISTERED}`（契约层 §1.2 原文四值，封闭）。缺失或越界 → 形态非法。 |
 | SCR-12 | `field_path` 是 RFC 6901 JSON Pointer，指向**规范形态**中的槽位（如 `/fields/world_ref`、`/fields/input_bindings/3/role_kind`）。检查项不依赖具体序列化偏移或数据库列。 |
-| SCR-13 | `rule_id` 必须解析到规则注册表条目（SCR-40）；解析不到 → 该 finding 本身非法，整份报告按 `INDETERMINATE(RULE_UNREGISTERED)` 记录一条 finding，而不是静默丢弃（对应契约层 `INDETERMINATE` 理由）。 |
+| SCR-13 | `rule_id` 必须解析到规则注册表条目（SCR-70～SCR-75）；解析不到 → 该 finding 本身非法，整份报告按 `INDETERMINATE(RULE_UNREGISTERED)` 记录一条 finding，而不是静默丢弃（对应契约层 `INDETERMINATE` 理由）。 |
 | SCR-14 | finding **不得**携带：分数、权重、聚合支持度、真值、置信度、"建议补全值"。`note` 只可是文本说明，且不得被呈现层用来暗示缺失值应为某具体值（UN-02、SF-N-03）。 |
 
 ## 3. `level_result` 与层级归约
@@ -72,7 +73,7 @@ level_result = { level, verdict }    // level ∈ {"S-L0","S-L1","R-L0","R-L1"}
 | SCR-53 | 脱敏不得泄漏：合并后的 finding 的 `field_path` 必须替换为该层级的**固定占位**（如 `/fields`），不得保留被屏蔽字段名；被移除项的条数、原 `rule_id`、被屏蔽空间标识一律不出现（RPT-09(c)）。 |
 | SCR-54 | **逐字节同形**（XC-25）：对同一请求（同一调用者、同一授权类、同一时间参数），"目标存在于他空间"与"目标不存在"两个世界产生的呈现视图必须具有**相同的规范字节形态**（同键集合、同占位值、同数组长度、同 `report_digest` 之外的稳定形态；`report_id`/`checked_at` 等每次都变的字段不计入同形判定，但必须同形于各自类型与长度）。 |
 | SCR-55 | 跨授权类的形态差异**只允许出现在"是否给出审计视图 A"这一条授权边界上**：有权者见 A、无权者见恒定脱敏形态 S。任何更细的差异（S 内部再分档、按对象种类改变字段名、按被遮蔽项数量改变数组长度）都会把"存在性"泄漏给本来不该知道它的人，一律禁止。 |
-| SCR-55 | 脱敏是纯函数且无副作用；不得按调用者身份做除授权类以外的细分美化（避免形成"按人改写历史"的观感，SP-10）。 |
+| SCR-56 | 脱敏是纯函数且无副作用；不得按调用者身份做除授权类以外的细分美化（避免形成"按人改写历史"的观感，SP-10）。 |
 
 ## 6. 理由码注册表
 

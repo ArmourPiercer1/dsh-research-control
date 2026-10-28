@@ -127,7 +127,7 @@
 
 ## 10. 落地路径与冻结面边界（必须先走流程，本层不做）
 
-`schema/**` 与 8 份根文档是**冻结面**（AD-EB-01；构建期双向 sha256 校验；CI probe 对 `schema/**` 投票并要求 PR body 的 `Frozen-Face-Review:` 人工标记）。因此：
+`schema/**` 与 8 份根文档是**冻结面**（AD-EB-01（`AGENTS.md` §5）；构建期双向 sha256 校验；CI probe 对 `schema/**` 投票并要求 PR body 的 `Frozen-Face-Review:` 人工标记）。因此：
 
 | 编号 | 规则 |
 | --- | --- |

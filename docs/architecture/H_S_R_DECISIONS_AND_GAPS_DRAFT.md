@@ -30,6 +30,37 @@
 - 组合必须精确对齐输入、保留已声明条件及共同来源，禁止因图路径、摘要或形式化无依据增加保证。
 - AND/OR 分离、循环引用不自动自证、分歧不自动合并为公理、版本化重检与缺失范围透明，是上述原则的组合推论；具体 Schema/算法未冻结。
 
+## A2. 本轮细化裁决（RD-01…，字段契约层，仍非冻结）
+
+这些是**由既有原则直接推导**的细化裁定，用于让上层契约可接入软件工程设计；不改变顶层架构，也不属于需要用户重新讨论的顶层问题。落点见[共同底座](H_S_R_DOMAIN_FOUNDATIONS_DRAFT.md)与各对象契约。
+
+| ID | 裁决 | 理由与影响 |
+|---|---|---|
+| RD-01 | `object_kind` 与 `space_id` 创建即固定且不可变；不存在 kind 迁移或跨空间迁移 | 防止“关联晋升为论证”类隐式升级（DF-04）；跨空间引用无法解析而不是被屏蔽后泄漏 |
+| RD-02 | 字段存在状态固定为 `DECLARED / UNKNOWN / NOT_APPLICABLE / UNRESOLVED / ABSENT` 五态，且 `ABSENT ≠ UNKNOWN` | 使“未说明”和“说明了不知道”可分别查询；规范化无补全路径（UN-02） |
+| RD-03 | 时间拆为 `recorded_at / claimed_time / described_interval / adoption_at` 四类，任何“当前”查询必须声明使用哪一类与历史截点 | C01 与迟到登记（T-02）的字段落点；杜绝 latest-write-wins 当成现状 |
+| RD-04 | 生命周期、规范化、原意确认、研究结局、本次适用、主体评价、正式接纳、资源可用八条轴**互不可推导**，且缺项必须显式标注 | C03 的推广；摘要/看板省略某轴时必须声明，不得赋默认值（AX-02） |
+| RD-05 | 正式声明位置（论证输入/结论/条件、评价目标、接纳目标、检查对象）**只允许精确引用**；“跟随当前”仅限浏览与非规范选择 | 落实“不被 latest 隐式覆盖”不变量（ID-05、RF-02） |
+| RD-06 | 修订与新建用统一判据 G-REV：补全 `UNKNOWN → 值` 永远是修订；改变**身份构成字段**的已声明值必须新建对象 | 各对象只需列出自己的身份构成字段集，避免每类各造一套修订理论（RV-01/RV-02） |
+| RD-07 | **表示（Representation）附着于 PropositionRevision，不是独立 revision，也不是第二套陈述结构**；等价性是声明者主张，`added_assumptions` 非空时禁止声明“同真值条件” | 直接关闭“重复设计第二套 Assertion 体系”的风险；形式化验证可精确到 `@rev#representation`（RP-01…RP-07、`SL1-PRO-04`） |
+| RD-08 | 论证的**讨论目标**可为命题/论证/关联，而**实际结论端**必须是精确 PropositionRevision（或显式“无结论”） | 消解“关联可被命题讨论”与“结论必须是命题修订”的表面冲突（C02 字段化） |
+| RD-09 | 条件的满足/解除、攻击登记、适用性判定**优先作为新记录追加**，而非覆盖式修改字段 | 使“当时认为条件如何”可回放（IC-R4/IC-R5、CS-08/CS-09） |
+| RD-10 | 关联**内部字段之间**不存在冲突/矛盾/取代关系；关系间的冲突与替代是来源承载的独立主张 | 防止把“关系之间的关系”误造出第二套真值状态（Association §6.2/§6.3） |
+| RD-11 | **采用记录**独立于关联本体，不写回被采用对象；采用不要求每次重新人工认证现实 | C01 的“本次使用”落点；避免多真源（AD-01…AD-04、XC-01） |
+| RD-12 | Scheme **定义**归 Concept，论证实例归 Argumentation；R-L1 只检查实例是否满足其声明 Scheme 的结构要求，不检查科学充分性 | 使 R-L1 可机器实现且不成为判真器（Concept Scheme 章、`RL1-*`、NEV-02） |
+| RD-13 | 概念修订分 `LEXICAL`（别名/说明）与 `SUBSTANTIVE`（含义）；词法修订不影响历史检查，实质修订只产生**定向重检提示** | 落实“新别名不使证明失效、重定义谓词/单位才触发重检”（IC-S5、XC-04） |
+| RD-14 | 检查器/资源/时间不可用返回 `UNKNOWN`，**永不**折算为 FAIL 或科学否定；FAIL 只限制“进入被认证组合”与“呈现为结构合规” | 统一 `F-CHECK-UNAVAILABLE`；把 DF-07 变成可实现语义 |
+| RD-15 | PROV 来源关系**只登记一次**为来源记录；“关联视图”与 W3C 导出是其派生投影，不另存一份关联 | 消除来源关系与 Association 的双真源风险（[对账表](H_S_R_OBJECT_MAPPING_DRAFT.md)对 `prov:used` 类的既有含糊） |
+| RD-16 | 未登记依赖、未展开遍历、被过滤与被屏蔽范围必须作为**边界事实**呈现（截断计数、`WITHHELD` 计数、未展开节点数） | 使“没检索到/没展示”不被读成科学否定（IC-H7、IC-P5、C12） |
+| RD-17 | **计算得到的概率/后验是科学结果，不是论证层面的支持度**：后验须连同模型、先验与数据范围登记为结果与命题；论证 `degree_value` 只在 Scheme 声明尺度语义时存在 | 阻止“同一个 0–1 数字既当后验又当支持度”的尺度混淆（Argumentation §8、C02） |
+| RD-18 | 跨 ResearchSpace 复用只能**显式导出/导入**并在目标空间新建对象（`voice = IMPORTED`），不存在活着的跨空间引用 | 隔离不可穿透（SP-05），同时给出可实施的协作路径 |
+| RD-19 | 主体身份按空间登记，接纳投影与归因查询只在单空间内有意义，不提供跨空间主体聚合 | 隔离的既定后果而非缺陷（SP-06）；避免经“某人接纳清单”反查他人空间 |
+| RD-20 | H 记录、检查报告与采用记录**不是**关联端点或论证输入端点；关于它们的主张改由高阶命题承载 | 关闭“把记录升格为语义端点”造成的类别膨胀（RF-05、`RL1-02`） |
+| RD-21 | V1 冻结词汇的落点单列一份对照文档，映射表只保留归属结论 | 避免同一对照内容在两处独立维护（EB1 单正源纪律） |
+| RD-22 | 字段表列名按**该对象实际适用的层级**写全：四对象写 `S-L0/S-L1 要求`，Argumentation 写 `S-L1/R-L0/R-L1 要求`；全套文档禁止裸 `L0`/`L1` | 落实 N-03；防止读者把结构层级误读为旧的形式化轴（各契约 §3 表头、N-03） |
+| RD-23 | Concept 允许软区 `CHANGED + 同 ID 修订`，与 Proposition「真值条件改变必新对象」（`PR-ID-4`）**不矛盾**：Concept 判据是**可声明的硬含义构成集**（签名/量词/尺度/单位/归一化/Scheme 结构），Proposition 判据是二值真值条件；两者都禁止版本倒灌 | 避免为了表面统一把概念定义压成全或无，导致每次澄清都新建对象、定义历史碎片化（Concept CO-REV-5/6、`PR-ID-4`） |
+| RD-24 | 概念间 redefines/alternative **归 Association**（`SUPERSEDES_AS_STATED`），不由 H 事件或对象字段承载 | 替代是对象间有来源的主张，需要可被双向发现；H 事件只说明“何时登记了什么”（Concept CO-ID-2/CO-V-5、Association §6.3） |
+
 ## B. 本次文档归类的推荐推断（尚非冻结）
 
 | 推荐 | 为什么合理 | 尚需确认 |
@@ -63,6 +94,10 @@
 
 S-L2 的精确语言/签名及可靠去重算法、World 严格等价证明、Lean 正式后端、跨 Scheme 统一概率尺度、ATMS/Carneades/ASPIC+ 规则引擎、完整 ResearchFrame 覆盖服务、异常发现与双图联合召回、复杂图数据库及可视化、Agent 主动建议、长期任务编排。延期前提是第一版**保留精确对象身份、版本及外部扩展引用能力**。
 
+### D1. 本轮细化后仍需 PoC 或 Schema 才能定案的具体问题
+
+字段名与编码形式（`recorded_at` 等均为阅读名）、五态在存储与序列化中的表达、检查报告与规则版本的具体承载、`WITHHELD` 计数在不泄漏存在性前提下的可查询形式、定向重检提示的触发与规模（大量引用时的可用性）、Scheme 声明的机器可读表达（角色/基数/结局词表/尺度运算）、采用记录与授权策略的注册形式、`path_id/condition_id` 稳定性在修订与合并场景下的实现约束、跨空间引用的负例回归集合、以及把 CS-01–CS-24 与 XC-01–XC-12 转为可执行用例。**这些是实施准备工作，不需要新的顶层裁决。**
+
 ## E. 旧文件与新裁决发生差异时
 
 | 旧文档中的说法 | 最新方向的处理 |
@@ -78,9 +113,12 @@ S-L2 的精确语言/签名及可靠去重算法、World 严格等价证明、Le
 
 ## F. 文档与证据读序
 
-1. [最新五类核心](H_S_R_FIVE_OBJECT_ARCHITECTURE_DRAFT.md)及[对象对账](H_S_R_OBJECT_MAPPING_DRAFT.md)；[系统级合同](H_S_R_SYSTEM_CONTRACTS_DRAFT.md)。
-2. [既有系统级审查稿](H_S_R_SYSTEM_DESIGN_DRAFT.md)：保留早期覆盖矩阵和原始问题编号，但其“旧 Assertion/旧 S-L1”表述不再优先。
-3. [早期架构基线](ARCHITECTURE_BASELINE.md)、[核心语义](CORE_SEMANTICS.md)、[W3C Crosswalk](W3C_ALIGNMENT.md)、[开放问题](OPEN_DESIGN_QUESTIONS.md)、[D13–D20 ADR](adr/README.md)。
-4. [PoC 素材](../poc/gates/POC-COMPLETION-REVIEW.md)及[PR #33 实施契约草案](V3_IMPLEMENTATION_CONTRACT-DRAFT.md)：结论仍 ITERATE；机械 173/173、构造 7/7 不证明新五类架构已实证。
+1. [最新五类核心](H_S_R_FIVE_OBJECT_ARCHITECTURE_DRAFT.md)及[对象对账](H_S_R_OBJECT_MAPPING_DRAFT.md)；[系统级合同](H_S_R_SYSTEM_CONTRACTS_DRAFT.md)；[组合合同 C01–C12](H_S_R_COMPOSITION_SEMANTICS_DRAFT.md)。
+2. 需要字段与操作级别设计时：[共同底座](H_S_R_DOMAIN_FOUNDATIONS_DRAFT.md) → 对应对象契约 → [交互契约](H_S_R_INTERACTION_CONTRACT_DRAFT.md) → [规范化契约](H_S_R_NORMALIZATION_CONTRACT_DRAFT.md) → [反例矩阵](H_S_R_COMPOSITION_MATRIX_DRAFT.md)。
+3. [既有系统级审查稿](H_S_R_SYSTEM_DESIGN_DRAFT.md)：保留早期覆盖矩阵和原始问题编号，但其“旧 Assertion/旧 S-L1”表述不再优先。
+4. [早期架构基线](ARCHITECTURE_BASELINE.md)、[核心语义](CORE_SEMANTICS.md)、[W3C Crosswalk](W3C_ALIGNMENT.md)、[开放问题](OPEN_DESIGN_QUESTIONS.md)、[D13–D20 ADR](adr/README.md)。
+5. [PoC 素材](../poc/gates/POC-COMPLETION-REVIEW.md)及[PR #33 实施契约草案](V3_IMPLEMENTATION_CONTRACT-DRAFT.md)：结论仍 ITERATE；机械 173/173、构造 7/7 不证明新五类架构已实证。
 
-**后续目标**：结束无界顶层扩张，依据既定语义与组合合同开展五类最小契约、L0/L1、事件/查询、Scheme 和授权的细化设计与分阶段实施准备；F-01–F-09 按上表分工落实。仅当出现无法用现有类别/合同无损表达的新反例时，才重新升级为顶层裁决。当前仍为 Draft，不自动改写 V1 Current 或解锁 LIVE_*。
+**本轮验证边界**：细化层内容是设计走查与可测试性要求，**未编写或运行** validator、Schema、PoC 或真实科研任务；文档一致性检查仅覆盖仓库静态一致性（链接、索引、归属），不验证领域语义的正确性。CS-01–CS-24 与 XC-01–XC-12 是未来测试预期，不是通过证据。
+
+**后续目标**：结束无界顶层扩张，依据既定语义、C01–C12 与本层字段/操作/检查契约开展 Schema、事件与查询协议、Scheme 注册及授权策略的细化设计与分阶段实施准备；F-01–F-09 与 D1 清单按分工落实。仅当出现无法用现有类别/合同无损表达的新反例时，才重新升级为顶层裁决。当前仍为 Draft，不自动改写 V1 Current 或解锁 LIVE_*。

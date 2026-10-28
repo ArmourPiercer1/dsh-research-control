@@ -72,4 +72,6 @@
 
 详细归类：[对象映射与旧设计对账](H_S_R_OBJECT_MAPPING_DRAFT.md)；[H/S/R 系统级合同](H_S_R_SYSTEM_CONTRACTS_DRAFT.md)；[组合语义与审查](H_S_R_COMPOSITION_SEMANTICS_DRAFT.md)；[原有架构](ARCHITECTURE_BASELINE.md)、[W3C Crosswalk](W3C_ALIGNMENT.md)、[D13–D20 ADR](adr/README.md)为历史演进与具体标准依据。保留旧文档但明确其陈旧定义不可覆盖本轮新裁决。
 
+需要字段与操作粒度时读**细化层**（不改变本文裁决）：[共同底座](H_S_R_DOMAIN_FOUNDATIONS_DRAFT.md) 给出身份/修订/引用/时间/未知与状态轴的唯一共享定义，[Entity](H_S_R_ENTITY_CONTRACT_DRAFT.md)、[Concept](H_S_R_CONCEPT_CONTRACT_DRAFT.md)、[Association](H_S_R_ASSOCIATION_CONTRACT_DRAFT.md)、[Argumentation](H_S_R_ARGUMENTATION_CONTRACT_DRAFT.md)、[Proposition](H_S_R_PROPOSITION_CONTRACT_DRAFT.md) 各定义本类专有字段与身份判据，[交互契约](H_S_R_INTERACTION_CONTRACT_DRAFT.md)、[规范化契约](H_S_R_NORMALIZATION_CONTRACT_DRAFT.md) 与[反例矩阵](H_S_R_COMPOSITION_MATRIX_DRAFT.md) 定义操作、检查与落点。本文保持简短：任何只在细化层出现的定义都不构成新的顶层裁决。
+
 下一阶段将既定原则落实为对象最小字段/版本引用、L0/L1 检查、World/Scope 与 Scheme 契约、授权及 V1 迁移用例；这些以细化设计或 PoC 处理，不再统称为顶层未决。S-L2/L3、复杂 R 后端仍渐进引入；只有出现现有规则无法无损表达的反例，才重新提出顶层语义变更。

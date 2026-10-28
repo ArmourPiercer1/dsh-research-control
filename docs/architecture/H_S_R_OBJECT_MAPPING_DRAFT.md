@@ -27,7 +27,7 @@
 |---|---|---|
 | skos:Concept、发射度、时间分辨率、术语定义 | Concept | 确定：版本化定义、名称、别名及可归因映射；SKOS 不等于公式签名 |
 | WorldType、理论/仿真/现实世界类别 | Concept | 确定：开放类型，非三值封闭枚举及信任阶梯 |
-| 具体 WorldContext / 指定 ResearchScope | Entity（具体语境/范围）或对象结构属性 | **建议**：具体身份与抽象定义分离，未冻结对象化条件 |
+| 具体 WorldContext / 指定 ResearchScope | Entity（具体语境/范围个体）；抽象 WorldType 归 Concept | **已细化**：命题用 `world_ref` 指向 Concept@rev（世界类别）**或** Entity@rev（具体语境个体），二者择一且必须精确；“是否对象化”由“是否需被多个记录独立引用、是否有独立来源与修订”决定，不新建第六类（见[Proposition 契约](H_S_R_PROPOSITION_CONTRACT_DRAFT.md) §2.2 与[Entity 契约](H_S_R_ENTITY_CONTRACT_DRAFT.md)） |
 | Representation、坐标系定义、单位与谓词签名 | Concept | 建议：具体使用实例/配置归 Entity 或属性 |
 | ResearchFrame、ResearchDimension/Option、约束定义 | Concept | 确定按维度/选项组织，具体模板归属建议 |
 | ContextProfile、模型/波形/物理效应的具体选择 | Entity + Association 选项关系 | 建议；Frame 新增维度不改写旧 Profile |
@@ -77,8 +77,8 @@
 | ContextCompiler、联合召回、图可视化 | 服务/投影，不是独立科研认识基类 | 能提供引用和缺失范围即可 |
 | ResearchSpace | **横切的隔离/访问命名空间** | 与 Project/Topic/Workstream 不同，不允许跨空间数据互读 |
 
-## 六、W3C 兼容与未裁风险
-
-五类**内部**分类绝不重新定义 W3C 概念：实际活动仍然是 prov:Activity；资源仍是 prov:Entity；观测活动和结果严格区分 sosa:Observation 与 sosa:Result；词汇同义处采用 skos:Concept。PROV 连接是来源/生产 Association，不是 Argumentation。RDF/SHACL/JSON-LD 作为交换和局部结构检查，不负责科学真理或跨空间 ACL。
+## 六、W3C 兼容与未裁风险五类**内部**分类绝不重新定义 W3C 概念：实际活动仍然是 prov:Activity；资源仍是 prov:Entity；观测活动和结果严格区分 sosa:Observation 与 sosa:Result；词汇同义处采用 skos:Concept。PROV 连接是来源/生产 Association，不是 Argumentation。RDF/SHACL/JSON-LD 作为交换和局部结构检查，不负责科学真理或跨空间 ACL。
 
 待裁映射重点：活动类型、World/Scope 的具体对象化、ProofObligation 的形态、ResearchQuestion 及 Anomaly 的对象化、关于对象的命题与 Association 的精确对应、外部旧类型转换的 lossReport。**“映射推荐”不等于已通过测试或签署的实现契约。**
+
+V1 冻结词汇（关系类型、事件类型、Run/Gate/PlanFork 等）与新层的逐项落点、禁止事项与有损报告要求，见[与 V1 冻结词汇的接入对照](H_S_R_V1_LEXICON_RECONCILIATION_DRAFT.md)；本表只保留归属结论，不重复词汇对照内容。

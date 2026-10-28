@@ -66,6 +66,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 | SI-20 | 领域失败码集合**只引用**交互契约 §1.1 的 `F-*`，本层不新增、不改写其语义。若需要新码（见 SI-24），那是**对 PR #42 的修订请求**，登记在[Schema 决策与遗留](H_S_R_SCHEMA_DECISIONS_DRAFT.md)，不在本层私自扩表。 |
 | SI-21 | 写操作的"保存成功但结构不完整"是**成功响应 + `failure` 附注**：对象已保存（DF-07、IC-01），响应 `status = ACCEPTED_WITH_FINDINGS` 并携带新 `report_refs[]`；**不得**返回工具失败，否则实现者会被迫拒绝保存（违反 DF-07）。 |
 | SI-22 | 授权类失败严格按 SP-09 分道：无写权限 → `F-DENIED-WRITE`（目标空间不产生任何记录、不返回内容）；有写权限但缺业务授权 → `F-DENIED-AUTH`（登记为未生效声明 `AUTHORITY_UNVERIFIED`，响应成功但 `status = ACCEPTED_UNVERIFIED`，不进任何投影）。 |
+| SI-22a | **`F-DENIED-WRITE` 只用于调用者本已可见的目标**：调用者对目标**无可见权**时，写请求必须与"对象不存在"**完全同形**（同码同 `detail`，SI-33、SI-35a），**不得**返回 `F-DENIED-WRITE`——否则"存在但我不能写"与"不存在"可辨，写路径本身就成了一条存在性 oracle。判据很简单：**只有当调用者已经看得见该对象（因此本就知道它存在）时，告知"你无写权限"才不产生新信息**。两分支都不产生目标空间记录。 |
 | SI-23 | 检查器/资源不可用 → `F-CHECK-UNAVAILABLE`：这是**响应成功**且报告记 `INDETERMINATE(CHECKER_UNAVAILABLE)`，绝不折叠成"检查未通过＝结论为假"（IC §1.1、NEV-05）。 |
 | SI-24 | **待回写契约层的新码（修订请求，非本层裁决）**：修订类写入的乐观前置（`expected_head_revision` 不匹配）在既有 `F-*` 中无对应码；`F-CONFLICT` 是**语义**上的"可能同一事项不相容主张"，不得挪用为并发前置失败。建议新增 `F-PRECONDITION-REVISION`（拒绝写入、不产生记录、可重试）。在契约层采纳前，实现只能返回 `TOOL_INPUT` 级拒绝，并使用 §3 登记的**前置专用键集** `detail{serviceCode:"PRECONDITION_FAILED", step:"expected_head_revision", expected_head_revision, actual_head_revision}`（不新造 `precondition` 这类未登记键）——该退化必须在测试中钉住：断言键集恰为此四项。 |
 | SI-25 | 错误响应同样受 §4 的脱敏约束：错误消息、`detail` 字段、日志行都不得泄漏被屏蔽目标的标识、计数或存在性（SP-07、RPT-09）。 |

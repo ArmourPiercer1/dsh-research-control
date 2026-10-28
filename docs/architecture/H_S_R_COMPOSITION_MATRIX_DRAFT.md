@@ -48,7 +48,7 @@
 | CS-21 规则/文件变化 | 新 CheckReport + 新可用性记录 | IC-S2、IC-H5 | 旧 PASS 不改写；重现能力单列 | CC-11 |
 | CS-22 形式化新增假设 | 表示 `APPROXIMATE` + `added_assumptions`；必要时新命题 | IC-S1/S4 | 不静默改原意 | CC-11、`SL1-PRO-04` |
 | CS-23 转述“甲接受 P” | 普通命题/ASSESSMENT；接纳需授权 | IC-R8 vs IC-R9 | 主体/World 限定不丢失；未授权不生效 | CC-04、PR-A1/A2 |
-| CS-24 截断/超时/跨空间过滤 | `F-PARTIAL`/`F-CHECK-UNAVAILABLE`/`WITHHELED` | IC-H7/R11/P5 | 边界标注；不报“无反证”；不泄漏 | CC-12 |
+| CS-24 截断/超时/跨空间过滤 | `F-PARTIAL`/`F-CHECK-UNAVAILABLE`/`WITHHELD` | IC-H7/R11/P5 | 边界标注；不报“无反证”；不泄漏 | CC-12 |
 
 ## 3. 本轮细化新发现的字段级反例（XC）
 
@@ -72,13 +72,18 @@
 | XC-14 | 从“数值预测”直接得到“真实装置成立”，未声明跨越与依据 | GAP-01/GAP-04、C05 | `RL1-13`、`RL1-10` |
 | XC-15 | 把 H 检查记录当作论证的输入角色端点 | RF-05（记录不是语义端点） | `RL1-02` |
 | XC-16 | 跨空间导入后仍显示源空间对象链接，读者可点进不可见对象 | SP-05/SP-02 | 导入即新建对象；`F-WITHHELD` |
-| XC-17 | 把贝叶斯后验直接填成论证支持度 | RD-17、C02（尺度含义不同） | `RL1-08`、Argumentation §8 || XC-18 | 被权限屏蔽的引用记 `NOT_APPLICABLE`，其余项通过 → 整层被判 PASS | 隔离不得伪造检查结论（SP-08、RPT-03） | 必须 `INDETERMINATE`，层级不可判定 |
+| XC-17 | 把贝叶斯后验直接填成论证支持度 | RD-17、C02（尺度含义不同） | `RL1-08`、Argumentation §8 |
+| XC-18 | 被权限屏蔽的引用记 `NOT_APPLICABLE`，其余项通过 → 整层被判 PASS | 隔离不得伪造检查结论（SP-08、RPT-03） | 必须 `INDETERMINATE`，层级不可判定 |
 | XC-19 | 为拿到 S-L1 而给未知工况填默认值 | DF-08、UN-02、RPT-05：规范化奖励虚构 | 如实 `UNKNOWN` 即应 PASS + `declared_gaps` |
 | XC-20 | 登记 `UNDERCUT` 后界面把目标论证渲染为“已被反驳” | CN-04、DF-01：攻击是主张不是效果 | 显示为“某主体主张削弱”，结论端为元命题或无结论 |
 | XC-21 | 条纹相机由配置 W₁ 换到 W₂ 就新建 Entity | EN-W-1/EN-W-2：使用语境不是身份 | 同一 Entity 修订 + 语境个体/使用关系 |
 | XC-22 | 冲突主张写回两条关联各自的内联字段，旧关联被标 `superseded` | AS-CF-1/AS-CF-5、RD-10 修订 | 独立高阶主张 + 可重建视图，原对象不改写 |
 | XC-23 | 查询返回“被屏蔽 3 条”导致推断他空间存在性 | SP-03 粒度受限、SP-07 侧信道 | 只报“有内容被权限过滤”，无计数 |
 | XC-24 | 用单一 `as_of` 回答“按 10-28 已登记记录重建 9-01 状态” | T-05：知识截点与对象时间混为一谈 | `recorded_as_of` × `described_at` 双条件（IC-H6） |
+| XC-25 | 无权主体在自家空间登记一个猜测 ID，靠检查报告是 `REF_UNRESOLVED` 还是 `INDETERMINATE` 反推他空间是否存在该对象 | SP-07、RPT-09/RPT-10：检查报告是存在性侧信道出口 | 对外统一 `UNVERIFIABLE_REFERENCE` + `NOT_DISCLOSED`；差异只存于审计视图 |
+| XC-26 | 统计检验 Scheme 因允许 `INCONCLUSIVE`，其**有结论**实例被禁止参与组合；或反过来 `INCONCLUSIVE` 实例被当作“已推出的命题”输入 | CN-03/CN-05/CN-06、SCHEME-6：组合资格属实例的结论角色 | 逐角色 `requires_conclusion` 判定；无结论实例可按背景/案例角色引用 |
+| XC-27 | 报告同时有 `FAIL` 与 `INDETERMINATE`，实现者报“不可判定”以掩盖已知缺陷 | RPT-02 归约唯一性 | `verdict = NOT_ACHIEVED`，`coverage` 独立呈现 |
+| XC-28 | 设备的 `operating_context` 作为 Entity 字段存储，同时又登记 `USED_IN` 关联 | EN-W-5、RD-12 单一真源 | 关联为真源，Entity 侧只有派生视图 |
 
 ## 4. 一致性自查结论
 

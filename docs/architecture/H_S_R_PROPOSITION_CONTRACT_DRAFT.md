@@ -33,7 +33,7 @@
 | 字段/角色 | 语义 | 类型/引用对象 | S-L0/S-L1 要求 | UNKNOWN/缺失规则 | 修订约束 |
 | --- | --- | --- | --- | --- | --- |
 | `concept_refs[]` | 该 revision 使用的概念**精确版本**：术语、定义、指标定义、谓词签名、单位/量纲（`SEMANTIC` 引用） | Concept@rev 集合 | S-L1：非空时全部引用必须可解析、同空间；不得用 `latest` | 允许空集合或 `UNKNOWN`（术语未定），但必须在报告中列为待补 | 已声明版本改指另一概念 → 主张真值条件变化者须新命题（§4） |
-| `world_ref` | 该命题主张为真的 World/世界语境个体（数学模型、仿真配置、真实装置、理想化个体所在世界） | Concept@rev（WorldType）或 Entity@rev（WorldContext 个体）或 `UNKNOWN` | S-L1：必填**或**显式 `UNKNOWN(reason)` | 允许 `UNKNOWN`；`NOT_APPLICABLE` 仅限纯语法/定义性命题并带理由 | 已声明 `M` 改指 `M′` → **新命题**；`UNKNOWN → M` 补全 → 修订（RV-01） |
+| `world_ref` | 该命题主张为真的世界。两种角色不可混用：**具体世界个体** `Entity@rev`（WorldContext：某个模型世界、某次仿真配置、真实装置世界）用于“在这个世界里为真”；**世界类别** `Concept@rev`（WorldType）只用于“对这类世界泛指” | `Entity@rev` \| `Concept@rev` \| `UNKNOWN` | S-L1：存在**或**显式 `UNKNOWN(reason)` → `PASS` + `declared_gaps` | 两种角色含义不同：`UNKNOWN`=不知在哪个世界为真；类别引用=泛指而非具体世界，二者不得互相顶替 | 变更 `world_ref` 的**具体世界个体**通常改变真值条件 → 新 Proposition（PR-ID-3/PR-ID-4）；把泛指收窄为某个具体世界同样改变真值条件 |
 | `scope_refs[]` | 适用范围：工况、样本集合、参数区间、时间段、装置状态 | Entity@rev / Concept@rev 集合 | S-L1：非空时引用合法；空须显式 `UNKNOWN` | 允许 `UNKNOWN` | 已声明范围被扩展或收缩改变真值条件 → 新命题；仅澄清表述 → 修订 |
 | `variable_bindings[]` | 自由变量、量词类型、取值域与相互约束 | `{variable, quantifier, domain_ref}` 列表 | S-L1：`primary_expression` 中出现待绑定量词时，每项须给出绑定或显式 `UNKNOWN` | 允许 `UNKNOWN`（自然语言量词未明） | 已声明量词由 `∀` 改 `∃` → **新命题** |
 | `dimension_binding[]` | 指标所用的定义/归一化/单位版本（如“几何发射度 v2”“RMS vs FWHM”） | Concept@rev | S-L1：涉及可比数值时必须声明或显式 `UNKNOWN` | 允许 `UNKNOWN`；系统不得按同名猜测 | 定义版本改变真值条件 → 新命题 |
@@ -60,7 +60,7 @@
 | --- | --- |
 | RP-01 | **表示附着于 revision，不是独立 revision。** 一个 `PropositionRevision` 是一个不可变语义快照，内含一个 `primary_expression` 与零到多个 `representations`。表示集合变化 → 新 revision，而非修改旧快照。 |
 | RP-02 | 表示可被精确引用，形式为 `PropositionID@revision#representation_id`；形式化验证记录必须引用到这一粒度，才能说明“检查了哪个公式”。 |
-| RP-03 | 每个表示必须携带 `equivalence_claim ∈ {SAME_TRUTH_CONDITIONS, APPROXIMATE, DISPUTED, UNKNOWN}`、声明者与（可有时）依据。沉默视为 `UNKNOWN`，规范化报告中列为待补。 |
+| RP-03 | 每个表示应携带 `equivalence_claim ∈ {SAME_TRUTH_CONDITIONS, APPROXIMATE, DISPUTED, UNKNOWN}`、声明者与（可有时）依据。**沉默 = `ABSENT`（登记者未作说明），不是 `UNKNOWN`（登记者声明了“不知道是否等价”）**：两者都进 `declared_gaps[]`、都 `PASS`（RPT-05、SL1-PRO-02、UN-03），但含义不同——沉默不可被当作“已声明不确定”，也不得被系统默认填充为任何一种。 |
 | RP-04 | `SAME_TRUTH_CONDITIONS` 是**登记者的主张**，不是机器结论；机器只检查声明与引用是否存在。等价性可被他人以 Assessment/新命题质疑。 |
 | RP-05 | 若形式化表示需要引入原文没有的假设（如“忽略空间电荷”），它**不得**标为 `SAME_TRUTH_CONDITIONS`；应为 `APPROXIMATE` 并列出 `added_assumptions[]`，或者登记为新的 Proposition 并保留历史关系（CS-22、C11）。 |
 | RP-06 | 两个文本真值条件不同 → 两个不同 PropositionID。是否“实质同义”不由 S-L1 判定；等价候选通过等价候选记录表达（§5），绝不自动合并（ID-07）。 |

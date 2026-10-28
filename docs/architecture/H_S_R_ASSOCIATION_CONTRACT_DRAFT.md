@@ -29,7 +29,7 @@
 | `directionality` | `DIRECTED / SYMMETRIC / UNSPECIFIED` | 值 | S-L1：必填（可 `UNSPECIFIED`） | 允许 `UNSPECIFIED`，不因此推定对称 | **不可变**；不限制逆向检索 |
 | `described_interval` | 记录**所描述**的时间/区间：`{kind ∈ {TIMEPOINT, INTERVAL, UNTIL_REVOKED, TIMELESS}, from, to}` | 时间值或 `UNKNOWN` | S-L0：可缺；S-L1：必填或显式 `UNKNOWN(reason)` | 允许 `UNKNOWN(INDETERMINATE_AT_SOURCE)`（CS-01 无切换日志） | 由 `UNKNOWN` 补全为区间 → 修订；已声明区间被替换 → 新关联（§5） |
 | `applicability_context` | 该主张所声称适用的 World/Scope/配置语境（如“布局未变”假设） | Concept@rev / Entity@rev 集合 | S-L1：非空或显式 `UNKNOWN` | 允许 `UNKNOWN` | 修订（澄清）；实质改变适用范围 → 新关联 |
-| `source_assertion` | 谁声称：`{actor_ref, voice ∈ {SELF, REPORTED, IMPORTED, TOOL_OUTPUT}, basis_refs[]}` | Agent@rev + 材料引用 | S-L0：至少 actor 或 `UNKNOWN`；S-L1：`actor_ref` 必填或 `UNKNOWN(reason)` | `UNKNOWN` 记为“不可归因来源”，S-L1 FAIL 但可保存 | 补充来源材料 → 修订；来源者改变 → 新关联 |
+| `source_assertion` | 谁声称这条关系：`{registrant_ref, actor_ref?, voice ∈ {SELF, REPORTED, IMPORTED, TOOL_OUTPUT}, basis_refs[]}`。**两个主体不可混为一谈**：`registrant_ref` = 系统可信的登记主体或导入来源（由写入事件赋予，不依赖研究者自觉）；`actor_ref` = 原始关系声称的作者（古籍、厂商手册、他组报告中可能确实不详） | `registrant_ref`：Agent@rev（必填）；`actor_ref`：Agent@rev 或 `UNKNOWN(reason)` | S-L0：`registrant_ref` 必填；S-L1：`actor_ref` 允许 `UNKNOWN(reason)` → **PASS + `declared_gaps`**（RPT-05）；仅子型声明 `actor_required = true` 时 UNKNOWN 才 FAIL | 作者不详是合法科研状态，记为“不可归因来源”，**不**因此判结构不合法（SL1-ASS-05） | `registrant_ref` 不可变（改登记主体=另一条记录）；`actor_ref` 的补全按 RV-01/RV-06（确认为原作者=修订；发现此前归错人=新记录 + 保留旧记录） |
 | `recorded_via` | 本关联的登记事件（`recorded_at`、登记序） | H 记录引用 | H 侧必须存在 | 不允许缺失 | 不可变（H 拥有） |
 | ~~`conflict_or_supersede_refs[]`~~ **不存在此字段**（审查修订 R6） | 冲突、替代、同一现象等是**关于关系的关系主张**，必须由主体独立登记为高阶主张（Proposition 子型 META + 精确提及两条 `Association@rev`，见 IC-S9），原关联对象内**不保留**任何冲突/替代内联字段 | — | 不检查（字段不得存在，出现即 `SL1-ASS-07` FAIL/VIOLATION） | “未检查冲突”与“无冲突”都不需要字段表达（UN-03） | 无：原关联不因被主张冲突而修订或改写；主张的增删只影响该主张记录本身 |
 | `standard_predicate_alias` | 精确等价的 W3C 谓词名（如 `prov:used`） | 值 | 可选；仅在含义精确等价时填写 | 缺失合法 | 修订；不得用近似标准名“洗白”内部语义（N-04） |
@@ -47,7 +47,7 @@
 
 ## 5. 身份与修订判据
 
-**身份构成字段**（改变已声明值 → 新 Association）：`relation_type_ref`、`participants[]`、`directionality`、`described_interval` 的已声明值、`source_assertion.actor_ref`、`applicability_context` 的实质范围。
+**身份构成字段**（改变已声明值 → 新 Association）：`relation_type_ref`、`participants[]`、`directionality`、`described_interval` 的已声明值、`source_assertion.actor_ref`（`registrant_ref` 由写入事件决定，不属于可改的身份字段）、`applicability_context` 的实质范围。
 
 | 编号 | 判据 | 例 |
 | --- | --- | --- |
@@ -114,7 +114,7 @@
 
 ## 9. 例子
 
-**合法例**：`L3@r2` — `relation_type_ref = REL_UPSTREAM_OF@r1`（领域类型，非 SKOS `related`）；`participants = [SOURCE → E9@r1（四极磁铁 Q3）, SINK → E7@r2（CCD-2）]`；`directionality = DIRECTED`；`described_interval = {kind: UNTIL_REVOKED, from: 2026-03-01}`；`source_assertion = {actor: A2@r1（值班工程师）, voice: SELF, basis: [R-日志-0312]}`；`applicability_context = UNKNOWN`。随后 `L9@r1` 登记相反方向并附另一来源；两者并存，`conflict_or_supersede_refs` 互指，切换时刻 `UNKNOWN`。
+**合法例**：`L3@r2` — `relation_type_ref = REL_UPSTREAM_OF@r1`（领域类型，非 SKOS `related`）；`participants = [SOURCE → E9@r1（四极磁铁 Q3）, SINK → E7@r2（CCD-2）]`；`directionality = DIRECTED`；`described_interval = {kind: UNTIL_REVOKED, from: 2026-03-01}`；`source_assertion = {registrant: A9@r1（数据管理员，写入事件产生）, actor: A2@r1（值班工程师）, voice: SELF, basis: [R-日志-0312]}`；`applicability_context = UNKNOWN`。随后 `L9@r1` 登记相反方向并附另一来源：**两条关联都不改动**；某主体经 IC-S9 登记一条高阶主张“`L3@r2` 与 `L9@r1` 按所述不能同真”（附依据），双方视图由该主张的提及关系派生；现实切换时刻 `UNKNOWN`（AS-CF-1/AS-CF-5、CS-01）。
 
 **关键非法/易混淆例**：
 

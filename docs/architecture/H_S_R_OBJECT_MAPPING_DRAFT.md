@@ -27,7 +27,7 @@
 |---|---|---|
 | skos:Concept、发射度、时间分辨率、术语定义 | Concept | 确定：版本化定义、名称、别名及可归因映射；SKOS 不等于公式签名 |
 | WorldType、理论/仿真/现实世界类别 | Concept | 确定：开放类型，非三值封闭枚举及信任阶梯 |
-| 具体 WorldContext / 指定 ResearchScope | Entity（具体语境/范围个体）；抽象 WorldType 归 Concept | **已细化**：命题用 `world_ref` 指向 Concept@rev（世界类别）**或** Entity@rev（具体语境个体），二者择一且必须精确；“是否对象化”由“是否需被多个记录独立引用、是否有独立来源与修订”决定，不新建第六类（见[Proposition 契约](H_S_R_PROPOSITION_CONTRACT_DRAFT.md) §2.2 与[Entity 契约](H_S_R_ENTITY_CONTRACT_DRAFT.md)） |
+| 具体 WorldContext / 指定 ResearchScope | Entity（具体语境/范围个体）；抽象 WorldType 归 Concept | **已细化**：`world_ref` 与 Entity `world_membership` 都必须区分**具体世界个体**（身份判据）与**世界类别**（分类），不得同字段两义（Entity EN-W-6、Proposition §2.2）；本轮反例：两个同属 `WT_MATHEMATICAL` 却分属不同数学模型世界的理想化个体必须获得不同身份 |
 | Representation、坐标系定义、单位与谓词签名 | Concept | 建议：具体使用实例/配置归 Entity 或属性 |
 | ResearchFrame、ResearchDimension/Option、约束定义 | Concept | 确定按维度/选项组织，具体模板归属建议 |
 | ContextProfile、模型/波形/物理效应的具体选择 | Entity + Association 选项关系 | 建议；Frame 新增维度不改写旧 Profile |

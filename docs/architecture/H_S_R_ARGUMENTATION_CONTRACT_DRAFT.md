@@ -25,14 +25,14 @@
 | `scheme_ref` | 使用的推理 Scheme **定义**及其精确版本 | Concept@rev（InferenceSchemeDefinition） | **R-L0 必填且须解析到合法 Scheme**；解析失败 = R-L0 FAIL | 不允许 `UNKNOWN`（无 Scheme 则本对象不是正式论证，应作为原始记录或 ResearchFinding 保存） | **不可变**：改 Scheme = 新论证 |
 | `engagement_target` | 本论证**讨论的目标** | `Proposition@rev` \| `Argumentation@rev` \| `Association@rev` \| `NONE` | R-L1：按 Scheme 声明必填并解析 | 允许 `NONE`（纯推导新命题，不针对既有对象） | **不可变** |
 | `engagement_role` | 与目标的关系：`SUPPORTS / ATTACKS / EXPLORES / CLARIFIES`（开放） | 值 | R-L1：目标存在时必填 | 允许 `UNKNOWN`（标注待补） | 修订；但由 SUPPORTS 改 ATTACKS 视同换目标 → 新论证 |
-| `conclusion` | **实际声称得到的结论内容**：`{mode, proposition_rev}`，`mode ∈ {ASSERTS, DENIES_TARGET, ASSERTS_ABOUT_TARGET, NONE_DECLARED}` | Proposition@rev 或 `NONE_DECLARED` | R-L1：必须满足 Scheme 的 `conclusion_policy`（SCHEME-3）；`ASSERTS*` 时必须精确到 revision | 允许 `NONE_DECLARED` **仅当** Scheme 声明允许（CN-02）；否则缺失即 R-L1 FAIL | **不可变**
+| `conclusion` | **实际声称得到的结论内容**：`{mode, proposition_rev}`，`mode ∈ {ASSERTS, DENIES_TARGET, ASSERTS_ABOUT_TARGET, NONE_DECLARED}` | Proposition@rev 或 `NONE_DECLARED` | R-L1：必须满足 Scheme 的 `conclusion_policy`（SCHEME-3）；`ASSERTS*` 时必须精确到 revision | 允许 `NONE_DECLARED` **仅当** Scheme 声明允许（CN-02）；否则缺失即 R-L1 FAIL | **不可变** |
 | `conclusion_vs_target` | 结论与目标的关系：`SAME / NEGATION / META_ABOUT_TARGET / UNRELATED_BY_SCHEME` | 值 | R-L1：结论与目标同时存在时必填 | 允许 `UNKNOWN` | 修订 |
 
 ### 2.2 输入与对齐
 
 | 字段/角色 | 语义 | 类型/引用对象 | S-L1/R-L0/R-L1 要求 | UNKNOWN/缺失规则 | 修订约束 |
 | --- | --- | --- | --- | --- | --- |
-| `input_bindings[]` | 输入端绑定：`{role_name, endpoint_ref, endpoint_kind, alignment_claim, notes}` | 端点 = 五类对象@rev（检查报告、可用性检查、采用记录等 H 记录**不能**充当输入端点，只能作为本论证的来源或作为元命题的讨论目标，见共同底座 RF-05） | R-L1：Scheme 声明的**必填角色**全部有绑定（或该路径标注 `UNBOUND(reason)`）；角色名必须在 Scheme 声明内；端点必须属于该角色允许的对象类别 | 允许 `UNBOUND(PENDING_INPUT)`（CS-06：等待数据），**但空占位不得伪装成已满足** | 绑定与对齐声明可修订；改 Scheme 须新论证；原始实验/测量/检查记录须先按 Entity 子型对象化再绑定（RF-06），不放宽端点类别 |
+| `input_bindings[]` | 输入端绑定：`{role_name, endpoint_ref, endpoint_kind, role_kind ∈ {CONCLUSION_INPUT, BACKGROUND, CASE_STUDY, SUBJECT_OF_DISCUSSION}, alignment_claim, notes}`；`role_kind` 声明**这个绑定在推理中承担什么**：是否需要被绑定端点提供一个已推出的命题 | 端点 = 五类对象@rev（检查报告、可用性检查、采用记录等 H 记录**不能**充当输入端点，只能作为本论证的来源或作为元命题的讨论目标，见共同底座 RF-05） | R-L1：Scheme 声明的**必填角色**全部有绑定（或该路径标注 `UNBOUND(reason)`）；角色名必须在 Scheme 声明内；端点必须属于该角色允许的对象类别 | 允许 `UNBOUND(PENDING_INPUT)`（CS-06：等待数据），**但空占位不得伪装成已满足** | 绑定与对齐声明可修订；改 Scheme 须新论证；原始实验/测量/检查记录须先按 Entity 子型对象化再绑定（RF-06），不放宽端点类别 |
 | `alignment_claims[]` | 每个输入与结论之间的精确对齐：单位/量纲、指标定义版本、变量与量词绑定、World/工况对应 | `{from_ref, to_ref, relation ∈ {EXACT_MAP, DECLARED_MAP, ASSUMED, UNKNOWN}, basis_ref}` | R-L1：Scheme 要求对齐的角色必须给出 `relation`；`UNKNOWN` 合法但阻止组合认证（CS-12/CS-13） | 允许 `UNKNOWN`；禁止按同名/同数值默认相接 | 修订（新对齐声明产生新报告，不改写旧报告） |
 | `shared_dependency_refs[]` | 与其它论证共享的原始数据、校准、证书或模型（显式登记） | 引用集合 | R-L1：Scheme 要求独立性声明时必填或 `UNKNOWN` | `UNKNOWN` 合法，但禁止按路径数量提升支持度（C09） | 修订 |
 
@@ -86,9 +86,10 @@
 | --- | --- |
 | CN-01 | Scheme 定义必须声明 `conclusion_policy ∈ {REQUIRED, OPTIONAL, NONE_ONLY}`：`REQUIRED` 必须给出精确 `Proposition@rev`；`OPTIONAL` 允许 `NONE_DECLARED`；`NONE_ONLY` 用于纯探索型（不产出结论）。未声明 → R-L1 FAIL(`CONCLUSION_POLICY_UNDECLARED`)。 |
 | CN-02 | **已完成但无定论的研究合法**：`mode = NONE_DECLARED` + `local_outcome = INCONCLUSIVE`（或 Scheme 允许的其它无结论结局）是完整合法的对象，**不强迫虚构科学结论**，也不因此判 FAIL。前提是 Scheme 允许（CN-01）。 |
-| CN-03 | **无结论不进入组合**：`NONE_DECLARED` 的论证**不得**作为其它论证的输入端点，也不得被组合规则引用（没有命题端可绑定）。它仍可被检索、被高阶命题讨论、被攻击登记。 |
+| CN-03 | **组合资格绑定到实例的结论角色，不绑定到整个 Scheme 或整个对象**：`mode = NONE_DECLARED` 的论证实例**不得**充当 `CONCLUSION_INPUT` 角色的端点（没有已推出的命题可绑定）；它**可以**在 Scheme/组合规则显式声明的 `BACKGROUND`（方法与流程背景）、`CASE_STUDY`（失败案例、无区分力实验）、`SUBJECT_OF_DISCUSSION`（被讨论对象）角色中被引用。因此“无定论研究”仍是元研究、方法学复盘与失败案例研究的合法材料（CN-06、`RL1-14`）。 |
 | CN-04 | **undercut / rebut 的否定效果必须有明示内容**：`attack_links[]` 与 `local_outcome = UNDERCUT/REBUT` 本身只是**来源承载的主张**，不自动使目标论证失效。若该攻击要作为**有明确结论的正式论证**参与下游组合，其结论端必须是关于目标论证的精确**元命题**（如“A1 的条件 C 在本次不成立”“A1 的推理规则在本次不适用”）；若只是登记一条尚未展开的削弱线索，则登记为攻击主张 + `NONE_DECLARED`（CN-02/CN-03 生效），**不得**在界面上渲染为“目标已被反驳”。 |
-| CN-05 | 允许 `NONE_DECLARED` 的 Scheme 若其结局同时出现在组合许可（SCHEME-6）中，属定义矛盾 → 该 Scheme 自身 S-L1 FAIL；由 Scheme 修订解决，不影响已登记论证的历史。 |
+| CN-06 | **同一 Scheme 可有不同组合资格的实例**：统计检验 Scheme 既可能产出明确支持结论（可作为 `CONCLUSION_INPUT`），也可能产出 `INCONCLUSIVE`（只能按 `BACKGROUND`/`CASE_STUDY` 被引用）。资格是**逐实例**判定的性质，不是 Scheme 的全局属性；一个实例的无结论不降低另一实例的资格，也不影响 Scheme 定义本身（CN-03、CN-05）。 |
+| CN-05 | **组合许可按角色声明结论要求**（SCHEME-6）：Scheme 的 `composition_roles[]` 中每个角色必须声明 `requires_conclusion ∈ {true,false}`。合法形态：`OPTIONAL` Scheme 的**有结论实例**满足规则时可按 `CONCLUSION_INPUT` 参与组合，其 `INCONCLUSIVE` 实例只能按非结论角色被引用。**唯一矛盾形态**：某角色 `requires_conclusion = true` 却同时声明接受 `NONE_DECLARED` 实例填充 → Scheme 自身 S-L1 FAIL(`COMPOSITION_ROLE_CONTRADICTION`)；角色未声明该布尔值 → FAIL(`COMPOSITION_ROLE_UNDECLARED`)。 |
 
 ## 4. 身份与修订判据
 

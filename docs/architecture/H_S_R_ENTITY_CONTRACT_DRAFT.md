@@ -35,7 +35,7 @@
 | Result | 语义适用 SOSA 的观测行为所产出的结果资源 | `sosa:Result` / `sosa:hasSimpleResult`（仅语义适用时）；一般分析输出用 `prov:Entity` | **失败观测可无 Result**；不得伪造 Result 使失败观测“完整” |
 | 模型实现与 ModelVersion | 一份具体模型代码、一个具体模型版本、一次仿真模型的具体实例化 | `prov:Entity`（可加领域子型） | 模型类别/模型类属 Concept；选用某模型不等于相信模型物理正确（选择关系→Association，主张→Proposition） |
 | 具体配置 / ContextProfile 个体 | 模型/波形/物理效应的具体选择（模板实例，非模板） | `prov:Entity`（dsh 扩展） | Frame/Dimension/Option 定义属 Concept；配置变化不改写旧配置（EN-ID-3）；Frame 新增维度不改写旧 Profile |
-| WorldContext 具体个体 | 具体世界语境个体（某一整套仿真配置、某一真实装置的特定状态），被命题/论证的 `world_ref` 与 Entity 的 `operating_context_refs[]` 引用 | `dsh:WorldContext`（DSH 扩展） | **其类型 WorldType 归 Concept**；World 类型开放注册，无封闭三值枚举与信任阶梯 |
+| WorldContext 具体个体 | 具体世界语境个体（某一整套仿真配置、某一真实装置的特定状态），被命题/论证的 `world_ref` 作为 Entity 使用语境关系与命题/论证 `world_ref` 的端点 | `dsh:WorldContext`（DSH 扩展） | **其类型 WorldType 归 Concept**；World 类型开放注册，无封闭三值枚举与信任阶梯 |
 | 理想化数学个体 | 指定辛映射、理想化装置个体、理想束流 | `prov:Entity`（或 DSH 扩展） | 须声明其归属世界/语境限定（EN-W-3：此处语境构成身份）；理想化个体不得与现实装置混同；理想化个体中的定理不直接迁移到现实装置（那是 Argumentation/Proposition 的工作） |
 | 外部资源引用（ExternalResourceRef） | 系统之外的外部资源（URL、DOI、外部档案） | `prov:Entity` + 外部标识 | 指称不可达≠资源不存在（UNRESOLVED）；跨空间不可见 → WITHHELD（SP-02） |
 | 资源注册条目（RegistryEntry） | 资源的登记记录/条目；**仅在需独立引用时**对象化，否则为 H 登记/属性 | 工程对象，**不是** `prov:Entity` 本体 | **与被登记资源本体分离**：条目描述资源（URI/哈希）但不是资源身份；条目删除不代表资源未登记 |
@@ -50,7 +50,7 @@
 | `entity_subtype` | 子型阅读标签；决定导出类与校验分支 | 值（开放） | S-L0 必填（决定校验分支） | 不允许 `UNKNOWN`（无法归类 → 先按原始材料登记，§2） | **身份构成**：声明值改变 → 新对象（EN-03、EN-ID-7） |
 | `designated_name` / `aliases[]` | 指称名与别名（多值）；每个别名携带来源与声称有效区间 | 文本 + {source, claimed_interval} 列表 | S-L0：至少一个指称锚点（名或标识）；S-L1：已声明别名须有来源或显式 `UNKNOWN` | `UNKNOWN` 合法（来源未找到）；空别名集合合法 | 改名/增删别名 → **修订**而非新对象（EN-ID-1）；旧名保留在旧修订 |
 | `external_identifiers[]` | URI/DOI/内部路径等外部标识；每项声明其在哪个身份体系中有效及来源 | 值 + {scope, source} 列表 | S-L0 可空；S-L1：已声明项须有来源 | `UNKNOWN` 合法 | 非 ExternalResourceRef 子型：标识变化 → 修订（指称锚点非身份）；ExternalResourceRef：**身份构成**，URI 改变 → 新对象（指称了另一资源） |
-| `world_membership` | **归属世界**：该个体作为哪个世界的个体被指称（真实装置个体 / 某仿真世界中的个体 / 某数学世界中的个体）。回答“它在哪个世界里存在”，**不**回答“本次实验怎么配置它” | Concept@rev（WorldType）或 `UNKNOWN` | S-L1：必填**或**显式 `UNKNOWN(reason)` | `UNKNOWN` 合法；补全为修订（RV-01） | 已声明 `M` 改指 `M′` → **新 Entity**（真实相机与其仿真对应体是两个个体）；**使用语境变化不在此列**（`operating_context_refs[]`，EN-W-1/EN-W-2） |
+| `world_membership` | **归属世界，带角色的引用**（禁止一字段两义）：`{kind_ref: Concept@rev（WorldType，仅作分类与检索）, individual_ref: Entity@rev（WorldContext 世界个体，身份判据）}`。回答“它在哪个世界里存在”，**不**回答“本次实验怎么配置它” | 见左：两半各自是引用 | S-L1：`individual_ref` 必填**或**整体显式 `UNKNOWN(reason)`；`kind_ref` 可 `UNKNOWN` | `UNKNOWN` 合法并进 `declared_gaps`；补全为修订（RV-01/RV-06） | `individual_ref` 由 `M` 改指 `M′` → **新 Entity**（真实相机与其仿真对应体是两个个体）；改 `kind_ref` 只是重新分类 → 修订；**使用语境变化不在此列**（EN-W-1/EN-W-2/EN-W-6） |
 | `source_refs[]` | 登记所依据的来源材料（原文、日志、台账、验收记录） | Entity@rev（原始材料）或 H 记录标识 | S-L0 必需（H 侧） | 不得由系统猜测来源 | 来源变化 → 修订；来源材料缺失不抹去原文（C12） |
 
 ### 3.2 载体与内容
@@ -94,7 +94,7 @@
 | 身份构成字段/角色 | 锚定什么 | 改变的后果 |
 | --- | --- | --- |
 | `entity_subtype`（已声明） | 指称的个体种类 + 对外导出类 | 新 Entity（EN-ID-7） |
-| `world_membership`（已声明） | 个体在哪个世界中被指称 | 新 Entity（真实个体、仿真世界内个体、数学世界内个体互不互换）；`UNKNOWN→M` 是修订（RV-01）。**使用语境、配置、服役状态均不是身份构成**（EN-W-1/EN-W-2） |
+| `world_membership.individual_ref`（已声明） | 个体在**哪个具体世界**中被指称 | 新 Entity（真实个体、仿真世界内个体、数学世界内个体互不互换）；`UNKNOWN→M` 是修订（RV-01/RV-06）。`kind_ref` 与使用语境、配置、服役状态均**不是**身份构成（EN-W-1/EN-W-2/EN-W-6） |
 | 哪一次具体发生（活动个体：`execution_state` + `occurred_interval` 的已声明组合） | 那一次活动 | 同实验另一次 Run = 新 Entity（EN-ID-5） |
 | 完整内容（内容个体：快照模式 `content_digest`/内容快照；配置个体：完整选择内容） | 这一版内容 | 原地变更 → 新 Entity + `version_of`（EN-ID-3） |
 | `external_identifiers[]`（仅 ExternalResourceRef 子型） | 外部资源身份 | 新 Entity（指称了另一资源） |
@@ -105,10 +105,12 @@
 
 | 编号 | 规则 |
 | --- | --- |
-| EN-W-1 | Entity 有两个不同字段：**`world_membership`**（归属世界，可能构成身份）与 **`operating_context_refs[]`**（该个体在哪些 WorldContext 个体中被使用过，**永不**构成身份）。后者是带来源的使用记录，随研究配置增减只做修订，或改由相应 Association/活动个体承载。 |
-| EN-W-2 | **使用语境一律不构成身份**：同一台条纹相机由配置 W₁ 切换到 W₂，仍是同一个 Entity——W₁/W₂ 是 WorldContext 个体，出现在 `operating_context_refs[]` 或活动个体的使用记录中。把配置切换判为换对象会让同一物理装置随研究配置反复换 ID，摧毁来源链与历史精确引用。需要引用“该设备在某配置下的状态”时，引用配置个体 + 带来源关系，而不是复制设备个体。 |
-| EN-W-3 | **语境构成型个体的对称说明**：理想化数学个体、仿真世界内的模型实现个体等，其“所处世界/语境”本身就是被指称之物的一部分，因此对它们而言那个语境记在 `world_membership` 里（构成身份），而不是记在别人的 `operating_context_refs[]` 里。判据始终是**指称是否随世界改变而改变**，不是子型名称。 |
+| EN-W-1 | Entity 区分**归属世界**与**使用语境**：前者是字段 `world_membership`（其 `individual_ref` 可能构成身份）；后者是该个体在哪些 WorldContext 个体中被使用过，**永不**构成身份，其真源是 Association / 活动个体记录，Entity 侧只有派生视图（EN-W-5）。 |
+| EN-W-2 | **使用语境一律不构成身份**：同一台条纹相机由配置 W₁ 切换到 W₂，仍是同一个 Entity——W₁/W₂ 是 WorldContext 个体，经由使用关系（Association / 活动个体）与该设备关联。把配置切换判为换对象会让同一物理装置随研究配置反复换 ID，摧毁来源链与历史精确引用。需要引用“该设备在某配置下的状态”时，引用配置个体 + 带来源关系，而不是复制设备个体。 |
+| EN-W-3 | **语境构成型个体的对称说明**：理想化数学个体、仿真世界内的模型实现个体等，其“所处世界/语境”本身就是被指称之物的一部分，因此对它们而言那个语境记在 `world_membership` 里（构成身份），而是通过 `world_membership.individual_ref` 表达；对他者的使用语境则记在使用关系里，不写进他者字段。判据始终是**指称是否随世界改变而改变**，不是子型名称。 |
 | EN-W-4 | 命题与论证引用个体时必须精确到 `EntityID@rev`；“同一设备在两个语境下的两个状态”若需分别被引用，登记为语境个体 + 带来源关系，而不是把语境塞进设备字段或复制设备个体。 |
+| EN-W-5 | **使用关系的真源是关系对象，不是 Entity 字段**：某个体参与了哪些实验配置、哪些活动、哪些装置组合，由 Association 或活动个体登记；Entity 上出现的 `operating_context_view` 只是**派生视图**（RF-03），不可写、不参与身份、不得作为字段存储（`SL1-ENT-08` 发现即 FAIL）。这避免同一种关系既写进 Entity 又登记为 Association 造成双真源（RD-12）。 |
+| EN-W-6 | **可指称的世界必须有个体身份**：任何被引用的世界都要有一个 WorldContext 个体（真实世界也是一个 singleton 个体），`individual_ref` 因此总能表达“哪一个世界”；`kind_ref`（WorldType）只回答“这是哪一类世界”。两个同属 `WT_MATHEMATICAL` 但分属不同数学模型世界的理想化个体，靠不同 `individual_ref` 获得不同身份（EN-ID-1、PR-ID-2）。 |
 
 | 编号 | 判据 | 例子 |
 | --- | --- | --- |
@@ -117,7 +119,7 @@
 | EN-ID-3 | 内容个体原地内容变化按登记模式分判：**快照模式**（指称“这一版内容”，以摘要锚定）→ **新 Entity** + `version_of`；**容器模式**（指称“这个存储位置”，如活动日志）→ 修订，旧摘要保留在旧修订；**配置个体默认快照模式**（指称是完整选择） | GDF 冻结数据文件内容更新 → 新个体；活动日志更新 → 修订 |
 | EN-ID-4 | 同一内容（摘要未变）被重新哈希/镜像/迁移 → **新载体**（修订），不是新个体；摘要失配不得当作同内容镜像，登记 `HASH_MISMATCH`（A8）并由主体裁决镜像错误还是内容漂移 | `/data/a.gdf` → `/mirror/a.gdf` |
 | EN-ID-5 | 仿真 Run 重跑得到不同结果 → 原 Run **不变**；新 Run 是**新活动个体**，新结果是新的结果个体，两者以重跑关系（Association，带来源）链向旧者；历史精确引用仍指向旧修订 | R3 重跑 → R3′；R3 与 R3′ 的结果并存、可分别回放 |
-| EN-ID-6 | 身份构成字段 `UNKNOWN/ABSENT → DECLARED` 补全（世界、发生时间、子型、标识）→ 永远是修订（RV-01） | Run 的 `occurred_interval` 后确认为 T1 |
+| EN-ID-6 | 身份构成字段 `UNKNOWN/ABSENT → DECLARED` 补全：仅当属于**原指称/原意的确认**（`completion_basis = SAME_INTENT_CONFIRMED`）时是修订；若补全同时改变了身份承诺（`NEW_JUDGEMENT`）则新建对象；判不了保留分歧不自动决定（RV-01/RV-06，与命题端 PR-ID-4 同一条判据） | Run 的 `occurred_interval` 后确认为 T1 → 修订；把“某个候选个体”改判为“另一台设备的个体” → 新 Entity |
 | EN-ID-7 | 已声明 `entity_subtype` 改变（误登纠正）→ **新 Entity** + 纠正关系记录（带来源）；旧对象保留、其错误登记仍可审计；不得自动合并（ID-07） | 一次 Run 被误登为 InformationResource，后纠正为活动个体 |
 | EN-ID-8 | **判定线**：“同一对象的两个修订” vs “两个对象”——按上表身份构成字段判定：已声明身份构成字段值改变 → 两个对象；否则（名称、载体、状态声称、说明补全、重哈希/镜像）→ 同一对象的新修订；存疑（疑似同一指称）时登记 `IDENTITY_CONFLICT` 由主体裁决，不自动判定（RV-04/RV-05） | — |
 

@@ -73,7 +73,7 @@
 | `scheme_target_form` | 目标形式：结论端必须为精确 PropositionRevision；讨论目标可为论证/关联/他对象精确修订（SCHEME-3） | `PROPOSITION_REVISION` + 可选讨论目标类别 | S-L1 必填 | 不得 `UNKNOWN` | 禁止声明“自由/latest 目标”（ID-05、DF-03）；变化 = 新 Concept |
 | `scheme_outcome_vocabulary[]` | 局部结局词表：该 Scheme 允许哪些结局及其含义（SCHEME-4） | `{outcome, meaning}` 列表 | S-L1：必填且非空 | `UNKNOWN` 合法（词表未定），报告列为待补 | 条目含义变化 = 新 Concept；纯新增 = SUBSTANTIVE 修订 |
 | `degree_scale_declaration` | 该 Scheme 程度值的尺度语义、逻辑 Profile、允许运算、版本（SCHEME-5） | DegreeScaleDefinition@rev 或显式“不产生程度值”声明 | S-L1：能产生程度值时必填；否则必须显式声明不产生 | `UNKNOWN` 合法但禁止一切程度值运算 | 尺度变化 = 新 Concept |
-| `scheme_composition_permission` | 该 Scheme 输出可否作为另一 Scheme 输入、条件为何：角色映射 + 对齐要求（SCHEME-6） | `{target_scheme?, role_mapping, alignment_refs[]}` | S-L0 可缺 | `UNKNOWN` 合法；未声明 = 默认无组合许可 | 声明变化 = SUBSTANTIVE 修订（是声明，非机器保证） |
+| `scheme_composition_permission` | 该 Scheme 输出可否作为另一 Scheme 输入、条件为何：角色映射 + 对齐要求（SCHEME-6） | `composition_roles[]`（逐角色，含 `requires_conclusion`，SCHEME-6） | S-L0 可缺 | `UNKNOWN` 合法；未声明 = 默认无组合许可 | 声明变化 = SUBSTANTIVE 修订（是声明，非机器保证） |
 | `critical_questions[]` | 非阻断义务触发点：应回应哪些科学问题（SCHEME-7） | `{question, template_ref?, blocking = false}` | S-L0 可空 | 空集合合法 | 非阻断（D15）；`OPEN` 不阻断保存/探索 |
 
 ### 3.4 明确禁止存在的字段
@@ -156,7 +156,7 @@ InferenceSchemeDefinition 是 **R-L0/R-L1 的检查依据**：R-L0 检查“论�
 | SCHEME-3 | **目标与结论形式**：结论端为精确 PropositionRevision（C02、RD-08），且必须声明 `conclusion_policy ∈ {REQUIRED, OPTIONAL, NONE_ONLY}`（CN-01）：`OPTIONAL` 允许 `NONE_DECLARED`（如“已完成但无区分力”）；`NONE_ONLY` 用于纯探索型。讨论目标可为论证/关联/他对象精确修订（元论证用）。禁止声明“目标可为任意/latest”；允许无结论的 Scheme 不得同时在其组合许可中引用该结论（CN-05）。 |
 | SCHEME-4 | **局部结局词表**：每个 Scheme 声明它允许哪些结局及各自含义（如演绎：STRICT_SUPPORT/INCONCLUSIVE；归纳：INDUCTIVE_SUPPORT（附代表性义务）/INCONCLUSIVE；证据：EVIDENTIAL_SUPPORT/CONFLICT/INCONCLUSIVE）。结局是**局部**结局（A4），不是全局真值（C02）；未声明的结局论证端不可用（R-L1 FAIL：结局越出词表）。 |
 | SCHEME-5 | **程度值尺度与允许运算**：Scheme 能产生程度值时必须声明 DegreeScaleDefinition@rev（尺度语义、逻辑 Profile、允许运算、版本）。**未声明尺度时禁止任何比较/平均/相乘/取最小/概率读法**（C02、CS-10）；不同 Scheme 的程度值默认不可比（C06）。计算得到的概率/后验是科学结果，不是本尺度对象（RD-17）。 |
-| SCHEME-6 | **组合许可**：该 Scheme 输出（命题/结局）可否作为另一 Scheme 输入、条件为何：角色映射（输出进入对方哪个角色）+ 对齐要求（概念版本、World/Scope、量纲一致，C05）+ 条件保留（C06/C07）。未声明 = 无组合许可；路径仅可追踪，不支持传递（C06、CS-15）。 |
+| SCHEME-6 | **组合许可按角色声明**：`composition_roles[] = {role_name, direction ∈ {OUTPUT_AS, INPUT_AS}, target_scheme?, requires_conclusion ∈ {true,false}, alignment_refs[], condition_carrying}`。每个角色**必须**声明 `requires_conclusion`：`true` 表示只有携带命题结论的实例可填充该角色；`false` 表示背景/案例/讨论对象角色，无结论实例亦可（CN-03/CN-05/CN-06）。未声明组合许可 = 无组合许可（默认关闭）；**只声明角色而不声明该布尔值 → FAIL(`COMPOSITION_ROLE_UNDECLARED`)**；`true` 却同时声明接受 `NONE_DECLARED` 填充 → FAIL(`COMPOSITION_ROLE_CONTRADICTION`)。对齐要求（概念版本、World/Scope、量纲）与条件保留（C05/C06/C07）逐角色声明，不整套继承。 |
 | SCHEME-7 | **Critical Questions 与非阻断义务**：Scheme 定义可声明关键科学问题触发点（引用 CriticalQuestionTemplate@rev 或内联文本）。触发产生**义务记录**（D15，非阻断）：`OPEN` 不阻断保存、R-L1 或条件性探索；解除是显式记录（主体 + 依据）。 |
 | SCHEME-8 | **R-L1 边界**：Scheme 定义声明结构，不声明正确。R-L1 不检查：Scheme 选择是否恰当、样本代表性、统计模型适用、类比有效性、规则是否科学；这些归 Critical Questions、Assessment 与主体审查（R3、R6、DF-07）。 |
 
@@ -172,7 +172,8 @@ InferenceSchemeDefinition 是 **R-L0/R-L1 的检查依据**：R-L0 检查“论�
 | 条件槽位存在但 `on_failure` 未声明 | PASS | PASS（默认 PRESERVED+REPORTED，报告列待补） | SCHEME-2（规范默认，不是值补全，UN-02） |
 | `scheme_target_form` 未声明或声明“自由目标” | PASS | FAIL | SCHEME-3（ID-05、DF-03） |
 | `conclusion_policy` 未声明 | PASS | FAIL | SCHEME-3 / CN-01（论证端无法判定无结论是否合法） |
-| 允许 `NONE_DECLARED` 却在组合许可中引用其结论 | PASS | FAIL | CN-05（定义自相矛盾） |
+| 组合许可角色未声明 `requires_conclusion` | PASS | FAIL | SCHEME-6 / CN-05（无法判定无结论实例可否填充） |
+| 某角色 `requires_conclusion=true` 却声明接受 `NONE_DECLARED` 填充 | PASS | FAIL | SCHEME-6 / CN-05（定义自相矛盾） |
 | 必需项齐备但 Critical Questions 为空 | PASS | PASS | SCHEME-7（问题可选、非阻断） |
 
 ## 8. World 类型与研究维度/选项

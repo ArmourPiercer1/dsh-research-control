@@ -8,7 +8,7 @@
 | --- | --- |
 | **槽位** | 规范形态中的键名，逐字等于契约阅读名（SF-02） |
 | **类型** | 编码类型：`ref`（`obj@rN`，可 `#rep`）、`ref?`（五态包裹的引用）、`rec:`、`text`、`bool`、`decimal`、`time`、`vocab(X)`（注册词表）、`enum(X)`（封闭枚举）、`<object>`、`[]` 表示集合 |
-| **状态** | 该槽位允许的存在状态；`D/U/NA/UN/A` 分别对应 `DECLARED/UNKNOWN/NOT_APPLICABLE/UNRESOLVED/ABSENT`（SF-10）。凡列出 `U` 者，如实未知必须 `PASS`（RPT-05） |
+| **状态** | **形态层**允许写入的存在状态；`D/U/NA/UN/A` 分别对应 `DECLARED/UNKNOWN/NOT_APPLICABLE/UNRESOLVED/ABSENT`（SF-10）。凡列出 `U` 者，如实未知在判定线上必须 `PASS`（RPT-05）。**本列不等于「允许留空」**：契约层的必填性由「规则」列指向的规则裁决，在契约必填槽位上写 `A` 是合法形态，但仍按该规则判 FAIL 或记待补——DF-07「允许对象不完整」与 RPT-05「允许如实未知」都不是形态豁免 |
 | **身份** | `★` = 该对象的身份构成槽位（改其已声明值 → 新建对象，G-REV）；`—` = 非身份槽位；`◐` = 条件性身份槽位（依子型声明，见 §5） |
 | **规则** | 契约层规则号（逐字），是本层校验器与规则注册表的锚点 |
 
@@ -24,6 +24,7 @@
 | SS-06 | 每个对象修订必须携带 `recorded_at`、写入事件产生的 `registrant_ref` 与 `source_refs`（五态之一）；`registrant_ref` **不可** `UNKNOWN`（由宿主注入，IC-02、`SL1-ASS-05` 同理适用于全部对象）。 |
 | SS-07 | 修订专有槽位：`revision_id`、`revision_class`、`reason`、`completion_basis`（补全分支必填）、`expected_head_revision` 的满足记录；`completion_basis = UNDETERMINED` 时不得产生身份迁移（RV-06）。 |
 | SS-08 | 载荷中任何 `ref` 都不得由内容哈希派生；任何集合的排序语义必须由子型注册表声明（序敏感/序无关，SF-51）。 |
+| SS-09 | **信封槽位不得在 `payload` 里重复出现**：`object_id`/`revision_id`/`schema_version`/`recorded_at`/`registrant_ref`/`source_refs`/`subtype_code`/`completion_basis` 只在信封有一份；载荷表若需要同一事实只允许引用信封字段名，不得复制键；出现重复键 → 形态非法（单正源，EB1）。 |
 
 ## 2. 信封（五类共用，`payload` 之外）
 
@@ -43,7 +44,7 @@ ObjectRevisionEnvelope = {
 | --- | --- |
 | SS-10 | `object_kind` 与 `space_id` 在 `r1` 固定且**永不出现在后续修订的可变部分**（ID-01、ID-02）；`hsr_revision_append` 提交这两个槽位即 `TOOL_INPUT` 拒绝（SI-10）。 |
 | SS-11 | **不存 `head_revision` 或 `is_head`**：链首是登记簿的派生属性，写进记录就变成可被写歪的第二真源（AX-03、DF-03）。查询 `version_selection = latest` 只用于导航（ID-05、SF-23）。 |
-| SS-12 | `identity_slot_set_digest` 记录"当时该子型声明了哪些身份构成槽位"，使旧修订的判定可**按当时的声明**重放；它不改变契约层的身份判据，只是防漂移（SF-60、RV-04）。 |
+| SS-12 | `identity_slot_set_digest` 的摘要对象是**子型注册表声明的槽名集合**（按 SF-50 规范字节形态取摘要），不是记录内容，与 SF-20「禁止内容寻址身份」无关；它记录"当时该子型声明了哪些身份构成槽位"，使旧修订的判定可**按当时的声明**重放；它不改变契约层的身份判据，只是防漂移（SF-60、RV-04）。 |
 | SS-13 | `subtype_code` 必须解析到子型注册表条目；解析不到 → 保存成功 + `FAIL(SUBTYPE_UNREGISTERED, DEFICIENCY)`（SRG-21）。 |
 | SS-14 | 非对象记录（检查报告、采用记录、可用性检查、H 原始记录、Assertion 链成员声明）**不使用本信封**：它们有各自的记录形态，且不得被赋对象引用类型（ID-08、SCR-01、SF-24）。 |
 
@@ -132,7 +133,7 @@ ObjectRevisionEnvelope = {
 | `directionality` | `enum(DIRECTED / SYMMETRIC / UNSPECIFIED)` | D | ★ 不可变 | `SL1-ASS-03`、AS-ID-6 |
 | `described_interval` | `{kind ∈ enum(TIMEPOINT, INTERVAL, UNTIL_REVOKED, TIMELESS), from: time?, to: time?}` | D / U(reason) / A | ◐ `UNKNOWN → 区间` 修订；`区间 A → 区间 B` 新关联 | `SL1-ASS-04`、AS-ID-1、AS-ID-4、CS-01、SF/A-06 |
 | `applicability_context` | `(ref)` 集合（World/Scope/配置语境） | D / U | ◐ 实质改变适用范围 → 新关联 | AS-ID-1 |
-| `source_assertion` | `{registrant_ref, actor_ref?, voice ∈ enum(SELF, REPORTED, IMPORTED, TOOL_OUTPUT), basis_refs[]}` | `registrant_ref` D（不可 `UNKNOWN`，由写入事件赋予）；`actor_ref` D / U | `registrant_ref` 非身份（可变来源注记？否：不可变）；`actor_ref` — | `SL1-ASS-05`、RD-35、IC-02 |
+| `source_assertion` | `{registrant_ref, actor_ref?, voice ∈ enum(SELF, REPORTED, IMPORTED, TOOL_OUTPUT), basis_refs[]}` | `registrant_ref` D（不可 `UNKNOWN`，由写入事件赋予）；`actor_ref` D / U | `registrant_ref` 不可变、非身份槽位；`actor_ref` — | `SL1-ASS-05`、RD-35、IC-02 |
 | `recorded_via` | `rec:`（登记事件） | D（H 侧必须存在） | ★ 不可变（H 拥有） | IC-02 |
 | `standard_predicate_alias` | 标准 URI（仅精确等价） | D / A | — | N-04、DF-10 |
 | 冲突/替代/采用内联字段 | **无槽位**（冲突与替代是独立主张记录；采用是独立记录） | 不可写 | — | `SL1-ASS-07`、`SL1-ASS-08`、AS-CF-1、AD-01 |
@@ -181,7 +182,7 @@ ObjectRevisionEnvelope = {
 | `dimension_binding[]` | `ref` 集合 | D / U / A | ★ 定义版本改变 | `SL1-PRO-05`、PR-ID-3、RP-06 |
 | `condition_refs[]` | `ref` 集合 | D / U / A | ★ 条件实质替换/增删 | `SL1-PRO-05`、CS-08 |
 | `mention_refs[]` | `{target: ref \\| rec:, role ∈ enum(SUBJECT, CONTEXT, TARGET_OF_CLAIM, COMPARATOR, SELF)}` 集合 | D / A | — | `SL1-PRO-07`、RF-05 |
-| `truth_condition_claim` / `completion_basis` / `change_basis` | 修订专有 | D / A 非法于修订 | — | PR-ID-4、RV-01、RV-06 |
+| `truth_condition_claim` / `change_basis` | 修订专有（`completion_basis` **不在载荷里**，只存在于信封 SS-07，避免同值两处写） | D / A 非法于修订 | — | PR-ID-4、RV-01、RV-06 |
 | `assertion_chain_ref` | `rec:`（链成员声明） | D / A | — | ID-06 |
 | `confirmation_refs[]` | `rec:` 集合（A3 派生源） | D / A | — | IC-S6、`SL1-*` |
 | 子型专有：`assessor_ref` / `target` / `stance` / `basis_refs[]`（ASSESSMENT） | `ref` / `ref` / `vocab` / `ref` 集合 | D（缺失 → FAIL 于 S-L1，不阻断保存） | — | `SL1-PRO-09`、CS-11 |

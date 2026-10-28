@@ -47,12 +47,12 @@
 | SI-15 | 空结果必须携带 `boundary`，使"没查到"不被读成"不存在"（C12、CS-24）。 |
 
 
-### 2.4 `space_id` 的宿主映射（未裁决，登记为实现前置）
+### 2.3 `space_id` 的宿主映射（未裁决，登记为实现前置）
 
 | 编号 | 规则 |
 | --- | --- |
-| SI-80 | `space_id` 是每次调用的必填槽位并在 `r1` 固定（ID-02），但**它与宿主既有概念的映射尚未裁决**：候选是「一 Project 一空间」「一 Workstream 一空间」或独立于二者的新维度；V1 侧没有 space 概念（`schema/common.schema.json` 无 space，V1 对照表亦记「不同维度，不互相推导」）。裁决前不得由实现自行选择——空间粒度一旦定错，隔离边界与可见性判定（SP-03）会整体错位且无法事后重划。 |
-| SI-81 | 裁决前允许的实现形态：单一默认空间（全部记录同空间），使接口与形态可以先被测试；该默认必须在配置中显式命名，不得隐含在代码里（避免"默认空间"变成事实上的全局空间而无法拆分） |
+| SI-16 | `space_id` 是每次调用的必填槽位并在 `r1` 固定（ID-02），但**它与宿主既有概念的映射尚未裁决**：候选是「一 Project 一空间」「一 Workstream 一空间」或独立于二者的新维度；V1 侧没有 space 概念（`schema/common.schema.json` 无 space，V1 对照表亦记「不同维度，不互相推导」）。裁决前不得由实现自行选择——空间粒度一旦定错，隔离边界与可见性判定（SP-03）会整体错位且无法事后重划。 |
+| SI-17 | 裁决前允许的实现形态：单一默认空间（全部记录同空间），使接口与形态可以先被测试；该默认必须在配置中显式命名，不得隐含在代码里（避免"默认空间"变成事实上的全局空间而无法拆分） |
 ## 3. 错误模型（不改既有工具错误词表）
 
 既有工具层错误码 `TOOL_ACTOR_FORBIDDEN / TOOL_RUN_REQUIRED / TOOL_INPUT / TOOL_ABORTED / TOOL_NOT_IMPLEMENTED / TOOL_SERVICE` 是宿主映射面，**保持不变**。领域失败码通过结构化 `detail` 承载，`ToolError.detail` 在宿主侧是开放 `Record`，但既有实现只用到 `serviceCode`/`step`/`path`/`tool`/`plannedService` 五个键；本层**沿用这五个键**，并只额外登记一组前置专用键 `{serviceCode:"PRECONDITION_FAILED", step:"expected_head_revision", expected_head_revision, actual_head_revision}`（见 SI-24）。除此之外的新键即新造平行字段，须先登记：

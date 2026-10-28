@@ -96,6 +96,7 @@
 | ICX-01 | 本目录必须**逐一覆盖**契约层的 IC-H1…H7、IC-S1…S9、IC-A1…A3、IC-R1…R11、IC-P1…P5；缺一即本层不完整。**本轮已用一次性脚本核对：契约层定义 35 个操作（H1–H7 / S1–S9 / A1–A3 / R1–R11 / P1–P5），本目录覆盖 35/35，无多余条目**；脚本未入库，落地时必须变成仓库内的文档一致性测试资产。 |
 | ICX-02 | **工具名形态**：`hsr_<主题>_<动词>`，动词取自**闭合词表**——写侧 `append / register / record / declare / link / bind / adopt / revise / amend / establish / confirm / request / check`，读侧 `get / query / replay / compile / export`。词表外的新动词等价于新增工具（SI-02 冻结流程）。**负面清单**：名字中禁止出现暗示"改变既有对象"的 `set` / `update` / `delete` / `remove` / `patch` / `mark` / `current` / `merge` / `sync` / `revert`。 |
 | ICX-05 | `revise` / `amend` / `adopt` 只表示**追加新记录或新修订**，绝不表示就地覆盖：名字含这三个动词的工具，其响应必须返回新的 `revision_id` 或 `record_id`，且被修改/被采用的旧 revision 在响应之后仍可被精确引用并逐字节回放（同一测试资产覆盖全部此类工具）。 |
+| ICX-06 | **非契约操作是封闭清单，只有四个**：`hsr_object_get`、`hsr_check_report_get`、`hsr_rule_registry_query`、`hsr_capabilities_get`。它们**全部只读**、只读形态层自身工件（规范形态、报告、规则索引、能力自述），不产生记录、不改变领域状态，因此**不是**新增业务操作——操作集合由契约层封闭，H/S/R 是职责划分而非服务清单（DOMAIN 顶层裁决）。新增任何非契约操作须契约层确认；**写侧的非契约操作永远不允许**（否则本层可以绕过契约自己造动作）。39 = 35 个契约操作 + 4 个只读形态操作，这个等式本身必须被测试钉住。 |
 | ICX-03 | 每个操作的失败码必须 ∈ 契约层 `F-*` 集合（外加 SI-24 登记的前置码）；出现自造码即本层缺陷。 |
 | ICX-04 | 每个操作都必须有 `echo` 与（读操作）`boundary`；写操作必须返回可追溯的 `record_id`/`report_refs[]`，使"谁在何时依据哪版规则登记了什么"可被回放（IC-02、SF-63）。 |
 

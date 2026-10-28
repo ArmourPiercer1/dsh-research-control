@@ -18,7 +18,7 @@
 
 ## 2. 明确不存在或永不出现的字段
 
-`is_true`、`truth_value`、`validity`、`confidence`、`reliability_score`、`is_current`、`is_verified`、`superseded:boolean`、任何 `latest-write-wins` 派生标记、任何“系统已确认现状”的隐含状态。需要表达类似意思时，一律改用：有来源的**替代主张**（§6.3）、**采用记录**（§7）、**冲突关系**（§6.2）或**评价性命题**。
+`is_true`、`truth_value`、`validity`、`confidence`、`reliability_score`、`is_current`、`is_verified`、`superseded:boolean`、`conflict_refs`/`supersede_refs` 之类的**内联冲突字段**、任何 `latest-write-wins` 派生标记、任何“系统已确认现状”的隐含状态。需要表达类似意思时，一律改用：有来源的**替代主张**（§6.3）、**采用记录**（§7）、**冲突关系**（§6.2）或**评价性命题**。
 
 ## 3. 字段契约
 
@@ -31,7 +31,7 @@
 | `applicability_context` | 该主张所声称适用的 World/Scope/配置语境（如“布局未变”假设） | Concept@rev / Entity@rev 集合 | S-L1：非空或显式 `UNKNOWN` | 允许 `UNKNOWN` | 修订（澄清）；实质改变适用范围 → 新关联 |
 | `source_assertion` | 谁声称：`{actor_ref, voice ∈ {SELF, REPORTED, IMPORTED, TOOL_OUTPUT}, basis_refs[]}` | Agent@rev + 材料引用 | S-L0：至少 actor 或 `UNKNOWN`；S-L1：`actor_ref` 必填或 `UNKNOWN(reason)` | `UNKNOWN` 记为“不可归因来源”，S-L1 FAIL 但可保存 | 补充来源材料 → 修订；来源者改变 → 新关联 |
 | `recorded_via` | 本关联的登记事件（`recorded_at`、登记序） | H 记录引用 | H 侧必须存在 | 不允许缺失 | 不可变（H 拥有） |
-| `conflict_or_supersede_refs[]` | 指向另一关联的显式主张：`{kind ∈ {CONFLICTS_WITH, SUPERSEDES_AS_STATED, SAME_PHENOMENON_AS}, target_rev, basis_ref}` | 关联@rev | 可选 | 缺失合法（未检查冲突 ≠ 无冲突） | 追加新主张，不改写旧条目 |
+| ~~`conflict_or_supersede_refs[]`~~ **不存在此字段**（审查修订 R6） | 冲突、替代、同一现象等是**关于关系的关系主张**，必须由主体独立登记为高阶主张（Proposition 子型 META + 精确提及两条 `Association@rev`，见 IC-S9），原关联对象内**不保留**任何冲突/替代内联字段 | — | 不检查（字段不得存在，出现即 `SL1-ASS-07` FAIL/VIOLATION） | “未检查冲突”与“无冲突”都不需要字段表达（UN-03） | 无：原关联不因被主张冲突而修订或改写；主张的增删只影响该主张记录本身 |
 | `standard_predicate_alias` | 精确等价的 W3C 谓词名（如 `prov:used`） | 值 | 可选；仅在含义精确等价时填写 | 缺失合法 | 修订；不得用近似标准名“洗白”内部语义（N-04） |
 
 ## 4. 三种时间的字段落点（C01 核心）
@@ -71,11 +71,21 @@
 | Argumentation —`INFERENTIAL`→ Association@rev | 作为 Scheme 允许的输入角色 | 未经角色声明即当数学前提（C04） |
 | Association —→ Association@rev | 冲突/替代/同现象主张 | 当成系统裁决 |
 
-### 6.2 冲突关系
-冲突登记是**对称可发现、由声明者承载**的主张：它不裁定谁真，只保证任何一方被检索时都能看到对方与依据。系统可以生成“重叠描述提示”（按关系类型 + 端点重叠 + 区间重叠），但提示不是冲突主张，也不是裁决。
+### 6.2 冲突关系（单一来源，审查修订 R6）
+
+冲突**不是**关联对象上的字段，也**不是**系统对世界的判定。它只能由主体独立登记：
+
+| 编号 | 规则 |
+| --- | --- |
+| AS-CF-1 | 一项冲突主张 = 一条**高阶主张记录**（Proposition 子型 `META`，附声明者、依据与两条被提及的 `Association@rev`），经 IC-S9 登记。两条原始关联**都不被改写**，也不新增任何指向对方的字段。 |
+| AS-CF-2 | “双方都能看到对方”是**可重建视图**：按提及关系反查得到，视图必须标注其为派生补充（RF-03），不得写回任何一方对象。 |
+| AS-CF-3 | 机器可以产生**可重叠提示**（同关系类型 + 端点重叠 + 描述时段重叠等启发式），但提示**不是**冲突主张：不得呈现为“已确认矛盾”，不得进入任何规范化判定或接纳投影（F-CONFLICT、NEV-02）。 |
+| AS-CF-4 | 冲突主张本身可以被质疑、被撤回、被更多人重复登记；每次都是新记录。多条相互冲突的冲突主张并存是合法状态（A6）。 |
+| AS-CF-5 | 冲突主张不裁定谁真：它只声明“按依据 X，这两条描述不能同时按所述方式成立”。系统不得据此把任一条标记为失效、过期或低可信。 |
 
 ### 6.3 替代主张（`SUPERSEDES_AS_STATED`）
-“后来的说法取代先前说法”**只能是来源的主张**，附依据。没有依据时，系统只并列两项有来源的描述，并报告“真实切换时刻未知”（CS-01）；不得从 `recorded_at` 推断现实切换时刻。
+
+“后来的说法取代先前说法”**只能是来源的主张**（AS-CF-1 同一路径），附依据与适用范围。没有依据时，系统只并列两项有来源的描述，并报告“真实切换时刻未知”（CS-01）；不得从 `recorded_at` 推断现实切换时间，也不得把被替代的旧关联标记为失效或隐藏。
 
 ## 7. 采用记录（本次使用，独立于关联本体）
 

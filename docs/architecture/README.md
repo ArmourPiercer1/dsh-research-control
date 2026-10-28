@@ -15,8 +15,8 @@
 | [Argumentation 领域对象契约](H_S_R_ARGUMENTATION_CONTRACT_DRAFT.md) | Scheme 绑定、输入角色与对齐、路径/条件、结局、攻击与验证记录 | Draft · 非 Schema |
 | [Proposition 领域对象契约](H_S_R_PROPOSITION_CONTRACT_DRAFT.md) | 命题身份与表示边界、World/Scope、评价/接纳/义务子型 | Draft · 非 Schema |
 | [H/S/R 领域交互契约](H_S_R_INTERACTION_CONTRACT_DRAFT.md) | 领域操作 IC-*：语义/输入/前置/结果/不变量/失败语义；非服务接口 | Draft · 非 API |
-| [S-L0/L1 与 R-L0/L1 规范化契约](H_S_R_NORMALIZATION_CONTRACT_DRAFT.md) | 检查报告、分对象规则、R-L0/R-L1、七种记录形态与负面清单 | Draft · 供后续 validator |
-| [跨对象组合约束与反例矩阵](H_S_R_COMPOSITION_MATRIX_DRAFT.md) | C01–C12 与 CS-01–CS-24 落到字段/操作/检查；新增 XC 字段级反例 | Draft · 设计走查 |
+| [S-L0/S-L1 与 R-L0/R-L1 规范化契约](H_S_R_NORMALIZATION_CONTRACT_DRAFT.md) | 三线判定（结构/待补/不可判定）、分对象规则、R-L0/R-L1、八种记录形态与负面清单 | Draft · 供后续 validator |
+| [跨对象组合约束与反例矩阵](H_S_R_COMPOSITION_MATRIX_DRAFT.md) | C01–C12 与 CS-01–CS-24 落到字段/操作/检查；新增 XC-01…XC-24 字段级反例 | Draft · 设计走查 |
 | [与 V1 冻结词汇的接入对照](H_S_R_V1_LEXICON_RECONCILIATION_DRAFT.md) | V1 关系/事件词汇的新落点、禁止事项与有损报告要求 | Draft · 不改 V1 |
 | [方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md) | 既定共识、组合收口、细化裁决 RD-*、F-01–F-09 实施准备分类、旧设计冲突 | Draft · 审查索引 |
 | [H/S/R 早期系统级审查稿](H_S_R_SYSTEM_DESIGN_DRAFT.md) | 保留上一轮对象关系/缺口视图；未按最新五类完全改写 | 较早 Draft |

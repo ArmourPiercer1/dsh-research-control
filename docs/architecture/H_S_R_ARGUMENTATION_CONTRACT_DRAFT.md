@@ -25,14 +25,14 @@
 | `scheme_ref` | 使用的推理 Scheme **定义**及其精确版本 | Concept@rev（InferenceSchemeDefinition） | **R-L0 必填且须解析到合法 Scheme**；解析失败 = R-L0 FAIL | 不允许 `UNKNOWN`（无 Scheme 则本对象不是正式论证，应作为原始记录或 ResearchFinding 保存） | **不可变**：改 Scheme = 新论证 |
 | `engagement_target` | 本论证**讨论的目标** | `Proposition@rev` \| `Argumentation@rev` \| `Association@rev` \| `NONE` | R-L1：按 Scheme 声明必填并解析 | 允许 `NONE`（纯推导新命题，不针对既有对象） | **不可变** |
 | `engagement_role` | 与目标的关系：`SUPPORTS / ATTACKS / EXPLORES / CLARIFIES`（开放） | 值 | R-L1：目标存在时必填 | 允许 `UNKNOWN`（标注待补） | 修订；但由 SUPPORTS 改 ATTACKS 视同换目标 → 新论证 |
-| `conclusion` | **实际声称得到的结论内容**：`{mode, proposition_rev}`，`mode ∈ {ASSERTS, DENIES_TARGET, ASSERTS_ABOUT_TARGET, NONE_DECLARED}` | Proposition@rev 或 `NONE_DECLARED` | R-L1：必须与 Scheme 声明的目标形式一致；`ASSERTS*` 时必须精确到 revision | 允许 `NONE_DECLARED`（如完整完成但无定论、纯 undercut 不产出命题结论） | 结论内容变化 → 新论证 |
+| `conclusion` | **实际声称得到的结论内容**：`{mode, proposition_rev}`，`mode ∈ {ASSERTS, DENIES_TARGET, ASSERTS_ABOUT_TARGET, NONE_DECLARED}` | Proposition@rev 或 `NONE_DECLARED` | R-L1：必须满足 Scheme 的 `conclusion_policy`（SCHEME-3）；`ASSERTS*` 时必须精确到 revision | 允许 `NONE_DECLARED` **仅当** Scheme 声明允许（CN-02）；否则缺失即 R-L1 FAIL | **不可变**
 | `conclusion_vs_target` | 结论与目标的关系：`SAME / NEGATION / META_ABOUT_TARGET / UNRELATED_BY_SCHEME` | 值 | R-L1：结论与目标同时存在时必填 | 允许 `UNKNOWN` | 修订 |
 
 ### 2.2 输入与对齐
 
 | 字段/角色 | 语义 | 类型/引用对象 | S-L1/R-L0/R-L1 要求 | UNKNOWN/缺失规则 | 修订约束 |
 | --- | --- | --- | --- | --- | --- |
-| `input_bindings[]` | 输入端绑定：`{role_name, endpoint_ref, endpoint_kind, alignment_claim, notes}` | 端点 = 五类对象@rev（检查报告、可用性检查、采用记录等 H 记录**不能**充当输入端点，只能作为本论证的来源或作为元命题的讨论目标，见共同底座 RF-05） | R-L1：Scheme 声明的**必填角色**全部有绑定（或该路径标注 `UNBOUND(reason)`）；角色名必须在 Scheme 声明内；端点必须属于该角色允许的对象类别 | 允许 `UNBOUND(PENDING_INPUT)`（CS-06：等待数据），**但空占位不得伪装成已满足** | 绑定与对齐声明可修订；改 Scheme 须新论证 |
+| `input_bindings[]` | 输入端绑定：`{role_name, endpoint_ref, endpoint_kind, alignment_claim, notes}` | 端点 = 五类对象@rev（检查报告、可用性检查、采用记录等 H 记录**不能**充当输入端点，只能作为本论证的来源或作为元命题的讨论目标，见共同底座 RF-05） | R-L1：Scheme 声明的**必填角色**全部有绑定（或该路径标注 `UNBOUND(reason)`）；角色名必须在 Scheme 声明内；端点必须属于该角色允许的对象类别 | 允许 `UNBOUND(PENDING_INPUT)`（CS-06：等待数据），**但空占位不得伪装成已满足** | 绑定与对齐声明可修订；改 Scheme 须新论证；原始实验/测量/检查记录须先按 Entity 子型对象化再绑定（RF-06），不放宽端点类别 |
 | `alignment_claims[]` | 每个输入与结论之间的精确对齐：单位/量纲、指标定义版本、变量与量词绑定、World/工况对应 | `{from_ref, to_ref, relation ∈ {EXACT_MAP, DECLARED_MAP, ASSUMED, UNKNOWN}, basis_ref}` | R-L1：Scheme 要求对齐的角色必须给出 `relation`；`UNKNOWN` 合法但阻止组合认证（CS-12/CS-13） | 允许 `UNKNOWN`；禁止按同名/同数值默认相接 | 修订（新对齐声明产生新报告，不改写旧报告） |
 | `shared_dependency_refs[]` | 与其它论证共享的原始数据、校准、证书或模型（显式登记） | 引用集合 | R-L1：Scheme 要求独立性声明时必填或 `UNKNOWN` | `UNKNOWN` 合法，但禁止按路径数量提升支持度（C09） | 修订 |
 
@@ -42,14 +42,14 @@
 | --- | --- | --- | --- | --- | --- |
 | `support_paths[]` | 稳定的路径集合（`path_id` 不重排）；每条含 `premise_refs[]`（路径内 AND） | 路径对象列表 | R-L1：路径非空、每条路径的输入必须在 `input_bindings` 中有角色绑定；不同路径之间是替代支持（OR），**系统不合并其条件** | 允许单路径；允许路径含 `UNBOUND` 前提 | 增删路径 = 修订（旧 revision 保留） |
 | `path_conditions[]` | 条件集合，每项 `{condition_prop_rev, status, path_scope[], discharge_basis?}`；`status ∈ {ASSERTED, OPEN, DISCHARGED, CONTESTED, UNKNOWN}` | Proposition@rev + 路径作用域 | R-L1：条件必须落在具体 `path_scope`（不得悬空于整个论证而不指明路径，除非 Scheme 声明全局条件） | `OPEN/UNKNOWN` 合法且**不阻断**探索（D15） | 状态变化必须由显式记录驱动，附 `discharge_basis`；不得因“视图切换/摘要”消失（C07） |
-| `degree_value` | 可选的局部程度值 `{value, scale_ref, allowed_operations[], declared_range}` | Concept@rev（DegreeScaleDefinition） | R-L1：若存在而 `scale_ref` 缺失或未声明允许运算 → FAIL(`DEGREE_SCALE_UNDECLARED`) | 允许完全缺失；**禁止**默认解释为概率/置信度/模糊真值 | 修订 |
+| `degree_value` | 可选的局部程度值 `{value, scale_ref, allowed_operations[], declared_range}`；`allowed_operations` **可以是空集 `NONE`** | Concept@rev（DegreeScaleDefinition） | R-L1：若存在则 `scale_ref` 必须存在、`allowed_operations` 必须**被显式声明**（`NONE` 合法）；缺 `scale_ref` → FAIL(`DEGREE_SCALE_UNDECLARED`)，运算集合未声明 → FAIL(`OPS_STATE_UNDECLARED`) | 允许完全缺省；`scale_ref` 可显式 `UNKNOWN`（此时该值**不可参与任何运算或比较**，仅原样呈现） | 修订；改尺度语义即改 Scheme → 新论证。**只读程度值合法**：声明了尺度含义但声明 `allowed_operations = NONE` 的值是良构的，只是不得被平均、取小、相加或当作概率读（RL1-08、CS-10） |
 
 ### 2.4 结局、状态与检查
 
 | 字段/角色 | 语义 | 类型/引用对象 | S-L1/R-L0/R-L1 要求 | UNKNOWN/缺失规则 | 修订约束 |
 | --- | --- | --- | --- | --- | --- |
 | `local_outcome` | **本论证对目标的局部结局**（状态轴 A4）：`NONE_YET / SUPPORT / REBUT / UNDERCUT / INCONCLUSIVE / APPLICABILITY_FAILURE`，取值必须在该 Scheme 声明的结局词表内 | 值 + 声明者 + 时间 | R-L1：取值必须属于 Scheme 声明集合 | `NONE_YET` 合法（研究未完成） | 修订；结局**不写入**目标命题的任何字段（C02） |
-| `construction_state` | 状态轴 A1：`DRAFT / SUBMITTED / CLOSED_DRAFT` | 值 | 不属于 R-L1 判定内容 | 允许任意值 | 修订；`CLOSED_DRAFT` 只表示停止推进该次构造，**不**产生反证、不把已提交论证追溯降为草稿（C03） |
+| `construction_state` | 状态轴 A1：`DRAFT / SUBMITTED / CLOSED_DRAFT / WITHDRAWN / TERMINATED_BY_SCOPE`（关闭≠撤回，见 §7） | 值 | 不属于 R-L1 判定内容 | 允许任意值 | 修订；`CLOSED_DRAFT` 只表示停止推进该次构造，**不**产生反证、不把已提交论证追溯降为草稿（C03） |
 | `applicability_records[]` | 状态轴 A5：某主体在某场景判定本论证**本次是否适用** | 记录集合（引用本论证@rev + scope + 判定 + 依据） | 可选 | `UNKNOWN` 合法 | 新记录；不得把场景不适用推广为全局无效（CS-09） |
 | `verification_records[]` | R-L0/R-L1 及更高等级的检查报告引用（含 checker 版本、契约版本、时间、结果） | 报告引用 | 报告本身由检查产生，非论证字段 | 无报告合法 | **追加**；新规则只产生新报告，不改写历史 PASS（C11） |
 | `composition_records[]` | 在已登记组合规则下，本论证输出与其他论证组合的许可记录 | 记录集合 | R-L1 不要求；存在时须引用规则版本与输入集合 | 无记录合法（图可追踪 ≠ 可组合，C06） | 追加 |
@@ -80,6 +80,16 @@
 | 论证真正推出 ¬P | `P@rev`（被讨论目标） | `DENIES_TARGET → ¬P@rev`；`conclusion_vs_target = NEGATION`；`REBUT` | 把 P 当正前提又靠负 polarity 偷换 |
 | B 指出 A1 的条件 C 未满足 | `A1@rev`（被讨论对象） | `ASSERTS_ABOUT_TARGET → Q@rev`（“A1 的 C 本次不满足”）；`UNDERCUT` | A1 的全部结论为假 |
 
+### 3.1 结论端合法性与“无结论”（审查修订 R4）
+
+| 编号 | 规则 |
+| --- | --- |
+| CN-01 | Scheme 定义必须声明 `conclusion_policy ∈ {REQUIRED, OPTIONAL, NONE_ONLY}`：`REQUIRED` 必须给出精确 `Proposition@rev`；`OPTIONAL` 允许 `NONE_DECLARED`；`NONE_ONLY` 用于纯探索型（不产出结论）。未声明 → R-L1 FAIL(`CONCLUSION_POLICY_UNDECLARED`)。 |
+| CN-02 | **已完成但无定论的研究合法**：`mode = NONE_DECLARED` + `local_outcome = INCONCLUSIVE`（或 Scheme 允许的其它无结论结局）是完整合法的对象，**不强迫虚构科学结论**，也不因此判 FAIL。前提是 Scheme 允许（CN-01）。 |
+| CN-03 | **无结论不进入组合**：`NONE_DECLARED` 的论证**不得**作为其它论证的输入端点，也不得被组合规则引用（没有命题端可绑定）。它仍可被检索、被高阶命题讨论、被攻击登记。 |
+| CN-04 | **undercut / rebut 的否定效果必须有明示内容**：`attack_links[]` 与 `local_outcome = UNDERCUT/REBUT` 本身只是**来源承载的主张**，不自动使目标论证失效。若该攻击要作为**有明确结论的正式论证**参与下游组合，其结论端必须是关于目标论证的精确**元命题**（如“A1 的条件 C 在本次不成立”“A1 的推理规则在本次不适用”）；若只是登记一条尚未展开的削弱线索，则登记为攻击主张 + `NONE_DECLARED`（CN-02/CN-03 生效），**不得**在界面上渲染为“目标已被反驳”。 |
+| CN-05 | 允许 `NONE_DECLARED` 的 Scheme 若其结局同时出现在组合许可（SCHEME-6）中，属定义矛盾 → 该 Scheme 自身 S-L1 FAIL；由 Scheme 修订解决，不影响已登记论证的历史。 |
+
 ## 4. 身份与修订判据
 
 **身份构成字段**（改变已声明值 → 新 Argumentation）：`scheme_ref`、`engagement_target`、`engagement_role` 的 SUPPORTS/ATTACKS 类别、`conclusion` 的命题端。
@@ -89,7 +99,7 @@
 | AR-ID-1 | 补全输入绑定、条件、路径、结局、对齐声明 → 新修订（旧 revision 保留，历史检查仍锚旧 revision）。 |
 | AR-ID-2 | 换 Scheme、换讨论目标、改变实际结论内容 → 新论证；不得“就地改写”成另一件论证（否则历史依赖分析失真）。 |
 | AR-ID-3 | 条件的满足/解除、攻击登记、适用性判定**优先作为新记录**附加，而不是覆盖式修改，以便回放“当时认为条件如何”。 |
-| AR-ID-4 | 同一论证的 `DRAFT → SUBMITTED → CLOSED_DRAFT` 是生命周期修订，不改变身份，也不改变任何其它状态轴。 |
+| AR-ID-4 | 同一论证的构造状态变化（含 `CLOSED_DRAFT`、`WITHDRAWN`、`TERMINATED_BY_SCOPE`）是生命周期修订，不改变身份，也不改变任何其它状态轴。已提交过的论证不得回落到 `CLOSED_DRAFT`（§7）。 |
 | AR-ID-5 | 论证内部标识（`path_id`、`condition_id`、`role 绑定 id`）必须稳定，供攻击与依赖分析精确引用；重排这些标识等价于改变身份构成，须新对象。 |
 
 ## 5. 与其它对象的关系
@@ -126,7 +136,7 @@
 
 | 编号 | 规则 |
 | --- | --- |
-| GAP-01 | 论证跨越某缺口时，Scheme 可要求其声明 `gap_crossings[]`（缺口类型 + 两端引用 + 跨越依据）。缺声明按 Scheme 要求记 `PENDING_SEMANTICS` 或 FAIL，**不**推断“跨越不成立”。 |
+| GAP-01 | 论证跨越某缺口时，Scheme 可要求其声明 `gap_crossings[]`（缺口类型 + 两端引用 + 跨越依据）。缺声明按 Scheme 要求记 `FAIL(DEFICIENCY)`，**不**推断“跨越不成立”；目标因权限不可见 → `INDETERMINATE`（RPT-08）。 |
 | GAP-02 | 跨越本身合法：它触发 ProofObligation（如模型适用性、实现一致性、数值误差界、标定、物理验证、范围相容、不确定度传播），而非禁止该步骤。 |
 | GAP-03 | 义务 `OPEN` 时允许继续条件性探索与条件性结论（D15）；被豁免只表示有权主体允许特定使用继续，**不得**呈现为已证明。 |
 | GAP-04 | 不存在“同一 World 内的推理天然安全”这一默认：同 World 不同版本或不同表示之间的跨越同样需要声明与检查记录。 |
@@ -135,6 +145,8 @@
 ## 7. 生命周期
 
 `DRAFT`（结构可不全，R-L1 可有 FAIL 项）→ `SUBMITTED`（请求 R-L0/R-L1 检查，产生报告）→ 后续被攻击/被适用性判定/条件被解除 → 可选 `CLOSED_DRAFT`（停止推进）。
+
+**关闭与撤回是两件事**（审查修订 R5）：`CLOSED_DRAFT` 只用于**从未提交过**的草稿停止推进；已经 `SUBMITTED` 过的论证不得回落到 `CLOSED_DRAFT`，只能进入 `WITHDRAWN`（主体声明不再以此为准，附理由，历史与旧报告全部保留）或 `TERMINATED_BY_SCOPE`（范围/前提变更导致不再适用）。状态变化一律是新修订并留下来源；被撤回不删除、不隐去旧报告，也不使引用过它的下游对象自动失效（RV-03）。
 
 非阻断性（DF-07）：R-L0/R-L1 的任何 FAIL **都不阻止**保存、阅读、检索、被高阶命题讨论、继续补充输入；FAIL 只限制两件事：不得进入被认证的组合推理，不得在导出/统计中被呈现为“结构合规”。
 

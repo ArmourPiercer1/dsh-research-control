@@ -6,34 +6,64 @@
 
 ## 1. 检查报告与判定词表
 
-`CheckReport = {target 引用（可到 @rev 或 @rev#representation）, contract_version, checker 标识与版本, checked_at, subject_space, findings[]}`；`finding = {rule_id, outcome, field_path, reason_code, message}`。
+`CheckReport = {target 引用（可到 @rev 或 @rev#representation）, contract_version, checker 标识与版本, checked_at, subject_space, level_results[], findings[], declared_gaps[], coverage}`；`finding = {rule_id, outcome, severity, field_path, reason_code, message}`；`level_result = {level, verdict ∈ {ACHIEVED, NOT_ACHIEVED, INDETERMINATE}}`。
 
-| `outcome` | 含义 | 计入 |
+### 1.1 三条互不混合的判定线（审查修订 R1）
+
+先前版本把三件不同的事压进同一个 `outcome`，导致“显式承认不知道”反而使对象拿不到 S-L1。现固定为三条正交判定线：
+
+| 判定线 | 回答的问题 | 载体 | 对层级的影响 |
+| --- | --- | --- | --- |
+| **A 结构合法性** | 该检查项在此契约版本下是否满足其**结构**要求（形态、必填、引用形式、角色、取值域） | `finding.outcome` | 决定层级达成 |
+| **B 语义完备性** | 登记者是否仍声明某处未知、待定或待解析 | `declared_gaps[]` | **不**影响层级；只说明信息量 |
+| **C 可判定性** | 检查所需信息是否可见、检查器与规则是否可用 | `outcome = INDETERMINATE(reason)` | 使层级 **INDETERMINATE**，既不达成也不违规 |
+
+| 编号 | 规则 |
+| --- | --- |
+| RPT-00 | A/B/C 三条线不得互相冒充：语义待补不是结构违规；结构违规不是语义待补；检查不可执行不是前两者之一。把 B 计入 A（“因为研究者承认不知道，所以结构不合法”）是**契约缺陷**，其后果是逼迫研究者补造尚不知道的科研语义（NEV-05、DF-08）。 |
+
+### 1.2 `outcome` 与 `severity`
+
+| `outcome` | 含义 | 计入层级 |
 | --- | --- | --- |
-| `PASS` | 该检查项在此契约版本下满足 | 计入层级达成 |
-| `FAIL` | 结构/引用/角色不满足（含必填 `ABSENT`、跨类端点、非法取值） | 阻断层级达成，不阻断保存 |
-| `PENDING_SEMANTICS` | 字段为 `UNKNOWN` 或引用 `UNRESOLVED`，结构上合法但语义待补 | **不**算 FAIL，也**不**算 PASS；单列“待补语义”计数 |
-| `NOT_APPLICABLE` | 该检查项在此 kind/子型/Scheme 下不适用，须带理由 | 不计入分母 |
-| `UNKNOWN` | 检查器、规则或依赖资源不可用（超时、崩溃、版本缺失） | **绝不**折算为 FAIL 或科学否定（`F-CHECK-UNAVAILABLE`） |
+| `PASS` | 结构要求满足。**字段值为显式 `UNKNOWN(reason)`、且该字段规范允许 `UNKNOWN` 且理由合法时，仍为 `PASS`** | 计入达成 |
+| `FAIL` | 结构要求不满足：必填字段 `ABSENT`、非法取值、跨类端点、禁用字段、伪装成值的空占位、Scheme 必填角色未绑定、同空间引用缺失 | 阻断层级达成，**不**阻断保存 |
+| `NOT_APPLICABLE(reason)` | 该规则在此 kind/子型/Scheme 下**本身不适用**（与权限、可见性无关） | 不计入分母 |
+| `INDETERMINATE(reason)` | 检查**无法执行**：`reason ∈ {WITHHELD_REFERENCE, CHECKER_UNAVAILABLE, DEPENDENCY_MISSING, RULE_UNREGISTERED}` | 该层级判为 `INDETERMINATE` |
+
+`severity ∈ {DEFICIENCY, VIOLATION}`，仅在 `FAIL` 上有意义：**DEFICIENCY** = 可经后续补全或修订消除的结构欠缺（如必填项尚未登记）；**VIOLATION** = 出现契约禁止项（禁止字段、伪装占位、`latest` 进入正式声明、报告含科学判真），必须经新登记纠正且不得被“补全”掩盖。两者都阻断层级达成，但呈现与处置不同。
+
+`declared_gap = {field_path, state ∈ {UNKNOWN(reason), UNRESOLVED(ref), ABSENT}, note}`：**不是 finding**，不产生 PASS/FAIL，不参与层级计算，只如实说明“登记者声明了哪些不知道”。
+
+### 1.3 报告规则
 
 | 编号 | 报告规则 |
 | --- | --- |
 | RPT-01 | 报告**追加不可改**：新契约版本、新检查器版本重检旧对象产生**新报告**；历史 PASS 与其规则/环境/时间永久保留（C11）。 |
-| RPT-02 | 层级由“该层级全部检查项 `PASS`（或合法 `NOT_APPLICABLE`）”得出；存在 `PENDING_SEMANTICS` 时层级**未达成**但不记为违规。 |
-| RPT-03 | 报告必须携带 `subject_space` 与被屏蔽引用计数；因权限不可判定的项记 `NOT_APPLICABLE(reason=WITHHELD)`，不得记 PASS 或 FAIL。 |
-| RPT-04 | 报告不得包含科学充分性、方法恰当性、样本代表性或结论真值判断；出现此类字段即契约违规。 |
+| RPT-02 | **层级判定**：`ACHIEVED` ⟺ 该层级全部适用项为 `PASS` 或合法 `NOT_APPLICABLE`；存在任一 `FAIL` → `NOT_ACHIEVED`；存在任一 `INDETERMINATE` → `INDETERMINATE`（该结论**优先于** `ACHIEVED`，且不得呈现为“结构合规”“待补语义”或任何近似通过的措辞）。`declared_gaps[]` 非空**不改变**上述任何结论。 |
+| RPT-03 | 因权限或跨空间过滤而不可见的引用，其检查项记 `INDETERMINATE(reason=WITHHELD_REFERENCE)`；**禁止**记 `NOT_APPLICABLE`（那意味着规则不适用）、`PASS` 或 `FAIL`。报告必须携带 `coverage ∈ {COMPLETE, INCOMPLETE_DUE_TO_VISIBILITY}`；当 `coverage` 为不完整时，只允许说明“本次检查未覆盖全部引用”，**不得**给出被屏蔽项的精确计数、标识或可据以反推存在性的任何粒度（SP-03、SP-07）。 |
+| RPT-04 | 报告不得包含科学充分性、方法恰当性、样本代表性或结论真值判断；出现此类字段即 `VIOLATION`。 |
+| RPT-05 | **允许未知即可通过**：凡字段规范允许 `UNKNOWN`，其合法 `UNKNOWN(reason)` 使相关结构项 `PASS` 并进入 `declared_gaps[]`。系统不得因“研究者如实承认不知道”而使其停留在 `S-L0`，也不得为此提供任何“填个默认值即可通过”的路径（UN-02、DF-08）。 |
+| RPT-06 | **必填输入角色不适用未知语义**：Scheme 声明为必填的输入角色只有“已绑定合法端点”（`PASS`）与“未绑定”（`FAIL(ROLE_UNBOUND, severity=DEFICIENCY)`）两态；`UNBOUND(reason)` 中的 reason 只是说明，不改变判定。可选角色未绑定 → `PASS`。以空占位符伪装已绑定 → `FAIL(severity=VIOLATION)`（CS-06）。 |
+| RPT-07 | **只查声明，不判语义**：凡涉及“含义是否改变、是否等价、翻译是否忠实、量词是否真的绑全、原意是否如此”的规则，机器只检查**声明字段存在、形态合法、彼此不矛盾**；声明内容是否为真由原意确认（IC-S6）、评价（A6）与后续 S-L2/形式化承担。机器永不因为一个 `UNCHANGED` 声明存在就认为语义等价已被验证（RPT-07、NEV-01、NEV-07）。 |
+| RPT-08 | **引用不可用按原因三分**，不得一律通过或一律失败：同空间目标不存在 → `FAIL(REF_UNRESOLVED, DEFICIENCY)`；目标可能位于无权空间 → `INDETERMINATE(WITHHELD_REFERENCE)`；引用连五态都未声明（空串、空集合、缺字段）→ `FAIL(STATE_UNDECLARED, VIOLATION)`（UN-01、UN-03、UN-05）。 |
 
-## 2. 七种记录形态的区分（本轮要求的分类）
+## 2. 八种记录形态的区分（本轮要求的分类）
 
-| 记录形态 | 落点 | 状态组合 | 是否可保存 |
+同一份报告必须能把下列形态彼此区分开；它们对应不同的判定线组合（§1.1），不得合并呈现。
+
+| 记录形态 | 落点 | 判定组合 | 是否可保存 |
 | --- | --- | --- | --- |
-| ① 无法解析的原始记录 | H 原始记录（IC-H3），**不是**正式对象 | 无 S 层级；原文+来源完整 | 是（最低门槛即保存） |
-| ② 已解析但语义字段不完整 | 正式对象，`S-L0` 达成、`S-L1` 未达成 | `FAIL(reason=REQUIRED_ABSENT)` + `PENDING_SEMANTICS` | 是 |
-| ③ 具有基本合法引用与结构 | `S-L1` 达成（论证另可 `R-L0`/`R-L1` 达成） | 全项 PASS/`NOT_APPLICABLE` | 是 |
-| ④ 需要主体确认但未确认 | `S-L1` 达成 + 状态轴 A3 `UNCONFIRMED` | `confirmation ≠ S-L1`；两者独立呈现 | 是 |
-| ⑤ 结构合法但科学上可能错误 | `S-L1`（+ `R-L1`）达成 + 相反 Assessment 并存（A6） | 结构合规 ≠ 科学有效（D18） | 是，且必须能同时看到相反意见 |
-| ⑥ 尚未形式化的合法命题 | `S-L1` 达成 + `representations` 为空或含 `UNKNOWN` 等价声明 | 无 S-L2；形式化非前置条件 | 是 |
-| ⑦ 条件未满足但可继续探索的论证 | `R-L1` 达成 + `path_conditions.status = OPEN` + 义务 `OPEN` | 不阻断条件性使用（D15） | 是 |
+| ① 无法解析的原始记录 | H 原始记录（IC-H3），**不是**正式对象 | 无 S 层级；原文 + 来源完整 | 是（最低门槛即保存） |
+| ② 已解析但语义字段不完整 | 正式对象，`S-L0` 达成；`S-L1` 视缺失字段而定 | 必填 `ABSENT` → `FAIL(DEFICIENCY)`；可选字段显式 `UNKNOWN` → `PASS` + `declared_gaps` | 是 |
+| ③ 具有基本合法引用与结构 | `S-L1` `ACHIEVED`（论证另可 `R-L0`/`R-L1` `ACHIEVED`） | 全部适用项 `PASS`/合法 `NOT_APPLICABLE`；`declared_gaps` 有无皆可，不影响达成 | 是 |
+| ④ 需要主体确认但未确认 | `S-L1` `ACHIEVED` + 状态轴 A3 `UNCONFIRMED` | `confirmation ≠ S-L1`；两者独立呈现，互不换算 | 是 |
+| ⑤ 结构合法但科学上可能错误 | `S-L1`（+ `R-L1`）`ACHIEVED` + 相反 Assessment 并存（A6） | 结构合规 ≠ 科学有效（D18）；报告不含充分性判断（RPT-04） | 是，且必须能同时看到相反意见 |
+| ⑥ 尚未形式化的合法命题 | `S-L1` **`ACHIEVED`** + `representations` 缺省或含 `UNKNOWN` 等价声明（进 `declared_gaps`） | 无 S-L2；形式化不是前置条件，也不因未形式化而降级 | 是 |
+| ⑦ 条件未满足但可继续探索的论证 | `R-L1` **`ACHIEVED`** + `path_conditions.status = OPEN` + 义务 `OPEN` | 条件未满足是研究状态，不是结构违规（C12、D15） | 是 |
+| ⑧ 引用因权限不可见而无法判定 | 正式对象，层级 `INDETERMINATE` | 相关项 `INDETERMINATE(WITHHELD_REFERENCE)`；`coverage = INCOMPLETE_DUE_TO_VISIBILITY` | 是；**不得**被呈现为“合规”或“不合规”，也不得据此推断被屏蔽内容 |
+
+**易混对**：②/③ 的差别只在**必填**字段是否缺失，不在“是否还有未知”；⑦ 与 ② 的差别在于结构已完整而条件尚未满足；⑧ 与 ② 的差别在于信息**存在于系统之外或他人空间**，不是登记者未提供。
 
 ## 3. 通用检查项（适用全部五类）
 
@@ -43,7 +73,7 @@
 | `SL0-COM-02` | `object_kind` 明确 | kind 缺失或取值不在五类 | 提交 `kind: RESEARCH_ITEM` |
 | `SL0-COM-03` | `space_id` 明确 | 缺失或多值 | “公共空间”对象试图被两个空间写入 |
 | `SL1-COM-01` | 全部引用为精确形式或显式 `UNRESOLVED` | 出现 `latest` / 无版本引用于正式声明位置（ID-05、RF-02） | 论证结论端写 `P7(latest)` |
-| `SL1-COM-02` | 全部同空间引用可解析；跨空间引用呈现 `WITHHELD` | 引用其他空间对象且未标注为不可见 | 借公共概念引用另一空间的私有实验个体 |
+| `SL1-COM-02` | 引用可解析性按 RPT-08 三分：同空间缺失 `FAIL`、无权可见 `INDETERMINATE`、未声明五态 `FAIL` | 把无权可见记为 PASS/FAIL/NOT_APPLICABLE 中的任一种 | 借公共概念引用另一空间私有个体，却报“对象不存在” |
 | `SL1-COM-03` | 每个字段有明确五态之一 | 空串/空集合被用作“未知”替代 | `world_ref: ""` 表示不知道 |
 | `SL1-COM-04` | 不出现禁止字段（真值、置信度、当前有效等） | 出现 §“明确禁止字段”中的任一 | 命题带 `confidence`；关联带 `is_current` |
 | `SL1-COM-05` | 来源与主体字段存在或显式 `UNKNOWN` | 既无主体也无 `UNKNOWN(reason)` | 匿名“系统自动”结论无来源材料 |
@@ -53,7 +83,7 @@
 
 ### 4.1 Entity（`SL1-ENT-*`）
 
-`SL1-ENT-01` 活动个体的导出形态声明为活动而非资源；`SL1-ENT-02` 观测子型的结果引用允许缺失但须显式（失败观测可无 Result，`NOT_APPLICABLE` 需理由）；`SL1-ENT-03` 资源个体若声明载体则哈希形态合法，未声明记 `PENDING_SEMANTICS`；`SL1-ENT-04` 可用性**不作为布尔字段**存在（检查其有无，有即 FAIL）；`SL1-ENT-05` 关系类内容（上下游、使用、生成）不得写进 Entity 字段（FAIL）；`SL1-ENT-06` RegistryEntry 与被登记资源的引用方向正确；`SL1-ENT-07` 计划态与已发生态互斥取值。
+`SL1-ENT-01` 活动个体的导出形态声明为活动而非资源；`SL1-ENT-02` 观测子型的结果引用允许缺失但须显式（失败观测可无 Result，`NOT_APPLICABLE` 需理由）；`SL1-ENT-03` 资源个体若声明载体则哈希形态合法；未声明载体 → `PASS` + `declared_gaps`（RPT-05）；`SL1-ENT-04` 可用性**不作为布尔字段**存在（检查其有无，有即 FAIL）；`SL1-ENT-05` 关系类内容（上下游、使用、生成）不得写进 Entity 字段（FAIL）；`SL1-ENT-06` RegistryEntry 与被登记资源的引用方向正确；`SL1-ENT-07` 计划态与已发生态互斥取值。
 **负例**：给失败采集伪造 `sosa:Result` 以通过检查；把设备上下游塞进 `Entity.upstream`；把跨空间不可用呈现为“资源不存在”。
 
 ### 4.2 Concept（`SL1-CON-*`）
@@ -63,16 +93,16 @@
 
 ### 4.3 Association（`SL1-ASS-*`）
 
-`SL1-ASS-01` `relation_type_ref` 解析到关系类型定义；`SL1-ASS-02` 参与者 ≥2 且角色名在类型声明内；`SL1-ASS-03` `directionality` 存在；`SL1-ASS-04` `described_interval` 存在或显式 `UNKNOWN`；`SL1-ASS-05` 来源主张存在或显式 `UNKNOWN`（后者 FAIL，仍保存）；`SL1-ASS-06` 无真值/置信度/当前有效字段；`SL1-ASS-07` 冲突与替代主张引用可解析；`SL1-ASS-08` 采用信息**不**内联在关联字段中（发现即 FAIL，要求改为采用记录）。
+`SL1-ASS-01` `relation_type_ref` 解析到关系类型定义；`SL1-ASS-02` 参与者 ≥2 且角色名在类型声明内；`SL1-ASS-03` `directionality` 存在；`SL1-ASS-04` `described_interval` 存在或显式 `UNKNOWN`；`SL1-ASS-05` 来源主张存在或显式 `UNKNOWN`（后者 FAIL，仍保存）；`SL1-ASS-06` 无真值/置信度/当前有效字段；`SL1-ASS-07` 关联对象内**不得**存在冲突/替代内联字段（出现即 FAIL/VIOLATION；冲突与替代只能作为独立主张记录，AS-CF-1）；冲突主张记录自身的两端引用须可解析，同空间缺失 → FAIL、无权可见 → `INDETERMINATE`；`SL1-ASS-08` 采用信息**不**内联在关联字段中（发现即 FAIL，要求改为采用记录）。
 **负例**：`is_current` 字段；把 T2 下游记录写成对 T1 上游记录的反证；用 `skos:related` 表达具体设备关系。
 
 ### 4.4 Argumentation 的 S 侧（`SL1-ARG-S*`）
 
-`SL1-ARG-S1` 讨论目标、结论端、局部结局三个角色可区分（缺任一显式角色 = `PENDING_SEMANTICS`；把三者写成同一字段 = FAIL）；`SL1-ARG-S2` 程度值（若有）携带尺度引用（缺失记 `PENDING_SEMANTICS`，其**参与运算的资格**由 §5 `RL1-*` 控制）；`SL1-ARG-S3` `construction_state` 与结局/层级字段互不推导（出现映射约束即 FAIL）。
+`SL1-ARG-S1` 讨论目标、结论端、局部结局三个角色可区分：角色缺声明 → `FAIL(ROLE_UNDECLARED, DEFICIENCY)`，把三者压进同一字段 → `FAIL(VIOLATION)`；`SL1-ARG-S2` 程度值（若有）携带尺度引用或显式 `UNKNOWN`：两者皆无 → `PASS` + `declared_gaps`，其**参与运算与比较的资格**由 §5 `RL1-08` 独立判定（S 侧宽松、R 侧严格，不是同一件事）；`SL1-ARG-S3` `construction_state` 与结局/层级字段互不推导（出现映射约束即 FAIL）。
 
 ### 4.5 Proposition（`SL1-PRO-*`）
 
-`SL1-PRO-01` `primary_expression` 存在且非空；`SL1-PRO-02` 每个表示带 `equivalence_claim`（沉默按 `UNKNOWN` 记 `PENDING_SEMANTICS`）；`SL1-PRO-03` 表示若声明 `SAME_TRUTH_CONDITIONS` 则必须有声明者（缺 → FAIL）；`SL1-PRO-04` 表示若 `added_assumptions` 非空则**禁止** `SAME_TRUTH_CONDITIONS`（违反 → FAIL，对应 CS-22）；`SL1-PRO-05` `world_ref`/`scope_refs`/`dimension_binding`/`variable_bindings` 存在或显式 `UNKNOWN`；`SL1-PRO-06` 修订携带 `truth_condition_claim`，且 `CHANGED` 却写同一 PropositionID → FAIL（PR-ID-4）；`SL1-PRO-07` 提及集合的角色合法、允许 `SELF`；`SL1-PRO-08` 无真值/概率/fact_status 字段；`SL1-PRO-09` 子型专有字段满足（如 ASSESSMENT 需 assessor 与精确目标；FACT_DESIGNATION 需动作与精确命题版本）。
+`SL1-PRO-01` `primary_expression` 存在且非空；`SL1-PRO-02` 每个表示带 `equivalence_claim`；沉默按 `ABSENT` 进 `declared_gaps` 且 `PASS`（未说明 ≠ 说明了不知道，也 ≠ 结构违规，UN-03）；`SL1-PRO-03` 表示若声明 `SAME_TRUTH_CONDITIONS` 则必须有声明者（缺 → FAIL）；`SL1-PRO-04` 表示若 `added_assumptions` 非空则**禁止** `SAME_TRUTH_CONDITIONS`（违反 → FAIL，对应 CS-22）；`SL1-PRO-05` `world_ref`/`scope_refs`/`dimension_binding`/`variable_bindings` 存在或显式 `UNKNOWN`；`SL1-PRO-06` 修订携带 `truth_condition_claim`，且 `CHANGED` 却写同一 PropositionID → `FAIL(VIOLATION)`（PR-ID-4）。**本项只查声明与 ID 的一致性，不判断新旧表述是否真的同真值条件**（RPT-07）；`SL1-PRO-07` 提及集合的角色合法、允许 `SELF`；`SL1-PRO-08` 无真值/概率/fact_status 字段；`SL1-PRO-09` 子型专有字段满足（如 ASSESSMENT 需 assessor 与精确目标；FACT_DESIGNATION 需动作与精确命题版本）。
 **负例**：Lean 公式加进来就把 `equivalence_claim` 默认成“等价”；把 `¬P` 写成 P 的一个表示；评价性命题缺 assessor。
 
 ## 5. R-L0 / R-L1（仅 Argumentation）
@@ -81,21 +111,23 @@
 | --- | --- | --- |
 | `RL0-01` | 声明了 `scheme_ref` 且解析到合法 InferenceSchemeDefinition | 缺失/悬空 → **FAIL**（本版本不是正式论证，转研究材料保存） |
 | `RL0-02` | Scheme 版本引用精确 | `latest` → FAIL |
-| `RL1-01` | Scheme 声明的必填输入角色全部有绑定 | `UNBOUND(reason)` → `PENDING_SEMANTICS`；空占位/占位符 → **FAIL**（`CS-06`） |
+| `RL1-01` | Scheme 声明的必填输入角色全部有合法端点 | 必填角色未绑定（含 `UNBOUND(reason)`）→ **FAIL**(`ROLE_UNBOUND`, DEFICIENCY)；空占位伪装已绑定 → **FAIL**(VIOLATION)（`CS-06`、RPT-06）；可选角色未绑定 → PASS |
 | `RL1-02` | 每个绑定的端点类别 ∈ 该角色允许类别 | 违反 → FAIL（`ROLE_CATEGORY_MISMATCH`，如把文件当数学前提） |
 | `RL1-03` | 目标形式符合 Scheme 声明（命题端为精确 PropositionRevision；被讨论目标允许为论证/关联） | 违反 → FAIL |
-| `RL1-04` | 结论模式合法；`NONE_DECLARED` 与结局取值相容 | 冲突 → FAIL（如 `ASSERTS` 却无命题端） |
+| `RL1-04` | 结论模式合法：满足 Scheme 的 `conclusion_policy`，且 `NONE_DECLARED` 与结局取值相容 | `ASSERTS` 却无命题端 → FAIL；`NONE_DECLARED` 而 Scheme 为 `REQUIRED` → FAIL(`CONCLUSION_NOT_ALLOWED`)；Scheme 未声明 policy → FAIL(`CONCLUSION_POLICY_UNDECLARED`)（CN-01/CN-02） |
 | `RL1-05` | `local_outcome` ∈ Scheme 声明的结局词表 | 越界 → FAIL（`OUTCOME_NOT_IN_SCHEME`） |
-| `RL1-06` | 每条路径的前提引用可解析 | 悬空 → `PENDING_SEMANTICS` |
+| `RL1-06` | 每条路径的前提引用可解析 | 同空间悬空 → FAIL(`REF_UNRESOLVED`, DEFICIENCY)；无权可见 → `INDETERMINATE(WITHHELD_REFERENCE)`（RPT-08） |
 | `RL1-07` | 条件均带 `path_scope`；作用域指向存在的稳定标识 | 悬空作用域 → FAIL（`CONDITION_SCOPE_UNRESOLVED`） |
-| `RL1-08` | 程度值存在时 `scale_ref` 与 `allowed_operations` 齐备 | 缺失 → FAIL（`DEGREE_SCALE_UNDECLARED`，CS-10） |
+| `RL1-08` | 程度值存在时 `scale_ref` 存在，且 `allowed_operations` **被显式声明**（可为空集 `NONE`） | 缺 `scale_ref` → FAIL(`DEGREE_SCALE_UNDECLARED`)；`allowed_operations` 未声明或含义未定 → FAIL(`OPS_STATE_UNDECLARED`)；显式 `NONE` → **PASS**：只读局部程度值合法，仅不得参与任何运算（CS-10） |
 | `RL1-09` | 攻击引用的目标论证/路径/条件可解析；undercut 指明被打掉项或元命题 | 悬空 → FAIL |
-| `RL1-10` | Scheme 要求对齐的角色均有 `alignment_claim.relation`（`UNKNOWN` 合法） | 缺失 → FAIL（`ALIGNMENT_UNDECLARED`，CS-12/CS-13） |
+| `RL1-10` | Scheme 要求对齐的角色均有 `alignment_claim.relation`（**显式 `UNKNOWN` 是合法取值 → PASS + `declared_gaps`**） | 完全缺声明 → FAIL(`ALIGNMENT_UNDECLARED`, DEFICIENCY)（CS-12/CS-13） |
 | `RL1-11` | Scheme 要求独立性声明时 `shared_dependency_refs` 存在或显式 `UNKNOWN` | 缺失 → FAIL；**不**判定实际独立性 |
 | `RL1-12` | 证明依赖图中的引用环不被自动赋支持 | 环检测：只标注“存在依赖环”，**不**因此 FAIL 也**不**授予证书（C10） |
-| `RL1-13` | Scheme 要求声明语义跨越时，`gap_crossings[]` 存在且两端引用可解析 | 未声明 → FAIL(`GAP_CROSSING_UNDECLARED`)；声明但目标悬空 → `PENDING_SEMANTICS`；**不**判定跨越是否成立（Argumentation GAP-01/GAP-05） |
+| `RL1-14` | 无结论论证不被组合引用 | `mode = NONE_DECLARED` 的论证出现在某组合规则的输入端或另一论证的输入绑定中 → FAIL(`NO_CONCLUSION_NOT_COMPOSABLE`)（CN-03）；提示性引用与讨论不受限 |
+| `RL1-15` | 攻击的否定效果有明示内容 | `attack_links` / `UNDERCUT` / `REBUT` 只登记为主张；若该论证要参与下游组合而结论端为空 → FAIL(`ATTACK_WITHOUT_META_PROPOSITION`)（CN-04）。**不**判定攻击是否成立 |
+| `RL1-13` | Scheme 要求声明语义跨越时，`gap_crossings[]` 存在且两端引用可解析 | 未声明 → FAIL(`GAP_CROSSING_UNDECLARED`, DEFICIENCY)；声明但目标同空间缺失 → FAIL(`REF_UNRESOLVED`)；无权可见 → `INDETERMINATE`；**不**判定跨越是否成立（Argumentation GAP-01/GAP-05） |
 
-`RL1-*` 全部通过 → `R-L1` 达成。**明确不检查**：Scheme 选得是否恰当、样本代表性、统计模型适用、归纳强度、类比相关性、演绎是否真为有效证明、结论科学正确性、条件是否实际满足、结论是否值得接纳。
+`RL1-*` 全部 `PASS`/合法 `NOT_APPLICABLE` → `R-L1` `ACHIEVED`；任一 `INDETERMINATE` → `R-L1` `INDETERMINATE`（RPT-02）。**明确不检查**：Scheme 选得是否恰当、样本代表性、统计模型适用、归纳强度、类比相关性、演绎是否真为有效证明、结论科学正确性、条件是否实际满足、结论是否值得接纳。
 
 ## 6. 明确不属于 S-L0/S-L1 的检查（负面清单）
 
@@ -107,6 +139,7 @@
 | NEV-04 | 要求形式化、谓词逻辑化或全库术语消歧作为 S-L0/S-L1 前置 | 主基线 §2、D17 |
 | NEV-05 | 用“缺失即违规”“未知即不合规”惩罚研究者（缺失只 `FAIL` 于必填且允许 `UNKNOWN` 表达） | UN-01/UN-03 |
 | NEV-06 | 生成科学正确性总评分或把四轴压成单值 | 系统合同 R3 |
+| NEV-07 | 把“声明已存在”当作“语义等价/原意忠实/真值条件未变已被验证”；也不得反向把未声明的语义缺口呈现为结构违规 | RPT-05、RPT-07、IC-S6 |
 
 ## 7. 扩展边界（只留接口，不设计规则）
 
@@ -119,4 +152,4 @@
 
 ## 8. 落地的最小验证预期（供后续测试设计，非已运行）
 
-每条 `PASS`/`FAIL` 规则都需要：一个正例、一个仅违反该规则的反例、一个“显式 `UNKNOWN` 因而 `PENDING_SEMANTICS`”的例子；CS-01–CS-24 的映射见[组合与反例矩阵](H_S_R_COMPOSITION_MATRIX_DRAFT.md)。**本轮未编写或运行任何 validator、Schema 或测试**；上述只是可测试性要求。
+每条规则都需要：一个正例、一个仅违反该规则的反例、一个“允许 `UNKNOWN` 的字段如实声明未知 → **仍 `PASS` 且出现在 `declared_gaps`**”的例子，以及一个“引用被权限屏蔽 → 层级 `INDETERMINATE`”的例子（后者是防止隔离退化的必备用例）；CS-01–CS-24 的映射见[组合与反例矩阵](H_S_R_COMPOSITION_MATRIX_DRAFT.md)。**本轮未编写或运行任何 validator、Schema 或测试**；上述只是可测试性要求。

@@ -77,7 +77,7 @@
 | PR-ID-1 | 补全 `UNKNOWN/ABSENT → DECLARED` 且不改变原主张 → 新修订 | 原命题 `world_ref = UNKNOWN`，作者后补 `M`（并声明当时就指 M） |
 | PR-ID-2 | 同真值条件下的措辞澄清、译文新增、表示更新 → 新修订 | 修正笔误；补充 FOL 候选（`APPROXIMATE`） |
 | PR-ID-3 | 数值、量词、World、范围或构成性定义版本改变 → 新 Proposition，并由 H 链连接 | “100 fs”→“120 fs”；“M 中 RMS”→“真实装置 W2 中 FWHM” |
-| PR-ID-4 | 每次修订必须携带 `truth_condition_claim ∈ {UNCHANGED, CHANGED}` 与 `change_basis`（说明文本）；`CHANGED` 而仍写同 ID 时规范化 FAIL（结构可判，不判语义） | 声称“只是澄清”却把 `∀` 改成 `∃` → FAIL |
+| PR-ID-4 | 每次修订必须携带 `truth_condition_claim ∈ {UNCHANGED, CHANGED}`、`completion_basis ∈ {SAME_INTENT_CONFIRMED, NEW_JUDGEMENT, UNDETERMINED}` 与 `change_basis`（说明文本）。`CHANGED` 而仍写同 PropositionID → 规范化 FAIL（结构可判，不判语义，RPT-07）。**身份判据优先于补全规则**：`completion_basis = NEW_JUDGEMENT` 或 `truth_condition_claim = CHANGED` 时一律新建命题；只有 `SAME_INTENT_CONFIRMED + UNCHANGED` 才允许同 ID 修订（RV-01 修订）。`UNDETERMINED` 时保留原版本 + 登记 `INTERPRETATION_DIVERGENCE`，系统不自动选边（RV-06）。 | 声称“只是澄清”却把 `∀` 改成 `∃` → FAIL；把“测量定义由未定确认为 RMS”判为修订（合法），把“改用 FWHM 重新给出结论”判为修订 → 应为新命题 |
 | PR-ID-5 | 不同主体各自登记的命题默认是**不同对象**，即使文本相同；合并需显式登记等价候选 | 两位作者写下同一句“时间分辨率约 120 fs”但 World 不同 |
 | PR-ID-6 | 已发布 revision 永不可变；评价、接纳与论证锁定旧 revision（RV-03、DF-06） | — |
 
@@ -125,7 +125,14 @@
 
 ### 6.3 `DECISION_BASIS`（决策自述）
 
-主体、决策所指、`considered_refs[]`（当时声称考虑了什么）、主观性声明。规则：仅由 H 保存并具语义；**禁止**作为论证 `INFERENTIAL` 前提（可作背景说明）；事后补录不得改写决策时点的历史视图（T-02）。
+主体、决策所指、`considered_refs[]`（当时声称考虑了什么）、主观性声明。规则：
+
+| 编号 | 规则 |
+| --- | --- |
+| DB-01 | 自述**不自动**代表真实决策因果：系统不得由“某人声称考虑过 X”推断 X 实际影响了决策，也不得把它自动升格为推理前提（DF-01、不变量 3）。 |
+| DB-02 | 但自述**本身是有效历史证据**：作为“某主体在某时点如此登记”的记录，它可以经**显式** `INFERENTIAL` 角色参与**关于该决策过程的元论证**（如复盘、责任追溯、流程审查），此时结论端必须是关于决策过程的高阶命题，而不是被自述内容的科学真伪。登记时必须声明所引用的是“自述这一事实”而非“X 为真”。 |
+| DB-03 | 禁止的是**隐式**路径：不得存在“DECISION_BASIS 自动进入正式论证前提集”“自述被检索命中即算支持”之类的默认规则；一切使用都经显式角色与精确版本（RF-02）。 |
+| DB-04 | 事后补录不得改写决策时点的历史视图（T-02）。 |
 
 ### 6.4 `PROOF_OBLIGATION`（规范性义务命题）
 

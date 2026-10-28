@@ -153,7 +153,7 @@ InferenceSchemeDefinition 是 **R-L0/R-L1 的检查依据**：R-L0 检查“论�
 | --- | --- |
 | SCHEME-1 | **输入角色声明**：每个角色必须声明角色名、允许对象类别集合（开放：Entity/Concept/Association/Argumentation/Proposition，另含“内部值”）、基数（0..1 / 1 / 1..n / all）、是否必填、含义说明。缺失必填角色 → 该论证 R-L1 FAIL（不得空占位，CS-06）；角色类型不符 → FAIL。 |
 | SCHEME-2 | **条件槽位**：每槽声明名、含义、不满足时行为。不满足 = 条件保留在该路径上并报告（C03、C07）；登记者可声明 `on_failure = NO_SUPPORT_OUTCOME`（该路径因此不产出本 Scheme 的支持结局，须显式标记）。**该声明只约束结局生成，绝不阻断登记、保存、阅读、检索或被条件性探索**（DF-07、D15）：不存在“阻断保存”的 BLOCKING 取值。条件无法核实 ≠ 条件被反证（C12、CS-08）。 |
-| SCHEME-3 | **目标形式**：结论端为精确 PropositionRevision（C02、RD-08）；讨论目标可为论证/关联/他对象精确修订（元论证用）。禁止声明“目标可为任意/latest”。 |
+| SCHEME-3 | **目标与结论形式**：结论端为精确 PropositionRevision（C02、RD-08），且必须声明 `conclusion_policy ∈ {REQUIRED, OPTIONAL, NONE_ONLY}`（CN-01）：`OPTIONAL` 允许 `NONE_DECLARED`（如“已完成但无区分力”）；`NONE_ONLY` 用于纯探索型。讨论目标可为论证/关联/他对象精确修订（元论证用）。禁止声明“目标可为任意/latest”；允许无结论的 Scheme 不得同时在其组合许可中引用该结论（CN-05）。 |
 | SCHEME-4 | **局部结局词表**：每个 Scheme 声明它允许哪些结局及各自含义（如演绎：STRICT_SUPPORT/INCONCLUSIVE；归纳：INDUCTIVE_SUPPORT（附代表性义务）/INCONCLUSIVE；证据：EVIDENTIAL_SUPPORT/CONFLICT/INCONCLUSIVE）。结局是**局部**结局（A4），不是全局真值（C02）；未声明的结局论证端不可用（R-L1 FAIL：结局越出词表）。 |
 | SCHEME-5 | **程度值尺度与允许运算**：Scheme 能产生程度值时必须声明 DegreeScaleDefinition@rev（尺度语义、逻辑 Profile、允许运算、版本）。**未声明尺度时禁止任何比较/平均/相乘/取最小/概率读法**（C02、CS-10）；不同 Scheme 的程度值默认不可比（C06）。计算得到的概率/后验是科学结果，不是本尺度对象（RD-17）。 |
 | SCHEME-6 | **组合许可**：该 Scheme 输出（命题/结局）可否作为另一 Scheme 输入、条件为何：角色映射（输出进入对方哪个角色）+ 对齐要求（概念版本、World/Scope、量纲一致，C05）+ 条件保留（C06/C07）。未声明 = 无组合许可；路径仅可追踪，不支持传递（C06、CS-15）。 |
@@ -171,6 +171,8 @@ InferenceSchemeDefinition 是 **R-L0/R-L1 的检查依据**：R-L0 检查“论�
 | Scheme 能产生程度值，但尺度未声明且未声明“不产生程度值” | PASS | FAIL | SCHEME-5（登记者必须二选一） |
 | 条件槽位存在但 `on_failure` 未声明 | PASS | PASS（默认 PRESERVED+REPORTED，报告列待补） | SCHEME-2（规范默认，不是值补全，UN-02） |
 | `scheme_target_form` 未声明或声明“自由目标” | PASS | FAIL | SCHEME-3（ID-05、DF-03） |
+| `conclusion_policy` 未声明 | PASS | FAIL | SCHEME-3 / CN-01（论证端无法判定无结论是否合法） |
+| 允许 `NONE_DECLARED` 却在组合许可中引用其结论 | PASS | FAIL | CN-05（定义自相矛盾） |
 | 必需项齐备但 Critical Questions 为空 | PASS | PASS | SCHEME-7（问题可选、非阻断） |
 
 ## 8. World 类型与研究维度/选项

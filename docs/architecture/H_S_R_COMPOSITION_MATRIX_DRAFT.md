@@ -19,7 +19,7 @@
 | **CC-09** 共享来源不制造独立证据 | C09 | `shared_dependency_refs` | IC-R3 | `RL1-11`（只查声明，不判独立性） |
 | **CC-10** 引用环可记录，不自动获得证明力 | C10 | 对象引用图与证明依赖图可区分；Scheme 专用规则 | IC-R2 | `RL1-12`（只标注，不 FAIL、不授证） |
 | **CC-11** 版本、历史检查与重检不混写 | C11 | 全部 `@rev` 精确引用；`verification_records` 追加；`lossReport` | IC-S2/S5/S6、IC-R6 | RPT-01、`SL1-COM-01`、PR-ID-6 |
-| **CC-12** 缺失/未知/截断/超时/权限与科学否定分离 | C12 | 五态字段；`F-*` 失败码；边界标注 | IC-H7、IC-R7/R11、IC-P2/P5 | `PENDING_SEMANTICS`/`UNKNOWN` 语义、`SL1-COM-02/03` |
+| **CC-12** 缺失/未知/截断/超时/权限与科学否定分离 | C12 | 五态字段；`F-*` 失败码；边界标注 | IC-H7、IC-R7/R11、IC-P2/P5 | `declared_gaps[]`/`UNKNOWN` 语义、`SL1-COM-02/03` |
 
 ## 2. CS-01–CS-24 映射（预期行为 + 落点）
 
@@ -30,7 +30,7 @@
 | CS-03 旧布局用于今天 | 新采用记录 + `applicability_context` 明示假设 | IC-A3 | 假设或核验依据可见；无伪造核验 | CC-01/CC-04 |
 | CS-04 关联被命题讨论并被质疑 | Association@rev + 元命题 + ASSESSMENT | IC-S8 → IC-R8 | 关联历史不变；无第二套真假状态 | CC-01/CC-08 |
 | CS-05 无区分力实验 | `conclusion=NONE_DECLARED`、`local_outcome=INCONCLUSIVE` | IC-R1/R2 | 完整保存；不产出 ¬P；非草稿标签 | CC-02/CC-03 |
-| CS-06 数据未补齐 | 路径 `UNBOUND(PENDING_INPUT)`、`construction_state=DRAFT` | IC-R1/R2 | 可保存；R-L1 FAIL 入账；无空占位伪装 | CC-03、`RL1-01` |
+| CS-06 数据未补齐但 Scheme 要求该角色 | `R-L1` `NOT_ACHIEVED`（`ROLE_UNBOUND`, DEFICIENCY）；对象照常保存 | IC-R1 → IC-R2 | 必填角色只有绑定/未绑定两态，`UNBOUND(reason)` 不改变判定（RPT-06）；空占位伪装是 VIOLATION | CC-02、CC-12、RL1-01 |
 | CS-07 归纳完整但样本偏倚 | `R-L1` 达成 + 代表性 Assessment | IC-R2 → IC-R8 | 结构合规与科学质疑并存互不覆盖 | CC-03、NEV-02 |
 | CS-08 条件不可核实 vs 已证不满足 | `path_conditions.status=UNKNOWN` 与 `CONTESTED`+元命题 | IC-R4 / IC-R5 | 二者呈现不同；前者不转 ¬C | CC-12、`F-CHECK-UNAVAILABLE` |
 | CS-09 适用性检验失败 | META_APPLICABILITY 论证 + `applicability_records` | IC-R1/R5 | A1 与其结论保留；仅本次用途受限 | CC-02/CC-03 |
@@ -72,7 +72,13 @@
 | XC-14 | 从“数值预测”直接得到“真实装置成立”，未声明跨越与依据 | GAP-01/GAP-04、C05 | `RL1-13`、`RL1-10` |
 | XC-15 | 把 H 检查记录当作论证的输入角色端点 | RF-05（记录不是语义端点） | `RL1-02` |
 | XC-16 | 跨空间导入后仍显示源空间对象链接，读者可点进不可见对象 | SP-05/SP-02 | 导入即新建对象；`F-WITHHELD` |
-| XC-17 | 把贝叶斯后验直接填成论证支持度 | RD-17、C02（尺度含义不同） | `RL1-08`、Argumentation §8 |
+| XC-17 | 把贝叶斯后验直接填成论证支持度 | RD-17、C02（尺度含义不同） | `RL1-08`、Argumentation §8 || XC-18 | 被权限屏蔽的引用记 `NOT_APPLICABLE`，其余项通过 → 整层被判 PASS | 隔离不得伪造检查结论（SP-08、RPT-03） | 必须 `INDETERMINATE`，层级不可判定 |
+| XC-19 | 为拿到 S-L1 而给未知工况填默认值 | DF-08、UN-02、RPT-05：规范化奖励虚构 | 如实 `UNKNOWN` 即应 PASS + `declared_gaps` |
+| XC-20 | 登记 `UNDERCUT` 后界面把目标论证渲染为“已被反驳” | CN-04、DF-01：攻击是主张不是效果 | 显示为“某主体主张削弱”，结论端为元命题或无结论 |
+| XC-21 | 条纹相机由配置 W₁ 换到 W₂ 就新建 Entity | EN-W-1/EN-W-2：使用语境不是身份 | 同一 Entity 修订 + 语境个体/使用关系 |
+| XC-22 | 冲突主张写回两条关联各自的内联字段，旧关联被标 `superseded` | AS-CF-1/AS-CF-5、RD-10 修订 | 独立高阶主张 + 可重建视图，原对象不改写 |
+| XC-23 | 查询返回“被屏蔽 3 条”导致推断他空间存在性 | SP-03 粒度受限、SP-07 侧信道 | 只报“有内容被权限过滤”，无计数 |
+| XC-24 | 用单一 `as_of` 回答“按 10-28 已登记记录重建 9-01 状态” | T-05：知识截点与对象时间混为一谈 | `recorded_as_of` × `described_at` 双条件（IC-H6） |
 
 ## 4. 一致性自查结论
 

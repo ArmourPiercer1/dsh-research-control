@@ -216,3 +216,41 @@ F1–F4 + F5（settings 0.2 模型）全部落地；门禁与冒烟（2026-10，
   ~~双主题~~ ✅t63 截图覆盖；仍待人眼：已保存瞬态观感、插件管理页 unload-reload
   重现、真 enable/disable 泄漏环、investigator 一键调查。
 - **investigator 一键调查 GUI 走查**：待浏览器批次（与上同批）。
+
+## 架构健康审查意见收编（2026-10-27，只追加）
+
+- 审查基线 main@3d5bd18 的四个有界任务包由 PR #41（main `d560a25`）收编，
+  门禁/世界/产物/状态四面的「已定义规则 → 可执行可验证约束」落地：
+  1. **冻结契约门禁**：8 根文档入 probe 规则（FROZEN_CONTRACT_ROOT blocking）；
+     `--fail-on-blocking` 真投票（VOTING 面 = 冻结契约/事件/历史/持久化权限），
+     人工批准机验标记 `Frozen-Face-Review: <日期> <批准人>`；哈希同步不代替审查。
+  2. **测试世界安全**：`scripts/smoke-root-guard.sh`（rm -rf 前 root/reset 双点
+     机验，13 例红/绿矩阵入 CI）；writeguard 真实路径解析拒符号链接逃逸；
+     **V2 验收正式入口 git 化**（`e2e/world-bootstrap.sh` + `e2e/run.sh` +
+     `seed-fixtures.mts`，从零 bootstrap 新世界 t61/t63 全绿实证）。
+  3. **产物完整性**：freshness 反向比对（build 多出未跟踪产物 = LIB_UNTRACKED_
+     ARTIFACTS）；pack-verify lib 集合 git↔tarball 精确一致；investigator
+     TS2307 修复，类型债务台账 20→19（tsc 门恒 identity-exact）。
+  4. **状态与适应性**：`registry.v3_status`（#9/#10 已合并 = 设计通道关闭 ≠
+     正式契约生效，PROPOSAL 单独表述）；BASELINE_READY 证书该行改 registry
+     派生 + `--check` 新鲜度门入 CI（历史证书不冒充最新状态）；hub 棘轮
+     （host/index.ts、rpc-services.ts 行数、wiring/create.ts 字节，只降不升）。
+- 过程中的自纠记录（追加即证据）：首次 --emit 在脏时点快照进 NEW DEBT/STALE
+  两行且 emit 后 --check 恒自匹配（无效验证）——重生成于已提交态并逐行验内容；
+  CI probe 步浅克隆 bad base ref exit 2 系旧 continue-on-error 掩盖的潜伏缺陷，
+  fetch-depth 0 修复（红→绿记录在 PR #41）。
+- 审查遗留（未入四包、待排期）：真实 Host 组合批次（11 工具调用、Agent/USER
+  权限隔离、investigator 写拒绝、歧义拒绝、unload-reload——浏览器/live 面，
+  与 GUI 人眼批次同批）；`known_debts.e2e_spec_layer` 维持登记（上游语义）。
+
+## 设计代次谱系（B+）落地（2026-10-27，只追加）
+
+- 用户批准执行 B+（PR #45，main `b68c759`，ADR-0003）：设计文档代次语义获得
+  机验落点——supersedes 边（悬空/旧版冒充现行/缺回链 = 红）、
+  `registry.design_lines`（现行/首代/切换锚 80e546e/封存策略）、
+  `docs/architecture/superseded/` 哈希封存门（append-only + origin 必填）。
+- 语义边界记录在案：**「哪一代生效」保持人工事实**，机器只保证登记的
+  路径、状态词汇与锚不撒谎；V3 首代封存待 V3 契约批准同 PR 执行
+  （seal_policy 已登记于 design_lines.v3）。
+- 过程自纠一次：docs:sync 只索引 tracked 文件，ADR-0003 提交前跑 sync 造成
+  CI 索引红——提交后 sync→amend 修复（红→绿在 PR #45 两次 run 对比）。

@@ -57,10 +57,25 @@ known_debts:
     kind: obsolete-reference
     summary: scripts/e2e-run.sh 终段引用的 e2e/smoke.*.spec.ts 已在 9275eef（V2 全量验收、V1 specs archived）移入 e2e/v1-archived/，且两份 playwright 配置均显式 testIgnore 归档目录——脚本在 pin 世界起服后必然 No tests found。基线自带、非 2026-10 train 迁移引入（rc.2 世界实证：pin 校验/播种/research seed/起服全过，唯 spec 层死引用）。
     evidence: .scratch/e2e-rc2g.log（2026-10-26，train 0.2.0-rc.2 世界）
-    upgrade_path: V2 GUI 验收正走 acceptance.config.ts 的 t42–t74 矩阵；e2e-run.sh 的 spec 阶段应改为 V2 等价物或由上游同步——涉及测试语义，按 AGENTS §4 上游语义不变项需上游动作或用户裁决，不本地私改。
+    upgrade_path: V2 GUI 验收正走 acceptance.config.ts 的 t42–t74 矩阵；e2e-run.sh 的 spec 阶段应改为 V2 等价物或由上游同步——涉及测试语义，按 AGENTS §4 上游语义不变项需上游动作或用户裁决，不本地私改。V2 正式入口已落地（docs/testing.md「V2 验收正式入口」，2026-10-27）。
   typescript:
     kind: known-failing
     baseline: dev/engineering/tsc-debt.ids
     baseline_prose: docs/BASELINE_TSC_BASELINE.md
     comparison: 归一化诊断身份（文件+错误码），禁止按条数相等判等
     upgrade_path: 独立清偿到零错误后升级为常规 tsc required 门
+
+v3_status:
+  design_prs: #9/#10（V2 设计与 PoC 计划）已合并——历史设计通道关闭，不再是执行依据
+  formal_contract: docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md = PROPOSAL（人工批准前不生效；批准状态由人工在评审中给出，本登记不冒充批准）
+
+design_lines:
+  v3:
+    line: V3 语义接线与接入契约——首代设计通道 #9/#10 已合并关闭，不再是执行依据
+    current: docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md
+    current_state: DRAFT-PROPOSAL——人工批准前不生效；生效/冻结由人裁定，机器只查路径与锚
+    first_gen: docs/poc/V3_POC_EXECUTION_PLAN.md
+    switch_anchor: 80e546e
+    switch_note: §8 用户裁定 ITERATE + 准许起草 V3 正式契约（该提交）；切换前首代文档仍是执行依据
+    seal_policy: V3 契约批准的同 PR 对首代原件哈希封存（scripts/seal-superseded.mjs --write，树 docs/architecture/superseded/，然后补登记 seal_manifest）
+

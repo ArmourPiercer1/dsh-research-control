@@ -110,6 +110,16 @@ if [ -n "${DSH_HOME:-}" ] && [ "$DSH_HOME" != "$FORCED_DSH_HOME" ]; then
       ;;
   esac
 fi
+# P0#2 机械验证守卫（审查意见 2026-10-27）：DSH_SMOKE_ROOT 是覆盖项且 --reset
+# 会在其下 rm -rf——根必须规范化后位于工作区隔离区内（或带显式 .dsh-smoke-root
+# 标记），且不得是符号链接/要害目录。跑在一切锁与写入之前。
+if ! _SRG_OUT="$(bash "$REPO_DIR/scripts/smoke-root-guard.sh" root "$SMOKE_ROOT" "$REPO_DIR")"; then
+  printf '[e2e-run] FATAL: smoke root 被守卫拒绝（scripts/smoke-root-guard.sh，审查意见 P0#2）\n' >&2
+  exit 2
+fi
+SMOKE_ROOT_CANON="${_SRG_OUT#CANON=}"
+log_or_echo() { printf '[e2e-run] %s\n' "$*"; }
+log_or_echo "smoke root guard passed (canonical: $SMOKE_ROOT_CANON)"
 DSH_HOME="$FORCED_DSH_HOME"
 export DSH_HOME
 DSH_BIN="$SMOKE_ROOT/cli/node_modules/.bin/dsh"
@@ -319,6 +329,10 @@ seed_research() {
   # REGISTRY at launch time (declarative, fiber-scoped — no file), so on a
   # fresh smoke home this rm is a no-op touching only legacy residue.
   if [ "$RESET" = "1" ]; then
+    # P0#2 二次校验：破坏性目标必须严格位于（已机验的）smoke root 之内且非符号链接。
+    bash "$REPO_DIR/scripts/smoke-root-guard.sh" reset "$SMOKE_ROOT_CANON" \
+      "$E2E_REPO" "$DSH_HOME/research-control" "$DSH_HOME/.agent-presets/research-investigator" \
+      || die "reset refused by smoke-root guard (P0#2) — refusing destructive step"
     log "reset: removing $E2E_REPO (smoke workspace), $DSH_HOME/research-control (research DB) and $DSH_HOME/.agent-presets/research-investigator (ensured investigator preset)"
     rm -rf "$E2E_REPO" "$DSH_HOME/research-control" "$DSH_HOME/.agent-presets/research-investigator"
     mkdir -p "$E2E_REPO"

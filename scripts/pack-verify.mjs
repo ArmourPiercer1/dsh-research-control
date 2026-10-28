@@ -129,6 +129,20 @@ check(
   'rpc-contracts js/d.ts hash twins look unmatched',
 )
 
+// -- lib/ 集合精确一致（审查意见 P1#3，2026-10-27）：git ↔ build ↔ tarball。
+// 上面的 freshness 门（build 段）证明 git == build；这里证明 tarball == git。
+// 任一腿断裂 = git-install 与 tarball-install 运行不同的产物集合。
+const gitLib = execFileSync('git', ['ls-files', '--', 'lib'], { cwd: PLUGIN_ROOT, encoding: 'utf8' })
+  .split('\n')
+  .filter(Boolean)
+check(gitLib.length > 0, 'git ls-files -- lib returned nothing — refusing to report a green set comparison')
+const tarLib = entries.filter((e) => e.startsWith('lib/'))
+const libMissing = gitLib.filter((f) => !tarLib.includes(f))
+const libExtra = tarLib.filter((f) => !gitLib.includes(f))
+check(libMissing.length === 0, `lib artifact(s) tracked in git but MISSING from the tarball: ${libMissing.join(', ')}`)
+check(libExtra.length === 0, `lib artifact(s) in the tarball but NOT in git (P1#3 set drift): ${libExtra.join(', ')}`)
+if (libMissing.length === 0 && libExtra.length === 0) log(`lib set exactly equal: ${gitLib.length} artifact(s) git == tarball`)
+
 // -- required: the schema snapshot is COMPLETE (all 23 frozen files,
 //    counted against the workspace-root source when available)
 const schemaEntryCount = entries.filter((e) => e.startsWith('schema/')).length

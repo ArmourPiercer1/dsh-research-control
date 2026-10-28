@@ -114,6 +114,7 @@ ObjectRevisionEnvelope = {
 | `scheme_composition_permission` | `composition_roles[] = {role_name, direction ∈ {OUTPUT_AS, INPUT_AS}, target_scheme: ref?, requires_conclusion, alignment_refs[], condition_carrying}` | D / U（未声明 = 无许可，默认关闭） / A | — | SCHEME-6、CN-03、CN-05、CN-06、`RL1-14` |
 | `critical_questions[]` | `{question, template_ref: ref?, blocking = false}` 集合 | D / A | — | SCHEME-7、D15 |
 | `world_type_declaration`（WorldType 子型） | 开放类型声明（**禁止**封闭取值集合） | D / A | — | CO-W-1、`SL1-CON-03`（**槽位名属本层命名**，契约未命名字段） |
+| `superordinate` | `ref?`（上位概念，SKOS `broader` 语义；契约写作 `superordinate`/`broader`，本层键名取 `superordinate`） | D / U / A | — | Concept 契约 §3 该行；LEXICAL 与 SUBSTANTIVE 的边界由登记者标注（`CO-REV-5`） |
 | `frame_dimensions[]` / `frame_options[]`（ResearchFrame 子型） | 维度/选项定义集合，option 标识唯一 | D / A | — | `SL1-CON-07`、CO-W-3、CO-W-4、CO-W-6（**槽位名属本层命名**：契约只给"维度/选项"的中文阅读名，未命名字段） |
 | 禁止键 | `is_correct`、`truth_value`、`recommended_definition`、`is_current`、latest 指针、`auto_merged_into`、`scientific_validity_score`、任何信任阶梯字段 | 出现即形态非法 | — | `SL1-COM-04`、ID-07、D13 |
 
@@ -165,6 +166,7 @@ ObjectRevisionEnvelope = {
 | `composition_records[]` | `rec:` 集合 | D / A | — | C06 |
 | `obligation_refs[]` | `ref` 集合（证明义务） | D / A | — | D15、`RL1-*` 义务面 |
 | `gap_crossings[]` | `{gap_kind, from_ref: ref, to_ref: ref, basis_ref}` 集合（Scheme 要求声明语义跨越时必填） | D / NA(Scheme 未要求时带 reason) / A | — | GAP-01、`RL1-13`、`SCHEME-7` |
+| `evidence_polarity` | `vocab(evidence_polarity)` ∈ {SUPPORT, REBUT, UNDERCUT, NEUTRAL, UNRESOLVED}（证据子型适用） | D / U（证据子型必填或 `UNKNOWN`）/ NA(非证据子型带理由) | — | 论证契约 §3 `evidence_polarity` 行；`UNRESOLVED` 合法（≠ 无倾向） |
 | `attack_links[]` | **非可写载荷槽位**——由攻击登记记录派生的阅读视图；主张内容（`kind`、`target_argumentation_rev`、`target_path?`、`target_condition?`、`meta_proposition_rev?`）只存在于攻击登记记录（SS-49） | 不可写 | — | `RL1-09`、`RL1-15`、AR-ID-3、IC-R5、CN-04 |
 | `inference_method` / `logical_force` | `vocab(...)` | D / U | — | `SL1-*`（与 Scheme 声明一致性只查声明） |
 | `verification_status` / `current_status` | **无槽位**（派生视图） | 不可写 | — | RPT-04、AX-03 |
@@ -234,7 +236,20 @@ subtype_entry = { subtype_code, kind, slot_set[], identity_slots[],
 
 ## 6. 负面清单（构造层拒绝）
 
-`{"@st":"DECLARED","v":[]}`；缺 `@st`；缺槽位；`UNKNOWN` 带 `v`；集合元素位放 `NOT_APPLICABLE`/`UNKNOWN`（SF-14）；无版本引用、`latest`、`space:` 前缀；`rec:` 赋给端点槽位；Entity 内关系/使用清单；Association 内冲突/替代内联字段；任何 `confidence`/`score`/`truth`/`is_current`/`fact_status`/单一 `status`；对象内 `head_revision`/`is_head`；子型自声明身份槽位；把 Scheme/关系类型写成字符串码（SRG-01）。
+**形态类**（任何对象）：`{"@st":"DECLARED","v":[]}`；缺 `@st`；缺槽位；`UNKNOWN` 带 `v`；集合元素位放 `NOT_APPLICABLE`/`UNKNOWN`（SF-14）；无版本引用、`latest`、`space:` 前缀；`rec:` 赋给端点槽位；载荷重复信封键（SS-09）；键名以 `@` 开头（SF-02a）。
+
+**禁止键（封闭集，按对象；校验器按此表逐字拒绝，出现即形态非法）**：
+
+| 对象 | 禁止键（逐字取自契约的"明确禁止存在的字段"） | 出处 |
+| --- | --- | --- |
+| 通用（五类皆禁） | `is_true`、`truth_value`、`is_current`、`is_verified`、`confidence`、`confidence_score`、任何 `latest` 跟随指针、任何 `latest-write-wins` 派生标记 | Association 契约 §2、Proposition 契约 §2.4、Entity 契约 §3.6、Concept 契约 §3.4（四份清单交集） |
+| Entity | `is_available`、`is_currently_retrievable`、`is_deleted`、`is_valid`、任何 Association 语义字段（`upstream_of`、`used_by`、`next_to` 等） | Entity 契约 §3.6 |
+| Concept | `is_correct`、`recommended_definition`、`auto_merged_into`、`scientific_validity_score`、任何"版本信任级/信任阶梯"字段 | Concept 契约 §3.4 |
+| Association | `validity`、`reliability_score`、`superseded`（作布尔位）、`conflict_refs`、`supersede_refs`、任何"系统已确认现状"隐含状态 | Association 契约 §2 |
+| Proposition | `global_probability`、`fact_status`、`merged_into` | Proposition 契约 §2.4 |
+| Argumentation | `passed`、`is_valid`（作机器裁决位）、`support_score`（无尺度的支持度聚合）、`verified`（把检查通过当验证） | 论证契约的检查/验证分离（`AR-*`、`RV-*`）、CS-11 |
+
+**本表是封闭集**：新增禁止键 = 契约层变更，本层不得自行扩充（否则等于偷偷新增领域禁令）。理由列在契约侧（DF-01/DF-05/DF-07、C02/C11、D13），本层只负责把它变成可逐字校验的形态规则。
 
 ## 7. 落地的最小验证预期（供后续测试设计，非已运行）
 

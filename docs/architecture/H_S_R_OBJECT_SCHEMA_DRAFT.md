@@ -105,7 +105,7 @@ ObjectRevisionEnvelope = {
 | `standard_vocabulary_alias` | 标准 URI（仅精确等价） | D / A | — | CO-SKOS-2、DF-10 |
 | `predicate_signature[]` | `{role, type_ref: ref?, dimension_ref: ref?, world_constraint: ref?}` 集合 | D / U / A（空合法） | ★ 参数/类型/量纲变化 → 新 Concept | CO-ID-4、CO-REV-5、`SL1-CON-04` |
 | `quantifier_scope` | `{kind ∈ vocab, scope_ref: ref?}` | D / U / A | ★ 量词类型变化 → 新 Concept | CO-REV-5 |
-| `hard_constituent_set` | 硬含义构成集声明（签名/量词/尺度等的集合化声明） | D / U | ★（越过硬集合 → 新 Concept） | CO-REV-5、RD-23（[方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md)，同 PR #42） |
+| 硬含义构成集 | **不是对象槽位**：它由契约层 CO-REV-5 的种子清单 + 子型注册表的 `identity_slots` 决定（SS-50），对象**不得**自行声明"哪些字段对我算硬含义"——否则每条记录都能放宽自己的身份判据，`CO-REV-5` 与 RV-04 当场失效 | 不可写 | — | CO-REV-5、SS-50、RV-04 |
 | `scheme_input_roles[]` | `{role_name, allowed_kinds[], cardinality, required}` 集合 | D / A（非 Scheme 子型 → NA 带 reason） | ★ 必需集合/角色类型约束变化 → 新 Concept | SCHEME-1 |
 | `scheme_condition_slots[]` | `{slot_name, meaning, on_failure}` 集合 | D / A（空合法；`on_failure` 缺省即规范默认） | ★ 槽位删除/含义变化 → 新 Concept | SCHEME-2 |
 | `scheme_target_form` | `{conclusion_form = PROPOSITION_REVISION, discussion_forms[]}` | D（**不可** `UNKNOWN`） | ★ | SCHEME-3、ID-05、DF-03 |
@@ -113,8 +113,8 @@ ObjectRevisionEnvelope = {
 | `degree_scale_declaration` | `ref?`（DegreeScaleDefinition）或显式"不产生程度值"声明 | D / U / A | ★ 尺度变化 → 新 Concept | SCHEME-5、`RL1-08` |
 | `scheme_composition_permission` | `composition_roles[] = {role_name, direction ∈ {OUTPUT_AS, INPUT_AS}, target_scheme: ref?, requires_conclusion, alignment_refs[], condition_carrying}` | D / U（未声明 = 无许可，默认关闭） / A | — | SCHEME-6、CN-03、CN-05、CN-06、`RL1-14` |
 | `critical_questions[]` | `{question, template_ref: ref?, blocking = false}` 集合 | D / A | — | SCHEME-7、D15 |
-| `world_type_declaration`（WorldType 子型） | 开放类型声明（**禁止**封闭取值集合） | D / A | — | CO-W-1、`SL1-CON-03` |
-| `frame_dimensions[]` / `frame_options[]`（ResearchFrame 子型） | 维度/选项定义集合，option 标识唯一 | D / A | — | `SL1-CON-07`、CO-W-3、CO-W-4、CO-W-6 |
+| `world_type_declaration`（WorldType 子型） | 开放类型声明（**禁止**封闭取值集合） | D / A | — | CO-W-1、`SL1-CON-03`（**槽位名属本层命名**，契约未命名字段） |
+| `frame_dimensions[]` / `frame_options[]`（ResearchFrame 子型） | 维度/选项定义集合，option 标识唯一 | D / A | — | `SL1-CON-07`、CO-W-3、CO-W-4、CO-W-6（**槽位名属本层命名**：契约只给"维度/选项"的中文阅读名，未命名字段） |
 | 禁止键 | `is_correct`、`truth_value`、`recommended_definition`、`is_current`、latest 指针、`auto_merged_into`、`scientific_validity_score`、任何信任阶梯字段 | 出现即形态非法 | — | `SL1-COM-04`、ID-07、D13 |
 
 **Concept 编码要点**
@@ -122,7 +122,7 @@ ObjectRevisionEnvelope = {
 | 编号 | 规则 |
 | --- | --- |
 | SS-35 | `definition_version_claim` 与 `revision_class` 是**修订专有槽位**，每次修订必填且不得 `ABSENT`（CO-REV-1）；校验器只比较"声明"与"实际改动的键集合"，不判语义实质（RPT-07、`SL1-CON-02`）。 |
-| SS-36 | `hard_constituent_set` 与 `concept_subtype` 一起进入子型注册表的 `identity_slots`；`definition_text` 的措辞变化不是身份变化（软区修订，RD-23）。 |
+| SS-36 | Concept 的身份构成槽位集由子型注册表声明（`concept_subtype`、`predicate_signature`、`quantifier_scope`、尺度声明等，取自 CO-REV-5 种子清单），**不由对象自己声明**（SS-50）；`definition_text` 的措辞变化不是身份变化，属软区修订（RD-23，[方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md)，同 PR #42）。 |
 | SS-37 | Scheme 专有槽位对非 Scheme 子型必须是 `NOT_APPLICABLE(reason)` 或整槽缺省为 NA，**不得**留空对象伪装适用（SF-14）。 |
 | SS-38 | `composition_roles[].requires_conclusion` 是布尔必填：缺该键 → `FAIL(COMPOSITION_ROLE_UNDECLARED)`；与"接受 `NONE_DECLARED` 填充"同时为真 → `FAIL(COMPOSITION_ROLE_CONTRADICTION)`（SCHEME-6）。 |
 | SS-39 | `standard_vocabulary_alias` 只在精确等价时存在，且**不**参与身份判定；`closeMatch` 级别的关系不得写入本槽位（CO-SKOS-2、DF-10）。 |

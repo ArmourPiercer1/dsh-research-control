@@ -70,7 +70,7 @@
 | `hsr_context_compile` (IC-P2) | `subject`(`ref` 集合或范围), `budget` | `must_include[]`, `as_of`, `perspective` | 上下文包 **或** `status = INSUFFICIENT_BUDGET` + 缺口清单 | `F-PARTIAL` | `S`(按参与者授权) | 必需前提/量词/World/版本引用不得静默截断；预算不足必须拒发而非编造（SI-54） |
 | `hsr_scope_export` (IC-P3) | `scope`, `profile` | `version_selection`, `loss_policy` ∈ {REPORT, REFUSE_ON_CORE} | 导出工件 + `lossReport[]`(位置/字段/动作) | `F-PARTIAL`, `F-WITHHELD` | `S` | 核心面（身份/来源/版本/未知/状态）往返无损；不得改写 W3C 语义（DF-10） |
 | `hsr_summary_query` (IC-P4) | `scope` | `axes[]`, `as_of` | 摘要 + 明确的"未包含"清单 | `F-PARTIAL` | `A`/`S` | 不得由摘要运算生成程度值/通过率（C02、C06、NEV-06） |
-| `hsr_object_query` (IC-P5) | `query` | `filters`, `as_of`, `cursor`, `limit`, `sort_key` | 结果 + 来源 + 冲突提示 + 缺失范围 + 层级 + `boundary` | `F-PARTIAL`, `F-WITHHELD` | `S`(权限类) | 排序键受限（SI-52）；跨空间过滤必须按 SP-03 粒度假装不可见 |
+| `hsr_object_query` (IC-P5) | `query` | `filters`, `as_of`, `cursor`, `limit`, `sort_key` | 结果 + 来源 + 冲突提示 + 缺失范围 + 层级 + `boundary` | `F-PARTIAL`, `F-WITHHELD` | `S`(权限类) | 排序键受限（SI-52a）；跨空间过滤必须按 SP-03 粒度假装不可见；**任何截断必须报告**（`exhausted` + 截断量，不得静默少返，IC-P5、SI-55） |
 
 ## 7. 元操作
 

@@ -54,6 +54,7 @@
 | SF-13 | **`WITHHELD` 不进入持久形态。** 它是读取时按调用者授权计算出的呈现状态（SP-02、UN-05）。落盘一个 `WITHHELD` 等于把"他空间存在某物"写进本空间记录，直接制造存在性侧信道（SP-07）。持久形态里只有 `DECLARED`/`UNKNOWN`/`NOT_APPLICABLE`/`UNRESOLVED`/`ABSENT`。 |
 | SF-14 | 多值槽位：状态标记挂在**槽位**上；集合内每个元素可以是 `DECLARED` 或 `UNRESOLVED` 的带标签值，其余状态在元素位禁止（避免"集合里混着一个 UNKNOWN"被读成"整槽未知"）。集合为空且 `@st = DECLARED` → `FAIL`；未知集合一律 `@st = UNKNOWN(reason)`。 |
 | SF-15 | 判定次序固定：**先**按空间/权限过滤算出呈现态，**再**报告记录态；被过滤者呈现为 `WITHHELD`（同空间确实缺失才可能呈现 `UNRESOLVED`），无法区分时保守取 `WITHHELD`（SP-02）。 |
+| SF-16 | **`NOT_APPLICABLE` 不是"零义务"逃逸口**：`NOT_APPLICABLE(reason)` 只在**该槽位所属规则声明允许不适用**（规则条目的 `na_allowed: true`，SCR-76）且 `reason` 属于**该规则声明的可接受理由集** `na_reasons[]`（唯一真源在规则条目里，SCR-76；词表注册表**不得**再存一份槽位作用域，否则两处可各自漂移，SRG-21 只负责"码是否注册过"这一件事）时，才不产生 `FAIL`。未声明允许、或理由越界、或理由是自由文本 → `FAIL(NOT_APPLICABLE_UNDECLARED, DEFICIENCY)`。理由：`NOT_APPLICABLE` 是唯一会**消掉必填义务**的状态，若理由不受控，任何记录都能用一句"本例不适用"绕过 S-L1 检查，而这在形态上是完全合法的（SF-11 只能拦住空容器）。`UNKNOWN` 的 `reason` 同理必须取自契约层五态表的注册取值，不得自由发挥。 |
 
 ## 4. 标识与引用编码
 

@@ -93,7 +93,7 @@ reason_code_entry = { code, applies_to ∈ {NOT_APPLICABLE, INDETERMINATE, FAIL,
 ```
 rule_entry = { rule_id, doc_ref, level, applies_to{kind, subtypes[], scheme_role?},
                field_selector?, outcome_on_fail, severity_default, unknown_allowed,
-               contract_version, negative_case_refs[] }
+               na_allowed, na_reasons[]?, contract_version, negative_case_refs[] }
 ```
 
 | 编号 | 规则 |
@@ -104,6 +104,7 @@ rule_entry = { rule_id, doc_ref, level, applies_to{kind, subtypes[], scheme_role
 | SCR-73 | `negative_case_refs[]` 必须至少含一条反例编号（`CS-*`/`XC-*`/`CC-*`），使每条规则可被测试锚定（契约层 §8 的可测试性要求）。 |
 | SCR-74 | 规则集变更一律 bump `rule_set_version`；新增规则可能改变历史 verdict，但**只产生新报告**，历史报告按其钉住的旧版本重放（SF-62、DF-06）。 |
 | SCR-75 | 规则注册表自身是**非对象记录**（`rec:` 可引用），不是第六类对象；其条目状态机同注册表生命周期（`ACTIVE/DEPRECATED`，SF-64）。 |
+| SCR-76 | **`na_allowed` 与 `unknown_allowed` 对称**：规则条目必须声明其槽位是否允许登记方标注 `NOT_APPLICABLE`，以及允许的理由集 `na_reasons[]`（缺省 `na_allowed: false`）。据此：槽位值为 `NOT_APPLICABLE` 而规则未允许 → `FAIL(NOT_APPLICABLE_UNDECLARED, DEFICIENCY)`；理由不在集内 → `FAIL(NOT_APPLICABLE_SCOPE_MISMATCH, DEFICIENCY)`。一致性检查另须捕获"契约声明该槽位可缺却未给任何规则声明 `na_allowed`"（否则缺失只能靠 `ABSENT` 表达，两者语义不同，SF-12）。这条封堵的是**形态合法但语义后门**的通路：自由文本"不适用"曾是本层最大的必填逃逸口。 |
 
 ## 8. 负面清单
 
@@ -117,6 +118,7 @@ rule_entry = { rule_id, doc_ref, level, applies_to{kind, subtypes[], scheme_role
 4. 视图同形：SCR-54 的两个世界逐字节比较；且存储层禁止出现 `UNVERIFIABLE_*`（写盘前校验）。
 5. 分母稳定：构造"规则不适用"与"规则未执行"两种世界，`level_result` 输入集合必须可区分。
 6. 版本钉住：同一对象在两个 `rule_set_version` 下重检 → 两份报告并存、旧报告字节不变、verdict 可不同。
+7a. 不适用逃逸：对某必填槽位打 `NOT_APPLICABLE(reason="不适用")`，在 `na_allowed` 未声明的规则下必须 `FAIL(NOT_APPLICABLE_UNDECLARED)`；换成注册内的合法理由后必须不再 FAIL（同一对象两跑，只差状态标签）。
 7. 规则表一致性：注册表中 `unknown_allowed = false` 而契约要求允许未知的条目 → 一致性检查报错。
 8. `field_path` 可解析：每条 finding 的指针必须能在被检对象的规范形态中定位（否则报告自身非法）。
 

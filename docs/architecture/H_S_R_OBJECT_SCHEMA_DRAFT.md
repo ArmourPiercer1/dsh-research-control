@@ -233,6 +233,8 @@ subtype_entry = { subtype_code, kind, slot_set[], identity_slots[],
 | SS-51 | `declared_params` 只接受注册表声明过的参数名；未知参数名 → 注册表条目非法（与记录侧同理的封闭模型）。 |
 | SS-52 | 子型条目变更槽位集或身份槽位集 → 新版本；已登记记录按其 `identity_slot_set_digest` 重放（SS-12、SF-62）。 |
 | SS-53 | 子型退役不删除：`DEPRECATED` 条目永久可解析（SF-64）。 |
+| SS-54 | **`identity_slots` 锚定在契约层**：子型条目的 `identity_slots` 必须是契约层该 `kind` 身份构成表所列槽位的**超集**——可以追加更严格的子型专有身份槽位，**不得删除、置空或"暂不启用"任何契约已列出的槽位**。注册一致性检查对不满足者判定条目非法（不得启用）；否则注册一个 `identity_slots: []` 的子型就能让该类对象永久失去身份判据，这是比记录自声明（SS-50）更大的洞，因为注册表在记录之上。 |
+| SS-55 | **`completion_basis` 不得覆盖身份变化**：若变化集触及 `identity_slots` 中**已声明**的值，任何 `completion_basis`（含 `SAME_INTENT_CONFIRMED`）都**不被接受**，请求按 `F-CONFLICT` 拒绝并提示应新建对象（G-REV、RV-04）。理由：`completion_basis` 是登记者对"这是同一事项的补全"的主张，而身份判据不能由主张放宽——否则"改判成另一台设备 + 标原意确认"就是合法的同 ID 身份漂移。 |
 
 ## 6. 负面清单（构造层拒绝）
 

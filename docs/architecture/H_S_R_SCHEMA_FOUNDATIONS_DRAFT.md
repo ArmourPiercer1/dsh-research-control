@@ -134,7 +134,7 @@
 | 编号 | 规则 |
 | --- | --- |
 | SF-70 | 本层设计的工件在获得批准前**只以设计文档形态存在**于 `docs/architecture/**`（Proposed）。本轮 PR **不新增、不修改任何 `schema/**` 文件**。 |
-| SF-71 | 落地时的最小顺序（登记，不排期）：**⓪ ID 前缀命名空间裁决**——本层的临时裁决是「HSR 前缀不进 V1 冻结 25 表」（否则必须同时改 `DOMAIN_SCHEMA.md` §1.1、bump `.research/schema-version`、同步 `src/shared/ids/registry.ts` 镜像与 `schema/common.schema.json` 的 25 个 pattern，四处同一提交）；若改为进表，则本条与 SF-26 需一并重写 → ① 新增 `schema/hsr/*.schema.json` 工件 → ② `pnpm run snapshot:update` 使契约与清单同一提交 → ③ PR body 写 `Frozen-Face-Review:` 人工批准 → ④ probe 面投票通过。缺任何一步，构建或门禁会红 |
+| SF-71 | 落地时的最小顺序（登记，不排期）：**⓪ ID 前缀命名空间裁决**——本层的临时裁决是「HSR 前缀不进 V1 冻结 25 表」（否则必须同时改 `DOMAIN_SCHEMA.md` §1.1、bump `.research/schema-version`、同步 `src/shared/ids/registry.ts` 镜像与 `schema/common.schema.json` 的 25 个 pattern，四处同一提交）；若改为进表，则本条与 SF-26 需一并重写 → ① 新增 `schema/hsr/*.schema.json` 工件 → ② `pnpm run snapshot:update` 使契约与清单同一提交 → ③ PR body 写 `Frozen-Face-Review:` 人工批准 → ④ probe 面投票通过。缺任何一步，构建或门禁会红——**机验点已核到代码**：`scripts/snapshot-release.mjs` 对正源与 `SNAPSHOT.md` 双向 sha256，任一漂移即 `CONTRACT_DRIFT` 构建失败；`scripts/docs/probe.mjs` 在存在 BLOCKING 票且 PR body 无 `Frozen-Face-Review: <日期> <批准人>` 时直接失败 |
 | SF-72 | HSR 工件与既有 `schema/declarative/**`、`schema/history/**`、`schema/operational/**` **命名空间分离**，不复用、不修改既有事件信封与声明式记录类型；需要新的历史事件族时，那是**另一次**冻结面变更 + 独立评审，不得借道本层。 |
 | SF-73 | 在事件族问题被裁决前，本层**不声称** HSR 记录已进入"单一事件真源"；只声称：HSR 记录自身的追加式存储由本层编码定义，与 V1 历史面的关系是待裁决项（见[Schema 决策与遗留](H_S_R_SCHEMA_DECISIONS_DRAFT.md) SD-07、SR-OPEN）。 |
 

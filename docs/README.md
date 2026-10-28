@@ -73,6 +73,7 @@
 | `docs/architecture/adr/README.md` | Proposed |
 | `docs/decisions/ADR-0001-in-repo-canonical-source.md` | Current |
 | `docs/decisions/ADR-0002-lightweight-governance.md` | Current |
+| `docs/decisions/ADR-0003-design-lineage-supersession-seal.md` | Current |
 | `docs/design/V3_TYPED_RESEARCH_EPISTEMICS_ARCHITECTURE_DRAFT.md` | Historical |
 | `docs/development.md` | Current |
 | `docs/engineering-baseline/EXECUTION_PLAN.md` | Current |

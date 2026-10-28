@@ -71,11 +71,47 @@ const lines = [
     return `- \`${k}\`（${v.kind}）：${facts}`
   }),
   '- SI-001 裁决书原件 / 外部 V2 设计 / 计划书 = UNKNOWN（仓外不可访问，不伪造）。',
-  '- V3（#9/#10）= Draft，未生效；本视图不为其状态背书。',
+  // V3 status is a REGISTRY fact (审查意见 P1#4): the hand-typed "V3 = Draft"
+  // line outlived #9/#10's merge and would let an agent act on a stale PR
+  // state. 设计通道 vs 正式契约状态 分开表述，本视图仍不背书批准与否。
+  ...Object.entries(registry.v3_status ?? { missing: 'registry.v3_status 缺失——补登记（人工事实）' }).map(([k, v]) => `- V3（${k}）：${v}`),
   '- CI required status 配置与否见 G3 记录（观察先于强制）。',
+  '',
+  // 设计线（ADR-0003）：现行代/切换锚/封存策略全部 registry 派生——本视图
+  // 不手写任何代次状态（手写 = 上次失真的成因）。
+  '## 设计线（registry.design_lines 派生）',
+  '',
+  ...Object.entries(registry.design_lines ?? {}).map(([k, v]) =>
+    `- \`${k}\`：现行 = \`${v.current}\`（${v.current_state}）· 切换锚 \`${v.switch_anchor}\` · 首代 \`${v.first_gen}\` · 封存：${v.seal_policy}`),
   '',
 ]
 const text = lines.join('\n')
+// 证书新鲜度（审查意见 P1#4）：`--check <path>` 比较生成内容与已提交文件，
+// 忽略 `> Generated:` 头（它按定义描述生成时的 SHA）。内容漂移 = exit 1：
+// 历史证书不得冒充最新状态——事实变了必须在同 PR `--emit` 重生成。
+const checkIdx = process.argv.indexOf('--check')
+if (checkIdx !== -1) {
+  const p = resolve(ROOT, process.argv[checkIdx + 1] ?? 'docs/engineering-baseline/gates/G3-baseline-ready.md')
+  let committed = ''
+  try {
+    committed = readFileSync(p, 'utf8')
+  } catch {
+    console.error(`[baseline-ready] --check: 证书不存在：${p}`)
+    process.exit(1)
+  }
+  const strip = (t) => t.split('\n').filter((l) => !l.startsWith('> Generated:')).join('\n').trimEnd()
+  if (strip(committed) !== strip(text)) {
+    const a = strip(committed).split('\n')
+    const b = strip(text).split('\n')
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      if (a[i] !== b[i]) console.error(`  diff@${i + 1}:\n    committed: ${a[i] ?? '(absent)'}\n    generated: ${b[i] ?? '(absent)'}`)
+    }
+    console.error('[baseline-ready] STALE：已提交证书与当前生成内容不一致（忽略 Generated 头后仍有差异）。事实已变化——运行 pnpm run baseline:ready --emit docs/engineering-baseline/gates/G3-baseline-ready.md 并随本 PR 提交。')
+    process.exit(1)
+  }
+  console.log('[baseline-ready] certificate current (ignoring the Generated header)')
+  process.exit(0)
+}
 const out = process.argv.indexOf('--emit')
 if (out !== -1) {
   const p = process.argv[out + 1]

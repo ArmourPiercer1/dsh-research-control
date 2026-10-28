@@ -52,7 +52,7 @@ import type {
   AnalysisTypedRef,
   InvestigatorTransientDto,
   SaveAnalysisRecordArgs,
-} from '../../shared/analysis-command.js'
+} from '../../../shared/analysis-command.js'
 import {
   initialSaveFieldValues,
   OBJECT_KINDS,

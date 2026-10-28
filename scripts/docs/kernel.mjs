@@ -107,6 +107,19 @@ export function ownershipFor(rules, path) {
  * ------------------------------------------------------------------ */
 const PROBE_RULES = [
   {
+    // The 8 root contracts themselves (审查意见 P0#1, 2026-10-27): before this
+    // rule existed, editing ARCHITECTURE.md/DOMAIN_SCHEMA.md produced NO probe
+    // finding at all — `blocking` in doc-ownership was a label without a
+    // detection lane. Ownership stays the severity source (contract-frozen =
+    // blocking); this rule gives the frozen面 its 变更识别.
+    glob: 'ARCHITECTURE.md|DOMAIN_SCHEMA.md|DSH_ADAPTER.md|GIT_INTEGRATION.md|HISTORY_EVENT_CATALOG.md|PLAN_FORK_SPEC.md|SUBAGENT_ROUTING.md|TEST_MATRIX.md',
+    codes: ['FROZEN_CONTRACT_ROOT'],
+    docs: ['SNAPSHOT.md', 'docs/engineering-baseline/STRUCTURE_DESIGN.md'],
+    tests: ['tests/engineering/eb1-canonical.test.ts'],
+    gate: 'T2 + 冻结变更审查标记（CI 机验，见 docs/development.md「冻结变更的机器门」）',
+    actions: ['冻结变更流程：改契约 → pnpm run snapshot:update → 契约与清单同一提交', 'PR body 加一行 `Frozen-Face-Review: <日期> <批准人>`——人工批准的机验标记，哈希同步绝不代替审查'],
+  },
+  {
     glob: 'schema/**|SNAPSHOT.md',
     codes: ['CONTRACT_SURFACE'],
     docs: ['DOMAIN_SCHEMA.md', 'SNAPSHOT.md', 'docs/packaging.md'],
@@ -222,7 +235,10 @@ export function probeFindings(root, files) {
  * docs:check — 全量静态一致性（read-only，零写入）
  * ------------------------------------------------------------------ */
 export const GATE_VERDICTS = ['PASS', 'BLOCKED', 'PENDING', 'UNKNOWN']
-export const ADR_STATUSES = ['proposed', 'accepted', 'implemented', 'verified', 'released']
+export const ADR_STATUSES = ['proposed', 'accepted', 'implemented', 'verified', 'released', 'superseded']
+// B+（2026-10-27 用户批准）：取代语义。supersedes 值里匹配 (ADR-\d+|D\d+) 的
+// token 视为**机验边**（目标必须存在于本仓）；散文化引用仓外实体（如 ADR-0001
+// 的 SI-001）不建边、不校验——机验只承诺仓内可判定的事实。
 const FROZEN_SET = new Set(['SNAPSHOT.md', 'ARCHITECTURE.md', 'DOMAIN_SCHEMA.md', 'DSH_ADAPTER.md', 'GIT_INTEGRATION.md', 'HISTORY_EVENT_CATALOG.md', 'PLAN_FORK_SPEC.md', 'SUBAGENT_ROUTING.md', 'TEST_MATRIX.md'])
 
 export const isLinkChecked = (p) => !FROZEN_SET.has(p) && !p.startsWith('schema/') && !p.startsWith('docs/evidence/') && !p.startsWith('docs/BASELINE_')
@@ -246,6 +262,8 @@ export function checkLinks(root, mdFiles) {
 export function checkAdrs(root, mdFiles) {
   const problems = []
   const ids = new Map()
+  const adrs = []
+  const dIdSet = new Set()
   for (const f of mdFiles.filter((x) => x.startsWith('docs/decisions/') && /[A-Za-z]/.test(x))) {
     const text = readFileSync(join(root, f), 'utf8')
     const fm = text.match(/^---\n([\s\S]*?)\n---/)
@@ -275,6 +293,7 @@ export function checkAdrs(root, mdFiles) {
       else ids.set(meta.id, f)
       if (!f.includes(String(meta.id))) problems.push({ code: 'ADR_ID_FILE', where: f, detail: `id=${meta.id} 与文件名不一致` })
     }
+    adrs.push({ f, meta, text })
   }
   // 类别感知（EB3/G3 遗留项 3）：上游设计线（PR #9）docs/architecture/adr/ 的
   // 原则性 Draft ADR 不是 docs/decisions/ 的严格 frontmatter 类——它自带词汇
@@ -291,9 +310,42 @@ export function checkAdrs(root, mdFiles) {
     }
     const id = m[1]
     if (dIds.has(id)) problems.push({ code: 'ADR_DUP_ID', where: f, detail: `D-id=${id} 与 ${dIds.get(id)} 重复` })
-    else dIds.set(id, f)
+    else { dIds.set(id, f); dIdSet.add(id) }
     const text = readFileSync(join(root, f), 'utf8')
     if (!/\*\*状态\*\*[:：]/.test(text)) problems.push({ code: 'ADR_STATUS', where: f, detail: '原则性 ADR 缺 **状态** 行（该类词汇自由，但存在性必查；存在 ≠ 实证状态）' })
+  }
+  /* ---- supersedes 机验边（B+，2026-10-27）--------------------------------
+   * 规则（DSH 同构，规则文本见 docs/development.md「设计文档的迭代与取代」）：
+   *  - 边 = supersedes 值里的 ADR-\d+ / D\d+ token；目标 id 不存在 = 悬空（红）。
+   *  - 取代者进入现行态（accepted+）→ 被取代者必须 status=superseded（旧版冒充
+   *    现行 = 最危险的状态撒谎，红），且正文必须回链取代者（红）。
+   *  - 取代者仍 proposed → 边已声明未生效，旧版可保持现状态（这正是「第二代
+   *    待批准」的合法形态）。自取代 = 红。D 系列无机器状态：只查存在与回链。 */
+  const ACTIVE = new Set(['accepted', 'implemented', 'verified', 'released', 'superseded'])
+  const byId = new Map()
+  for (const a of adrs) if (a.meta?.id) byId.set(String(a.meta.id), a)
+  for (const a of adrs) {
+    const sup = a.meta?.supersedes
+    if (!sup) continue
+    for (const tid of String(sup).matchAll(/(ADR-\d+|D\d+)/g)) {
+      const target = tid[1]
+      if (target === a.meta.id) {
+        problems.push({ code: 'SUPERSEDE_SELF', where: a.f, detail: 'supersedes 指向自身' })
+        continue
+      }
+      const t = byId.get(target)
+      if (!t && !dIdSet.has(target)) {
+        problems.push({ code: 'SUPERSEDE_DANGLING', where: a.f, detail: `supersedes=${target} 在本仓不存在（机验边要求目标可解析；仓外实体请用散文化表述）` })
+        continue
+      }
+      if (!t) continue // D 系列原则性 ADR：无机器状态，存在性已查
+      if (ACTIVE.has(String(a.meta.status)) && String(t.meta.status) !== 'superseded') {
+        problems.push({ code: 'SUPERSEDE_STALE_AUTHORITY', where: t.f, detail: `${target} 被 ${a.meta.id}（status=${a.meta.status}）取代，但自身仍标 ${t.meta.status}——旧版冒充现行` })
+      }
+      if (ACTIVE.has(String(a.meta.status)) && !t.text.includes(String(a.meta.id))) {
+        problems.push({ code: 'SUPERSEDE_BACKLINK', where: t.f, detail: `${target} 已是 superseded 但正文未回链取代者 ${a.meta.id}（取代关系必须双向可见）` })
+      }
+    }
   }
   const dIdx = join(root, 'docs/architecture/adr/README.md')
   if (existsSync(dIdx)) {
@@ -333,6 +385,44 @@ export function checkRegistry(root) {
     for (const ev of Array.isArray(s.evidence) ? s.evidence : []) {
       const p = join(root, String(ev))
       if (!existsSync(p) || statSync(p).size === 0) problems.push({ code: 'EVIDENCE_MISSING', where: stage, detail: `verdict=PASS 的证据不可用（虚假 verified）：${ev}` })
+    }
+  }
+  /* ---- design_lines（B+，2026-10-27 用户批准）：设计代次谱系的人工事实面。 *
+   * 一条设计线 = 现行文档 + 首代原件 + 切换锚（裁定提交）。机验承诺：现行
+   * 路径存在、锚是本仓可解析的提交、首代路径存在、封存清单在场；「哪代生效」
+   * 本身是人工事实，本检查不推导。 */
+  const dlines = reg.design_lines
+  let inGitRepo = false
+  try {
+    execFileSync('git', ['rev-parse', '--git-dir'], { cwd: root, stdio: 'ignore' })
+    inGitRepo = true
+  } catch { /* 非 git 上下文：锚存在性不可判，格式检查照常 */ }
+  if (dlines && typeof dlines === 'object') {
+    for (const [key, dl] of Object.entries(dlines)) {
+      const where = `design_lines.${key}`
+      if (typeof dl !== 'object' || dl === null) {
+        problems.push({ code: 'DESIGN_LINE_SHAPE', where, detail: '必须是映射（current/switch_anchor/first_gen/seal_manifest）' })
+        continue
+      }
+      const cur = String(dl.current ?? '')
+      if (!cur || !existsSync(join(root, cur))) problems.push({ code: 'DESIGN_CURRENT_MISSING', where, detail: `现行设计文档不存在：${cur || '（缺字段）'}` })
+      const anchor = String(dl.switch_anchor ?? '')
+      if (!/^[0-9a-f]{7,40}$/.test(anchor)) {
+        problems.push({ code: 'DESIGN_ANCHOR_BAD', where, detail: `switch_anchor 须为 7–40 位小写十六进制提交（切换裁定锚），当前 "${anchor}"` })
+      } else if (inGitRepo) {
+        // 存在性只在 git 上下文可判（tarball/fixture 无仓 = 不假装能验也不静默放行格式之外的东西）
+        try {
+          execFileSync('git', ['cat-file', '-e', `${anchor}^{commit}`], { cwd: root, stdio: 'ignore' })
+        } catch {
+          problems.push({ code: 'DESIGN_ANCHOR_UNKNOWN', where, detail: `switch_anchor ${anchor} 不是本仓提交——切换锚必须可解析（外部裁定先入库再登记）` })
+        }
+      }
+      for (const pth of String(dl.first_gen ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
+        if (!existsSync(join(root, pth))) problems.push({ code: 'DESIGN_FIRSTGEN_MISSING', where, detail: `首代文档不存在：${pth}` })
+      }
+      if (dl.seal_manifest && !existsSync(join(root, String(dl.seal_manifest)))) {
+        problems.push({ code: 'DESIGN_SEAL_MISSING', where, detail: `封存清单不存在：${dl.seal_manifest}（封存 = scripts/seal-superseded.mjs --write）` })
+      }
     }
   }
   return problems

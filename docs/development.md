@@ -56,6 +56,46 @@ pnpm run pack:verify                            # 发布门禁（含新鲜度门
 - 归属与风险面见 `dev/engineering/doc-ownership.yaml`（最具体 glob 优先）；
   probe 报 `DOC_IMPACT_UNOWNED` 时补条目或确认忽略。
 
+## 冻结变更的机器门（审查意见 P0#1，2026-10-27）
+
+`blocking` 不是标签：CI 的 probe 步以 `--fail-on-blocking` 运行，**投票面** =
+冻结契约（8 根文档 / `schema/**` / `SNAPSHOT.md`）、事件不变量、权限与持久化
+格式（`src/host/history|persistence|audit|git`）。这些面被变更时，PR body 必须
+含一行——
+
+```
+Frozen-Face-Review: <YYYY-MM-DD> <批准人>
+```
+
+这是人工批准的机验标记：快照哈希与清单同步**绝不代替审查**（同时改契约和清单
+能过哈希门，过不了标记门）。其余 blocking 面（宿主适配 pin、门禁工具、产物）
+照报不投票——每个工程 PR 都会路过，逐 PR 求人工批准只会把标记稀释成图章；
+普通文档修改维持轻量流程。本地复现投票：`docs:probe --paths … --fail-on-blocking`。
+
+## 设计文档的迭代与取代（B+，2026-10-27 用户批准；ADR-0003）
+
+设计线 = 同一问题上先后出现的文档代次。本仓表达的语义：**取代关系与封存状态
+机验；「哪一代生效」是人工事实，机器不推导**。三条规则 + 两个登记面：
+
+1. **旧文档永不改写成相反的决策**。第二代以新文档出现；取代关系写进新文档
+   frontmatter 的 `supersedes: <id>`。机验（`docs:check`）：id 形态的边目标必须
+   存在于本仓（`SUPERSEDE_DANGLING`；仓外实体如 SI-001 用散文化表述，不建边）；
+   取代者进入现行态（accepted+）后，被取代者必须 `status: superseded`
+   （`SUPERSEDE_STALE_AUTHORITY`——旧版冒充现行是最危险的状态撒谎）且正文回链
+   取代者（`SUPERSEDE_BACKLINK`，双向可见）。取代者仍是 `proposed` 时边已声明
+   未生效，旧代合法保持现行——「第二代待批准」的正当形态。
+2. **切换界标进 registry `design_lines`**（人工节，sync 不得写）：`current` 现行
+   文档、`first_gen` 首代原件、`switch_anchor` 切换裁定提交、`seal_policy` 封存
+   时机。机验：路径存在、锚是本仓可解析的提交（`DESIGN_*` 码）。叙事（MAINT/
+   追加记录）仍是人读层，登记面是机查层。
+3. **被取代的原件哈希封存**进 `docs/architecture/superseded/`：`node scripts/
+   seal-superseded.mjs --write` 追加哈希登记 → 人工补 `origin`（谁的哪一代、
+   被谁取代、裁定在哪）→ `--verify` 入测试与 CI。封存面**追加式**：已登记原件
+   不可改（`SEALED_TAMPERED`），树内未登记文件红（`UNSEALED_FILE`），封存树
+   **非现行权威**——读现行看 `design_lines.current`。完全取代想删除旧文档时先
+   按保全清单迁移独有内容（理由/备选/后果/验证要求/缺口），修复全部入链，
+   再经用户裁决；不得以 git 历史为唯一副本。
+
 ## 非推导事实登记
 
 宿主 pin、Gate 裁决、TS 债务基线等在 `dev/engineering/registry.yaml`（人工维护，

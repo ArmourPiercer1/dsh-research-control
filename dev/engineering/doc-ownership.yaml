@@ -56,6 +56,10 @@ rules:
     owner: tooling
     risk: blocking
     note: 门禁/工具自身（docs:* 内核、snapshot、pack、CI）——改它=改规则本身，PR 须点名
+  - glob: "e2e/**"
+    owner: development
+    risk: advisory
+    note: V2 验收面（specs + 正式入口 world-bootstrap/run/seed，docs/testing.md「V2 验收正式入口」）——spec 语义属上游收编面
   - glob: "docs/**|README.md|AGENTS.md"
     owner: docs
     risk: advisory

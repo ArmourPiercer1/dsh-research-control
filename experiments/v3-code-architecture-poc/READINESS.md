@@ -97,3 +97,14 @@ pnpm test                                                     # 根全量（当�
 **验证清单**：`npx tsc -p …/tsconfig.json` = 0；`tests/` 全绿；
 `attacks/semantics/dml-guard-attack.test.ts` 与 `checkreport-raw-read-attack.test.ts` 保持红
 （它们红=越权读不再可构造）；`check-imports`、`docs:check` OK。
+
+## 附录 B：两条独立复验带来的新开放项（第 27 轮，作者未自评）
+
+| 编号 | 级别 | 内容 | 为什么不能省 |
+| --- | --- | --- | --- |
+| D-11 | **P2** | `ledger` 无 `contract_version` 列，`eventsOf` 把 `payload_json` 原样交进插件面 ⇒ v2 实现读 v1 事件载荷可能被静默误读。席位判它**不是** F-EV-R2 的漏网出口（事件面是"当时记下了什么"，套当前版本判据＝升级即失忆，违反 ID-08/T-01/T-02 回放契约），但**不接受静默**：建议加 `ledger.contract_version` 写入时盖戳（别塞进 payload），代价是存量行未盖章 ⇒ **D-6 同款回填器债务再现** | 席位原话：若 PoC 决定不做，必须写成显式裁定，"不能让它以'不算漏网'的名义消失"，否则下轮审查会当漏网出口重提 |
+| D-12 | **P2** | `hiddenByInactiveCapability` / `hiddenByContractSkew` 的"只给数量不给 oid"**不抗探测**：席位实测用截点前缀差分 `C(X)-C(X-1)` 可枚举被剔除行的精确 `recorded_seq`，且**无 revise 时 oid 可直接命名**（`OBJ-<space>-<n>` 的 n 按创建序单调），另 `usedRecordedAsOf` 在默认截点下泄露 head。启停能力只重新分桶，不给行级身份 | 这条**推翻了我此前写过的说法**。作者侧曾把"只给数量"表述为防身份泄露的设计；真实语义只是"不在单次批量应答里交出全集合"。泄露的是存在与位置，不是内容 |
+| D-13 | **P3** | `timeFieldMissing` 在剔除**前**的 `visible` 上计算（应基于 `keep`）⇒ 行全被剔除时该位口径误导 | 仍可判定，不违反 C12/T-05，但属我自己第 12 轮改动留下的口径缺陷，作者侧应修 |
+
+**建议的 echo 加强（不改形态）**：补首个被剔除行的 `{capability, recordedContractVersion, effectiveContractVersion}`
+版本对——给操作者一次读即可行动的线索，仍不给 oid。

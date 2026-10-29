@@ -57,7 +57,7 @@ pnpm test                                                     # 根全量（当�
 ```
 
 任何一项被放宽（跳过、降标准、从索引剔除）都视为**未通过**，而不是"通过"。
-| D-7 | **`Kernel.port` 仍公开**（S-0③，与 S-5 同根，本 PoC 唯一剩余 P1）。实施期第一个安全动作：`port` 转 private + 具名读 API（`eventsFor` 已是雏形），`check_report` 读取必须带 principal 且只绑定回显不解码 findings。PoC 里读句柄已收紧到 `SELECT/WITH`，但**原始 SELECT 仍可取到 `check_report` 全文**，破 RPT-09 的 REF_UNRESOLVED/WITHHELD_REFERENCE 合并 |
+| D-7 | **P1 — 已修（作者自述，待独立复验）**：`#port` + `get [KERNEL_PORT]()` symbol 内部通道（键在 `src/kernel/internal.ts`）；`projection.ts` 9 处、`read-context.ts` 1 处改走该通道；新增机验禁令 `domains`/`contracts` 禁止 import 该模块（带变异锚点）。**代价如实**：symbol 可被 `getOwnPropertySymbols` 枚举、也可被 import ⇒ 买到的是边界显式化与可门禁性，非密码学隔离。详见 `REVIEW.md` §28。（原记录：`Kernel.port` 仍公开（S-0③，与 S-5 同根，本 PoC 唯一剩余 P1）。实施期第一个安全动作：`port` 转 private + 具名读 API（`eventsFor` 已是雏形），`check_report` 读取必须带 principal 且只绑定回显不解码 findings。PoC 里读句柄已收紧到 `SELECT/WITH`，但**原始 SELECT 仍可取到 `check_report` 全文**，破 RPT-09 的 REF_UNRESOLVED/WITHHELD_REFERENCE 合并。修复后原始 SELECT 不再经插件可见面对象可达 |
 | D-8 | 扫描面遇禁用能力现在**回显** `hiddenByInactiveCapability`，不是抛 `CAPABILITY_INACTIVE`。理由：扫描面没有"这个对象"可报。是否应与快照面同形改抛错，属契约裁量，PoC 未定；两派各有一条代价（抛错会让一次禁用打断整页读取） |
 | D-9 | 装配边界：跨命名空间事实（快照、边角色）由装配根经 `hostSnapshot` / `registeredEdges` 交入。实施期必须约束 resolver 的**绑定**——否则"宿主替它取"会退化成"把任意读取器交给领域"。PoC 只有形状，没有绑定约束的机制 |
 | D-10 | 门禁可证明的范围已收窄并写死在 `CONTRACTS.md` §14.1：词汇扫描是命名门、`attacks/**` 不类型检查、**任何绿灯不证明 Kernel 业务无知**。实施期若要拿门禁当证据，必须同时给出这三条的补偿措施，否则门禁数字会被读成安全保证 |
@@ -109,5 +109,7 @@ pnpm test                                                     # 根全量（当�
 **建议的 echo 加强（不改形态）**：补首个被剔除行的 `{capability, recordedContractVersion, effectiveContractVersion}`
 版本对——给操作者一次读即可行动的线索，仍不给 oid。
 
-| D-17 | **P1** | `faceFor()` 交给插件的 `writerFor(tx)` 返回 `NamespaceWriterImpl`，以 TS 参数属性持有 `k`/`raw`（`kernel.ts:522`），运行时实测可达 ⇒ 第三个逃逸对象 | 作者侧 `tests/namespace-writer-surface.test.ts` 已复现并按漏洞现状钉住；**与 D-7/D-16 同批修**，只修前两者不够 |
-| D-16 | **P1** | 交给插件的 `UnitOfWork` 对象在运行时携带 `raw`（裸 SQL 句柄）与 `k`（全量 Kernel 引用），实测 `[raw,k,port] = [false,false,true]`（false=可达）。类型面靠 `@ts-expect-error` 藏住，运行时没藏住 ⇒ JS 插件或一次 `as unknown as` 即得全库读写 | **我原来的门禁断言是恒真式（`x===undefined \| x!==undefined`），恰好把这个洞盖住了**——是复验席指出后改成真判据才现形。修法与附录 A 同族：`#raw`/`#k` 私有字段，让属性在运行时不存在；同类名测试"领域插件不得持有 Kernel"是源码扫描，扫不到运行时面 |
+| E-00 | **已修（作者自述，待独立复验）** | `eventsOf()` 可被任意能力按任意 oid 取回他能力对象的原始事件载荷 | 默认拒绝 + 装配根 `CROSS_EVENT_READ` 显式授权表（走既有 `capability-admin` 权威轴，未新增枚举值）；见 `REVIEW.md` §29 |
+| E-01 | **P2（登记，待 G1 裁定）** | `NAMESPACE_ESCAPE` 的拒绝本身声明「该 oid 存在且属他人」；与 D-12 的可预测 oid 叠加即成存在性 oracle | 当前取舍=显式拒读（静默返空会把「没权限」读成「没有历史」，属被禁止的「缺失读成空」家族）；`tests/events-of-scope.test.ts` 已钉住该取舍 |
+| D-17 | **P1 — 已修（作者自述，待独立复验）**：`NamespaceWriterImpl` 改 `#k`/`#raw`，Kernel 回读走类内静态 `peekRaw()`（类未导出）| `faceFor()` 交给插件的 `writerFor(tx)` 返回 `NamespaceWriterImpl`，以 TS 参数属性持有 `k`/`raw`（`kernel.ts:522`），运行时实测可达 ⇒ 第三个逃逸对象 | 作者侧 `tests/namespace-writer-surface.test.ts` 已复现并按漏洞现状钉住；**与 D-7/D-16 同批修**，只修前两者不够 |
+| D-16 | **P1 — 已修（作者自述，待独立复验）**：`UnitOfWorkImpl` 改 `#k`/`#raw` | 交给插件的 `UnitOfWork` 对象在运行时携带 `raw`（裸 SQL 句柄）与 `k`（全量 Kernel 引用），实测 `[raw,k,port] = [false,false,true]`（false=可达）。类型面靠 `@ts-expect-error` 藏住，运行时没藏住 ⇒ JS 插件或一次 `as unknown as` 即得全库读写 | **我原来的门禁断言是恒真式（`x===undefined \| x!==undefined`），恰好把这个洞盖住了**——是复验席指出后改成真判据才现形。修法与附录 A 同族：`#raw`/`#k` 私有字段，让属性在运行时不存在；同类名测试"领域插件不得持有 Kernel"是源码扫描，扫不到运行时面 |

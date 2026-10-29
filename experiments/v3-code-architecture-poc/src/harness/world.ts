@@ -15,6 +15,20 @@ export interface WorldOptions {
   readonly plugins?: readonly PluginManifest[];
 }
 
+/** 装配根主体：只为"装配期授权"存在，不参与任何业务事务。 */
+const ASSEMBLY_ROOT = 'assembly-root';
+/**
+ * 跨命名空间事件读的授权表（E-01）。**默认不放行**——能出现在这里的就是被审过的需求，
+ * 每条必须写清"谁跨读、读谁的事件、为什么"。
+ */
+const CROSS_EVENT_READ: readonly { capability: string; reason: string }[] = [
+  {
+    capability: 'cap.test.records',
+    reason: 'synth:fact-designation 事件登记在被声明对象的命名空间下，而该对象归对象模型能力所有'
+      + '（test-records.ts 的 factDesignationsAt 需要它）',
+  },
+];
+
 export class World {
   private grants: Map<string, Set<string>>;
   private constructor(readonly opts: WorldOptions, readonly port: SqlitePort, readonly kernel: Kernel) {
@@ -32,6 +46,13 @@ export class World {
     const w = new World(opts, port, kernel);
     holder.w = w;
     kernel.activate();
+    // E-01：跨命名空间读事件载荷的**唯一合法来源是装配根**。这里是一张显式表而非默认放开，
+    // 为的是让它可 grep、可审查：生产形态应改成 manifest 声明 + 宿主核对，PoC 先落在装配点。
+    // 新增条目必须带理由——"为什么这个能力需要读别人命名空间的事件"。
+    w.grant(ASSEMBLY_ROOT, 'capability-admin');
+    for (const g of CROSS_EVENT_READ) {
+      kernel.grantCrossEventRead(g.capability, { actorId: ASSEMBLY_ROOT, verified: true });
+    }
     return w;
   }
 

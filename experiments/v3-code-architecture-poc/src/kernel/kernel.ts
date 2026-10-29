@@ -228,6 +228,8 @@ export class Kernel {
 
   // D-7：句柄不再是公开属性。兄弟模块经 `KERNEL_PORT` symbol 取用（见 internal.ts 的代价说明）。
   readonly #port: StoragePort;
+  /** 跨命名空间读事件载荷的授权集（默认空 ⇒ 默认拒绝）。键是 capability，非 principal。 */
+  readonly #crossEventRead = new Set<CapabilityId>();
   readonly space: SpaceId;
   private readonly auth: Authorizer;
   get [KERNEL_PORT](): StoragePort { return this.#port; }
@@ -420,11 +422,47 @@ export class Kernel {
     ).map((r) => ({ seq: r.seq as CommitSequence, payload: JSON.parse(r.payload_json) as unknown })));
   }
 
+  /** 对象归属能力（目录表是一次主键查询）；对象不存在返回 undefined 而非抛错，避免额外的存在性 oracle。 */
+  ownerCapabilityOf(oid: ObjectOid): CapabilityId | undefined {
+    const row = this.#port.read((raw) =>
+      raw.get<{ owner_capability: string }>(`select owner_capability from object_directory where oid=?`, oid));
+    return row ? (row.owner_capability as CapabilityId) : undefined;
+  }
+
+  /**
+   * 装配根授权：允许某能力跨命名空间读事件**载荷**。走 `capability-admin` 这条既有运维权威轴
+   * （与 activate / setRouteEnabled 同一资源）——**不新增 AuthorityResource 枚举值**，
+   * 那属于 PR #42/#44 的封闭集，未经裁定不得扩。
+   */
+  grantCrossEventRead(capability: CapabilityId, by: VerifiedPrincipal): void {
+    this.assertAuthority(by, 'capability-admin');
+    this.#crossEventRead.add(capability);
+  }
+  revokeCrossEventRead(capability: CapabilityId, by: VerifiedPrincipal): void {
+    this.assertAuthority(by, 'capability-admin');
+    this.#crossEventRead.delete(capability);
+  }
+
   faceFor(capability: CapabilityId): PluginFace {
     const writerFor = (tx: UnitOfWork): NamespaceWriter => this.namespacedWriter(capability, tx);
     const readOwn = (oid: ObjectOid) => this.readNamespaced(capability, oid);
-    const eventsOf = (oid: ObjectOid, eventType: string, cutoff: CommitSequence) =>
-      this.eventsFor(oid, eventType, cutoff);
+    // E-01（外部复核提出）：跨领域读历史是 H 系统的真实需求，但**不该由任何领域插件
+    // 无条件取得他能力的原始事件载荷**。默认拒绝，与 R3-A 封 revisionOf 同一先例；
+    // 需要跨读的由装配根经 grantCrossEventRead 显式授权。
+    // 已知耦合（登记为 P2，指向 D-12）：拒绝本身泄露"该 oid 存在且属他人"，
+    // 与可预测 oid 叠加即成存在性 oracle。G1 需在"拒读"与"一律返回空"之间裁定。
+    const eventsOf = (oid: ObjectOid, eventType: string, cutoff: CommitSequence) => {
+      if (!this.#crossEventRead.has(capability)) {
+        const owner = this.ownerCapabilityOf(oid);
+        if (owner !== undefined && owner !== capability) {
+          throw new Refusal('NAMESPACE_ESCAPE', {
+            capability, oid, owner,
+            reason: '窄面默认不得跨命名空间读事件载荷；请由装配根授权或取好再交入',
+          });
+        }
+      }
+      return this.eventsFor(oid, eventType, cutoff);
+    };
     // R3-A：按任意 oid 读修订走的是对外解析路径，不限命名空间 ⇒ 交进面里等于越界口子。
     // 恒拒绝，且拒绝码与写侧越界同名（NAMESPACE_ESCAPE），便于呈现层合并处理。
     const revisionOf = (ref: RevisionRef): never => {
@@ -516,6 +554,10 @@ export interface PluginFace {
   writerFor(tx: UnitOfWork): NamespaceWriter;
   readOwn(oid: ObjectOid): { revision: number; payload: Record<string, unknown> } | undefined;
   /** 按对象 + 事件类型 + 截点取事件；eventType 对机制是不透明字符串。 */
+  /**
+   * 作用域：**默认限本能力拥有的对象**。跨命名空间读需装配根 `grantCrossEventRead`，
+   * 否则 `NAMESPACE_ESCAPE`（E-01；先例见下方 `revisionOf` 的恒拒绝）。
+   */
   eventsOf(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; payload: unknown }[];
   /**
    * 恒拒绝的占位：窄面**曾经**提供按任意 oid 读修订，实测任何领域都能借此把别的能力的

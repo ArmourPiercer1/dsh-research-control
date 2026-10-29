@@ -252,3 +252,18 @@ exit=0
 
 **处置**：不改写审查方的断言（那是他们的产物）。此处留痕即为正式解释；
 后续独立复验时应由席位自己更新断言或加注。引用计数时须连带本表，否则这两条会被读成回归。
+
+### D-7 + E-01 后的全量：**`167 passed / 31 failed`**（此前 168/24）
+
+先排除"红条来自席位并发写入"这一可能：`git status --short attacks/` = **0**，
+`attacks/review/*` 的 mtime 全部早于本轮（00:03–01:37，当前 03:29）。
+**两个复验席位尚未落盘**，因此新增 7 条红可归因于产品变更本身。
+
+| 归属 | 条数 | 证据与定性 |
+| --- | --- | --- |
+| `attacks/semantics/checkreport-raw-read-attack.test.ts` | +1 | S-5 原始读旁路探针，报 `TypeError: Cannot read properties of undefined (reading 'read')`（:65）——夹具走 `kernel.port.read(...)`，D-7 后 `port` 不存在。**这条红是 S-5 已关闭的直接证据** |
+| `attacks/review/r5r8-sql-guard-attack.test.ts` | +5 | 三条"【漏洞探针】…无触发器：读句柄 CTE-UPDATE 成功"由 `expected true` 变 `expected false to be true`，另两条同类：夹具经 `kernel.port` 取读句柄，句柄不再可达 ⇒ 记录的洞不再复现。**同样是关闭证据，不是回归** |
+| `attacks/review/r5r8-semantics-attack.test.ts` | +1 | D-15 修复的既有归因（席位按修复前行为写的断言），本轮未变 |
+
+**引用本确数时必须连带本表**：这些红条的"红"意味着**它们记录的洞不再可复现**，
+与"产品坏了"方向相反。审查方文件一律未由作者改动；断言更新留给席位自己做。

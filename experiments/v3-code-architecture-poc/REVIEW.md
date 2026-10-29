@@ -825,3 +825,39 @@ Kernel 自身 11 处 `this.port` 改走 `#port`；兄弟模块 `projection.ts`�
 `internal.ts` 字样挡住，**根本没插**。改成锚定 `} from '../contracts/index.ts';` 后一次成功。
 教训与前两次（第 7 轮 splice 删掉 30 行、第 11 轮半应用版本门）同源：
 **在这个文件上做任何插入，必须锚定唯一的完整语句终结符，插完立刻 `tsc` + `git diff --stat` 双验。**
+
+## 29. E-01：`eventsOf()` 的作用域与授权（外部复核提出，沿用 R3-A 先例）
+
+**规则**：`PluginFace.eventsOf()` 默认只可读本能力拥有的对象；跨命名空间需装配根
+`grantCrossEventRead(capability, by)`，走**既有** `capability-admin` 权威轴
+（**不新增 `AuthorityResource` 枚举值**——那是 PR #42/#44 的封闭集，未经裁定不得扩），
+未授权 ⇒ `NAMESPACE_ESCAPE`（与 R3-A 封 `revisionOf` 同一拒绝码，便于呈现层合并）。
+归属判定是一次 `object_directory` 主键查询（表里本就有 `owner_capability`）。
+
+**修的时候立刻暴露一件事**：规则一加，**作者自己的 3 条双时间接纳测试就红了**
+（PR-A1/CS-23/PR-A4/RD-04/C11）。原因不是测试写错，而是 PoC 自己的接纳历史读取**本来就跨能力**：
+`test-records.ts` 读 `synth:fact-designation`，而该事件登记在对象模型能力拥有的对象下。
+处理**不是**把规则放宽，而是把它变成显式装配知识：`harness/world.ts` 里加了一张
+`CROSS_EVENT_READ` 授权表，每条必须写理由，可 grep、可审查。
+生产形态应改为 manifest 声明 + 宿主核对；PoC 先落在装配点。
+
+**顺带修掉一个我自己写的坏测试**：E-01 的负例原本拿 `CAP_RECORDS` 当"未授权跨读者"，
+而装配根表恰好放行了 records ⇒ 负例永远不可能通过。**用被授权者去证明授权有效**是测试设计错误。
+改用未进表的第二个能力后 5 例全绿。
+
+### 29.1 登记一条新 P2（与 D-12 同族）
+
+`NAMESPACE_ESCAPE` 的拒绝本身声明了"该 oid 存在且属他人"。oid 若可预测（D-12 正是此问题），
+这构成存在性 oracle。当前选择是**显式拒读而非静默返空**——因为静默返空会把"没权限"
+读成"没有历史"，那属于本项目反复禁止的"缺失被读成空"家族。
+**G1 需在两者之间正式裁定**；本 PoC 的取舍与理由已由 `tests/events-of-scope.test.ts` 钉住。
+
+### 29.2 第四次同类失误：把模块级 `const` 插进了类体
+
+给 `world.ts` 加授权表时，锚点选在 `static open(...)` 之前，而那里已在**类体内**，
+于是 `const ASSEMBLY_ROOT` 变成类成员（`tsc` 报 TS1248）。这与第 7 轮 splice 删掉 30 行、
+第 11 轮半应用版本门、D-7 那次险些插进跨行 import 括号内是**同一个毛病**：
+锚点只匹配"这段文字存在"，不匹配"这段文字所处的语法位置"。
+现有缓解：改动后立即 `tsc` + `git diff --stat`；本轮四次全部被 `tsc` 接住，无一进入提交。
+**但"每次都靠事后接住"本身就是流程缺陷**——G2 若要我继续写代码，应先给我一条
+"改完必跑"的机械步骤，而不是依赖我记得。

@@ -45,6 +45,7 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 | `tests/p4-read-isolation.test.ts` | 9 | §13.6/§13.10/§13.11/§13.12、§15.1 边界④：ReadContext 必需性、双时间顺序、五出口空间隔离、缓存出口、呈现脱敏不可区分、Journal 缺口与"Journal 不能充当历史"、游标续跑与滞后标注、影响只给候选、截断必须标注 |
 | `attacks/invariant/`（不变量攻击者） | 3 | 登记序、精确引用、记录标识（原始攻击 + 修复后更强断言） |
 | `attacks/host/`（宿主与边界） | 5 | 修订级引用、报告登记序、路由权威、强转触达内部方法、SQL 守卫 |
+| `tests/sql-guard.test.ts` | 10 | **F-14′ 完整覆盖**：块注释/行注释/多注释/前导分号/多语句 六类负例 × `run`/`all`/`get`，每条负例配「拒绝后不可变性仍生效」的反差；三条正例防误伤；另有打开已建库不重跑 DDL 且 `schema_version` 可读 | 
 | `attacks/review/`（P1 修复复审） | 5 | 第 1 轮修复完整性：报告三件套同滚、源端修订、守卫绕过（注释前缀/多语句）、目标 manifest |
 | `tests/arch-independence.test.ts` | 7 | 任务硬约束「Kernel 不包含科研语义判定规则」+ 依赖方向 + 领域插件扩展不需改 Kernel（面哈希）+ 五类 kind 路由 + 必需依赖成环拒绝 |
 

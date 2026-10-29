@@ -6,7 +6,7 @@
  * 模型还是实验；把含义写进 payload 是领域的事（#44 §5.3 停线）。
  */
 import { Refusal, type CommitSequence, type ObjectOid, type ReadContextSpec } from '../contracts/index.ts';
-import { routeNs, type Kernel } from './kernel.ts';
+import { assertContractVersion, capabilityOfNs, routeNs, type Kernel } from './kernel.ts';
 
 export interface ReadRow { readonly oid: ObjectOid; readonly revision: number; readonly payload: Record<string, unknown>; readonly recordedSeq: CommitSequence }
 export interface ReadResult {
@@ -32,6 +32,8 @@ export interface ReadResult {
      * 且只看形状不解释含义 ⇒ 仍是机制判定，不是科研语义。
      */
     readonly timeFieldMissing: boolean;
+    /** 第三种空：行由不同契约版本写入，形状不由当前读者保证 ⇒ 剔除并计数（同上，只给数量）。 */
+    readonly hiddenByContractSkew: number;
   };
 }
 
@@ -65,6 +67,7 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
       `select oid, owner_capability, ns from object_directory`,
     ).map((d) => [d.oid, d] as const));
     let hiddenByInactive = 0;
+    let hiddenBySkew = 0;
     const serveable = (oid: string): boolean => {
       const dir = dirs.get(oid);
       if (!dir) throw new Refusal('CONTEXT_INCOMPLETE', { oid, reason: 'domain_state 有行但 Directory 无登记' });
@@ -75,13 +78,33 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
       }
     };
     // 第一步：可见性（知识截点）。这一层永远先跑，且与对象时间无关。
-    const visible = raw.all<{ oid: string; revision: number; payload_json: string; recorded_seq: number }>(
-      `select oid, revision, payload_json, recorded_seq from domain_state where recorded_seq <= ? order by recorded_seq, oid`,
+    const visible = raw.all<{ oid: string; revision: number; payload_json: string; recorded_seq: number; contract_version: string }>(
+      `select oid, revision, payload_json, recorded_seq, contract_version from domain_state where recorded_seq <= ? order by recorded_seq, oid`,
       cutoff,
     ).filter((r) => serveable(r.oid));
+    // F-EV-R2：双时间读面也过行级版本判据（与 readRevision 同一个函数）。
+    // 失败形态取 fail-loud，与 ns 漂移同形：把旧形状交给当前读者比拒读更糟，因为它伪装成答案。
+    // 判据同一条，**失败形态按读面性质分**（沿用已被独立复验接受的 F-24 先例）：
+    //  · 单对象面（readRevision / readObject）：拒读——只有一个对象，拒掉不损失任何东西；
+    //  · 扫描面：剔除 + 计入回显——否则一行旧形状会让整页读不出来，而"整页为空"
+    //    正是本项目最禁止被误读成"没有"的形态。剔除必须可归因，不得静默。
+    const keep: typeof visible = [];
+    for (const r of visible) {
+      const dir = dirs.get(r.oid)!;
+      const cap = capabilityOfNs(k.registry, routeNs(k.registry, dir));
+      if (!cap) { keep.push(r); continue; }
+      try {
+        assertContractVersion(cap, k.registry.capability(cap)?.contractVersion ?? '', r.contract_version);
+        keep.push(r);
+      } catch (e) {
+        if (e instanceof Refusal && e.code === 'SCHEMA_INCOMPATIBLE') { hiddenBySkew += 1; continue; }
+        throw e;
+      }
+    }
     // 第二步：对象时间。仅在可见集合上施加。
     const rows = visible
       .map((r) => ({ oid: r.oid as ObjectOid, revision: r.revision, payload: JSON.parse(r.payload_json) as Record<string, unknown>, recordedSeq: r.recorded_seq as CommitSequence }))
+      .filter((r) => keep.some((r2) => r2.oid === r.oid && r2.revision === r.revision))
       .filter((r) => {
         const t = r.payload.describedAt;
         if (described !== null) return t === described;
@@ -100,7 +123,7 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
       echo: {
         usedRecordedAsOf: cutoff, usedDescribedAt: described, recordedAsOfWasDefaulted: defaulted,
         mode: spec.mode, truncated, moreRows: truncated,
-        hiddenByInactiveCapability: hiddenByInactive, timeFieldMissing,
+        hiddenByInactiveCapability: hiddenByInactive, hiddenByContractSkew: hiddenBySkew, timeFieldMissing,
       },
     };
   });

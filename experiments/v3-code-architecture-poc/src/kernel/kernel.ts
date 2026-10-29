@@ -543,12 +543,23 @@ class NamespaceWriterImpl implements NamespaceWriter {
     );
     this.raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, a.ns, a.oid, 'extension-upsert');
   }
+  /** 本命名空间**生效路由**上的契约版本（装配后的真实值，不是清单意图）。 */
+  private effectiveContractVersion(): { cap: CapabilityId; version: string } {
+    const cap = capabilityOfNs(this.k.registry, this.ns) ?? this.cap;
+    return { cap, version: this.k.registry.capability(cap)?.contractVersion ?? '' };
+  }
+
   readLatest(oid: ObjectOid) {
-    const row = this.raw.get<{ revision: number; payload_json: string }>(
-      `select revision, payload_json from domain_state where ns=? and oid=? order by revision desc limit 1`,
+    const row = this.raw.get<{ revision: number; payload_json: string; contract_version: string }>(
+      `select revision, payload_json, contract_version from domain_state where ns=? and oid=? order by revision desc limit 1`,
       this.ns, oid,
     );
-    return row ? { revision: row.revision, payload: JSON.parse(row.payload_json) } : undefined;
+    if (!row) return undefined;
+    // F-EV-R2：行级版本判据必须装在**每一个**读面上。只装在一个面 = 半门：
+    // 同一行数据在三个读面上给出两个答案，而调用方无从知道自己走的是哪一条。
+    const eff = this.effectiveContractVersion();
+    assertContractVersion(eff.cap, eff.version, row.contract_version);
+    return { revision: row.revision, payload: JSON.parse(row.payload_json) };
   }
 }
 
@@ -601,8 +612,13 @@ class UnitOfWorkImpl implements UnitOfWork {
     const next = cur + 1;
     const seq = this.k.nextLedgerSeq(this.raw);
     this.raw.run(
-      `insert into domain_state(ns, oid, revision, payload_json, recorded_seq) values(?,?,?,?,?)`,
+      // F-EV-R2 根因：`revise` 此前**不盖契约版本戳**，于是 revision≥2 的行的 contract_version
+      // 全是默认空串。配合"空标记=不可判定=拒绝"的读侧纪律（R3-B），这意味着
+      // 修订过的对象在快照面根本不可读；而漏装判据的面又会把它静默端出去。
+      // 写侧必须每次都盖戳，否则读侧任何判据都建立在"行里碰巧有标记"上。
+      `insert into domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version) values(?,?,?,?,?,?)`,
       ns, oid, next, JSON.stringify(a.payload), seq,
+      (() => { const c = capabilityOfNs(this.k.registry, ns); return c ? this.k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
     );
     this.raw.run(
       `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
@@ -708,11 +724,16 @@ class UnitOfWorkImpl implements UnitOfWork {
     );
     if (!dir) return undefined;
     const ns = routeNs(this.k.registry, dir);
-    const row = this.raw.get<{ revision: number; payload_json: string; recorded_seq: number }>(
-      `select revision, payload_json, recorded_seq from domain_state where ns=? and oid=? order by revision desc limit 1`,
+    const row = this.raw.get<{ revision: number; payload_json: string; recorded_seq: number; contract_version: string }>(
+      `select revision, payload_json, recorded_seq, contract_version from domain_state where ns=? and oid=? order by revision desc limit 1`,
       ns, oid,
     );
     if (!row) return undefined;
+    // F-EV-R2：与 readRevision 共用同一条判据函数，不搞第二套。
+    {
+      const cap = capabilityOfNs(this.k.registry, ns);
+      if (cap) assertContractVersion(cap, this.k.registry.capability(cap)?.contractVersion ?? '', row.contract_version);
+    }
     return {
       oid, kind: dir.kind, revision: row.revision,
       payload: JSON.parse(row.payload_json), recordedSeq: row.recorded_seq as CommitSequence,

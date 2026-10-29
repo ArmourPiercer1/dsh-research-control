@@ -757,6 +757,18 @@ class UnitOfWorkImpl implements UnitOfWork {
         if (!this.raw.get(`select oid from object_directory where oid=?`, r.to_oid)) {
           throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, role: r.role, to: r.to_oid });
         }
+        // S-4：硬引用不得指向**浮动目标**。object-ref 不带修订 ⇒ to_rev 为 NULL ⇒
+        // 目标一被修订，这条边就静默改指新修订：无重校验、无事件，而"事务内确实存在"这一
+        // 提交期判据本身会随时间改变。硬引用必须钉死到 revision-ref / record-ref。
+        //
+        // 位置刻意：放在"目标 oid 是否存在"**之后**，既有判据与错误码一律不变
+        // （幽灵 object-ref 仍先报 REQUIRED_REF_MISSING），新码只覆盖此前无人拦截的那一种形状。
+        if (r.to_rev === null) {
+          throw new Refusal('HARD_REF_NOT_PINNED', {
+            from: r.from_oid, role: r.role, to: r.to_oid,
+            reason: 'required 引用必须钉死到 revision-ref 或 record-ref；object-ref 目标会随修订漂移',
+          });
+        }
         // 精确引用要验到修订级：只验 oid 会让"指向不存在的修订"静默提交（RD-05 的精确性在此）。
         if (r.to_rev !== null
           && !this.raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.to_oid, r.to_rev)) {

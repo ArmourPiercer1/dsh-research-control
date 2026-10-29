@@ -82,6 +82,9 @@ export type RefusalCode =
   | 'CAPABILITY_INACTIVE'     // 所有者能力未在该空间激活
   | 'AMBIGUOUS_AUTHORITY'     // 同一权威被两个声明者声明
   | 'REQUIRED_REF_MISSING'    // 硬业务完整性引用在事务内确实不存在
+  // S-4：形状拒绝。硬引用指向浮动目标（object-ref 无修订）时，提交期判据本身会随时间改变。
+  // 与 REQUIRED_REF_MISSING 分开，因为二者对调用方是不同的修法：补修订 vs 补存在性。
+  | 'HARD_REF_NOT_PINNED'
   | 'SCHEMA_INCOMPATIBLE'     // 空间内插件存储 Schema/解释器不兼容
   | 'CONTEXT_INCOMPLETE'      // ReadContext 缺必需字段（T-01：未声明截点的查询视为未定义）
   | 'CROSS_SPACE_REFUSED'     // 用一个空间的 Kernel 解析另一个空间（SP-04）

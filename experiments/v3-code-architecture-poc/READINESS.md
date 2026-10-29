@@ -61,3 +61,39 @@ pnpm test                                                     # 根全量（当�
 | D-8 | 扫描面遇禁用能力现在**回显** `hiddenByInactiveCapability`，不是抛 `CAPABILITY_INACTIVE`。理由：扫描面没有"这个对象"可报。是否应与快照面同形改抛错，属契约裁量，PoC 未定；两派各有一条代价（抛错会让一次禁用打断整页读取） |
 | D-9 | 装配边界：跨命名空间事实（快照、边角色）由装配根经 `hostSnapshot` / `registeredEdges` 交入。实施期必须约束 resolver 的**绑定**——否则"宿主替它取"会退化成"把任意读取器交给领域"。PoC 只有形状，没有绑定约束的机制 |
 | D-10 | 门禁可证明的范围已收窄并写死在 `CONTRACTS.md` §14.1：词汇扫描是命名门、`attacks/**` 不类型检查、**任何绿灯不证明 Kernel 业务无知**。实施期若要拿门禁当证据，必须同时给出这三条的补偿措施，否则门禁数字会被读成安全保证 |
+
+## 附录 A：D-7 的落地配方（`Kernel.port` 收口），含"为什么 TS private 不够"
+
+第 11–14 轮三次推迟这一项，每次都因为"上下文不够做跨文件改动"。把它写成配方，使这件事
+不再依赖任何单个会话的记忆。
+
+**实测影响面（第 11 轮量过，别凭印象）**：`Kernel.port` 的**外部**消费者只有一个——
+`src/kernel/read-context.ts:57` 的 `k.port.read(...)`；其余 `.port` 引用都在 `Kernel` 类内部
+或走 `World` 自持的端口。**先量再改**，是这一项看起来比实际危险的原因。
+
+**为什么不能用 TS `private` 交差**：`private` 只存在于类型层，编译后仍是实例属性，
+`kernel['port']` 在 JS 里照拿。本 PoC 的 S-0/S-5 攻击就是"拿着端口做越权读"，
+用 TS private 收口等于换了个写法继续漏——**必须让属性在运行时不存在**。
+
+配方（按序，每步都可独立验证）：
+
+1. `Kernel` 内部字段改 JS 私有字段 `#port: StoragePort`；构造器参数属性 `readonly port` 必须改写
+   （参数属性不能带 `#`），改后把类内 `this.port` 全部替换为 `this.#port`（实测 8 处）。
+   Node 24 支持 `#` 字段；`Object.getOwnPropertyNames(kernel)` 不再列出它，
+   `kernel['#port']` 是语法错误——这才是"运行时不可达"。
+   （`auth` 同理仍是 TS private，属**残留**，别顺手一起改：见步 5。）
+2. 给 `read-context` 一个**具名只读扫描**方法替代 SQL 句柄：`Kernel.scanForRead(cutoff)`，
+   内部单次 `this.#port.read(...)` 同时返回 `object_directory` 与 `domain_state` 两批事实。
+   **必须是同一次 read**：分两次取会让可见性与对象时间看到不同状态，
+   而"可见性截点与时间谓词同源"正是 `tests/empty-vs-absent.test.ts` 在守的性质。
+3. 测试断言从"类型不通"升级为"运行时拿不到"：
+   `expect(Object.getOwnPropertyNames(kernel)).not.toContain('port')`，
+   并断言面集合（沿用 `tests/arch-independence.test.ts` 已有的运行时权威面判据）。
+4. `KERNEL_SURFACE.sha256` 显式重生成，理由=面收窄（S-0③ 闭合），属收紧非放宽。
+5. **不要顺手改 `auth`**，也**不要顺手关 `World.raw`**：后者是测试装配的显式后门，
+   它的存在本身就是"绿灯不能证明 Kernel 业务无知"（`CONTRACTS.md` §14.1）的物证。
+   两者各自单列（`auth` 残留、装配后门），混进同一次改动会让"面变窄了多少"重新变得不可核。
+
+**验证清单**：`npx tsc -p …/tsconfig.json` = 0；`tests/` 全绿；
+`attacks/semantics/dml-guard-attack.test.ts` 与 `checkreport-raw-read-attack.test.ts` 保持红
+（它们红=越权读不再可构造）；`check-imports`、`docs:check` OK。

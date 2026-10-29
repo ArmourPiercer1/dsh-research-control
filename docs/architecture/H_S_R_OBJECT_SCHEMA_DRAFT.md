@@ -61,7 +61,7 @@ ObjectRevisionEnvelope = {
 | --- | --- | --- | --- | --- |
 | `entity_subtype` | `subtype_code`（子型注册表） | D（不允许 `UNKNOWN`：无法归类先按原始材料登记） | ★ | EN-01、EN-03、EN-ID-7 |
 | `designated_name` | text | D / A | — | EN-ID-1 |
-| `aliases[]` | `{alias: text, source: ref? \| rec:, claimed_interval: time?}` 集合 | D / A（空集合合法且必须显式，SF-14） | — | EN-ID-1、`SL1-COM-03` |
+| `aliases[]` | `{alias: text, source: ref? \| rec:, claimed_interval: time?}` 集合 | D / A（`empty_allowed = true`：空集合合法，且空集合必须带 `@st = DECLARED`，SF-11/SF-14） | — | EN-ID-1、`SL1-COM-03` |
 | `external_identifiers[]` | `{identifier: text, identity_scope: text, source: ref?}` 集合 | D / U / A | ◐ 仅 `ExternalResourceRef` 子型构成身份 | EN-ID-1 |
 | `world_membership` | `{kind_ref: ref?（Concept@rev，仅分类）, individual_ref: ref?（Entity@rev，世界个体）}` | D / U（整槽可 `UNKNOWN(reason)`） | `individual_ref` ★（已声明时改变 → 新 Entity）；`kind_ref` — | EN-W-1、EN-W-2、EN-W-3、EN-W-6、RV-01、RV-06 |
 | `source_refs[]` | `(ref \| rec:)` 集合（来源可为 H 记录，属 `PROVENANCE`） | D / A（**不得**由系统猜测来源） | — | IC-02、UN-02、C12 |
@@ -94,7 +94,7 @@ ObjectRevisionEnvelope = {
 | --- | --- | --- | --- | --- |
 | `concept_subtype` | `subtype_code` | D（不允许多值） | ★ 不可变（子型变化 = 新 Concept） | CO-ID-5 |
 | `preferred_label` | `{text, language}` | D / U | — | CO-ID-3（LEXICAL 修订） |
-| `alt_labels[]` | `{text, language}` 集合 | D / A（空合法） | — | CO-REV-3 |
+| `alt_labels[]` | `{text, language}` 集合 | D / A（`empty_allowed = true`，SF-14） | — | CO-REV-3 |
 | `lexical_notes[]` | text 集合 | D / A | — | CO-REV-2 |
 | `language` | `vocab(ietf_language)` | D / U | — | SS-43 |
 | `definition_text` | `{text, language}` | D / U(reason) / A | — | CO-REV-5 |
@@ -180,7 +180,7 @@ ObjectRevisionEnvelope = {
 | `primary_expression` | `{text, language}` | D（不得 `UNKNOWN`；原文残缺按原始材料登记） | ◐ 数值/量词/构成性定义变化 → 新命题 | `SL1-PRO-01`、PR-ID-3 |
 | `declaration_kind` | `vocab(declaration_kind)` | D / U / A | — | PR-ID-1 |
 | `sublanguage_tag` | `ref?` | D / U / A | — | `SL1-COM-01`、ID-05 |
-| `representations[]` | `{representation_id, representation_kind, text, language, equivalence_claim: {claim ∈ enum(SAME_TRUTH_CONDITIONS, APPROXIMATE, DISPUTED, UNKNOWN), declarant_ref: ref?, basis_refs[], added_assumptions[]}}` 集合 | 槽位 D / A（空合法）；元素内 `equivalence_claim` 缺 = `ABSENT`（≠ `UNKNOWN`） | — | `SL1-PRO-02`、`SL1-PRO-03`、`SL1-PRO-04`、RP-03、RP-04、RP-05、CS-22 |
+| `representations[]` | `{representation_id, representation_kind, text, language, equivalence_claim: {claim ∈ enum(SAME_TRUTH_CONDITIONS, APPROXIMATE, DISPUTED, UNKNOWN), declarant_ref: ref?, basis_refs[], added_assumptions[]}}` 集合 | 槽位 D / A（`empty_allowed = true`，SF-14）；元素内 `equivalence_claim` 缺 = `ABSENT`（≠ `UNKNOWN`） | — | `SL1-PRO-02`、`SL1-PRO-03`、`SL1-PRO-04`、RP-03、RP-04、RP-05、CS-22 |
 | `concept_refs[]` | `ref` 集合（`SEMANTIC`） | D / U / A（空合法） | ◐ 构成性定义版本改变 → 新命题 | `SL1-COM-01`、PR-ID-3 |
 | `world_ref` | `{individual_ref: ref?（Entity@rev，具体世界）, kind_ref: ref?（Concept@rev，泛指类别）}` | D / U | ★ 具体世界改变 → 新命题 | `SL1-PRO-05`、PR-ID-3、PR-ID-4、EN-W-6 |
 | `scope_refs[]` | `ref` 集合 | D / U（空须显式 `UNKNOWN`） | ★ 范围增删改变真值条件 | `SL1-PRO-05`、PR-ID-3 |

@@ -112,6 +112,31 @@ describe('架构独立性硬门', () => {
     w.close();
   });
 
+  test('五类 kind 由多个能力分担时仍只靠注册表路由（Kernel 内没有 kind 常量）', () => {
+    // 用五个占位 kind 模拟"多能力分工"，验证机制不关心 kind 的数量与含义。
+    const KINDS = ['test.k1', 'test.k2', 'test.k3', 'test.k4', 'test.k5'] as const;
+    const A: PluginManifest = {
+      pluginId: 'test.kind-split-a', codeVersion: '1', storageNamespace: 'dom_ka', eventAuthority: 'none',
+      provides: [{ capability: 'cap.ka', contractVersion: 'v1' }], requires: [],
+      ownsKinds: [{ kind: KINDS[0], capability: 'cap.ka' }, { kind: KINDS[1], capability: 'cap.ka' }],
+    };
+    const B: PluginManifest = {
+      pluginId: 'test.kind-split-b', codeVersion: '1', storageNamespace: 'dom_kb', eventAuthority: 'none',
+      provides: [{ capability: 'cap.kb', contractVersion: 'v1' }], requires: [{ capability: 'cap.ka', contractVersion: 'v1', required: false }],
+      ownsKinds: [{ kind: KINDS[2], capability: 'cap.kb' }, { kind: KINDS[3], capability: 'cap.kb' }, { kind: KINDS[4], capability: 'cap.kb' }],
+    };
+    const w = openWorld({ file: join(dir, 'five-kinds.db'), space: 'SP-1', grants: { alice: ['space-write'] }, plugins: [A, B] });
+    const created = KINDS.map((k, i) => ({ k, oid: w.uow(PRINCIPAL('alice'), (tx) => tx.createObject({ kind: k, payload: { i } })) }));
+    for (const c of created) {
+      expect(w.readObject(c.oid)!.kind).toBe(c.k);
+      expect(w.kernel.registry.ownerOfKind(c.k)!.capability).toBe(['cap.ka', 'cap.ka', 'cap.kb', 'cap.kb', 'cap.kb'][KINDS.indexOf(c.k as (typeof KINDS)[number])]);
+    }
+    // 两个能力的持久命名空间互不重叠（换包迁移的判据来自这里，不是来自 kind 名）
+    const ns = w.raw.all<{ ns: string }>(`select distinct d.ns from object_directory d`).map((r) => r.ns);
+    expect([...new Set(ns)].sort()).toEqual(['dom_ka', 'dom_kb']);
+    w.close();
+  });
+
   test('必需代码依赖成环 ⇒ 拒绝装配，而不是半装配运行', () => {
     const X: PluginManifest = { pluginId: 'x', codeVersion: '1', provides: [{ capability: 'cx', contractVersion: 'v1' }], requires: [{ capability: 'cy', contractVersion: 'v1', required: true }], storageNamespace: 'dx' };
     const Y: PluginManifest = { pluginId: 'y', codeVersion: '1', provides: [{ capability: 'cy', contractVersion: 'v1' }], requires: [{ capability: 'cx', contractVersion: 'v1', required: true }], storageNamespace: 'dy' };

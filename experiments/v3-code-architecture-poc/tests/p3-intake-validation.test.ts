@@ -128,6 +128,25 @@ describe('P3 Raw Intake / Domain Admission / 版本化校验 / 派生业务视�
     w.close();
   });
 
+  test('报告有自身身份：resolvePresented 判 PRESENT 且能被 required 引用（S-3、ID-08）', () => {
+    const { w, intake, validation } = mk('p3-report-identity');
+    w.uow(WRITER, (tx) => intake.intake(tx, { recordId: 'RAW-9', text: 'x', sourceRef: 's://9' }));
+    const oid = w.uow(WRITER, (tx) => intake.admit(tx, { recordId: 'RAW-9', kind: 'test.claim', text: '合格内容' }));
+    const rep = validation.run(oid, 1, { actor: 'alice' }, 'v1');
+    try {
+      expect(w.kernel.resolvePresented({ kind: 'record-ref', recordId: rep.reportId })).toEqual({ state: 'PRESENT' });
+      const oid2 = w.uow(WRITER, (tx) => {
+        const o = tx.createObject({ kind: 'test.claim', payload: { label: '引用报告' } });
+        tx.linkRef({ from: { kind: 'revision-ref', oid: o, revision: 1 },
+          to: { kind: 'record-ref', recordId: rep.reportId }, role: 'evidence-of', required: true });
+        return o;
+      });
+      expect(w.readRevision({ kind: 'revision-ref', oid: oid2, revision: 1 })?.payload.label).toBe('引用报告');
+      // 反差锚点：没有身份的记录仍是 OPAQUE（报告不是被"一律放过"变绿）
+      expect(w.kernel.resolvePresented({ kind: 'record-ref', recordId: 'RPT-999999' })).toEqual({ state: 'OPAQUE' });
+    } finally { w.close(); }
+  });
+
   test('校验器不可用 ⇒ INDETERMINATE 报告，旧 PASS 不改写且不转为否定（F-CHECK-UNAVAILABLE、SP-08）', () => {
     const { w, intake, validation } = mk('p3-unavailable');
     w.uow(WRITER, (tx) => intake.intake(tx, { recordId: 'RAW-7', text: 'x', sourceRef: 's://7' }));

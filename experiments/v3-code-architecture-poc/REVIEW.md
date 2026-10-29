@@ -271,3 +271,27 @@ R3-A 判 **P0** 的理由：它不是"多读到一个字段"，而是**命名空
 **本轮计数**：`125 passed / 17 failed`，作者 9 个测试文件 **0 红**；红全部在审查方攻击文件，
 其中 `dml-guard` 0/6 与 `reduce-coverage` 的 2 条转红是"漏洞不再可构造"的证据，
 而 `reduce-coverage` 剩下的 1 条绿是**过时断言**（手写四值清单），不是产品通过。
+
+## 14. 第 5 轮收口：S-3 / S-7 已闭，一条测试自身的不稳定登记为 F-34
+
+**S-3（报告身份，P1）已修**：`recordReport` 在同一事务把 `RPT-<seq>` 登记进 `records`，
+`resolvePresented` 的 record-ref 判定**改以 `records` 为正源**（此前只查 `ledger.record_id`，
+而该列只在"目标恰为记录"时被写，于是本空间已提交的报告恒 OPAQUE）。
+
+独立证据（不是"我把红改成绿"）：语义席的 `report-record-identity-attack` 两条断言转红，
+而它**自己的反差锚点**（经 `declareRecord` 声明的记录 ⇒ PRESENT 且 required 可过）仍然绿——
+说明报告现在与其余记录**同构**，正是该席裁定的修法形状。作者侧回归 `tests/p3-intake-validation.test.ts`
+另带一条反向锚点：不存在的 `RPT-999999` 仍判 OPAQUE，证明不是"一律放过"换来的绿。
+
+**S-7（对账表过强，P1）已改**：`RECONCILIATION.md` 第 8 行拆成 8a／8b。8a 保留"所有权与越权已实证"；
+8b 明确 **XC-28 只有"可写性"证据、没有"可检测性"证据**，并写死"`NAMESPACE_ESCAPE` 守的是
+#44 §6.2 核心权威复制禁止，不是单一正源威胁，两者不得互替"。这条是我自己文档里的过度声称，
+不是实现缺陷，但性质更严重——交付物把未做的实证记成已做。
+
+**F-34（P2，测试自身不稳定）**：`tests/multiprocess-contention.test.ts` 单独跑绿（10.2s），
+全套并行跑 0/1 红。根因未定位，**不记为机制回归**，也不放宽断言：并发写互斥的正例已由
+`tests/p1-storage-tx.test.ts` 同事务争用断言覆盖，本条的独有价值是"真第二进程"，
+因此保留在门禁里显式发红，等根因。引用计数时必须把这条与本机制结论分开。
+
+计数（`HEAD` 本轮提交前）：`123 passed / 20 failed`；作者 9 文件其中 1 红即 F-34；
+`tsc` 0（仅 `src`+`tests`，见 §13 覆盖面缺口）；`check-imports` OK；`docs:check` OK。

@@ -367,7 +367,12 @@ export class Kernel {
   resolvePresented(ref: AnyRef): { state: 'PRESENT' | 'OPAQUE' } {
     const found = ref.kind === 'object-ref' ? this.readSnapshot(ref.oid) !== undefined
       : ref.kind === 'revision-ref' ? this.readRevision(ref) !== undefined
-        : this.port.read((raw) => raw.get(`select 1 as x from ledger where record_id=?`, ref.recordId) !== undefined);
+        // S-3：身份的正源是 `records`（声明即身份），不是 ledger 的 record_id 列——
+        // 后者只在"目标恰为记录"时被写，用它判定会把**本空间已提交的报告**误判成 OPAQUE。
+        // 保留 ledger 分支只为兼容"身份在 records 之前"的历史形态。
+        : this.port.read((raw) => raw.get(
+          `select 1 as x from records where record_id=?
+           union all select 1 from ledger where record_id=? limit 1`, ref.recordId, ref.recordId) !== undefined);
     // Kernel 只看得到本空间，因此**从不**区分"不存在 / 在别的空间 / 尚未提交"。
     // 报告侧词汇（UNVERIFIABLE_REFERENCE 等）由呈现层映射，Kernel 只用中性机制形态。
     return { state: found ? 'PRESENT' : 'OPAQUE' };
@@ -673,6 +678,16 @@ class UnitOfWorkImpl implements UnitOfWork {
     this.raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`,
       seq, this.k.space, isRev ? a.target.oid : (a.target as { recordId: string }).recordId, 'check-report');
     const reportId = `RPT-${seq}`;
+    // S-3：报告自身必须有身份。此前 ledger 行的 record_id 只在"目标是记录"时被占用成
+    // **目标** id，报告自己既无 records 行也无身份 ⇒ 本空间已提交报告对外恒 OPAQUE、
+    // required 的 record-ref 指向报告恒 REQUIRED_REF_MISSING——ID-08"报告可被引用"在机制层不可达。
+    // 身份登记是机制事实（谁在何 seq 声明了什么），不含科研语义判定。
+    try {
+      this.raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
+        reportId, seq, JSON.stringify({ validatorId: a.validatorId, ruleVersion: a.ruleVersion, verdict: a.verdict }));
+    } catch {
+      throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: reportId });
+    }
     this.raw.run(
       `insert into check_report(report_id, target_kind, target_oid, target_rev, target_record, validator_id,
         rule_version, schema_version, environment, executed_at, guarantee_scope, verdict, findings_json,

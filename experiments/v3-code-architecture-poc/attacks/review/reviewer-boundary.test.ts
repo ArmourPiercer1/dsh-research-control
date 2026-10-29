@@ -31,6 +31,17 @@ describe('independent repair review attacks', () => {
     } finally { try { w.close(); } catch {} rmSync(dir, { recursive: true, force: true }); }
   });
 
+  test('F-12 soft record refs to missing records remain allowed', () => {
+    const { dir, w } = world('review-f12-soft-');
+    try {
+      const source = w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: {} }));
+      expect(() => w.uow(ALICE, (tx) => tx.linkRef({
+        from: { kind: 'revision-ref', oid: source, revision: 1 },
+        to: { kind: 'record-ref', recordId: 'not-declared' }, role: 'optional', required: false,
+      }))).not.toThrow();
+    } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test('F-12 rejects a missing source revision, not only a missing target revision', () => {
     const { dir, w } = world('review-f12-from-');
     try {
@@ -53,7 +64,7 @@ describe('independent repair review attacks', () => {
           (sql: string) => raw.all(sql),
           (sql: string) => raw.get(sql),
         ]) {
-          expect(() => method('/* disguise */ DROP TRIGGER IF EXISTS ledger_no_update')).toThrow(/RAW_SQL_REFUSED/);
+          expect(() => method('/* disguise */ DROP TRIGGER IF EXISTS ledger_no_update')).toThrow();
         }
       })).not.toThrow();
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }

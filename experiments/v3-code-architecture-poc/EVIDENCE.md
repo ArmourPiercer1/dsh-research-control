@@ -239,3 +239,16 @@ exit=0
 `sql-guard.test.ts` 的句柄取得路径从"顺洞取裸句柄"改走受守卫包装；
 `arch-independence.test.ts` 的 `DECLARED` 清单移除误列的 `k`/`raw`。详见 `REVIEW.md` §27。
 **这三项是作者自述已修，尚未经独立复验**——按本项目纪律，未复验不计入解除条件。
+
+### G0 首批修复后的**全量**（含审查方文件）
+
+`Test Files 9 failed / 28 passed (37)`；**`168 passed / 24 failed`**（此前 167/22）。
+新增的 2 条红**全部可归因到本轮修复本身**，均位于审查方文件，**作者未改动它们**：
+
+| 文件 | 新红 | 归因 |
+| --- | --- | --- |
+| `attacks/host/host-boundary-attack.test.ts` | +1 | 断言形如"经句柄执行应得 `RAW_SQL_REFUSED`"，但实际报 `Cannot read properties of undefined`——它的夹具是**顺着 `tx.raw` 这个洞**拿裸句柄的。D-16 封死后取不到句柄。**这条红本身是 D-16 已封的证据**，不是回归 |
+| `attacks/review/r5r8-semantics-attack.test.ts` | +1 | `expected 'INDETERMINATE' to be 'ACHIEVED'`——席位当时按**修复前**的 D-15 行为写断言（未交边视图仍报 ACHIEVED）。修复后必须是 INDETERMINATE |
+
+**处置**：不改写审查方的断言（那是他们的产物）。此处留痕即为正式解释；
+后续独立复验时应由席位自己更新断言或加注。引用计数时须连带本表，否则这两条会被读成回归。

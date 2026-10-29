@@ -139,7 +139,7 @@ ToolError{ code: 'TOOL_SERVICE', detail: { serviceCode: 'F-WITHHELD', tool: 'hsr
 5. **回显完备**：所有查询响应缺 `echo` 即测试红。
 6. **游标稳定**：翻页过程中插入晚到登记，既有游标序列不重复不漏项。
 6a. **页长填满（SI-50 最直接的暴露方式）**：fixture 必须让**首屏窗口内混有不可见行**（底层 ≥ limit+13 条、其中前 limit 条里有若干对本授权类不可见），断言返回条数恰为 `limit` 且 `exhausted=false`。"先取 `limit` 行再按权限过滤"是 SQL/ORM 的默认写法，且**在小数据量下两种实现逐字节同果**——不专门构造混窗 fixture，这条 oracle 不会红（SI-33 第②类量级恒定的分页实例）。第 1 条的工作量计数器差分**也可能**抓到它（两种实现的候选记录读取数不同），但那依赖桩件计数，不如直接断言返回条数可靠，故本条独立列出，不视为前者的替代
-6b. **盲区不得吞掉可见结果集的真实分页（SI-14 三键角色分离的组合负例）**：构造"调用者可见 200 条 + 另有对本授权类不可见的记录"，页长 100，断言第 1 页 `exhausted = false`、第 2 页 `exhausted = true`、两页 `limit_applied = 100`（等于实际生效页长，不是缺省值的常量回显），同时 `boundary.truncated` 两页都恒为 `false`。反向断言：若实现把 `limit_applied` 或 `exhausted` 也当披露量钉成常量，本测试必须红。
+6b. **盲区不得吞掉可见结果集的真实分页（SI-14 三键角色分离的组合负例）**：构造"调用者可见 200 条 + 另有对本授权类不可见的记录"，**测试页长必须 ≠ 该操作缺省页长**（若恰相等，"把 `limit_applied` 回显成缺省常量"的错误实现会两页全绿、反向断言失效；取两个页长各跑一次最稳），断言第 1 页 `exhausted = false`、第 2 页 `exhausted = true`、两页 `limit_applied = 100`（等于实际生效页长，不是缺省值的常量回显），同时 `boundary.truncated` 两页都恒为 `false`。反向断言：若实现把 `limit_applied` 或 `exhausted` 也当披露量钉成常量，本测试必须红。
 7. **报告不可覆盖**：重检后旧 `report_id` 内容逐字节不变。
 8. **回放**：历史请求包络 + 截点重放得到同形呈现视图（SI-73）。
 9. **身份锚定**：注册 `identity_slots: []` 的 Entity 子型必须被注册一致性检查判为非法（SS-54）；对已声明身份槽位提交变化集并标 `completion_basis = SAME_INTENT_CONFIRMED`，必须被 `F-CONFLICT` 拒绝（SS-55）。

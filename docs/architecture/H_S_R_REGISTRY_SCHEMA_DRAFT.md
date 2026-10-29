@@ -22,7 +22,7 @@
 | SRG-10 | 词表头：`{vocabulary_id, openness ∈ {CLOSED, OPEN}, contract_ref, version, entries[]}`。`CLOSED` 词表出现未注册条目 → **形态非法**（写入被拒，`TOOL_INPUT`）；`OPEN` 词表见 SRG-21。 |
 | SRG-11 | 词表版本 = 该版本条目集合的 `record_digest`（SF-52）；条目集合变化即新版本。词表本身是非对象记录，可被 `rec:` 引用（ID-08）。 |
 | SRG-12 | 词表条目**只增不改不删**：`{entry_code, status ∈ {ACTIVE, DEPRECATED}, introduced_in, deprecated_in?, contract_ref, note?}`。**允许退役、不允许删除，也不允许改变历史解释**（SF-64）：状态置 `DEPRECATED` 后条目永久保留、永远可解析；原句写作「已被历史记录使用的码永不退役」与同行 `status` 含 `DEPRECATED` 自相矛盾，本轮按 SF-64 统一。 |
-| SRG-13 | 退役条目仍参与解析与展示（附 `DEPRECATED` 标注），但新登记使用它时产生 `FAIL(CODE_DEPRECATED, DEFICIENCY)` 型 finding——提示而非阻断（DF-07）。 |
+| SRG-13 | 退役条目仍参与解析与展示（附 `DEPRECATED` 标注），但新登记使用它时产生 `FAIL(CODE_DEPRECATED, DEFICIENCY)` 型 finding——提示而非阻断（DF-07）。**本条同样适用于子型注册表条目**：`DEPRECATED` 的子型码**仍可解析、仍可用于新登记**，产 `FAIL(CODE_DEPRECATED, DEFICIENCY)`，不阻断。**它绝不落入 SS-56 的候选载荷**——候选态只针对"解析不到"，而退役条目解析得到、槽位集与载荷白名单都在，形态完全可构造；把退役当作未注册会误报成形态不可构造。SRG-12 的"只增不改不删、允许退役、不改变历史解释"因此同样约束子型注册表（跨域适用性由本句钉住，不靠推断）。 |
 
 ## 3. 未注册取值的处置（不许一刀切）
 

@@ -84,3 +84,30 @@
 | `npx vitest run tests/git/tc-git-016.test.ts` | 1 passed（隔离通过） |
 
 vitest 三次结果不一致，第 3 次点名的 `tc-git-016` 是**超时 kill 的 mock 用例**（依赖计时），隔离通过。本轮改动只有 `docs/` 3 个文件 + `poc/` 9 个文件，对 `src`/`tests`/`schema`/`scripts`/`package.json` 的改动数是 **0**，因此这些偶发与本轮无因果关系；但我没跑足够多轮把它们的成因定位掉——**记为"未定位的既有计时偶发"，不说成已排除**。
+
+**后补（第二轮定位到的机制，供交叉核对）**：本轮我一度把 `vitest run` 跑出 **46 failed files / 1164 files**，原因是我自己在工作区里 `.scratch/wt42`、`.scratch/wt47` 建了两份 git worktree（完整 checkout），而 `vitest.config.ts` 的 exclude 不含 `.scratch/**`，两份 checkout 的 `tests/**` 全被收编且无 `node_modules`。删掉 worktree 后同一条命令得到 **358 files / 5083 tests、0 failed**（与基线一致）。这只证明"**嵌套 checkout 会污染测试收集面**（缺 `node_modules` 时整片报红）"这一机制成立；上一轮那三次 2/0/1 我没有留下文件数记录，因此**不能断言同一成因**——旧记录仍按原样保留，只标注存在一个已证实的同类污染源。给 B 的一条建议：`.scratch/**` 应进 vitest 与 tsconfig 的 exclude（本 PoC 不改仓内配置）。
+
+## 第二轮验证记录（本轮，不写结论只写观测）
+
+| 命令 | 结果 |
+| --- | --- |
+| `node --test poc/hsr-form/*.poc.mjs` | **53 passed / 0 failed**（poc1 12、poc2 25、poc3 16） |
+| `pnpm run docs:check` | OK（1201 tracked files） |
+| `docs:probe --fail-on-blocking` | exit 0（advisory `DOC_IMPACT_UNOWNED`：`poc/*.md` 未登记进 `dev/engineering/doc-ownership.yaml`，该文件人工维护、`docs:sync` 不写） |
+| `pnpm run check:types` | 精确复现 19 条已知债务（身份匹配，非计数匹配） |
+| `pnpm run lint` | OK |
+| `npx vitest run`（清理后） | **358 files passed / 6 skipped，5083 passed / 21 skipped，0 failed** —— 与登记基线一致 |
+| 规则号闭包 | 定义 251 / 被引用 251 / 无定义引用 0（`T-GAP-10` 入表后两侧同步 +1） |
+
+### 本轮自己造出来的假红灯（一次，已定位）
+
+第一次跑 `npx vitest run` 得到 **46 failed files / 1164 files**，`Tests` 却是 0 failed——**全是我自己造的**：
+本轮用 `git worktree add .scratch/wt42`、`.scratch/wt47` 在仓库内部建了两份完整 checkout 来避免分支串台，
+而 `vitest.config.ts` 的 `exclude` 只排除 `references/**`、`tests/deepseek-harness/**`、`tests/dsh-homes/**`，
+**不排除 `.scratch/**`**，于是两份 checkout 的 `tests/**` 全被收编，且它们没有 `node_modules` 而整片报红。
+`git worktree remove` 两个目录后重跑即得基线数字。
+
+- 对上一轮"未定位的计时偶发"是否同一成因：**不能确认**。上一轮三次跑报的是 364 文件面下的**测试级**失败（2/0/1 条），
+  这次是**文件收集级**（46 个文件），签名不同；只登记机制已被证实，不把解释硬套到旧记录上。
+- 可复用结论：**任何嵌套 checkout 放进本仓工作区都会污染测试收集面**（`AGENTS.md` §2 为 DSH checkout 立这条排除，
+  同一条约束对 `.scratch/` 下的临时 worktree 同样成立）。本轮之后 worktree 一律建在仓库外，或建前先确认收集面。

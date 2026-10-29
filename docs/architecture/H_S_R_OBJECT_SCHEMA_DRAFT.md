@@ -51,6 +51,7 @@ ObjectRevisionEnvelope = {
 | SS-13 | `subtype_code` 必须解析到子型注册表条目；解析不到 → 保存成功 + `FAIL(SUBTYPE_UNREGISTERED, DEFICIENCY)`（SRG-21）。**存什么由 SS-56 规定**——此时既没有槽位集也没有键白名单可用。 |
 | SS-14 | 非对象记录（检查报告、采用记录、可用性检查、H 原始记录、Assertion 链成员声明）**不使用本信封**：它们有各自的记录形态，且不得被赋对象引用类型（ID-08、SCR-01、SF-24）。 |
 | SS-15 | `external_citations[]` 只能出现在信封，**不得**进入 `payload` 的任何端点/参与者/正式声明槽位；它是"本记录涉及某 V1 对象"的断言，不参与身份判定、不隐含存在性校验（SF-28、SD-20）。 |
+| SS-15a | **信封键分三类，逐键封闭列举——"每个槽位都带五态标签"不适用于后两类**（此前未写明，validator 无法决定 `truncated` 该写成 `false` 还是 `{"@st":"DECLARED","v":false}`；若误要求标签，还会连带破坏 `SCR-57` 的 golden 字节比较与 `SI-14` 的恒定面）：**① 结构常量类（普通值，不是五态槽位）**`object_id`、`object_kind`、`space_id`、`revision_id`、`schema_version`、`recorded_at`、`identity_slot_set_digest`、`subtype_code`；**② 领域槽位类（带五态标签，参与 SF-03/SF-11/SF-14/SF-17）**`registrant_ref`、`source_refs`、`completion_basis`、`external_citations[]`；**③ 响应回显类（只出现在读响应，既非持久槽位也非五态值）**`limit`、`next_cursor`、`exhausted`、`boundary.coverage`、`boundary.truncated`、`boundary.limit_applied`。`SF-03` 的槽位穷尽只作用于**载荷 `slot_set[]` 与第②类**；对第①③类要求标签属形态错误，对第②类漏标签属 `STATE_UNDECLARED`。**第①类中的 `subtype_code` 可以被 `identity_slots[]` 引用**：子型是身份构成项（`EN-ID-7`、`CO-ID-5`、`SL1-PRO-09`）却不由载荷承载（SS-09a），因此 `SS-54` 的超集判定与 `SS-12` 的 `identity_slot_set_digest` 都把**信封键名与载荷槽名算作同一个身份集合**；不得为了凑满足超集而把子型塞回载荷（那会撞 SS-09a）。新增第②类键属破坏性变更（SF-61）。 |
 
 ## 3. 五类对象载荷槽位表
 

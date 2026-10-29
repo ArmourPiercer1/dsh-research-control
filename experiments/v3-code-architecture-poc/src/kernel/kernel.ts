@@ -267,6 +267,7 @@ export class Kernel {
         seq, this.space, enabled ? 'capability-enabled' : 'capability-disabled', by.actorId,
         JSON.stringify({ capability: cap }), null, Date.now(),
       );
+      this.journalEpoch(tx.raw, seq, enabled ? 'capability-enabled' : 'capability-disabled');
     // 装卸同样是运维权威轴（SP-09），不得只凭 space-write。
     }, 'capability-admin');
     if (enabled) {
@@ -354,6 +355,11 @@ export class Kernel {
   /** 只读快照（无权限语义；带可见性/截点的读取见 ReadContext，#44 §5.1）。 */
   readSnapshot(oid: ObjectOid): ObjectSnapshot | undefined {
     return this.port.read((raw) => new UnitOfWorkImpl(this, { actorId: '-', verified: true }, raw).readLatest(oid));
+  }
+
+  /** 机制级事件的 journal epoch（路由/报告这类不属任何命名空间的状态变更也要可续跑）。 */
+  journalEpoch(raw: RawTx, seq: CommitSequence, op: string): void {
+    raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, this.space, `cap:${op}`, op);
   }
 
   nextLedgerSeq(raw: RawTx): CommitSequence {
@@ -579,16 +585,22 @@ class UnitOfWorkImpl implements UnitOfWork {
       seq, this.k.space, 'capability-transferred', this.principal.actorId,
       JSON.stringify({ capability: cap, from: cur.plugin_id, to: toPlugin, fromNs: cur.ns, toNs: ns }), null, Date.now(),
     );
+    this.k.journalEpoch(this.raw, seq, 'capability-transferred');
   }
 
   /** 硬业务完整性引用：事务内确实存在，否则整体回滚（#44 §7.3 / RF-02）。 */
   checkRequiredRefs(): void {
     const rows = this.raw.all<{
-      from_oid: string; role: string; to_oid: string | null; to_rev: number | null; to_record: string | null;
+      from_oid: string; from_rev: number; role: string;
+      to_oid: string | null; to_rev: number | null; to_record: string | null;
     }>(
-      `select from_oid, role, to_oid, to_rev, to_record from ref_edge where required=1`,
+      `select from_oid, from_rev, role, to_oid, to_rev, to_record from ref_edge where required=1`,
     );
     for (const r of rows) {
+      // 源端同样要成立：一条 from 修订不存在的必需边，本身就是不存在的历史在主张约束力。
+      if (!this.raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.from_oid, r.from_rev)) {
+        throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, revision: r.from_rev, level: 'source' });
+      }
       if (r.to_oid !== null) {
         if (!this.raw.get(`select oid from object_directory where oid=?`, r.to_oid)) {
           throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, role: r.role, to: r.to_oid });

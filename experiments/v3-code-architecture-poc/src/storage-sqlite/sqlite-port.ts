@@ -103,6 +103,23 @@ class Adapter implements RawTx {
   get<T>(sql: string, ...p: readonly unknown[]): T | undefined { return this.db.prepare(sql).get(...(p as never[])) as T | undefined; }
 }
 
+/**
+ * 打开既有库时的**模式契约**（长期演化轴，见 REVIEW.md F-16/F-17）：
+ *  1. 打开路径不得隐含一次迁移。DDL 是写操作；把 DDL 放在每次打开时执行，等于
+ *     "打开旧库"悄悄变成"把旧库改成新库"：缺表被静默补上，旧数据语义却没迁过。
+ *  2. 因此：空库才建表；已有库必须先过版本与表集/触发器集校验，通过后**不再执行任何 DDL**。
+ *     任何分歧都 fail-loud，交显式迁移器处理。
+ */
+export const SCHEMA_VERSION = 2;
+const REQUIRED_TABLES = [
+  'meta', 'ledger', 'records', 'check_report', 'object_directory', 'domain_state',
+  'journal', 'capability_route', 'projection_state', 'ref_edge',
+] as const;
+const REQUIRED_TRIGGERS = [
+  'ledger_no_update', 'ledger_no_delete', 'check_report_no_update', 'check_report_no_delete',
+  'directory_no_update',
+] as const;
+
 export interface SqlitePortOptions {
   readonly file: string;
   /** 故障注入：在本次 COMMIT 之前抛出（模拟提交阶段失败，#44 §12「跨插件暂存后失败」）。 */
@@ -120,7 +137,7 @@ export class SqlitePort implements StoragePort {
     this.db.exec('pragma journal_mode = wal;');
     this.db.exec('pragma busy_timeout = 2000;');
     this.db.exec('pragma foreign_keys = on;');
-    this.db.exec(SCHEMA);
+    this.assertOpenableThenPrepare();
     this.adapter = new Adapter(this.db);
     this.failBeforeCommit = opts.failBeforeCommit;
   }
@@ -129,6 +146,45 @@ export class SqlitePort implements StoragePort {
    * 单事务边界：`begin immediate` 让写冲突在开始时而非提交时才暴露，但**仍**可能提交期
    * 拿不到写锁（实测 SQLITE_BUSY errcode=5，等待 busy_timeout 后失败且无部分提交）。
    */
+  /**
+   * 打开策略：空库 ⇒ 建表并登记版本；已有表 ⇒ 只校验、不写。
+   * detail 里的 missingTables/missingTriggers/版本就是迁移器的输入，不靠运维猜。
+   */
+  private assertOpenableThenPrepare(): void {
+    const rows = this.db.prepare(`select name, type from sqlite_master`).all() as { name: string; type: string }[];
+    const tables = new Set(rows.filter((r) => r.type === 'table').map((r) => r.name));
+    const triggers = new Set(rows.filter((r) => r.type === 'trigger').map((r) => r.name));
+    if (tables.size === 0) {
+      this.db.exec(SCHEMA);
+      this.db.prepare(`insert into meta(key, value) values('schema_version', ?)
+        on conflict(key) do update set value = excluded.value`).run(SCHEMA_VERSION);
+      return;
+    }
+    const missingTables = REQUIRED_TABLES.filter((x) => !tables.has(x));
+    const missingTriggers = REQUIRED_TRIGGERS.filter((x) => !triggers.has(x));
+    const marked = this.db.prepare(`select value from meta where key='schema_version'`).get() as { value: number } | undefined;
+    if (marked === undefined) {
+      throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
+        file: this.file, reason: '既有库没有模式版本标记，无法判定是否已迁移',
+        missingTables, missingTriggers, expectedVersion: SCHEMA_VERSION,
+      });
+    }
+    if (marked.value !== SCHEMA_VERSION) {
+      throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
+        file: this.file, reason: '模式版本与本实现不一致', foundVersion: marked.value,
+        expectedVersion: SCHEMA_VERSION, missingTables, missingTriggers,
+      });
+    }
+    if (missingTables.length > 0 || missingTriggers.length > 0) {
+      // 版本对得上但表/触发器缺失：不可变性可能已被拆除，静默补齐等于假装它一直在
+      throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
+        file: this.file, reason: '版本一致但表集/触发器集不完整', missingTables, missingTriggers,
+        expectedVersion: SCHEMA_VERSION,
+      });
+    }
+    // 校验通过：打开路径到此为止，不执行任何 DDL
+  }
+
   tx<T>(fn: (raw: RawTx) => T): T {
     try {
       // begin 本身也可能因写锁失败 ⇒ 必须在同一个 try 内，才能走同一条翻译路径。
@@ -179,11 +235,34 @@ function translate(e: unknown): unknown {
  * "存储层保证不可变"就退化为"没人去删触发器时保证不可变"。因此 DDL / 附加库 / PRAGMA
  * 在这一层直接拒绝（纵深防御：类型面上 UnitOfWork 已不再暴露 raw）。
  */
-const FORBIDDEN_SQL = /^\s*(drop|alter|create|attach|detach|pragma|vacuum|reindex|analyze)\b/i;
+const FORBIDDEN_KEYWORD = /^(drop|alter|create|attach|detach|pragma|vacuum|reindex|analyze)\b/i;
+/**
+ * 归一化后再判定：前导注释、块注释、行注释、空白与多余分号都能让锚定式正则形同虚设
+ * （独立复审实测 `/* x *\/ drop trigger …` 绕过）。归一化后还要拒绝多语句，
+ * 否则 `select 1; drop trigger …` 以合法关键字开头却带着 DDL。
+ */
+function normalizeSql(sql: string): string {
+  let out = sql;
+  for (;;) {
+    const stripped = out
+      .replace(/^\s+/, '')
+      .replace(/^\/\*[\s\S]*?\*\//, '')
+      .replace(/^--[^\n]*\n?/, '')
+      .replace(/^;+/, '');
+    if (stripped === out) break;
+    out = stripped;
+  }
+  return out;
+}
 function guard(raw: RawTx): RawTx {
   const check = (sql: string): void => {
-    if (FORBIDDEN_SQL.test(sql)) {
-      throw new Refusal('RAW_SQL_REFUSED', { reason: 'DDL/PRAGMA/ATTACH 不得经机制句柄执行', sql: sql.slice(0, 60) });
+    const head = normalizeSql(sql);
+    const reason = FORBIDDEN_KEYWORD.test(head) ? 'DDL/PRAGMA/ATTACH 不得经机制句柄执行'
+      // 多语句：第一条合法不代表整条合法
+      : /;\s*\S/.test(head) ? '不得经机制句柄提交多语句'
+      : undefined;
+    if (reason) {
+      throw new Refusal('RAW_SQL_REFUSED', { reason, sql: sql.slice(0, 60) });
     }
   };
   return {

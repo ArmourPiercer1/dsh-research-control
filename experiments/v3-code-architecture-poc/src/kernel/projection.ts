@@ -47,8 +47,9 @@ export class Projection {
     this.index = new Map();
     if (source === 'journal-only') {
       const n = this.k.port.read((raw) => {
-        const rows = raw.all<{ oid: string; ns: string }>(`select oid, ns from journal order by seq`);
-        for (const r of rows) this.add(r.oid as ObjectOid);
+        // 机制级事件行 oid 为 NULL（不指任何对象），必须跳过而不是当成对象去查
+        const rows = raw.all<{ oid: string | null; ns: string }>(`select oid, ns from journal order by seq`);
+        for (const r of rows) if (r.oid !== null) this.add(r.oid as ObjectOid);
         return rows.length;
       });
       this.setCursor(this.k.head, 0);            // 基线不动 ⇒ 缺口仍然可见
@@ -85,8 +86,8 @@ export class Projection {
     const head = this.k.head;
     if (this.gapAt(this.row().baseline, head)) throw new Refusal('FULL_REBUILD_REQUIRED', { projection: this.name, from: seq, to: head });
     const applied = this.k.port.read((raw) => {
-      const rows = raw.all<{ oid: string; tx_epoch: number }>(`select oid, tx_epoch from journal where tx_epoch > ? order by tx_epoch`, seq);
-      for (const r of rows) this.add(r.oid as ObjectOid);
+      const rows = raw.all<{ oid: string | null; tx_epoch: number }>(`select oid, tx_epoch from journal where tx_epoch > ? order by tx_epoch`, seq);
+      for (const r of rows) if (r.oid !== null) this.add(r.oid as ObjectOid);
       return rows.length;
     });
     this.setCursor(head, this.row().baseline);

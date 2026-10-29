@@ -96,6 +96,55 @@ create trigger if not exists check_report_no_delete before delete on check_repor
 begin select raise(abort, 'CHECK_REPORT_IMMUTABLE'); end;
 `;
 
+/**
+ * 显式迁移器：把 `records` 表之前声明的记录回填为首次声明行。
+ *
+ * 只回填**已有事实**（同一 record_id 取 ledger 里最早的那条），不新造语义、不改任何既有行；
+ * 迁移本身是写操作，因此必须由调用方显式发起（装配根的升级步骤），不能藏在打开路径里。
+ * 返回回填条数。幂等：已存在的 record_id 不动。
+ */
+export function migrateLegacyRecords(file: string): number {
+  assertInsidePocData(file);
+  const db = new DatabaseSync(file);
+  try {
+    db.exec('pragma busy_timeout = 2000;');
+    const rows = db.prepare(
+      `select l.record_id as record_id, min(l.seq) as seq, min(l.rowid) as rid
+         from ledger l
+        where l.record_id is not null
+          and not exists (select 1 from records r where r.record_id = l.record_id)
+        group by l.record_id`,
+    ).all() as { record_id: string; seq: number; rid: number }[];
+    if (rows.length === 0) return 0;
+    db.exec('begin immediate;');
+    try {
+      for (const r of rows) {
+        const src = db.prepare(`select space, event_type, payload_json from ledger where rowid=?`).get(r.rid) as
+          { space: string; event_type: string; payload_json: string };
+        db.prepare(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`)
+          .run(r.record_id, r.seq, src.payload_json);
+        // 迁移登记也走同一条计数器协议（meta.ledger_seq），不另造第二套序号；
+        // 这样迁移后的历史仍可被 recorded_as_of 截点看见，且不会与后续提交撞号。
+        const next = (db.prepare(`select value from meta where key='ledger_seq'`).get() as { value: number }).value + 1;
+        db.prepare(`update meta set value = ? where key='ledger_seq'`).run(next);
+        db.prepare(
+          `insert into ledger(seq, space, event_type, actor, record_id, payload_json, described_at, recorded_at)
+           values(?,?,?,?,?,?,?,?)`)
+          .run(next, src.space, 'record-backfilled', 'migrator', r.record_id,
+            JSON.stringify({ recordId: r.record_id, via: 'migrateLegacyRecords', originalSeq: r.seq, originalEventType: src.event_type }),
+            null, Date.now());
+        db.prepare(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`)
+          .run(next, src.space, `rec:${r.record_id}`, 'record-backfilled');
+      }
+      db.exec('commit;');
+    } catch (e) {
+      try { db.exec('rollback;'); } catch { /* 已隐式回滚 */ }
+      throw e;
+    }
+    return rows.length;
+  } finally { db.close(); }
+}
+
 class Adapter implements RawTx {
   constructor(private readonly db: DatabaseSync) {}
   run(sql: string, ...p: readonly unknown[]): void { this.db.prepare(sql).run(...(p as never[])); }
@@ -175,10 +224,39 @@ export class SqlitePort implements StoragePort {
         expectedVersion: SCHEMA_VERSION, missingTables, missingTriggers,
       });
     }
+    // OID 计数器一致性：计数器落后于已冻结对象 ⇒ 下一次 createObject 必然撞号。
+    // 不在打开时判定，就会在写入时以驱动主键冲突的形式冒出来（越界、不可判定，F-07 同族）。
+    const suffixes = (this.db.prepare(`select oid from object_directory`).all() as { oid: string }[])
+      .map((r) => /-(\d+)$/.exec(r.oid)?.[1]).filter((x): x is string => x !== undefined)
+      .map(Number);
+    const maxOid = suffixes.length > 0 ? Math.max(...suffixes) : 0;
+    const counter = (this.db.prepare(`select value from meta where key='id_counter'`).get() as { value: number } | undefined)?.value ?? 0;
+    if (counter < maxOid) {
+      throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
+        file: this.file, reason: 'OID 计数器落后于已冻结对象，继续写入必然撞号',
+        idCounter: counter, maxExistingOidSuffix: maxOid, expectedVersion: SCHEMA_VERSION,
+      });
+    }
+
     if (missingTables.length > 0 || missingTriggers.length > 0) {
       // 版本对得上但表/触发器缺失：不可变性可能已被拆除，静默补齐等于假装它一直在
       throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
         file: this.file, reason: '版本一致但表集/触发器集不完整', missingTables, missingTriggers,
+        expectedVersion: SCHEMA_VERSION,
+      });
+    }
+    // 模式新但历史旧：records 表出现之前合法声明过的记录只活在 ledger.record_id 里。
+    // 表集/版本校验全过，之后 readRecord 静默返回 undefined、必需 record-ref 被误判缺失。
+    // 检出即拒绝，修复交显式迁移器——打开路径仍然一个字节都不写（F-15 的同一条纪律）。
+    const legacy = (this.db.prepare(
+      `select count(distinct l.record_id) c from ledger l
+         where l.record_id is not null
+           and not exists (select 1 from records r where r.record_id = l.record_id)`,
+    ).get() as { c: number }).c;
+    if (legacy > 0) {
+      throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
+        file: this.file, reason: '历史中存在 records 表之前的记录声明，需显式迁移',
+        legacyRecordCount: legacy, migration: 'migrateLegacyRecords',
         expectedVersion: SCHEMA_VERSION,
       });
     }

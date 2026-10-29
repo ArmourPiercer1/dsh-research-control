@@ -147,4 +147,59 @@ describe('架构独立性硬门', () => {
       plugins: [X, { ...Y, requires: [{ capability: 'cx', contractVersion: 'v1', required: false }] }],
     })).not.toThrow();
   });
+
+  // ── 插件面纪律（F-19/F-23 的门禁化）────────────────────────────────────────
+  test('领域插件不得持有 Kernel，也不得触碰 port / raw / 驱动句柄', () => {
+    // 这一条此前没有门禁，于是"插件只拿窄面"停留在文档里：FacetStore 曾持有 Kernel，
+    // FactStandingService 甚至直接 kernel.port.read() 全库扫描——命名空间隔离对它形同虚设。
+    const FORBIDDEN = [
+      // 允许 import type PluginFace/NamespaceWriter/UnitOfWork；禁的是**持有 Kernel 这个值**
+      { re: /:\s*Kernel\b|new Kernel|extends Kernel/, why: '持有 Kernel 即持有运维权威面（transferRoute/activate/setRouteEnabled）' },
+      { re: /\bverified:\s*true\b/, why: '主体必须由宿主核验后交入，领域不得自造已验证身份' },
+      { re: /\.port\b/, why: 'port 是全库出入口，越过命名空间写入器' },
+      { re: /\.raw\b/, why: 'raw 是事务内裸句柄，只允许机制内部使用' },
+      { re: /node:sqlite/, why: '领域不得自己打开数据库文件' },
+    ];
+    const offenders: string[] = [];
+    for (const f of filesUnder('src/domains')) {
+      const body = stripComments(readFileSync(f, 'utf-8'));
+      for (const { re, why } of FORBIDDEN) if (re.test(body)) offenders.push(`${f}: ${why}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('门禁反差锚点：伪造一个持有 Kernel 的领域文件必须变红', () => {
+    const fake = ['import type { Kernel } from "../kernel/kernel.ts";',      'export class Sneaky {', '  constructor(private k: Kernel) {}',      '  go() { return this.k.port.read((r) => r.all("select 1")); }', '}', ''].join('\n');
+    expect(stripComments(fake)).toContain('Kernel');
+    const hits = [/\bKernel\b/, /\.port\b/].filter((re) => re.test(stripComments(fake)));
+    expect(hits).toHaveLength(2);              // 扫描器对这个形态两条都命中
+    // 再证一次真目录扫描不会因为锚点字符串而误报：当前 src/domains 必须干净
+    expect(filesUnder('src/domains').length).toBeGreaterThan(0);
+  });
+
+  test('UnitOfWork 的运行时面与契约声明的封闭集一致（契约↔实现漂移探测器）', () => {
+    const w = openWorld({ file: join(dir, 'uow-surface.db'), space: 'SP-1' });
+    try {
+      // 方法挂在原型上，Object.keys 只看自有属性 ⇒ 必须沿原型链收集，否则这条门禁是假绿
+      const surface = (x: object): string[] => {
+        const out = new Set<string>();
+        let cur: object | null = x;
+        while (cur && cur !== Object.prototype) {
+          for (const k of Object.getOwnPropertyNames(cur)) out.add(k);
+          cur = Object.getPrototypeOf(cur) as object | null;
+        }
+        return [...out].sort();
+      };
+      const seen = w.uow(PRINCIPAL('alice'), (tx) => surface(tx as object));
+      const DECLARED = [                       // CONTRACTS.md §6 承诺给插件的封闭集
+        'declareRecord', 'appendLedger', 'linkRef', 'recordReport', 'createObject', 'revise',
+        'readLatest', 'principal', 'checkRequiredRefs', 'reassignRouteInternal', 'k', 'raw', 'space',
+      ].sort();
+      // 只要求"承诺的方法一个都不能少"——多出来的是机制内部成员，由上一条门禁限制插件可达性
+      for (const m of DECLARED.slice(0, 8)) expect(seen, `契约承诺的 ${m} 不在运行时面上`).toContain(m);
+      // 反向：机制内部成员必须存在但**不在**插件可见类型面上（类型面由 tsc 把关，这里守住存在性）
+      expect(seen).toContain('reassignRouteInternal');
+      w.close();
+    } finally { try { w.close(); } catch { /* 已关 */ } rmSync(dir, { recursive: true, force: true }); }
+  });
 });

@@ -308,6 +308,32 @@ export class Kernel {
   }
 
   /** 插件面入口：只交出 UnitOfWork；插件不再拿得到任意 SQL 句柄（#44 §4.2、§6.2、SP-10）。 */
+  /**
+   * 装配根交给插件的**窄面**：只包含"我自己这个能力"的命名空间读写，闭包捕获所需方法而不是
+   * 交出 Kernel。插件拿到 Kernel 就等于拿到 transferRoute/activate/setRouteEnabled 等运维权威面，
+   * 即便每次调用仍有授权核对（F-11），也不该让"能触达"成为默认形态。
+   */
+  /**
+   * 按对象 + 事件类型 + 登记截点取回事件载荷（**机制级原语**：Kernel 把 eventType 当不透明字符串，
+   * 判读 payload 是领域的事）。存在的理由：领域需要"这个对象到某水位被声明成什么"这类查询，
+   * 若让它自己去碰 `port`/`raw`，就等于把全库读写交出去，命名空间隔离只在句柄层生效、在这里失效。
+   */
+  eventsFor(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; payload: unknown }[] {
+    return this.port.read((raw) => raw.all<{ seq: number; payload_json: string }>(
+      `select seq, payload_json from ledger where object_id=? and event_type=? and seq <= ? order by seq`,
+      oid, eventType, cutoff,
+    ).map((r) => ({ seq: r.seq as CommitSequence, payload: JSON.parse(r.payload_json) as unknown })));
+  }
+
+  faceFor(capability: CapabilityId): PluginFace {
+    const writerFor = (tx: UnitOfWork): NamespaceWriter => this.namespacedWriter(capability, tx);
+    const readOwn = (oid: ObjectOid) => this.readNamespaced(capability, oid);
+    const eventsOf = (oid: ObjectOid, eventType: string, cutoff: CommitSequence) =>
+      this.eventsFor(oid, eventType, cutoff);
+    const revisionOf = (ref: RevisionRef) => this.readRevision(ref);
+    return { capability, space: this.space, writerFor, readOwn, eventsOf, revisionOf };
+  }
+
   namespacedWriter(capability: CapabilityId, tx: UnitOfWork): NamespaceWriter {
     return new NamespaceWriterImpl(this, capability, (tx as UnitOfWorkImpl).raw);
   }
@@ -357,9 +383,13 @@ export class Kernel {
     return this.port.read((raw) => new UnitOfWorkImpl(this, { actorId: '-', verified: true }, raw).readLatest(oid));
   }
 
-  /** 机制级事件的 journal epoch（路由/报告这类不属任何命名空间的状态变更也要可续跑）。 */
+  /**
+   * 机制级事件的 journal epoch（路由变更、报告登记这类不属任何命名空间的状态变更也要可续跑）。
+   * `oid` 必须留 NULL：`journal.oid` 是对象标识列，往里塞 `cap:xxx` 这类合成值等于污染该列的取值域，
+   * 让任何按 oid  join 的读面拿到假对象。ns 用空间名标记"机制级"，op 说明是哪类事件。
+   */
   journalEpoch(raw: RawTx, seq: CommitSequence, op: string): void {
-    raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, this.space, `cap:${op}`, op);
+    raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,null,?)`, seq, this.space, op);
   }
 
   nextLedgerSeq(raw: RawTx): CommitSequence {
@@ -376,6 +406,18 @@ export interface NamespaceWriter {
   write(a: { readonly ns: string; readonly oid: ObjectOid; readonly revision: number; readonly payload: unknown; readonly eventType: string }): void;
   readLatest(oid: ObjectOid): { readonly revision: number; readonly payload: Record<string, unknown> } | undefined;
 }
+/** 插件可见的窄面（装配根用 Kernel.faceFor 造；类型面即边界，`src/domains/**` 不得出现 Kernel）。 */
+export interface PluginFace {
+  readonly capability: CapabilityId;
+  /** 本 Kernel 所属空间标识（领域做授权判据要用，不含任何科研语义）。 */
+  readonly space: SpaceId;
+  writerFor(tx: UnitOfWork): NamespaceWriter;
+  readOwn(oid: ObjectOid): { revision: number; payload: Record<string, unknown> } | undefined;
+  /** 按对象 + 事件类型 + 截点取事件；eventType 对机制是不透明字符串。 */
+  eventsOf(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; payload: unknown }[];
+  revisionOf(ref: RevisionRef): { revision: number; payload: Record<string, unknown> } | undefined;
+}
+
 
 class NamespaceWriterImpl implements NamespaceWriter {
   constructor(private readonly k: Kernel, private readonly cap: CapabilityId, private readonly raw: RawTx) {}

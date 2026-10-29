@@ -128,3 +128,25 @@ F-14 的"领域可自行拆除不可变性触发器"按纯安全口径可判 **P
 驳回一条、部分采纳一条、采纳四条——记录分歧与核验方式本身是审查的一部分；
 "审查员说的都算"与"作者说的都算"是同一种错误。
 
+## 9. 第 3 轮：长期演化席位与语义席位的未收口项（**本轮未修复，如实登记**）
+
+`pnpm run test:poc:arch` 当前 **102 passed / 18 failed**（`HEAD 6ec6852`，席位仍在追加攻击文件）。全部 14 个作者测试文件与前两轮的
+审查文件**全绿**；16 条红全部来自第 3 轮新落的攻击文件，一条都没有删除、没有 `skip`、没有放宽。
+
+| 编号 | 级别（作者判定） | 红测试 | 现状 |
+| --- | --- | --- | --- |
+| F-24 | P1 | `evolution/lifecycle-sequence.test.ts` :146 | **禁用期读面不一致**：快照读面对被禁用能力的对象报 `CAPABILITY_INACTIVE`，双时间读面却照样把同一对象端出来。两出口对同一对象给出不同存在性答案，违反"出口同形"（SP-08/SP-10 方向）。未修 |
+| F-25 | P1 | 同文件 :120 | **再启用恢复到"仅加载"的清单而不是持久路由的所有者**，与 F-01 确立的"持久路由是唯一权威"相矛盾。未修 |
+| F-26 | P1 | `evolution/contract-version-skew.test.ts` :119 | **`requires[].contractVersion` 是装饰品**：v2 需求可以静默装配到 v1 提供者上。装配期没有可比对的契约版本判据。未修 |
+| F-27 | P1 | 同文件 :65/:97 | **重启后用 v2 清单打开 v1 持久空间不可判定**；旧登记 payload 形状被直接交给新读取器，无机制级信号。未修（需要"契约版本随登记落库"这条设计决定，属新契约而非局部修补） |
+| F-28 | 待定 | `evolution/old-schema-records.test.ts`（5 红） | 攻击目标与我本轮已修的 F-15/迁移器重叠，但**该文件夹具自身有缺陷**（`insert` 9 个值对 10 列），且现在会被打开期 `SCHEMA_UPGRADE_REQUIRED` 先拦住 ⇒ 断言写的是修复前形态，**其结论无法从当前红测试读出**。必须由复审员在修正夹具后重判，不得由作者自判 |
+| F-29 | 已修但断言过期 | `evolution/old-schema-counters.test.ts`（2 红） | 计数器被静默补 0 的路劲已被本轮打开期检查封住（缺 `schema_version` ⇒ 拒绝打开；另加 OID 计数器落后检查）。红的原因是断言仍写"打开成功然后撞号"。改写权在审查方，作者不改 |
+| F-30 | 待判 | `semantics/reduce-coverage-attack.test.ts`（1 红） | "校验器离线 ⇒ `findings=[]` 且 verdict 由 coverage 分支决定"的世界级复现未过。作者尚未定位根因，登记为未收口 |
+
+**同轮由门禁自查抓出并已修的越界（F-23）**：三条独立添加的门禁立刻抓出领域层的三处持有关系——
+`FacetStore` 与 `FactStandingService` **持有整个 Kernel**、后者经 `kernel.port.read()` 全库扫描
+（命名空间隔离对该领域形同虚设）、`ValidationService` **自造已验证身份**
+`uow({actorId: env.actor, verified: true})`。已改为窄面 `PluginFace` + 装配根提供的事务执行器，
+门禁同时禁止 `: Kernel`、`.port`、`.raw`、`node:sqlite` 与 `verified: true` 出现在 `src/domains/**`。
+新增打开期一致性检查：OID 计数器落后于已冻结对象 ⇒ `SCHEMA_UPGRADE_REQUIRED`（不再等驱动主键冲突）。
+

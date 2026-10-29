@@ -11,15 +11,17 @@ import { POC_DATA_DIR } from '../src/harness/paths.ts';
 import { openWorld, PRINCIPAL, type World } from '../src/harness/world.ts';
 import { TEST_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
 import { TEST_VALIDATION, CAP_VALIDATION } from '../src/domains/test-validation.ts';
-import { IntakeService, ValidationService, FactStandingService, SYNTH_NOTE } from '../src/domains/test-records.ts';
+import { IntakeService, ValidationService, FactStandingService, SYNTH_NOTE, CAP_RECORDS, TEST_RECORDS } from '../src/domains/test-records.ts';
+import type { UnitOfWork } from '../src/kernel/kernel.ts';
 import { Refusal } from '../src/contracts/index.ts';
 
 const WRITER = PRINCIPAL('alice');      // 有 space-write
 const ADMITTER = PRINCIPAL('carol');    // 有 space-write + domain-admission
 const OUTSIDER = PRINCIPAL('mallory');  // 无任何授权
-const GRANTS = { alice: ['space-write'], carol: ['space-write', 'domain-admission'] };
+// synth-runner 是装配根跑报告登记用的身份：写权由这里授予，而不是由领域自造（F-23）。
+const GRANTS = { alice: ['space-write'], carol: ['space-write', 'domain-admission'], 'synth-runner': ['space-write'] };
 
-const PLUGINS = [TEST_OBJECT_MODEL, TEST_VALIDATION];
+const PLUGINS = [TEST_OBJECT_MODEL, TEST_VALIDATION, TEST_RECORDS];
 
 describe('P3 Raw Intake / Domain Admission / 版本化校验 / 派生业务视图', () => {
   let dir: string;
@@ -30,9 +32,10 @@ describe('P3 Raw Intake / Domain Admission / 版本化校验 / 派生业务视�
     const w = openWorld({ file: join(dir, `${name}.db`), space: 'SP-1', grants: GRANTS, plugins: PLUGINS });
     return {
       w,
-      intake: new IntakeService(w.kernel),
-      validation: new ValidationService(w.kernel),
-      standing: new FactStandingService(w.kernel, w.authority),
+      // 事务执行器由装配根提供：主体在宿主侧核验后交出，领域拿不到"给自己发身份"的能力（F-23）。
+      intake: new IntakeService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(PRINCIPAL('synth-runner'), fn)),
+      validation: new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(PRINCIPAL('synth-runner'), fn)),
+      standing: new FactStandingService(w.kernel.faceFor(CAP_RECORDS), w.authority),
     };
   };
 

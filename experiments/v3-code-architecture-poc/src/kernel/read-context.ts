@@ -31,6 +31,9 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
   }
   const missing = REQUIRED_FIELDS.filter((f) => (spec as unknown as Record<string, unknown>)[f] === undefined);
   if (missing.length > 0) throw new Refusal('CONTEXT_INCOMPLETE', { missing });
+  // 完整性先判（缺字段是调用方错误），再判跨空间：否则缺 space 的请求会得到 CROSS_SPACE_REFUSED，
+  // 把"你没填全"误报成"你不该看这里"。顺序本身就是契约。
+  if (spec.space !== k.space) throw new Refusal('CROSS_SPACE_REFUSED', { requested: spec.space, owned: k.space });
   // 一个 Kernel 只服务一个空间：让 SP-1 的 Kernel 去解析 SP-2 是上下文错误，不是数据查询。
   if (spec.space !== k.space) throw new Refusal('CROSS_SPACE_REFUSED', { requested: spec.space, owned: k.space });
 

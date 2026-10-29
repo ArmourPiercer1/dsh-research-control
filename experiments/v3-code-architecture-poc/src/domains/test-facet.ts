@@ -3,7 +3,7 @@
  * 的三件事：能独立写读版本化、卸载后基础对象无恙、越权写别人命名空间必被拒。
  */
 import type { PluginManifest } from '../contracts/index.ts';
-import type { Kernel, NamespaceWriter, UnitOfWork } from '../kernel/kernel.ts';
+import type { NamespaceWriter, PluginFace, UnitOfWork } from '../kernel/kernel.ts';
 import { Refusal, type ObjectOid } from '../contracts/index.ts';
 
 export const CAP_FACET = 'cap.test.instrument-facet';
@@ -18,9 +18,10 @@ export const TEST_FACET_CALIB: PluginManifest = {
 };
 
 export class FacetStore {
-  constructor(private readonly kernel: Kernel, private readonly cap: string) {}
+  /** 只接窄面：领域插件持有 Kernel 本身就是越界（门禁会红），所以这里连类型都不出现。 */
+  constructor(private readonly face: PluginFace) {}
 
-  private writer(tx: UnitOfWork): NamespaceWriter { return this.kernel.namespacedWriter(this.cap, tx); }
+  private writer(tx: UnitOfWork): NamespaceWriter { return this.face.writerFor(tx); }
 
   write(tx: UnitOfWork, oid: ObjectOid, payload: unknown): void {
     const w = this.writer(tx);
@@ -34,8 +35,8 @@ export class FacetStore {
   }
 
   read(oid: ObjectOid): { version: number; payload: Record<string, unknown> } {
-    const snap = this.kernel.readNamespaced(this.cap, oid);
-    if (!snap) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.cap, oid });
+    const snap = this.face.readOwn(oid);
+    if (!snap) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.face.capability, oid });
     return { version: snap.revision, payload: snap.payload };
   }
 }

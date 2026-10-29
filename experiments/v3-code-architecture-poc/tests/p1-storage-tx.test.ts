@@ -94,7 +94,7 @@ describe('P1 单空间跨插件 Unit-of-Work 原子性', () => {
       file: join(dir, 's3b.db'), space: 'SP-1', grants: { alice: ['space-write'] },
       plugins: [TEST_OBJECT_MODEL, TEST_FACET_CALIB],
     });
-    const facets = new FacetStore(w.kernel, CAP_FACET);
+    const facets = new FacetStore(w.kernel.faceFor(CAP_FACET));
     const counts = () => w.raw.get<{ a: number; b: number; c: number; d: number }>(
       `select (select count(*) from object_directory) a,
               (select count(*) from domain_state) b,

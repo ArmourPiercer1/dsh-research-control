@@ -6,11 +6,21 @@
  * 唯一逐字对齐契约的是**归约顺序**（RPT-02/RD-38：FAIL 优先于 INDETERMINATE），
  * 因为"机制能否表达这条规则"本身就是被验证对象。
  */
-import type { Kernel, UnitOfWork } from '../kernel/kernel.ts';
+import type { PluginFace, UnitOfWork } from '../kernel/kernel.ts';
+import type { PluginManifest } from '../contracts/index.ts';
 import { VALIDATOR_ID, synthClaimChecker, type SynthInput } from './test-validation.ts';
 import type { Authorizer } from '../kernel/kernel.ts';
 import { Refusal, type CommitSequence, type ObjectKindLabel, type ObjectOid, type AnyRef } from '../contracts/index.ts';
 import type { Coverage, Finding } from './validation-contract.ts';
+
+export const CAP_RECORDS = 'cap.test.records';
+
+/** 记录侧能力的独立清单：让"领域只拿窄面"这条门禁能被真实装配检验，而不是借用别的能力。 */
+export const TEST_RECORDS: PluginManifest = {
+  pluginId: 'test.records', codeVersion: '0.0.1',
+  provides: [{ capability: CAP_RECORDS, contractVersion: 'v1' }],
+  requires: [], storageNamespace: 'dom_test_records', eventAuthority: 'none',
+};
 
 export const SYNTH_NOTE = '本模块为**测试专用**的合成策略，仅验证机制承载能力，不代表科研语义政策。';
 
@@ -19,7 +29,8 @@ export const SYNTH_NOTE = '本模块为**测试专用**的合成策略，仅验�
 const PARSEABLE = (text: string): boolean => text.trim().length > 0 && !text.includes('残缺');
 
 export class IntakeService {
-  constructor(private readonly kernel: Kernel) {}
+  /** 窄面 + 宿主提供的事务执行器：领域不自造身份、不自开事务（F-23）。 */
+  constructor(private readonly face: PluginFace, private readonly runIn: <R>(fn: (tx: UnitOfWork) => R) => R) {}
 
   /** 原始材料登记：解析失败也要留下来源（IC-H3 / #44 §7.2）。不产生对象（ID-08）。 */
   intake(tx: UnitOfWork, a: { recordId: string; text: string; sourceRef: string; unparseable?: boolean }): CommitSequence {
@@ -78,7 +89,8 @@ export interface RunResult {
 /** 校验编排：校验器可离线；不可用 ⇒ INDETERMINATE，且**绝不**改写既有报告。 */
 export class ValidationService {
   private offline = new Set<string>();
-  constructor(private readonly kernel: Kernel) {}
+  /** 事务执行器由装配根提供，主体由宿主核验；领域只写数据字段（F-23）。 */
+  constructor(private readonly face: PluginFace, private readonly runIn: <R>(fn: (tx: UnitOfWork) => R) => R) {}
 
   withValidatorOffline(validatorId: string, fn: () => void): void {
     this.offline.add(validatorId);
@@ -86,7 +98,7 @@ export class ValidationService {
   }
 
   run(oid: ObjectOid, revision: number, env: SynthInput, ruleVersion = 'v1'): RunResult {
-    const snap = this.kernel.readRevision({ kind: 'revision-ref', oid, revision });
+    const snap = this.face.revisionOf({ kind: 'revision-ref', oid, revision });
     if (!snap) throw new Refusal('NOT_FOUND_IN_SPACE', { oid, revision });
     let findings: readonly Finding[] = [];
     let declaredGaps: readonly string[] = [];
@@ -103,8 +115,9 @@ export class ValidationService {
       coverage = out.coverage;
     }
     const verdict = synthReduce(findings, coverage);
-    const tx0 = this.kernel;
-    const res = tx0.uow({ actorId: env.actor, verified: true }, (tx) => tx.recordReport({
+    // 报告行的**授权主体**只能是宿主核验后交出的 principal（这里是装配根提供的 runIn）；
+    // env.actor 只是报告载荷里的数据字段，写进 payload 不等于获得身份（F-23）。
+    const res = this.runIn((tx) => tx.recordReport({
       target: { kind: 'revision-ref', oid, revision },
       validatorId: VALIDATOR_ID, ruleVersion, schemaVersion: 'synth-1',
       environment: 'synth-env', executedAt: Date.now(), guaranteeScope: 'SYNTH-STRUCTURAL-ONLY',
@@ -125,10 +138,11 @@ export class ValidationService {
  * 未获业务授权的声明完整保存但标注 AUTHORITY_UNVERIFIED，且不参与投影（PR-A1）。
  */
 export class FactStandingService {
-  constructor(private readonly kernel: Kernel, private readonly authority?: Authorizer) {}
+  /** 只接窄面：领域持有 Kernel 或 port 就等于命名空间隔离对它失效（门禁会红，F-23）。 */
+  constructor(private readonly face: PluginFace, private readonly authority?: Authorizer) {}
 
   declare(tx: UnitOfWork, a: { oid: ObjectOid; revision: number; stance: 'ACCEPTED' | 'WITHDRAWN' }): CommitSequence {
-    const authorized = this.authority?.can(tx.principal.actorId, 'domain-admission', this.kernel.space) ?? false;
+    const authorized = this.authority?.can(tx.principal.actorId, 'domain-admission', this.face.space) ?? false;
     return tx.appendLedger({
       eventType: 'synth:fact-designation',
       objectId: a.oid, revision: a.revision,
@@ -137,18 +151,16 @@ export class FactStandingService {
   }
 
   standingAt(oid: ObjectOid, cutoff: CommitSequence): { state: 'ADOPTED' | 'NOT_ADOPTED'; watermark: CommitSequence } {
-    return this.kernel.port.read((raw) => {
-      const rows = raw.all<{ payload_json: string }>(
-        `select payload_json from ledger where object_id=? and event_type='synth:fact-designation' and seq <= ? order by seq`,
-        oid, cutoff,
-      );
+    // 只经机制原语取事件，不碰 port/raw：否则命名空间隔离对这个领域就是纸面上的（F-23）。
+    const rows = this.face.eventsOf(oid, 'synth:fact-designation', cutoff);
+    {
       let state: 'ADOPTED' | 'NOT_ADOPTED' = 'NOT_ADOPTED';
       for (const r of rows) {
-        const p = JSON.parse(r.payload_json) as { stance: string; note: string };
+        const p = r.payload as { stance: string; note: string };
         if (p.note !== 'AUTHORIZED') continue;          // 未生效声明不参与投影（PR-A1）
         state = p.stance === 'ACCEPTED' ? 'ADOPTED' : 'NOT_ADOPTED';
       }
       return { state, watermark: cutoff };
-    });
+    }
   }
 }

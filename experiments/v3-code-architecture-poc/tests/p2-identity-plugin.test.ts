@@ -149,7 +149,7 @@ describe('P2 身份 / 引用 / 插件演化', () => {
   test('Facet 独立写入 / 版本化 / 卸载：基础对象不受影响（Q45）', () => {
     const w = world('p2-facet', { plugins: [TEST_OBJECT_MODEL, TEST_FACET_CALIB] });
     const oid = w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.subject', payload: { serial: 'A1' } }));
-    const facets = new FacetStore(w.kernel, CAP_FACET);
+    const facets = new FacetStore(w.kernel.faceFor(CAP_FACET));
 
     w.uow(ALICE, (tx) => facets.write(tx, oid, { calibration: 'C-1' }));
     expect(facets.read(oid)!.payload.calibration).toBe('C-1');
@@ -169,7 +169,7 @@ describe('P2 身份 / 引用 / 插件演化', () => {
   test('Facet 越权：写别人的命名空间被拒（禁止复制核心权威，XC-28）', () => {
     const w = world('p2-facet-escape', { plugins: [TEST_OBJECT_MODEL, TEST_FACET_CALIB] });
     const oid = w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.subject', payload: { serial: 'A1' } }));
-    const facets = new FacetStore(w.kernel, CAP_FACET);
+    const facets = new FacetStore(w.kernel.faceFor(CAP_FACET));
     expect(() => w.uow(ALICE, (tx) => facets.writeIntoForeignNamespace(tx, oid)))
       .toThrow(/NAMESPACE_ESCAPE/);
     // 反差锚点：同一个 store 写自己的 ns 正常 ⇒ 拒绝针对越权，不是 store 全坏

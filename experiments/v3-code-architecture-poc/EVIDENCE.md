@@ -45,6 +45,7 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 | `tests/p4-read-isolation.test.ts` | 9 | §13.6/§13.10/§13.11/§13.12、§15.1 边界④：ReadContext 必需性、双时间顺序、五出口空间隔离、缓存出口、呈现脱敏不可区分、Journal 缺口与"Journal 不能充当历史"、游标续跑与滞后标注、影响只给候选、截断必须标注 |
 | `attacks/invariant/`（不变量攻击者） | 3 | 登记序、精确引用、记录标识（原始攻击 + 修复后更强断言） |
 | `attacks/host/`（宿主与边界） | 5 | 修订级引用、报告登记序、路由权威、强转触达内部方法、SQL 守卫 |
+| `tests/multiprocess-contention.test.ts` | 1 | 真起子进程抢写事务：写被拒可重试、读不受阻、未提交不可见、提交后无丢写 |
 | `tests/sql-guard.test.ts` | 10 | **F-14′ 完整覆盖**：块注释/行注释/多注释/前导分号/多语句 六类负例 × `run`/`all`/`get`，每条负例配「拒绝后不可变性仍生效」的反差；三条正例防误伤；另有打开已建库不重跑 DDL 且 `schema_version` 可读 | 
 | `attacks/review/`（P1 修复复审） | 5 | 第 1 轮修复完整性：报告三件套同滚、源端修订、守卫绕过（注释前缀/多语句）、目标 manifest |
 | `tests/arch-independence.test.ts` | 7 | 任务硬约束「Kernel 不包含科研语义判定规则」+ 依赖方向 + 领域插件扩展不需改 Kernel（面哈希）+ 五类 kind 路由 + 必需依赖成环拒绝 |
@@ -80,9 +81,15 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 
 ## 5. 未证明的边界（禁止越级引用）
 
-未测：多进程并发写同一空间文件（只测同进程双连接）；DSH 宿主权限面与工具面；真实五类对象字段
-与状态机；性能/容量；备份与时间点恢复；Schema 迁移工具；热插件加载与沙箱。领域判据全部是
-**合成占位规则**（`src/domains/**` 文件头声明），不得被引用为 PR #42 科研语义政策的实现。
+**已补证（本轮之后）**：多进程并发写同一空间文件 ⇒ `tests/multiprocess-contention.test.ts` 用
+`node` 真起子进程抢写事务并忙等 3s（超过 `busy_timeout=2000`），父进程得到 `TX_CONTENTION` 且
+`retryable=true`；同一时刻读不受阻、子进程未提交的 `journal` 行不可见；子进程提交后两侧内容都在
+（无丢写、无半写）。同进程双连接的旧证据保留，两者不互替。
+
+仍未测：DSH 宿主权限面与工具面；真实五类对象字段与状态机；性能/容量；备份与时间点恢复；
+Schema **迁移器**（本轮只做了"打开时拒绝不匹配版本"，没有做迁移脚本）；热插件加载与沙箱。
+领域判据全部是**合成占位规则**（`src/domains/**` 文件头声明），不得被引用为 PR #42 科研语义
+政策的实现。
 
 ## 6. 根单测两个失败的归因（记录事实，不猜结论）
 

@@ -18,6 +18,12 @@ export interface ValidationInput {
   readonly payload: unknown;
   readonly declaredGaps: readonly string[];
   readonly environment: unknown;
+  /**
+   * 由装配根交入的**已注册关联边角色**（S-7：单一正源要有"可检测性"证据，
+   * 光有"可写性"证据不构成实证）。校验器自己去读边就等于拿读权限——
+   * 事实视图由宿主取好交进来，校验器只消费（与 hostSnapshot 同一条边界）。
+   */
+  readonly registeredEdges?: readonly string[];
 }
 /**
  * 逐项判定。verdict **不由本类型承载**：一份报告可以同时含 FAIL 与 INDETERMINATE 项，

@@ -105,6 +105,8 @@ export class ValidationService {
     private readonly runIn: <R>(fn: (tx: UnitOfWork) => R) => R,
     private readonly hostSnapshot: (ref: { kind: 'revision-ref'; oid: ObjectOid; revision: number }) =>
       { revision: number; payload: Record<string, unknown> } | undefined,
+    /** 可选：装配根提供的边角色视图。缺省空数组 ⇒ 双正源规则不触发（不假装检过）。 */
+    private readonly hostEdges: (oid: ObjectOid) => readonly string[] = () => [],
   ) {}
 
   withValidatorOffline(validatorId: string, fn: () => void): void {
@@ -125,7 +127,8 @@ export class ValidationService {
       coverage = 'INCOMPLETE_DUE_TO_VISIBILITY';
     } else {
       const out = synthClaimChecker(ruleVersion).check({
-        target: { kind: 'revision-ref', oid, revision }, payload: snap.payload, declaredGaps: [], environment: env,
+        target: { kind: 'revision-ref', oid, revision }, payload: snap.payload, declaredGaps: [],
+        environment: env, registeredEdges: this.hostEdges(oid),
       });
       findings = out.findings.filter((f) => f.outcome !== 'PASS');
       declaredGaps = out.declaredGaps;

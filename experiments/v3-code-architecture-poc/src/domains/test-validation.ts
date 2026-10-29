@@ -41,6 +41,18 @@ export const synthClaimChecker = (ruleVersion: string): ValidationContribution =
     if (typeof payload.text !== 'string' || payload.text.includes('缺必填字段')) {
       findings.push({ code: 'SYNTH_MISSING_REQUIRED', outcome: 'FAIL', severity: 'DEFICIENCY', fieldPath: 'text' });
     }
+    // S-7 / S-8：合成域把"单一正源"做成**可检测**的规则（不是科研语义，是声明形态冲突）。
+    const p = input.payload as Record<string, unknown>;
+    const edges = input.registeredEdges ?? [];
+    if (p.adopted_by !== undefined || p.superseded !== undefined) {
+      // XC-01/XC-22：采纳与取代的正源是 ledger 事件，内联回写会造出第二个可被读到的正源
+      findings.push({ code: 'SYNTH_INLINE_STATE_FIELD', outcome: 'FAIL', severity: 'VIOLATION',
+        fieldPath: p.adopted_by !== undefined ? 'adopted_by' : 'superseded' });
+    }
+    if (p.operating_context !== undefined && edges.includes('USED_IN')) {
+      // XC-28/RD-15：同一事实既有 payload 字段又有已注册关联边 ⇒ 两处会各自漂移且互不知情
+      findings.push({ code: 'SYNTH_DUAL_SOURCE', outcome: 'FAIL', severity: 'VIOLATION', fieldPath: 'operating_context' });
+    }
     const f = env.optionalField;
     if (f) {
       switch (f.st) {

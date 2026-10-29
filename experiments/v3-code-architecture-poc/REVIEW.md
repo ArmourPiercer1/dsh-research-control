@@ -320,3 +320,21 @@ R3-A 判 **P0** 的理由：它不是"多读到一个字段"，而是**命名空
 本轮计数：`127 passed / 19 failed`；作者 10 文件仅 F-34 一条红。
 **注意计数口径**：`attacks/evolution/lifecycle-sequence.test.ts` 有演化席位**未提交**的改动，
 不在我的提交里，因此"HEAD 复现"与"工作树复现"在这一个文件上不同（工作树 5/5 绿，HEAD 4/5）。
+
+## 16. 第 8 轮：S-7 / S-8 的"可检测性"半补齐
+
+语义席的 S-7 说得很准：PoC 对 XC-28 只有**可写性**证据（字段与 `USED_IN` 边可并存、各自漂移、零提示），
+我却把它和 `NAMESPACE_ESCAPE` 一起记成"已实证"。第 7 轮先降级了声称，本轮补做实证：
+
+- 合成校验器加两条规则：`SYNTH_DUAL_SOURCE`（payload 关系族字段 + 已注册 `USED_IN` 边并存）、
+  `SYNTH_INLINE_STATE_FIELD`（`adopted_by` / `superseded` 内联回写，正源是 ledger 事件）。
+- 事实视图走**装配根交入**（`ValidationInput.registeredEdges`，可选，缺省空）：校验器自己去读边
+  就等于拿读权限，与 `hostSnapshot` 同一条边界。
+- `tests/xc28-detectability.test.ts` 6 例全绿，其中**三条是反差**，因为"无条件否决"不叫检测能力：
+  ① 同 payload 但无关联边 ⇒ 不报；② 装配根没交边视图 ⇒ 不触发（记录的是"没检"，不是"检过且通过"）；
+  ③ 干净 payload 仍 `ACHIEVED`。
+
+`ValidationService` 第四个构造参数刻意**可选**——前两轮的教训是加必填参数会打断审查方夹具。
+缺省空视图的语义是"未检"，不伪装成通过。
+
+`RECONCILIATION.md` 8b 状态由"仅可写性"改为"可写性 + 可检测性"，并指向该测试。

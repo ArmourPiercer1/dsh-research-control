@@ -84,7 +84,7 @@
 | 6 | `Unit-of-Work / Transaction / Storage Port` | Kernel 唯一写入口；每空间一 DB；`StoragePort` 可换驱动 | `Q40`、`C10`、`RF-02`、`ID-04` | 换驱动只改 `storage-sqlite/`；UoW 语义不变 | **P1 已实证** |
 | 7 | `Validation Capability / CheckReport` | 规则与 verdict 含义归领域；Kernel 只有注册表 + 不可改写报告通道 | `RPT-00…RPT-11`、`RD-25/26/33/38` | 换校验器=新 `ruleVersion` 贡献，旧报告不动 | P3 进行中 |
 | 8a | `Facet Contribution`（所有权与越权） | 每个 Facet 能力**独立拥有**自己的记录与版本；跨命名空间写被机制拒绝 | `RD-07/15/37`、`RF-05/06` | Facet 可独立装卸/迁移，基础对象无恙 | **P2 已实证**（`NAMESPACE_ESCAPE` 越权拒绝） |
-| 8b | `XC-28` 单一正源 | 同一事实不得既有 payload 字段又有已注册关联边 | `XC-28`、`RD-15` | 字段与边漂移时**可被检测** | **只实证了「可写性」，未实证「可检测性」**（S-7，开放 P1）：`operating_context` 字段与 `USED_IN` 边可同事务并存、各自漂移且零提示，合成校验器无禁止规则。`NAMESPACE_ESCAPE` 守的是 #44 §6.2 核心权威复制禁止，**不是**单一正源威胁，两者不得互替 |
+| 8b | `XC-28` 单一正源 | 同一事实不得既有 payload 字段又有已注册关联边 | `XC-28`、`RD-15` | 字段与边漂移时**可被检测**：`tests/xc28-detectability.test.ts`（6 例，含三条反差） | **已实证「可写性 + 可检测性」**（S-7 于第 8 轮闭环：合成校验器现拒绝关系族字段与已注册关联边并存）：`operating_context` 字段与 `USED_IN` 边可同事务并存、各自漂移且零提示，合成校验器无禁止规则。`NAMESPACE_ESCAPE` 守的是 #44 §6.2 核心权威复制禁止，**不是**单一正源威胁，两者不得互替 |
 | 9 | `Dependency / Impact Projection` | 依赖事实归各领域；反向索引是可重建读面，**不是判定引擎** | `C06…C10`、`IC-R7`、`RD-15` | 新增依赖类型由领域登记；索引层零改动 | P4 计划 |
 | 10 | `DSH Adapter Contribution` | Adapter 侧；业务插件不 import DSH | `Q2/Q4/Q29` | 换宿主只改 Adapter；领域零改动 | 不在本 PoC 面内（§7） |
 

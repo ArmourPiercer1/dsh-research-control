@@ -94,6 +94,7 @@
 | `experiments/v3-code-architecture-poc/README.md` | Unranked |
 | `experiments/v3-code-architecture-poc/RECONCILIATION.md` | Unranked |
 | `experiments/v3-code-architecture-poc/REVIEW.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/compliance/compliance-findings.md` | Unranked |
 | `experiments/v3-semantic-poc/NOTES.md` | Unranked |
 | `experiments/v3-semantic-poc/README.md` | Unranked |
 | `experiments/v3-semantic-poc/REPORT-P4.md` | Unranked |

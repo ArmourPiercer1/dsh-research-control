@@ -223,3 +223,10 @@ exit=0
 现这些产物已按原内容收编进 `attacks/**`（提交 `ade62b2`，归属与席位对照见 `attacks/README.md`），
 **文件内容一字未改，只是纳入版本控制**，因此本行 `166 passed / 22 failed` 自远端
 `poc/v3-code-arch-20261030` 分支 `HEAD 76b1ec2` 起可直接复现。
+
+### 追加测量（第 32 轮，D-17 复现测试入库后）
+
+`Test Files 8 failed / 28 passed (36)`；**`167 passed / 22 failed`**。作者侧 **13 文件 85 例，0 红**；
+`tsc` 0；`check-imports`、`docs:check` OK。红条仍全部位于审查方 8 个攻击文件，性质同上表。
+新增的 1 例是 `tests/namespace-writer-surface.test.ts`——它**通过**，但按"断言漏洞现状"约定
+钉的是 `writerFor(tx)` 携带 `k`/`raw` 这一**漏洞现状**（D-17），修复后会自动转红。

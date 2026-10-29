@@ -102,7 +102,18 @@
 | AR-ID-3 | 条件的满足/解除、攻击登记、适用性判定**优先作为新记录**附加，而不是覆盖式修改，以便回放“当时认为条件如何”。 |
 | AR-ID-4 | 同一论证的构造状态变化（含 `CLOSED_DRAFT`、`WITHDRAWN`、`TERMINATED_BY_SCOPE`）是生命周期修订，不改变身份，也不改变任何其它状态轴。已提交过的论证不得回落到 `CLOSED_DRAFT`（§7）。 |
 | AR-ID-5 | 论证内部标识（`path_id`、`condition_id`、`role 绑定 id`）必须稳定，供攻击与依赖分析精确引用；重排这些标识等价于改变身份构成，须新对象。 |
-| AR-ID-6 | **"尚未产生结论"与"研究完成而无结论"是两个不同状态，必须可区分**：`conclusion.mode = NONE_DECLARED` **只表达后者**——一次已完成的评估得出没有结论，它必须与 `local_outcome = INCONCLUSIVE` 同现（§3 表第二行）。前者是**草稿态**，表达为 `conclusion` 整槽 `@st = ABSENT`（此时 `mode`/`proposition_rev` 均不出现）+ **`construction_state = CLOSED_DRAFT`**（§2 既有字段，不另造名），**不得**写成 `NONE_DECLARED`（那会把"还没推完"谎报成"推完了且没有结论"，下游会据此关闭讨论）。**补全路径与其身份后果**：草稿 → 结论是 `ABSENT → ASSERTS*(P@rev)` 的**补全修订**（AR-ID-1 意义上），**不产生新论证**——因为 AR-ID-2 改变的是"**已声明值**"，而草稿从未声明过结论端；反之 `NONE_DECLARED → ASSERTS*(P@rev)` **是**身份变化 → 新论证（已声明的"无结论"被改掉了）。两者都必须以修订追加，旧 revision 保留可回放（AR-ID-1、AR-ID-3）。R-L1 对草稿态报"结论未声明"的缺项，**不阻断保存**。**判别两类转移所需输入是现成的，不需新增输入面**：本次提交载荷 + 同一 `object_id` 的 head revision 载荷（修订类请求已带 `expected_head_revision`，接口层据此定位）；无 head（首次登记）按补全处理。 |
+| AR-ID-6 | **"尚未产生结论"与"研究完成而无结论"是两个不同状态，必须可区分**：`conclusion.mode = NONE_DECLARED` **只表达后者**——一次已完成的评估得出没有结论，它必须与 `local_outcome = INCONCLUSIVE` 同现（§3 表第二行）。前者是**尚未推完**，表达为 `conclusion` 整槽 `@st = ABSENT`（此时 `mode`/`proposition_rev` 均不出现）+ **`construction_state = DRAFT`**；**不得**写成 `NONE_DECLARED`，也**不得**写成 `CLOSED_DRAFT`——`CLOSED_DRAFT` 按 §7 专指"停止推进该次未提交的构造"，把仍在推进的构造标成它就是谎报已放弃，还与"补齐输入 → 产生结论"的正常推进直接冲突。四种情形与两个字段轴的对应见 §4.1（**不新增任何状态**，只对齐既有用法）。**补全路径与其身份后果**：草稿 → 结论是 `ABSENT → ASSERTS*(P@rev)` 的**补全修订**（AR-ID-1 意义上），**不产生新论证**——因为 AR-ID-2 改变的是"**已声明值**"，而草稿从未声明过结论端；反之 `NONE_DECLARED → ASSERTS*(P@rev)` **是**身份变化 → 新论证（已声明的"无结论"被改掉了）。两者都必须以修订追加，旧 revision 保留可回放（AR-ID-1、AR-ID-3）。R-L1 对草稿态报"结论未声明"的缺项，**不阻断保存**。**判别两类转移所需输入是现成的，不需新增输入面**：本次提交载荷 + 同一 `object_id` 的 head revision 载荷（修订类请求已带 `expected_head_revision`，接口层据此定位）；无 head（首次登记）按补全处理。 |
+
+### 4.1 结论槽位 × 构造状态 的对齐表（AR-ID-6 的展开；**不新增状态**）
+
+| 实际情况 | `conclusion` | `construction_state` |
+| --- | --- | --- |
+| 尚在构造，未得结论 | `@st = ABSENT` | `DRAFT` |
+| 放弃了未完成的构造 | `@st = ABSENT` | `CLOSED_DRAFT` |
+| 研究完成但无定论 | `mode = NONE_DECLARED`，配 `local_outcome = INCONCLUSIVE` | `SUBMITTED` |
+| 已形成明确命题结论 | 精确 `PropositionRevision` | 按实际生命周期记录 |
+
+**两条转移**：`ABSENT → 明确结论` 沿同一 `ArgumentationID` 追加修订（补全，不产生新论证）；`NONE_DECLARED → 明确结论` 是已声明含义的变化 → 新论证。
 
 ## 5. 与其它对象的关系
 

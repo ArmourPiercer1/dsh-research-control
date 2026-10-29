@@ -727,3 +727,35 @@ SQLite 不像 PostgreSQL 允许数据修改语句出现在 CTE 体内。头部�
 这正是我在读面上刚修过的那类错误——`empty-vs-absent`（F-24/S-2）——
 **却只修了读面，没修校验输入面**。修法方向：边视图未交时 coverage 必须是 `INCOMPLETE`
 （或独立的"未检"信号），不得报 COMPLETE。属合成领域，级别 **P2**。
+
+## 26. 两席交付完毕：新 P1（D-15）已验证，修法与"为什么现在不修"
+
+### 26.1 席位 `1faae161`（27b）判定：5 项真修好、1 项不完全、1 项叙事核实
+
+真封死/真修好：S-0（8 个旁路向量全拒 + `PRAGMA ignore_delete_triggers` 实测仍 abort）、
+S-1（同 findings 换 coverage 重归约结果不变 ⇒ coverage 分支确是死代码）、S-3、S-4
+（`fa5cc6b` diff 仅新增行，`REQUIRED_REF_MISSING` 无 ± ⇒ 我那句"一字不变"成立）、
+stopline B 的"计数假象"叙述与断言逐字一致。
+**P0 无；P1 一条**（即 §25.3 的边视图问题，席位定级 P1 而非我原先的 P2）。
+
+它还**独立复现了我驳回它自己的那条**：6 个 CTE-DML 探针全部被驱动语法拒绝（`near "delete"`），
+与我 §25 的内存库实测互证。这是本项目第一次"审查者提出—作者驳回—审查者复测确认驳回成立"。
+
+### 26.2 D-15（P1）我这边已验证
+
+读码确认三处事实：`test-records.ts:109` `hostEdges` 缺省 `() => []`；`:122` `coverage` 缺省
+`'COMPLETE'` 且仅在检查器离线时改为 `INCOMPLETE_DUE_TO_VISIBILITY`；`test-validation.ts:52`
+的规则只在 `edges.includes('USED_IN')` 时触发。**⇒ 缺省装配下双正源违规静默不报，报告仍称检全。**
+
+**修法（已定，但本轮不实施）**：不能新增 coverage 第四值——那会破坏刚封死的 RPT-03 封闭三值，
+等于用新缺陷修旧缺陷。正确方向是让"没检"落到**驱动 verdict 的那根轴**上：
+
+1. `test-records.ts` 缺省时传 `registeredEdges: undefined`（区分"宿主没交"与"交了但为空"），
+   即构造参数默认值从 `() => []` 改为 `undefined`；
+2. `test-validation.ts` 在 `operating_context` 存在而 `edges === undefined` 时
+   产出 `outcome: 'INDETERMINATE'` 的 finding（如 `SYNTH_EDGES_UNAVAILABLE`），**而不是跳过**；
+3. 结果：verdict 由 `ACHIEVED` 变 `INDETERMINATE`——"没检"不再能被读成"合格"。
+
+**为什么不现在动手**：跨三文件 + 需新增作者测试 + 需重跑门禁，而我的上下文余量已不足以
+安全完成并验证。第 7 轮误删 30 行、第 11 轮半门被回退，两次都是"余量不够还开工"。
+本条连同修法交给余量充足的会话执行。

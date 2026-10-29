@@ -6,6 +6,7 @@
  * 单空间 Unit-of-Work（含 Change Journal）。它不知道五类对象、不知道 S-L1、不知道
  * FactStanding、不知道 WITHHELD（#44 §5.3）。
  */
+import { SYNTHETIC_AUDIT_VISIBILITY } from './presentation.ts';
 import {
   Refusal,
   asOid,
@@ -168,10 +169,12 @@ export interface UnitOfWork {
     readonly describedAt?: number;
   }): CommitSequence;
   linkRef(a: { readonly from: RevisionRef; readonly to: AnyRef; readonly role: string; readonly required?: boolean }): void;
-  recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): string;
+  recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; seq: CommitSequence };
   readLatest(oid: ObjectOid): ObjectSnapshot | undefined;
   reassignCapabilityRoute(cap: CapabilityId, toPlugin: string, ns: string, contractVersion?: string): void;
   readonly raw: RawTx;
+  /** 本事务的已验证主体；领域策略据此判定业务授权（与写权分轴，SP-09）。 */
+  readonly principal: VerifiedPrincipal;
 }
 
 export class Kernel {
@@ -256,6 +259,34 @@ export class Kernel {
         if (p) this.registry.setRoute(cap, { capability: cap, pluginId: m.pluginId, contractVersion: p.contractVersion, storageNamespace: m.storageNamespace });
       }
     } else this.registry.dropRoute(cap);
+  }
+
+  /**
+   * 对外解析一个引用（SP-02/SP-07/RPT-09）。**本 Kernel 只看得到本空间**，因此它无法区分
+   * "目标不存在""目标在别的空间""目标尚未提交"——按 SP-02 的保守侧，三者对外一律呈现为
+   * 同一个 `UNVERIFIABLE_REFERENCE`；差异只保留在审计视图里。
+   */
+  resolvePresented(ref: AnyRef, caller: string, canAudit: (actor: string) => boolean = SYNTHETIC_AUDIT_VISIBILITY): { state: string } {
+    const found = ref.kind === 'object-ref' ? this.readSnapshot(ref.oid) !== undefined
+      : ref.kind === 'revision-ref' ? this.readRevision(ref) !== undefined
+        : this.port.read((raw) => raw.get(`select 1 as x from ledger where record_id=?`, ref.recordId) !== undefined);
+    if (found) return { state: 'PRESENT' };
+    return { state: canAudit(caller) ? 'NOT_FOUND_IN_SPACE' : 'UNVERIFIABLE_REFERENCE' };
+  }
+
+  /**
+   * 反向依赖：只**定位候选**，不判定影响是否成立（IC-R7、C06、C09）。
+   * 返回形态本身否认"影响已证明"，并且不声称发现未登记的隐含依赖。
+   */
+  impactCandidates(oid: ObjectOid, revision: number): {
+    readonly candidates: readonly { oid: ObjectOid; revision: number; role: string }[];
+    readonly claim: 'CANDIDATES_ONLY';
+    readonly undeclaredDepsClaimed: false;
+  } {
+    const candidates = this.port.read((raw) => raw.all<{ from_oid: string; from_rev: number; role: string }>(
+      `select from_oid, from_rev, role from ref_edge where to_oid=? and to_rev=?`, oid, revision,
+    ).map((r) => ({ oid: r.from_oid as ObjectOid, revision: r.from_rev, role: r.role })));
+    return { candidates, claim: 'CANDIDATES_ONLY', undeclaredDepsClaimed: false };
   }
 
   /** 命名空间写入器：插件只能写自己那一份持久状态（#44 §4.2、§6.2）。 */
@@ -343,7 +374,7 @@ class NamespaceWriterImpl implements NamespaceWriter {
 class UnitOfWorkImpl implements UnitOfWork {
   constructor(
     private readonly k: Kernel,
-    private readonly principal: VerifiedPrincipal,
+    readonly principal: VerifiedPrincipal,
     readonly raw: RawTx,
   ) {}
 
@@ -429,7 +460,7 @@ class UnitOfWorkImpl implements UnitOfWork {
     );
   }
 
-  recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): string {
+  recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; seq: CommitSequence } {
     const seq = this.k.nextLedgerSeq(this.raw);
     const reportId = `RPT-${seq}`;
     this.raw.run(
@@ -443,7 +474,7 @@ class UnitOfWorkImpl implements UnitOfWork {
       a.validatorId, a.ruleVersion, a.schemaVersion, a.environment, a.executedAt, a.guaranteeScope,
       a.verdict, JSON.stringify(a.findings), JSON.stringify(a.declaredGaps), seq,
     );
-    return reportId;
+    return { reportId, seq };
   }
 
   readLatest(oid: ObjectOid): ObjectSnapshot | undefined {

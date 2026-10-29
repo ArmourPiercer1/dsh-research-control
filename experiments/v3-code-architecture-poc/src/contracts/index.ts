@@ -78,14 +78,21 @@ export type RefusalCode =
   | 'AMBIGUOUS_AUTHORITY'     // 同一权威被两个声明者声明
   | 'REQUIRED_REF_MISSING'    // 硬业务完整性引用在事务内确实不存在
   | 'SCHEMA_INCOMPATIBLE'     // 空间内插件存储 Schema/解释器不兼容
+  | 'CONTEXT_INCOMPLETE'      // ReadContext 缺必需字段（T-01：未声明截点的查询视为未定义）
+  | 'CROSS_SPACE_REFUSED'     // 用一个空间的 Kernel 解析另一个空间（SP-04）
+  | 'FULL_REBUILD_REQUIRED'   // Journal 缺口越过后不得增量续跑（#44 §7.4）
   | 'ACTIVATION_IMPOSSIBLE'   // 必需能力缺席或必需代码依赖成环，无法装配（#44 §6.3）
   | 'READ_CUTOFF_UNSAFE'      // 读取截点无法满足一致性要求
   | 'AUTHORITY_REQUIRED'       // 缺该业务动作所需的授权轴（与写权分轴，SP-09）
   | 'NAMESPACE_ESCAPE'        // 插件写非自己的持久命名空间（#44 §4.2、§6.2 禁止复制核心权威）
   | 'PROJECTION_UNAVAILABLE'; // 投影落后/缺口且调用方要求一致完整
 
+/** 领域扩展拒绝码：强制前缀，避免与 Kernel 封闭集混淆或被误当成机制语义。 */
+export type DomainRefusalCode = `synth:${string}`;
+export type AnyRefusalCode = RefusalCode | DomainRefusalCode;
+
 export class Refusal extends Error {
-  constructor(readonly code: RefusalCode, readonly detail?: Record<string, unknown>) {
+  constructor(readonly code: AnyRefusalCode, readonly detail?: Record<string, unknown>) {
     super(code);
     this.name = 'Refusal';
   }
@@ -164,16 +171,27 @@ export interface ValidationContribution {
 }
 export interface ValidationInput {
   readonly target: RevisionRef | RecordRef;
+  /** 被检对象的声明内容（校验器只查声明形态，不判科研语义，RPT-07）。 */
+  readonly payload: unknown;
   readonly declaredGaps: readonly string[];
-  readonly environment: Readonly<Record<string, unknown>>;
+  readonly environment: unknown;
 }
-export type ValidationOutcome =
-  | { readonly shape: 'STRUCTURAL'; readonly verdict: 'PASS' | 'FAIL'; readonly findings: readonly Finding[] }
-  | { readonly shape: 'INDETERMINATE'; readonly reason: string }
-  | { readonly shape: 'UNAVAILABLE'; readonly reason: string };
+/**
+ * 逐项判定。verdict **不由本类型承载**：一份报告可以同时含 FAIL 与 INDETERMINATE 项，
+ * 归约是领域规则（RPT-02/RD-38：FAIL 优先），若在这里用联合类型把"整份不可判定"与
+ * "某项不可判定"混为一谈，XC-27 就无法表达。
+ */
+export type CheckOutcome = 'PASS' | 'FAIL' | 'INDETERMINATE' | 'NOT_APPLICABLE';
+export type Coverage = 'COMPLETE' | 'INCOMPLETE_DUE_TO_VISIBILITY' | 'NOT_DISCLOSED' | 'CHECK_UNAVAILABLE';
+export interface ValidationOutcome {
+  readonly findings: readonly Finding[];
+  readonly declaredGaps: readonly string[];
+  readonly coverage: Coverage;
+}
 export interface Finding {
   readonly code: string;
-  readonly severity: 'VIOLATION' | 'DEFICIENCY';
+  readonly outcome: CheckOutcome;
+  readonly severity: 'VIOLATION' | 'DEFICIENCY' | 'NOTE';
   readonly fieldPath?: string;
   readonly detail?: Readonly<Record<string, unknown>>;
 }

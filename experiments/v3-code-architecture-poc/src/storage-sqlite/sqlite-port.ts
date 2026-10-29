@@ -59,6 +59,11 @@ create table if not exists journal(
   ns text, oid text, op text not null, payload_json text
 );
 
+-- 派生索引的水位与基线：baseline 之前的 Journal 缺口已由全量重建覆盖，之后的缺口才是问题。
+create table if not exists projection_state(
+  name text primary key, seq integer not null, baseline integer not null, rebuilt_at integer
+);
+
 create table if not exists projection_cursor(
   projection text primary key, journal_seq integer not null,
   authority_seq integer, status text not null

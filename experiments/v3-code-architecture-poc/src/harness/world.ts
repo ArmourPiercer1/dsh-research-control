@@ -53,6 +53,17 @@ export class World {
   unloadCapability(cap: import('../contracts/index.ts').CapabilityId, by: VerifiedPrincipal): void { this.kernel.setRouteEnabled(cap, false, by); }
   loadCapability(cap: import('../contracts/index.ts').CapabilityId, by: VerifiedPrincipal): void { this.kernel.setRouteEnabled(cap, true, by); }
   /** 同一 DB 文件上的第二条真实连接（隔离/并发攻击用）。 */
+  /** 读一条未对象化的 H 记录（ID-08：记录有标识但不是对象）。 */
+  readRecord(recordId: string): { seq: number; payload: Record<string, unknown> } | undefined {
+    return this.port.read((raw) => {
+      const r = raw.get<{ seq: number; payload_json: string }>(
+        `select seq, payload_json from ledger where record_id=? order by seq`, recordId,
+      );
+      return r ? { seq: r.seq, payload: JSON.parse(r.payload_json) } : undefined;
+    });
+  }
+  /** 领域服务读取授权用的只读探针（业务授权轴，独立于 space-write，SP-09）。 */
+  get authority(): Authorizer { return { can: (actor, resource) => this.grantsFor(actor).has(resource) }; }
   openSecondConnection(): SqlitePort { return this.port.openSecond(); }
   restart(): World { this.close(); return World.open(this.opts); }
   close(): void { this.port.close(); }

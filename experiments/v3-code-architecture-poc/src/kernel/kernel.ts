@@ -154,8 +154,13 @@ export function capabilityOfNs(registry: CapabilityRegistry, ns: string): Capabi
  * 读面的契约版本判据：行上记录的版本与当前生效版本不同 ⇒ fail-loud。
  * 与 routeNs 并列，是第二条"读写共用"的判据；缺它就是把旧形状 payload 静默交给新读者。
  */
+/**
+ * 读面的契约版本判据。`recorded === ''`（无标记）**不是**"放过"的理由：
+ * 没有标记意味着无法判定这行的形状由谁保证，把它交给当前读者正是 F-27 要消灭的静默错答。
+ * 因此未标记与不匹配同样拒绝，迁移器必须显式盖章（PoC 尚未提供 domain_state 回填器，见 READINESS D-6）。
+ */
 export function assertContractVersion(capability: CapabilityId, effective: string, recorded: string): void {
-  if (recorded !== '' && recorded !== effective) {
+  if (recorded === '' || recorded !== effective) {
     throw new Refusal('SCHEMA_INCOMPATIBLE', {
       capability, recordedContractVersion: recorded, effectiveContractVersion: effective,
       reason: '该行由不同契约版本的实现写入，形状不由当前读者保证',
@@ -252,6 +257,21 @@ export class Kernel {
         }
       }
     });
+    // 命名空间是**数据所有权键**：`capabilityOfNs` 靠它反查"这行是谁写的"。
+    // 两个能力共用一个 ns 时归属只剩 Map 迭代顺序说了算——写侧会落到另一个能力的契约版本上，
+    // 于是读侧的版本判定形同虚设。这不是可以容忍的配置，装配即拒绝（R3-C）。
+    const nsOwner = new Map<string, CapabilityId>();
+    for (const r of this.registry.routes()) {
+      const prior = nsOwner.get(r.storageNamespace);
+      if (prior !== undefined && prior !== r.capability) {
+        throw new Refusal('ACTIVATION_IMPOSSIBLE', {
+          reason: '两个能力声明了同一个存储命名空间，写入归属不可判定',
+          storageNamespace: r.storageNamespace, capabilities: [prior, r.capability],
+        });
+      }
+      nsOwner.set(r.storageNamespace, r.capability);
+    }
+
     // 装配期的两条契约版本判定（F-26 / F-27）。放在覆盖之后，判的是**生效路由**而非清单意图。
     for (const m of this.registry.allManifests()) {
       for (const r of m.requires) {
@@ -391,7 +411,14 @@ export class Kernel {
     const readOwn = (oid: ObjectOid) => this.readNamespaced(capability, oid);
     const eventsOf = (oid: ObjectOid, eventType: string, cutoff: CommitSequence) =>
       this.eventsFor(oid, eventType, cutoff);
-    const revisionOf = (ref: RevisionRef) => this.readRevision(ref);
+    // R3-A：按任意 oid 读修订走的是对外解析路径，不限命名空间 ⇒ 交进面里等于越界口子。
+    // 恒拒绝，且拒绝码与写侧越界同名（NAMESPACE_ESCAPE），便于呈现层合并处理。
+    const revisionOf = (ref: RevisionRef): never => {
+      throw new Refusal('NAMESPACE_ESCAPE', {
+        capability, oid: ref.oid,
+        reason: '窄面不得按任意 oid 跨命名空间读；请由装配根取好再交入',
+      });
+    };
     return { capability, space: this.space, writerFor, readOwn, eventsOf, revisionOf };
   }
 
@@ -476,7 +503,13 @@ export interface PluginFace {
   readOwn(oid: ObjectOid): { revision: number; payload: Record<string, unknown> } | undefined;
   /** 按对象 + 事件类型 + 截点取事件；eventType 对机制是不透明字符串。 */
   eventsOf(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; payload: unknown }[];
-  revisionOf(ref: RevisionRef): { revision: number; payload: Record<string, unknown> } | undefined;
+  /**
+   * 恒拒绝的占位：窄面**曾经**提供按任意 oid 读修订，实测任何领域都能借此把别的能力的
+   * 对象读走（R3-A）。跨命名空间的读属于装配边界，由宿主替插件取好再交进来。
+   * 这里保留符号而不移除，是为了让"这个口子已经封死"成为可被攻击测试持续验证的事实；
+   * 实施期应连同调用点一起删除。
+   */
+  revisionOf(ref: RevisionRef): never;
 }
 
 

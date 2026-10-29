@@ -34,7 +34,7 @@ describe('P3 Raw Intake / Domain Admission / 版本化校验 / 派生业务视�
       w,
       // 事务执行器由装配根提供：主体在宿主侧核验后交出，领域拿不到"给自己发身份"的能力（F-23）。
       intake: new IntakeService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(PRINCIPAL('synth-runner'), fn)),
-      validation: new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(PRINCIPAL('synth-runner'), fn)),
+      validation: new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(PRINCIPAL('synth-runner'), fn), (ref) => w.kernel.readRevision(ref)),
       standing: new FactStandingService(w.kernel.faceFor(CAP_RECORDS), w.authority),
     };
   };

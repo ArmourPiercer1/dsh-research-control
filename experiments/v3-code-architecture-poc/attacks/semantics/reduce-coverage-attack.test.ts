@@ -65,7 +65,7 @@ describe('S-1 RPT-02：coverage 参与归约 + 第四 coverage 值', () => {
     const w = openWorld({ file: join(dir, 'attack.db'), space: 'SP-SEM-1', grants: { alice: ['space-write'] } });
     try {
       // 夹具装配同步（F-23 之后领域只接窄面 + 装配根事务执行器）；断言未动。
-      const validation = new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(ALICE, fn));
+      const validation = new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(ALICE, fn), (ref) => w.kernel.readRevision(ref));
       const oid = w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { text: 'x' } }));
 
       validation.withValidatorOffline(VALIDATOR_ID, () => {

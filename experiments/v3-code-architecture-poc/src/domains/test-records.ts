@@ -90,7 +90,17 @@ export interface RunResult {
 export class ValidationService {
   private offline = new Set<string>();
   /** 事务执行器由装配根提供，主体由宿主核验；领域只写数据字段（F-23）。 */
-  constructor(private readonly face: PluginFace, private readonly runIn: <R>(fn: (tx: UnitOfWork) => R) => R) {}
+  /**
+   * `hostSnapshot` 由装配根提供：跨命名空间要读的对象由**宿主**替它取好交进来，
+   * 而不是让领域拿一个能按任意 oid 读的句柄（R3-A：窄面一旦带上 revisionOf，
+   * 任何领域都能把别的能力的对象读走）。
+   */
+  constructor(
+    private readonly face: PluginFace,
+    private readonly runIn: <R>(fn: (tx: UnitOfWork) => R) => R,
+    private readonly hostSnapshot: (ref: { kind: 'revision-ref'; oid: ObjectOid; revision: number }) =>
+      { revision: number; payload: Record<string, unknown> } | undefined,
+  ) {}
 
   withValidatorOffline(validatorId: string, fn: () => void): void {
     this.offline.add(validatorId);
@@ -98,7 +108,7 @@ export class ValidationService {
   }
 
   run(oid: ObjectOid, revision: number, env: SynthInput, ruleVersion = 'v1'): RunResult {
-    const snap = this.face.revisionOf({ kind: 'revision-ref', oid, revision });
+    const snap = this.hostSnapshot({ kind: 'revision-ref', oid, revision });
     if (!snap) throw new Refusal('NOT_FOUND_IN_SPACE', { oid, revision });
     let findings: readonly Finding[] = [];
     let declaredGaps: readonly string[] = [];

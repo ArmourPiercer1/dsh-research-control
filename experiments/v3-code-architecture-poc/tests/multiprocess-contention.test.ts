@@ -29,10 +29,13 @@ afterAll(() => { w.close(); rmSync(dir, { recursive: true, force: true }); });
 
 describe('多进程并发写同一空间文件', () => {
   test('子进程持写事务时：父进程写被拒（TX_CONTENTION）、读不受阻、子进程未提交行不可见', async () => {
-    // 持锁时长必须显著大于 busy_timeout(2000ms)：并发跑整套时调度抖动会吃掉余量，
-    // 3000ms 实测偶发让父进程在子进程提交后才重试 ⇒ 假红。8000ms 留 4 倍余量。
-    const child = spawn(process.execPath, [join(HERE, 'helpers/hold-write-lock.mjs'), file, '8000'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    // F-34 的根因与修法：持锁时长原先靠**定时器**（3000→8000ms 都只是加大余量），
+    // 于是断言成立与否取决于"占用时长 vs busy_timeout(2000ms) vs 父进程何时被调度"。
+    // 全套并行跑时这个余量会被吃掉——同一个断言在负载下时红时绿。
+    // 现在改成**同步驱动**：子进程一直持锁，直到本用例断言完再经 stdin 下令释放；
+    // 第三个参数只是父进程崩溃时的安全阀，不参与任何时序假设。
+    const child = spawn(process.execPath, [join(HERE, 'helpers/hold-write-lock.mjs'), file, '20000'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     let childOut = '';
     const childErr: string[] = [];
@@ -64,6 +67,8 @@ describe('多进程并发写同一空间文件', () => {
       const held = w.raw.all<{ c: number }>(`select count(*) c from journal where oid='lock-holder'`);
       expect(held[0]!.c).toBe(0);
 
+      // 断言窗口结束，才放子进程提交（此前它一直真的持着写锁）
+      child.stdin?.write('release\n');
       // ③ 子进程提交后两侧内容都在：没有丢写，也没有把被拒的写变成半写
       // 用 close 而不是 exit：等 stdio 关闭，否则最后一行可能还没进 childOut
       const code = await new Promise<number | null>((res) => child.on('close', res));

@@ -117,6 +117,11 @@
 | `experiments/v3-semantic-poc/fixtures/ab/corpus/README.md` | Unranked |
 | `experiments/v3-semantic-poc/samples/gpt-streak/README.md` | Unranked |
 | `experiments/v3-semantic-poc/samples/gpt-streak/observation-spec.md` | Unranked |
+| `poc/README.md` | Unranked |
+| `poc/hsr-form/FINDINGS-poc1.md` | Unranked |
+| `poc/hsr-form/FINDINGS-poc2.md` | Unranked |
+| `poc/hsr-form/FINDINGS-poc3.md` | Unranked |
+| `poc/hsr-form/FINDINGS-review.md` | Unranked |
 | `schema/README.md` | Unranked |
 | `src/host/persistence/hardening/README.md` | Unranked |
 <!-- docs:sync:end -->

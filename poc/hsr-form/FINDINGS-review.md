@@ -1,6 +1,6 @@
 # 独立审查（基线 `da113bcd`）的复现与处置
 
-审查判 PoC 作为实现放行证据 = **ITERATE**。我逐条自己复现（`.scratch/probe-review.mjs`，夹具逐字取自当时的测试文件），**七条全部成立**，其中两条比审查描述更严重。核心已按规则原文重写；本文件是"哪条规则、原文怎么说、桩件当时怎么做、现在怎么钉住"的反查表。
+审查判 PoC 作为实现放行证据 = **ITERATE**。我逐条自己复现（`.scratch/probe-review.mjs`，夹具逐字取自当时的测试文件），**七条全部成立**，其中两条比审查描述更严重。核心已按规则原文重写；本文件是"哪条规则、原文怎么说、桩件当时怎么做、现在怎么钉住"的反查表。**第二轮审查（四项）的复现与处置在文末同名小节。**
 
 | # | 审查条目 | 复现 | 规则原文依据 | 修法与钉住方式 |
 | --- | --- | --- | --- | --- |
@@ -34,6 +34,42 @@
 ## 结论
 
 审查的判断我接受：**发现了问题，但还没验证规则可同时成立**——因为当时的一部分绿灯是桩件与测试一起错在同一个方向上。现在的差别是每条判据都有正反例 + 变异锚点，错误实现会红，而不是"看起来对"。
+
+## 第二轮审查（四项）的复现与处置
+
+复现脚本 `.scratch/probe-review2.mjs`（夹具照抄测试文件，只跑桩件），**四项全部成立**：
+
+| 优先 | 审查条目 | 我复现到的实际行为 | 规则原文依据 | 修法与"错误实现必红"负例 |
+| --- | --- | --- | --- | --- |
+| P0 | 部分可见报告脱敏：隐藏 finding 不同仍可用 `verdict` 区分两个世界 | 世界 A（存储 `INDETERMINATE(WITHHELD_REFERENCE)`）呈现 `verdict=INDETERMINATE`，世界 B（存储 `FAIL(REF_UNRESOLVED)`）呈现 `NOT_ACHIEVED`，`canonical` 不等 | `SCR-51`（两条 finding 合并为**恰一条** `UNVERIFIABLE_REFERENCE`；受影响层 `verdict → UNVERIFIABLE_TO_YOU`）、`SCR-53`（条数 / 原 `rule_id` / 字段名不出现）、`SCR-54`（XC-25 两世界逐字节同形）、`SCR-55`（差异只允许 A/S 这一条边界） | `sanitize()` 重写：`AUDIT` 与 `MASKED` 两档授权类；被屏蔽项按层级合并成一条、层级只剩 `{level, verdict}`；**发生过脱敏 ⇒ 报告级 verdict 不再由可见子集归约**。P3-7 / P3-7b / P3-7c 四个变异体分别对应"保留存储 verdict / 不实现合并 / 每条各产一条 / 保留原 field_path"，逐个断言必分歧 |
+| P1 | 合法 `rec:` 来源被拒 | `source_refs: ['rec:HREC-7']` → `REF_PATTERN_MISMATCH`（即合法形态被拒写） | `SF-24`（`rec:${record_id}` 是合法引用形态）、`SS-34`（**来源允许 `rec:`，端点不允许**）、`SS-05` | 引入引用位**类型域** `object / record / either`，逐位取槽位表原文；`carrier_refs=[ref|rec:]`、`availability_checks=[rec:]`、`source=ref?` 三条真实槽位进夹具。P1-8b 三类各有正反例，并把"一条共享文法必在两个方向同时出错"写成反向锚点 |
+| P1 | 空集合严重度：规范 `VIOLATION`，桩件 `DEFICIENCY` | `EMPTY_NOT_PERMITTED/DEFICIENCY` | `SF-14`：`FAIL(EMPTY_NOT_PERMITTED, **VIOLATION**)`，但记录照常保存 | 改 `VIOLATION`，并在 P1-3 与**逐字抄自文档的严重度登记表**比对（不是与我的输出比对）；顺带把两个自造码名换成 `SCR-76` 注册的 `NOT_APPLICABLE_UNDECLARED` / `NOT_APPLICABLE_SCOPE_MISMATCH`，补 P1-3b 正反例 |
+| P1 | 根世界单例：同 ObjectID 的新修订被判成第二个根世界 | `HENT-w1@r2` → `SINGLETON_SUBTYPE_DUPLICATE/VIOLATION` | 用户 2026-10-29 裁决：单位是同一 ResearchSpace 内的**不同 ObjectID**；同 id 修订不产生第二个单例；撤回/退役不自动释放名额；纠正走显式身份纠正 | `checkSingleton` 改为"排除自身 ObjectID 后统计不同 ObjectID"；P2-02 覆盖 r1→r2→r3 合法、异 id 判重、撤回后仍占位、异 space 无关，并把"按记录条数计数"写成反向锚点（**只有修订那一格能分辨它**） |
+
+### 比审查描述更严重的地方（第二轮）
+
+1. **上一轮的 P3-7 在它声称要验的那条判据上分辨力为零**。它构造的两个世界的**存储 verdict 恰好相同**（都是 `ACHIEVED`），所以"保留存储 verdict"这个缺陷在它面前必然隐身——绿灯覆盖的是另一件事（可见 finding 的过滤），不是同形性。修法不是加断言强度，而是把两世界的存储 verdict 故意构造成不同（`INDETERMINATE` vs `NOT_ACHIEVED`）。
+2. **修 `rec:` 时撞出第二个缺陷：嵌套引用位从来没被检查过**。`refViolations` 的旧下钻只在末段处理数组，`v[*].carrier_ref` 取到 `[undefined]`，再被"只检查字符串"的过滤器丢掉 ⇒ 这条判据一条都没执行过，却从未报红。P1-8b 现在把这个空转形态本身写成断言：**"没有 finding"不等于"检查通过"**。
+
+### 我自己新引入 / 遗留的错误（本轮）
+
+- 上面第 2 条是**第一轮重写时我写下的**walker 缺陷，本轮才被抓到，不是审查方指出的。
+- 写 P3-8b 时我第一版把"先分页再过滤"的差值写成了自比较（`a !== a + 0`），跑出来才发现是无意义断言；现改成真正可分辨的形式（世界 A 未过滤时 `exhausted=false`、世界 B `=true`）。
+
+## 第二轮新增的文档缺口
+
+- **`T-GAP-10`**：`SF-24` 写 `"rec:${record_id}"`，但 `record_id` 在契约层与本层**都没有文法**（实测 `grep record_id` 只有这一处提及）。因此桩件只能检查"前缀在场 + 后半非空且无空白/斜杠"；自行发明 ID 文法会把合法来源判死，正是本轮 P1 那个方向。留给 B 与 `space_id`（`T-GAP-09`）一并定。
+- **`SCR-51` 补一句**：原文只写"若该层级曾受其影响，`verdict → UNVERIFIABLE_TO_YOU`"，没写**报告级** verdict。它其实由 `SCR-54/55` 可推出（两世界必须同形 ⇒ 只能是呈现层取值），但不写明就会让人像我一样保留存储归约值。已在 Check Schema 的 `SCR-51` 内补成显式判据（未新增编号，避免规则面扩面）。
+
+## 仍未覆盖（承认，不假装）
+
+审查指出 PoC-3 未覆盖缓存 / 日志 / Agent 上下文的泄漏出口，以及完整 CheckReport 脱敏结构——**属实**。本轮把呈现层脱敏做到了**判据级**（同形、合并、占位、条数不出现、授权两档），但：
+
+- 没有真实呈现层，所以**缓存键、日志行、Agent 上下文摘要**这三条出口一个都没验；
+- 报告结构只到 `{operation, level_results, findings, verdict, boundary}`，`SCR-01…SCR-14` 的完整字段（`target`、`checker`、`env_ref`、`declared_gaps`、逐层 `reason` 封闭集）不在面内；
+- **未受影响层级的其它键**本轮不脱敏（例如某层自带的计数类键）。XC-25 的那一对世界里它们取值相同，所以不影响同形判定，但这不等于它们永远不会泄漏——正式实现需要一条"层级键白名单"；
+- **遮蔽发生在不同层级**时呈现会差在"哪一层被遮蔽"上。这是 `SCR-53` 逐层占位设计的直接后果，`SCR-54` 声明的那对世界不含这种情形，我没有把它说成已排除；
+- 幂等只到跨序列化/反序列化，**没有**真实持久化与事务；PoC 分支也没有 GitHub check run——下面的绿灯数全是本地报告。
 
 ## 验证记录（不写结论只写观测）
 

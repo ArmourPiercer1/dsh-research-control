@@ -1,6 +1,6 @@
 /**
  * PoC-2 身份、修订与注册。
- * 本轮（第二轮审查纠正后）与重写过的 core.mjs 及文档对齐：
+ * 第一轮审查（基线 da113bcd）纠正后与重写过的 core.mjs 及文档对齐：
  *   ① 夹具换成 poc1 标准：SF-22 文法标识 + **整数** schema_version + 无响应回显键（SS-15a 第③类）
  *      + `reg.refPaths` 声明引用位（SF-04 ④ 的适用面）；
  *   ② 身份引用位一律用**规范键名与契约点名的子路径**（`world_membership.individual_ref`、`subtype_code`）；
@@ -11,6 +11,9 @@
  *      「无 head 首次登记按补全」由双参调用 `(undefined, next)` 表达）；
  *   ⑤ 变异断言 P2-19：三个错误实现（父槽位冒充子路径 / 豁免不核验援引 / 转移不比 `proposition_rev`）
  *      必须在本文件用例集上与文档判据分歧。
+ * **第二轮审查（P1）一条成立并已复现**：根世界单例按记录条数计数 ⇒ 同一 ObjectID 的合法修订被判成第二个根世界。
+ * P2-02 现按用户 2026-10-29 的裁决书写：单位是同一 ResearchSpace 内的**不同 ObjectID**；同 id 的 r2/r3 合法；
+ * 普通撤回与退役不自动释放名额；纠正错误登记走显式身份纠正与替代历史，不靠隐式重分配名额。
  * 红 = 核心判据疑似不忠实于文档，逐条写入 FINDINGS-poc2.md「对新核心的反例」；夹具问题不再产红。
  * 夹具自含（不 import poc1：那会把它的测试一起收进本文件）。
  */
@@ -126,25 +129,37 @@ test('P2-01 根世界最小正例：slot_set 不含 world_membership、identity_
   assert.equal(ok('ENTITY', 'WORLD_ROOT', { kind_ref: { '@st': 'DECLARED', v: 'HCON-wt@r1' } }).r.code, 'UNKNOWN_KEY_IN_PAYLOAD');
 });
 
-test('P2-02 同 space 第二个 WORLD_ROOT：保存不阻断 + SINGLETON_SUBTYPE_DUPLICATE；异 space 无 finding（EN-W-7/SS-54 L268）', () => {
+test('P2-02 单例计数口径 = 同一 space 内的**不同根世界 ObjectID**（EN-W-7 用户裁决 2026-10-29）：同 id 的新修订合法、不同 id 判重、撤回退役不腾名额、异 space 无关', () => {
   const store = [];
-  const save = (space, seq) => {
-    const e = env('ENTITY', 'WORLD_ROOT', { space_id: space, object_id: `HENT-w${seq}` });
+  const save = (space, seq, rev = 'r1') => {
+    const e = env('ENTITY', 'WORLD_ROOT', { space_id: space, object_id: `HENT-w${seq}`, revision_id: rev });
     const o = mkOut();
     const r = ingest(e, {}, reg, o);
     checkSingleton(store, e, reg, o);
     store.push({ env: e });                                     // 保存不阻断：入库照做
     return { r, o };
   };
-  const first = save('sp-root', 1);
-  assert.deepEqual(first.o.findings.map(f => f.code), [], '首个根世界合法');
+  assert.deepEqual(save('sp-root', 1).o.findings.map(f => f.code), [], '首个根世界合法');
+  assert.deepEqual(save('sp-root', 1, 'r2').o.findings.map(f => f.code), [],
+    '裁决①：同一根世界 r1 → r2 不产生第二个单例（上一版按记录条数判，把合法修订判成重复——本轮 P1-④）');
+  assert.deepEqual(save('sp-root', 1, 'r3').o.findings.map(f => f.code), [], '连续修订同理，修订数不参与计数');
   const dup = save('sp-root', 2);
   assert.deepEqual(dup.o.findings.map(f => f.code), ['SINGLETON_SUBTYPE_DUPLICATE']);
   assert.equal(dup.o.findings[0].sev, 'VIOLATION');
   assert.equal(dup.r.refused, false, '不拒写');
-  assert.equal(store.length, 2, '不静默合并');
-  const other = save('sp-2', 3);
-  assert.deepEqual(other.o.findings.map(f => f.code), [], '谓词按 (space_id, subtype_code)：异 space 不是重复（配对）');
+  assert.equal(store.length, 4, '不静默合并');
+  assert.deepEqual(save('sp-2', 3).o.findings.map(f => f.code), [], '谓词按 space：异 space 不是重复（配对）');
+  // 裁决②：普通撤回/退役**不自动释放**名额，历史引用继续有效 ⇒ 桩件不看生命周期状态
+  const ws = [{ env: env('ENTITY', 'WORLD_ROOT', { object_id: 'HENT-w1', revision_id: 'r2', lifecycle: 'WITHDRAWN' }) }];
+  const o2 = mkOut();
+  checkSingleton(ws, env('ENTITY', 'WORLD_ROOT', { object_id: 'HENT-w2' }), reg, o2);
+  assert.deepEqual(o2.findings.map(f => f.code), ['SINGLETON_SUBTYPE_DUPLICATE'],
+    '裁决②：撤回过的根世界仍占位；纠正错误登记走显式身份纠正，不靠隐式重分配名额（裁决③）');
+  // 反向锚点：按记录条数计数的实现只在"修订"这一格与判据分歧，别处都对——不测修订就抓不到
+  const countBased = (st, e) => st.some(r => r.env.space_id === e.space_id && r.env.subtype_code === e.subtype_code);
+  const r2 = { space_id: 'sp-root', subtype_code: 'WORLD_ROOT', object_id: 'HENT-w1' };
+  assert.equal(countBased([{ env: { ...r2, revision_id: 'r1' } }], r2), true, '反向实现把 r1→r2 判成第二个根世界');
+  assert.equal(countBased([{ env: { ...r2, object_id: 'HENT-w9' } }], { ...r2, object_id: 'HENT-w1' }), true, '反向实现在真重复上也是 true ⇒ 只有修订格能分辨');
 });
 
 test('P2-03 豁免援引不到契约规则号 → 条目非法（不得启用）；援引 EN-W-7 成立则合法（SS-54）', () => {

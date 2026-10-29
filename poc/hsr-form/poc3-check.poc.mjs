@@ -1,21 +1,28 @@
 /**
  * PoC-3 检查归约 / 摘要域 / 两世界恒定面 / 写入幂等。
- * 独立审查（基线 da113bcd）判本单元三处 P0 全部成立并已复现：
+ * 独立审查第一轮（基线 da113bcd）判本单元三处 P0 全部成立并已复现：
  *   #2 `exhausted` 语义写反（文档锚点：可见 200 条、页长 100 ⇒ 第 1 页 false、第 2 页 true），
  *      而原测试**跟着断言了错误语义**，所以是绿的——这正是"绿灯不等于验证"。
  *   #3 把 SCR-54 的同形排除集 `{report_id, checked_at}` 误当成摘要排除集；SCR-06 明文摘要排除集**恰一项** `{report_digest}`。
  *   #4 幂等测试用只读操作 + 进程内 Map，验不到 SI-41 要求的写入幂等。
+ * 第二轮审查判本单元一项 P0，成立并已复现（`.scratch/probe-review2.mjs` R1）：
+ *   部分可见报告的脱敏只过滤 findings、**保留存储 verdict** ⇒ "目标存在于他空间"（存储
+ *   `INDETERMINATE(WITHHELD_REFERENCE)`）与"目标不存在"（存储 `FAIL(REF_UNRESOLVED)`）两个世界
+ *   呈现不同 verdict，被屏蔽内容的存在性被 verdict 说了出去（违反 SCR-51/53/54/55）。
+ *   上一版 P3-7 之所以是绿的：它挑的两个世界的**存储 verdict 恰好相同**，等于没测这条判据。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reduceLevel, sanitize, S_constant, paginate, digest, canonical, DIGEST_EXCLUSION, SHAPE_EXCLUSION, Idempotency } from './core.mjs';
+import { reduceLevel, sanitize, S_constant, paginate, digest, canonical, DIGEST_EXCLUSION, SHAPE_EXCLUSION,
+  Idempotency, AUDIT, noVisibility, partialView, PRESENTATION_ONLY, FIELD_PLACEHOLDER, visiblePayload } from './core.mjs';
 
 const DEFAULT_LIMIT = 50, MAX_LIMIT = 200;                       // SI-50：超限拒绝而非静默夹取
 const mkReport = (over = {}) => ({ operation: 'hsr_object_get', report_id: 'rpt:1', checked_at: 100,
   level_results: [{ rule_id: 'SCR-57', verdict: 'PASS' }], findings: [{ rule_id: 'SCR-57', item: 'v1', owner: 'me' }],
   verdict: 'ACHIEVED', items: [], ...over });
-const PARTIAL = { hidden: i => i.owner !== 'me', hiddenFinding: f => f.owner !== 'me' };
-const NO_VIS = { hidden: () => true, hiddenFinding: () => true };
+const PARTIAL = partialView(f => f.owner !== 'me');
+const NO_VIS = noVisibility();
+const PAGE = { effectiveLimit: 41 };
 
 // ---- 归约（RPT-02 + SCR-77） -----------------------------------------------------
 test('P3-1 归约优先序：FAIL 最高、否则 INDETERMINATE、全通过才 ACHIEVED（RPT-02）', () => {
@@ -24,7 +31,7 @@ test('P3-1 归约优先序：FAIL 最高、否则 INDETERMINATE、全通过才 A
   assert.equal(reduceLevel(['PASS']), 'ACHIEVED');
 });
 test('P3-2 零适用规则不得归约为通过（SCR-77 沉默不等于通过）', () => {
-  assert.equal(reduceLevel([]), 'INDETERMINATE', '审查纠正 #4：原实现返回 ACHIEVED');
+  assert.equal(reduceLevel([]), 'INDETERMINATE', '第一轮纠正 #4：原实现返回 ACHIEVED');
   const naive = v => (v.includes('FAIL') ? 'NOT_ACHIEVED' : v.includes('INDETERMINATE') ? 'INDETERMINATE' : 'ACHIEVED');
   assert.equal(naive([]), 'ACHIEVED', '反向锚点：不判零覆盖的实现与判据分歧，本用例能抓住它');
 });
@@ -35,7 +42,7 @@ test('P3-3 候选载荷不参与归约：它没有层级结果，也不得被填
   assert.deepEqual(candidate.entryFindings, ['SUBTYPE_UNREGISTERED'], '失败只存在于入口检查报告这个**另一个载体**');
 });
 
-// ---- 摘要域：三个互不相同的排除集（审查纠正 #3） ---------------------------------
+// ---- 摘要域：三个互不相同的排除集（第一轮纠正 #3） ---------------------------------
 test('P3-4 摘要排除集恰 `{report_digest}` 一项（SCR-06），写入后可重放（SF-52a）', () => {
   assert.deepEqual(DIGEST_EXCLUSION, ['report_digest'], 'SCR-06：排除集封闭为一项，实现不得自行增减');
   const r = mkReport({ items: [{ id: 'v1' }] });
@@ -53,14 +60,14 @@ test('P3-5 同形判定排除集恰 `{report_id, checked_at}` 两项（SCR-54）
     '"每次都变"不能当豁免理由：其余任何字段一律计入同形判定');
 });
 
-// ---- 两世界与恒定面（SI-14 / SI-33 / SCR-57） -------------------------------------
+// ---- 无可见权者：S 常量（SCR-57） -------------------------------------------------
 const worldA = [{ id: 'v1', owner: 'me' }, { id: 'v2', owner: 'me' }, { id: 'h1', owner: 'other' }, { id: 'h2', owner: 'other' }];
 const worldB = [{ id: 'v1', owner: 'me' }, { id: 'v2', owner: 'me' }];
 test('P3-6 无可见权者输出 == S 常量，逐键穷举，两个页长各跑一次（SCR-57 粒度 = (操作, 生效页长)）', () => {
   for (const L of [37, DEFAULT_LIMIT]) {
     for (const w of [worldA, worldB])
       assert.equal(canonical(sanitize(mkReport({ items: w }), NO_VIS, { effectiveLimit: L })),
-        canonical(S_constant('hsr_object_get', L)), `页长 ${L} 下必须逐字节等于 S`);
+        canonical(S_constant('hsr_object_get', L)), `页长 ${L} 下必须逐字节等于 S（与被请求对象的属性无关）`);
     const S = S_constant('hsr_object_get', L);
     assert.deepEqual(S.level_results, [], 'S 的 level_results 是空数组——无可见权者不获得任何层级声明');
     assert.deepEqual(S.findings, []); assert.equal(S.verdict, 'UNVERIFIABLE_TO_YOU');
@@ -69,13 +76,81 @@ test('P3-6 无可见权者输出 == S 常量，逐键穷举，两个页长各跑
     assert.equal(S.boundary.limit_applied, L, 'limit_applied 按 SI-14 如实反映请求页长，不是常量');
   }
 });
-test('P3-7 部分可见两世界：可见集相同、隐藏集不同 ⇒ 输出逐字节相同（含规则 findings 的隐藏）', () => {
-  const repA = mkReport({ items: worldA, findings: [{ rule_id: 'x', item: 'v1', owner: 'me' }, { rule_id: 'y', item: 'h1', owner: 'other' }] });
-  const repB = mkReport({ items: worldB, findings: [{ rule_id: 'x', item: 'v1', owner: 'me' }] });
-  const a = sanitize(repA, PARTIAL, { effectiveLimit: 41 }), b = sanitize(repB, PARTIAL, { effectiveLimit: 41 });
-  assert.equal(canonical(a), canonical(b), '隐藏集大小不得从任何字段泄漏');
-  assert.deepEqual(a.findings, [{ rule_id: 'x', item: 'v1', owner: 'me' }], '挂在隐藏项上的规则 finding 必须被脱掉');
+test('P3-6b 有权者见完整审计视图 A：存储 verdict 与完整 findings 原样在场，且 A ≠ S（SCR-55 只承认这一条授权边界）', () => {
+  const rep = mkReport({ level_results: [{ level: 'L1', verdict: 'FAIL' }], verdict: 'NOT_ACHIEVED',
+    findings: [{ code: 'X', level: 'L1', owner: 'me' }, { outcome: 'FAIL', reason: 'REF_UNRESOLVED', level: 'L1', owner: 'other' }] });
+  const a = sanitize(rep, AUDIT, PAGE);
+  assert.equal(a.verdict, 'NOT_ACHIEVED'); assert.equal(a.findings.length, 2, 'A 视图不删任何 finding');
+  assert.equal(a.boundary.coverage, 'COMPLETE', '存储侧 coverage 永不取 NOT_DISCLOSED（SCR-33）');
+  assert.notEqual(canonical(a), canonical(S_constant(rep.operation, PAGE.effectiveLimit)));
+  assert.equal(canonical(sanitize(rep, NO_VIS, PAGE)), canonical(S_constant(rep.operation, PAGE.effectiveLimit)));
+  // SCR-52：呈现层专用取值与存储枚举分离——存储形态里一个都不许出现
+  for (const v of PRESENTATION_ONLY) assert.ok(!canonical(rep).includes(v), `存储报告里出现了呈现层取值 ${v}`);
+  assert.ok(canonical(sanitize(rep, NO_VIS, PAGE)).includes('UNVERIFIABLE_TO_YOU'), '呈现层取值只在呈现面出现');
 });
+
+// ---- 部分可见：SCR-51 合并 + SCR-53 占位 + SCR-54 同形（第二轮 P0） ----------------
+const visibleF = { code: 'L1_OK', level: 'L1', owner: 'me' };
+const hiddenAt = (level, extra) => ({ level, owner: 'other', rule_id: 'SCR-30',
+  field_path: '/fields/other-space-individual', ...extra });
+/** XC-25 的两个世界：同一请求、同一授权类、同一时间参数，只差"目标存在于他空间 / 目标不存在" */
+const xc25 = world => mkReport({
+  level_results: [{ level: 'L1', verdict: world === 'A' ? 'PASS' : 'FAIL', findings_count: world === 'A' ? 3 : 2 }],
+  findings: [visibleF, world === 'A'
+    ? hiddenAt('L1', { outcome: 'INDETERMINATE', reason: 'WITHHELD_REFERENCE' })
+    : hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' })],
+  verdict: world === 'A' ? 'INDETERMINATE' : 'NOT_ACHIEVED' });
+test('P3-7 XC-25 两世界逐字节同形：合并为恰一条 UNVERIFIABLE_REFERENCE、层级只剩占位形态（SCR-51/53/54）', () => {
+  const a = sanitize(xc25('A'), PARTIAL, PAGE), b = sanitize(xc25('B'), PARTIAL, PAGE);
+  assert.equal(canonical(a), canonical(b), '存储 verdict 不同的两个世界，呈现必须逐字节相同');
+  assert.deepEqual(a.level_results, [{ level: 'L1', verdict: 'UNVERIFIABLE_TO_YOU' }],
+    '受影响层级：verdict → UNVERIFIABLE_TO_YOU，且 findings_count 这类**条数键**整键消失（SCR-53）');
+  assert.deepEqual(a.findings, [visibleF, { level: 'L1', outcome: 'INDETERMINATE', code: 'UNVERIFIABLE_REFERENCE', field_path: FIELD_PLACEHOLDER }],
+    'SCR-51：两条被屏蔽引用 finding 合并为一条；SCR-53：占位 /fields，原 rule_id 不出现');
+  assert.equal(a.verdict, 'UNVERIFIABLE_TO_YOU', '发生过脱敏 ⇒ 报告级 verdict 不得由可见子集归约（SCR-55）');
+  assert.equal(a.boundary.coverage, 'NOT_DISCLOSED');
+  const bytes = canonical(a);
+  for (const leak of ['secret', 'other-space-individual', 'SCR-30', 'WITHHELD_REFERENCE', 'REF_UNRESOLVED', 'findings_count'])
+    assert.ok(!bytes.includes(leak), `呈现字节里出现了不该有的 ${leak}`);
+});
+test('P3-7b 隐藏 1 条与隐藏 2 条同形：被遮蔽项数量不得从数组长度泄漏（SCR-55）', () => {
+  assert.equal(canonical(sanitize(xc25('A'), PARTIAL, PAGE)), canonical(sanitize(xc25('B'), PARTIAL, PAGE)));
+  const one = sanitize({ ...xc25('B'), findings: [visibleF, hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' })] }, PARTIAL, PAGE);
+  const two = sanitize({ ...xc25('B'), findings: [visibleF,
+    hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' }),
+    hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' })] }, PARTIAL, PAGE);
+  assert.equal(canonical(one), canonical(two), '同层级多条被屏蔽 → 仍合并为一条');
+  assert.equal(two.findings.filter(f => f.code === 'UNVERIFIABLE_REFERENCE').length, 1);
+});
+test('P3-7c 错误实现必红：四种我或实现者会写的脱敏变体都被这套用例抓住（第二轮 P0）', () => {
+  const A = xc25('A'), B = xc25('B');
+  const twoHidden = { ...xc25('B'), findings: [visibleF, hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' }),
+    hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' })] };
+  const dropMerge = r => { const p = sanitize(r, PARTIAL, PAGE); return { ...p, findings: p.findings.filter(f => f.code !== 'UNVERIFIABLE_REFERENCE') }; };
+  const perHidden = r => {
+    const p = sanitize(r, PARTIAL, PAGE), n = r.findings.filter(f => f.owner !== 'me').length;
+    return { ...p, findings: [...p.findings.filter(f => f.code !== 'UNVERIFIABLE_REFERENCE'),
+      ...Array.from({ length: n }, () => ({ level: 'L1', outcome: 'INDETERMINATE', code: 'UNVERIFIABLE_REFERENCE', field_path: FIELD_PLACEHOLDER }))] };
+  };
+  const keepFieldPath = r => { const p = sanitize(r, PARTIAL, PAGE);
+    return { ...p, findings: p.findings.map(f => (f.code === 'UNVERIFIABLE_REFERENCE' ? { ...f, field_path: '/fields/other-space-individual' } : f)) }; };
+  const cases = [
+    ['保留存储 verdict（本轮 P0）', r => ({ ...sanitize(r, PARTIAL, PAGE), verdict: r.verdict }), A,
+      m => canonical(m(A)) !== canonical(m(B)), '两世界 verdict 分歧'],
+    ['删掉合并出来的那一条（SCR-51 未实现）', dropMerge, A,
+      m => m(A).findings.length === 1, '呈现里再没有"你无从核实这条引用"的声明'],
+    ['每条被屏蔽项各产一条（数量泄漏）', perHidden, twoHidden,
+      m => canonical(m(A)) !== canonical(m(twoHidden)), '隐藏 1 条与 2 条呈现不同长'],
+    ['保留原 field_path（字段名泄漏）', keepFieldPath, A,
+      m => canonical(m(A)).includes('other-space-individual'), '被屏蔽字段名出现在字节里'],
+  ];
+  for (const [name, m, witness, discriminates, why] of cases) {
+    assert.equal(discriminates(m), true, `变异体"${name}"没被抓住 ⇒ 判据分辨力不足（${why}）`);
+    assert.notEqual(canonical(m(witness)), canonical(sanitize(witness, PARTIAL, PAGE)), `"${name}"与正确实现分歧在 ${why}`);
+  }
+});
+
+// ---- 分页（SI-14 / SI-50） --------------------------------------------------------
 test('P3-8 分页真相（SI-14/SI-50 文档锚点）：201 条、页长 60 ⇒ 首页 exhausted=false、末页 true', () => {
   const items = Array.from({ length: 201 }, (_, i) => ({ id: 'v' + i, owner: 'me' }));
   const p1 = paginate(items, 60, 0, MAX_LIMIT, DEFAULT_LIMIT), p2 = paginate(items, 60, 180, MAX_LIMIT, DEFAULT_LIMIT);
@@ -83,25 +158,39 @@ test('P3-8 分页真相（SI-14/SI-50 文档锚点）：201 条、页长 60 ⇒ 
   assert.equal(p2.exhausted, true, '末页无后续 → true');
   assert.equal(p1.limit_applied, 60, '等于实际生效页长，不是缺省常量 50');
   assert.notEqual(p1.next_cursor, null); assert.equal(p2.next_cursor, null);
-  const s = sanitize(mkReport({ items }), PARTIAL, { effectiveLimit: p1.limit_applied });
-  assert.equal(s.boundary.truncated, false, '盲区下 truncated 是披露常量，与 exhausted 语义不同、允许并存');
+  assert.equal(sanitize(mkReport({ items }), PARTIAL, { effectiveLimit: p1.limit_applied }).boundary.truncated, false,
+    '盲区下 truncated 是披露常量，与 exhausted 语义不同、允许并存');
   assert.equal(paginate(items, 500, 0, MAX_LIMIT, DEFAULT_LIMIT).refused, 'F-LIMIT-TOO-LARGE', '超限拒绝而非静默夹取');
 });
-test('P3-9 反向断言：三类错误实现必须被抓（审查要求的"错误实现必红"）', () => {
+test('P3-8b 顺序判据：先按可见性过滤再分页，两世界的载荷与包络同形；先分页再过滤则条数可辨', () => {
+  const visA = visiblePayload(worldA, i => i.owner === 'me'), visB = visiblePayload(worldB, i => i.owner === 'me');
+  const pa = paginate(visA, 60, 0, MAX_LIMIT, DEFAULT_LIMIT), pb = paginate(visB, 60, 0, MAX_LIMIT, DEFAULT_LIMIT);
+  assert.equal(canonical(pa), canonical(pb), '可见集相同 ⇒ 载荷与 limit/exhausted 全部同形');
+  // 反向锚点：对**未过滤**的全量分页（页长 2）——世界 A 还有后续、世界 B 已到底，
+  // 包络字节当场把"这个世界多两条"说了出来。这就是"过滤必须发生在分页之前"的判据形态。
+  const rawA = paginate(worldA, 2, 0, MAX_LIMIT, DEFAULT_LIMIT), rawB = paginate(worldB, 2, 0, MAX_LIMIT, DEFAULT_LIMIT);
+  assert.equal(rawA.exhausted, false); assert.equal(rawB.exhausted, true);
+  assert.notEqual(canonical(rawA), canonical(rawB), '先分页再过滤 ⇒ 包络成为存在性 oracle');
+});
+
+// ---- 反向断言（第一轮要求的"错误实现必红"） ---------------------------------------
+test('P3-9 反向断言：三类错误实现必须被抓（第一轮审查要求）', () => {
   const items = Array.from({ length: 120 }, (_, i) => ({ id: 'v' + i, owner: 'me' }));
   const wrongExhausted = (n, req, off) => off + req < n;                              // 我犯过的反向版
   assert.notEqual(wrongExhausted(items.length, 100, 0), paginate(items, 100, 0, MAX_LIMIT, DEFAULT_LIMIT).exhausted,
     '反向实现在第 1 页就与判据分歧');
   assert.notEqual(canonical(S_constant('hsr_object_get', DEFAULT_LIMIT)), canonical(S_constant('hsr_object_get', 73)),
     '把页长钉成缺省常量 ⇒ 非缺省页长必红（golden 须按 (操作, 生效页长) 逐份生成）');
-  const dropBoundary = r => { const { boundary, ...rest } = sanitize(r, NO_VIS, { effectiveLimit: 41 }); return rest; };
-  assert.notEqual(canonical(dropBoundary(mkReport())), canonical(sanitize(mkReport(), NO_VIS, { effectiveLimit: 41 })),
+  const dropBoundary = r => { const { boundary, ...rest } = sanitize(r, NO_VIS, PAGE); return rest; };
+  assert.notEqual(canonical(dropBoundary(mkReport())), canonical(sanitize(mkReport(), NO_VIS, PAGE)),
     '删掉 boundary 属呈现面缺键（SI-33 恒定在场）');
-  assert.notDeepEqual(Object.keys(sanitize(mkReport(), NO_VIS, { effectiveLimit: 41 })), ['items'],
+  assert.notDeepEqual(Object.keys(sanitize(mkReport(), NO_VIS, PAGE)), ['items'],
     '呈现面不是"过滤后的 items"，而是 SCR-57 穷举的那套键');
+  assert.throws(() => sanitize(mkReport(), { hiddenFinding: () => true }, PAGE), /授权类必须声明 view/,
+    '授权类形态不完整时不得静默走某条分支（静默选分支就是本轮 P0 的成因）');
 });
 
-// ---- 写入幂等（SI-41，审查纠正 #4） ------------------------------------------------
+// ---- 写入幂等（SI-41，第一轮纠正 #4） ----------------------------------------------
 const mkWorld = () => {
   const store = [];
   const write = req => {

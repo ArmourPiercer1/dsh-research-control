@@ -7,10 +7,15 @@
  *   ① 真实最小合法形态（SF-22 文法 + 整数版本 + 无回显键）
  *   ② **完整五态正反例矩阵**（审查指出原稿缺这张表）
  *   ③ **错误实现必红**：桩件的判据表若被削弱，矩阵必须立刻变红
+ * **第二轮审查（P1）两条判据缺陷，均成立并已复现**（`.scratch/probe-review2.mjs` R2/R3）：
+ *   ④ 桩件只有一条"引用文法"（SF-22 对象引用），于是合法的 `rec:` 来源被拒（SF-24/SS-34），
+ *      而"端点位不得放 `rec:`"这条真正该拒的判据反而没有独立的类型域可依据 —— 已改为引用位**类型域**；
+ *   ⑤ `EMPTY_NOT_PERMITTED` 的严重度我写成 DEFICIENCY，契约登记的是 **VIOLATION**（SF-14）。
+ *      严重度与码名都是判据的一部分：顺带把两个 `NOT_APPLICABLE_*` 码名对齐 SCR-76 的注册形态。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ingest, expand, checkTagged, isTagged, keysOutOfRange, STATES, KEYS } from './core.mjs';
+import { ingest, expand, checkTagged, isTagged, keysOutOfRange, STATES, KEYS, refAt, isObjectRef, isRecordRef } from './core.mjs';
 
 // ---- 夹具：槽位契约写成数据（§5.2 机器可读表） -----------------------------------
 export const envelopeKeys = ['object_id', 'object_kind', 'space_id', 'revision_id', 'schema_version',
@@ -21,9 +26,13 @@ export const reg = {
   nameAlias: { entity_subtype: 'subtype_code', concept_subtype: 'subtype_code', proposition_subtype: 'subtype_code' },
   identitySlots: { ENTITY: ['world_membership.individual_ref', 'subtype_code'], CONCEPT: ['subtype_code'] },
   contractRulings: { 'world_membership.individual_ref': ['EN-W-7'] },
-  // SF-04 ④ 的适用面：**声明为引用的槽位**才校验文法；aliases 等自由文本不在其内
+  // SF-04 ④ 的适用面：**声明为引用的槽位**才校验文法；aliases 等自由文本不在其内。
+  // 引用位带**类型域**（第二轮 P1-④）：端点/参与者 = object；来源类 = either；记录集合 = record。
   refPaths: { world_membership: ['v.kind_ref', 'v.individual_ref'], relation_type_ref: ['v'],
-    participants: ['v[*]'], scheme_ref: ['v'], engagement_target: ['v'], conclusion: ['v.proposition_rev'] },
+    participants: ['v[*]'], scheme_ref: ['v'], engagement_target: ['v'], conclusion: ['v.proposition_rev'],
+    // 两条 Entity 真实槽位（Object Schema 表逐字类型域）：carrier_ref 允许 rec:、其 source 是 ref?
+    carrier_refs: [refAt('v[*].carrier_ref', 'either'), refAt('v[*].source.v', 'object')],
+    availability_checks: [refAt('v[*]', 'record')] },
   subtypes: {},
 };
 const S = (code, kind, slots, over = {}) => reg.subtypes[code] = {
@@ -39,7 +48,15 @@ export const contracts = {
   _default: { na_allowed: true, na_reasons: ['CATEGORY_MISMATCH'], empty_allowed: false },
 };
 const C = s => contracts[s] || contracts._default;
-S('PHYSICAL_OBJECT', 'ENTITY', ['world_membership', 'aliases', 'description'], { identity_slots: ['world_membership.individual_ref', 'subtype_code'] });
+// **夹具范围声明（第二轮审查要求明确）**：下面这些最小实例验证的是**简化形态机制**
+// （五态键集封闭、拒写五项、引用位类型域、稀疏展开、子型注册一致性），**不是完整 S-L1 合法性**。
+// 与正式 Object Schema 的已知偏离全部列在 poc/README.md「夹具不是合法对象」一节，其中最重要的是：
+// `world_membership.kind_ref/individual_ref` 与 `conclusion.proposition_rev` 的正式类型是 `ref?`
+// （五态包裹的引用），夹具里写成裸字符串；`description` / `statement` / `definition` 三个槽名
+// 在契约与 Schema 文档里**根本不存在**，是夹具自造的占位名。这些偏离不改动本轮要验的判据，
+// 但任何人把"绿"读成"这些对象在正式 Schema 下合法"都是误读。
+S('PHYSICAL_OBJECT', 'ENTITY', ['world_membership', 'aliases', 'description', 'carrier_refs', 'availability_checks'],
+  { identity_slots: ['world_membership.individual_ref', 'subtype_code'] });
 S('CONCEPT_PLAIN', 'CONCEPT', ['alt_labels', 'definition'], { identity_slots: ['subtype_code'] });
 S('ASS_REL', 'ASSOCIATION', ['relation_type_ref', 'participants']);
 S('ARG_SCHEME', 'ARGUMENTATION', ['scheme_ref', 'conclusion', 'construction_state', 'local_outcome']);
@@ -111,7 +128,24 @@ test('P1-3 空集合正反成对：empty_allowed=true 合法；=false 产 findin
   const no = ok('ENTITY', 'PHYSICAL_OBJECT', { description: { '@st': 'DECLARED', v: '' } });
   assert.equal(no.r.refused, false, '空集合非法是缺陷，不是拒写');
   assert.deepEqual(no.o.findings.map(f => f.code), ['EMPTY_NOT_PERMITTED']);
-  assert.equal(no.o.findings[0].sev, 'DEFICIENCY');
+  // 码名与严重度逐字对照文档登记表（第二轮 P1-⑤：严重度也是判据，我原先写成 DEFICIENCY）
+  const DOC_SEVERITY = {
+    EMPTY_NOT_PERMITTED: 'VIOLATION',                 // SF-14「FAIL(EMPTY_NOT_PERMITTED, VIOLATION)，但记录照常保存」
+    NOT_APPLICABLE_UNDECLARED: 'DEFICIENCY',          // SCR-76
+    NOT_APPLICABLE_SCOPE_MISMATCH: 'DEFICIENCY',      // SCR-76
+    SUBTYPE_UNREGISTERED: 'DEFICIENCY',               // SS-13 / SRG-21
+  };
+  assert.equal(no.o.findings[0].sev, DOC_SEVERITY.EMPTY_NOT_PERMITTED,
+    `桩件严重度 ${no.o.findings[0].sev} 与文档登记的 ${DOC_SEVERITY.EMPTY_NOT_PERMITTED} 不符 ⇒ 桩件回归即红`);
+});
+test('P1-3b NOT_APPLICABLE 的两个失败是两个码（SCR-76）：规则未允许 vs 理由不在集内，都是 DEFICIENCY 且不拒写', () => {
+  const notAllowed = ok('ENTITY', 'PHYSICAL_OBJECT', { world_membership: { '@st': 'NOT_APPLICABLE', reason: 'CATEGORY_MISMATCH' } });
+  assert.equal(notAllowed.r.refused, false, '语义后门走 finding，不走拒写');
+  assert.deepEqual(notAllowed.o.findings.map(f => [f.code, f.sev]), [['NOT_APPLICABLE_UNDECLARED', 'DEFICIENCY']]);
+  const badReason = ok('ENTITY', 'PHYSICAL_OBJECT', { aliases: { '@st': 'NOT_APPLICABLE', reason: 'NOT_LISTED_ANYWHERE' } });
+  assert.deepEqual(badReason.o.findings.map(f => [f.code, f.sev]), [['NOT_APPLICABLE_SCOPE_MISMATCH', 'DEFICIENCY']]);
+  const good = ok('ENTITY', 'PHYSICAL_OBJECT', { aliases: { '@st': 'NOT_APPLICABLE', reason: 'CATEGORY_MISMATCH' } });
+  assert.deepEqual(good.o.findings, [], '同一对象换成注册内的合法理由后必须 0 finding（SCR-76 的成对断言）');
 });
 test('P1-4 缺 @st 的空容器 = 用空代替未知 → STATE_UNDECLARED，保存不阻断，且原样保留不静默改写（SF-11）', () => {
   const { o, norm } = ok('ENTITY', 'PHYSICAL_OBJECT', { aliases: [] });
@@ -154,6 +188,45 @@ test('P1-8 标识文法与响应回显键：`o1` / 写入带 boundary 都必须�
     '不含 @ 或不像引用的自由文本不得被误判');
   assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', {}, { registrant_ref: { '@st': 'DECLARED', v: 'agt:me' } }).r.refused, false,
     'registrant_ref 是宿主注入的 V1 主体，不适用 SF-22 对象文法');
+});
+test('P1-8b 引用位**类型域**三类各有正反例：来源允许 rec:、端点只允许对象引用、记录集合只允许 rec:（SF-24/SS-34/SS-05）', () => {
+  // 来源类 = `(ref | rec:)`：两种都合法（第二轮 P1-④：桩件原先只有一条对象引用文法，把合法来源判死）
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', {}, { source_refs: { '@st': 'DECLARED', v: ['rec:HREC-7'] } }).r.refused, false,
+    'SF-24：rec: 是合法引用形态；SS-34：来源允许 rec:');
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', {}, { source_refs: { '@st': 'DECLARED', v: ['HENT-src@r1', 'rec:HREC-7'] } }).r.refused, false,
+    '同一集合内混用两种类型域内的形态合法');
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', {}, { source_refs: { '@st': 'DECLARED', v: ['rec:'] } }).r.code, 'REF_PATTERN_MISMATCH',
+    'SF-24 的语法是 "rec:${record_id}"，空前缀不算引用');
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', { carrier_refs: { '@st': 'DECLARED', v: [{ carrier_ref: 'rec:HREC-1' }, { carrier_ref: 'HENT-c@r1' }] } }).r.refused, false,
+    'carrier_ref 的类型域逐字是 `ref | rec:`（Object Schema 槽位表）');
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', { carrier_refs: { '@st': 'DECLARED', v: [{ carrier_ref: 'HENT-c@r1', source: { '@st': 'DECLARED', v: 'HCON-c@r1' } }] } }).r.refused, false,
+    '嵌套的 source 是 ref?（五态包裹的对象引用）');
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', { carrier_refs: { '@st': 'DECLARED', v: [{ carrier_ref: 'HENT-c@r1', source: { '@st': 'DECLARED', v: 'rec:HREC-1' } }] } }).r.code,
+    'REF_PATTERN_MISMATCH', '`source: ref?` 不是 `ref | rec:` —— 类型域逐位取原文，不得就近放宽');
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', { availability_checks: { '@st': 'DECLARED', v: ['rec:HREC-9'] } }).r.refused, false,
+    'availability_checks 逐字是 rec: 集合');
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', { availability_checks: { '@st': 'DECLARED', v: ['HENT-e1@r1'] } }).r.code, 'REF_PATTERN_MISMATCH',
+    '纯记录位放对象引用同样非法（类型域是双向判据）');
+  assert.equal(ok('ENTITY', 'PHYSICAL_OBJECT', { world_membership: { '@st': 'DECLARED', v: { kind_ref: 'rec:HREC-1', individual_ref: 'HENT-e1@r1' } } }).r.code,
+    'REF_PATTERN_MISMATCH', '端点/分类位只接受对象引用（SS-05：rec: 不得赋给对象引用槽位）');
+  // 反向锚点：**一条共享文法**必在两个方向同时出错，这正是本轮 P1-④ 的根因
+  assert.equal(isObjectRef('rec:HREC-7'), false, '方向一：全用对象文法 ⇒ 合法来源被判死');
+  assert.equal(isRecordRef('rec:HREC-7'), true, '方向二：全用"对象|记录"并集 ⇒ 端点位该拒的 rec: 被放开');
+  assert.equal(refAt('v').as, 'object', '默认类型域是 object：收紧是默认，放宽必须逐位显式声明');
+  assert.throws(() => refAt('v', 'whatever'), /未知类型域/, '类型域是封闭集，写错不得静默放行');
+  // 反向锚点：本轮修 P1-④ 时**新发现的第二个缺陷**——旧的下钻只在末段处理数组，
+  // `v[*].carrier_ref` 取到的是**元素对象**，被"只检查字符串"的过滤器静默跳过 ⇒ 嵌套引用位从未被检查。
+  const naiveWalk = (val, p) => {
+    let cur = val;
+    for (const s of p.split('.')) {
+      if (cur == null) break;
+      if (s.endsWith('[*]')) { cur = cur[s.slice(0, -3)]; cur = Array.isArray(cur) ? cur : [cur]; } else cur = cur[s];
+    }
+    return Array.isArray(cur) ? cur : [cur];
+  };
+  const nodes = naiveWalk({ '@st': 'DECLARED', v: [{ carrier_ref: 'rec:X' }] }, 'v[*].carrier_ref');
+  assert.deepEqual(nodes, [undefined], '旧实现把 `[*]` 展开出的**数组**当成当前节点，下一段直接取到 undefined');
+  assert.equal(nodes.filter(x => typeof x === 'string').length, 0, '于是这条判据一条都没跑过——"没有 finding"不等于"检查通过"');
 });
 test('P1-9 未注册子型 → 候选载荷，不拒写、不冒充规范形态（SS-13/SS-56）', () => {
   const { r, o } = ok('ENTITY', 'WORLD_MID', { whatever: { '@st': 'ABSENT' } });

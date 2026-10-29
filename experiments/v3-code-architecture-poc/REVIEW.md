@@ -35,6 +35,18 @@
 - 结果：`pnpm run test:poc:arch` **58 passed (58)**（49 作者例 + 9 攻击例），
   `npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json` 0 诊断。
 
+### 2.1 第 2 轮：独立复审与长期演化轴的再打穿
+
+| 编号 | 级别 | 被违反的契约 | 位置 | 复现 | 根因 | 最小修法 | 回归 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F-14′ | **P0**（F-14 的定级纠正） | 存储层不可变性是边界（C11/RV-03/DF-06/IC-S2） | `sqlite-port.ts` SQL 守卫 | `attacks/review/reviewer-boundary.test.ts`：`/* disguise */ DROP TRIGGER IF EXISTS ledger_no_update` 未被拒 | 守卫用 `^\s*(drop|…)` 锚定关键字，**前导注释即可绕过**，删触发器后 DML 篡改成功；且未拒绝多语句 | 判定前归一化（剥空白/块注释/行注释/多余分号，循环到不动点）+ 拒绝 `;` 后仍有内容 | 复审攻击例转绿（`run`/`all`/`get` × 注释前缀 + 多语句） | 已修（`4ab5cf6`） |
+| F-17 | P1 | RF-02/RD-05 精确引用 | `checkRequiredRefs` 只验目标端 | `attacks/review/`：`from(oid, revision=999)` 的必需边提交成功 | 第 1 轮 F-12 修得不完整：源端修订未验 | 必需边**两端**都验到 `domain_state(oid, revision)` | 复审攻击例转绿 | 已修（`4ab5cf6`） |
+| F-15 | P1 | 模式演进不得在打开时静默迁移 | `sqlite-port.ts` 构造期 `exec(SCHEMA)` | `attacks/evolution/`：手造缺 `records` 的旧库 ⇒ 打开后被静默补表，旧 `record-ref` 判成缺失 | DDL 挂在每次打开路径 ⇒ 读操作携带写语义；且无版本标记可判定"是否迁过" | 空库才建表；已有库先过 `meta.schema_version` + 表集 + 触发器集校验，通过后**不再执行 DDL**；分歧 `SCHEMA_UPGRADE_REQUIRED`，detail 给迁移输入 | 演化攻击例 + 新库可正常打开的反差锚点 | 已修（`4ab5cf6`） |
+| F-18 | P1 | 派生面滞后 ≠ 缺口；Journal 与 Ledger 的 epoch 对应 | `reassignRouteInternal` / `setRouteEnabled` | 移交一次 ⇒ `Projection.status().gap === true` ⇒ 永久 `FULL_REBUILD_REQUIRED` | 路由变更写了 `ledger` 却没写 `journal` epoch；缺口检测按"每个登记 epoch 都该有 journal 行"判定 | 机制级事件统一写 journal epoch（`Kernel.journalEpoch`） | 移交后 `gap === false` 且可增量续跑 | 已修（`4ab5cf6`） |
+
+**"上一轮说已修、本轮被打穿"的事实**：F-12 与 F-14 在第 1 轮被记为"已修，待复审"，复审结论是
+**修得不完整**。这条往返保留在台账里，作为"作者自称修好不算证据"的实例。
+
 ## 3. 攻击未得手项（同样有信息量）
 
 审查员明确报告未能攻破：提交前异常、`failBeforeCommit`、真实第二连接 SQLITE_BUSY 锁竞争、

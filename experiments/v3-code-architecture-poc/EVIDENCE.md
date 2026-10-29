@@ -119,7 +119,8 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 | 契约重构后 | **红** | `[PARSE_ERROR] Unexpected token`（`src/contracts/index.ts:84` 类型联合被 `;` 提前终止）；`4 failed`（移交授权轴缺失，`Refusal: NO_SPACE_WRITE`） |
 | 架构独立性门禁首跑 | **红** | `2 failed`：Kernel 面基线未重生成；可选依赖成环被误判为不可装配 |
 | 阶段 D 攻击测试引入 | **红** | `45 failed`（`no such column: to_revision`）；随后 `4 failed`（审查员断言写的是修复前契约） |
-| 修复后（当前） | 绿 | `Test Files 7 passed / Tests 58 passed`，`tsc` 0 诊断 |
+| 第 2 轮复审/演化轴打穿后 | **红** | `1 failed`：守卫被前导注释绕过（`4ab5cf6` 之前）；另 `4 failed`：源端修订未验 + Kernel 面基线未重生成 |
+| 两轮修复后（当前） | 绿 | `Test Files 8 passed / Tests 63 passed`，`tsc` 0 诊断 |
 
 另有一次**作者自己写错的断言**被记入证据而非抹掉：`tests/p4-read-isolation.test.ts` 的缺口用例
 最初把 Journal 缺口构造在重建 baseline 之下（那里缺口确实不影响索引），断言 `STALE` 是错的；

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { POC_DATA_DIR } from '../../src/harness/paths.ts';
 import { openWorld, PRINCIPAL } from '../../src/harness/world.ts';
 import { CAP_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT } from '../../src/domains/test-object-model.ts';
+import { Projection } from '../../src/kernel/projection.ts';
 import type { CheckReportRecord, RevisionRef } from '../../src/contracts/index.ts';
 
 const ALICE = PRINCIPAL('alice');
@@ -27,6 +28,8 @@ describe('independent repair review attacks', () => {
       const out = w.uow(ALICE, (tx) => tx.recordReport(report));
       expect(w.raw.get('select seq from ledger where seq=?', out.seq)).toBeDefined();
       expect(w.raw.get('select tx_epoch from journal where tx_epoch=?', out.seq)).toBeDefined();
+      const projection = new Projection(w.kernel, 'review-f10');
+      expect(() => projection.catchUp()).not.toThrow(/FULL_REBUILD_REQUIRED/);
       w.close();
     } finally { try { w.close(); } catch {} rmSync(dir, { recursive: true, force: true }); }
   });

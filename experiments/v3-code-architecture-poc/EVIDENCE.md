@@ -30,7 +30,8 @@ pnpm run test:poc:arch          # exit 0
 npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 ```
 
-结果：**Test Files 5 passed (5) / Tests 49 passed (49) / Duration ≈4.5s**，全部断言跑在
+结果（阶段 D 修复后）：**Test Files 7 passed (7) / Tests 58 passed (58)** = 49 例作者测试
++ 9 例审查员攻击测试（其中 2 个文件按修复后契约改写为更强断言，见 `REVIEW.md` §2），全部断言跑在
 `experiments/v3-code-architecture-poc/.poc-data/**` 下的真实 SQLite 文件上。
 
 | 文件 | 例数 | 覆盖的架构检验 |
@@ -39,6 +40,7 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 | `tests/p2-identity-plugin.test.ts` | 10 | §13.2/§13.3、§15.1 边界②：kind 固定、精确 vs 导航引用、同事务循环引用、硬/软引用、拆包后身份不变、移交持久与原子、ns 漂移 fail-loud、Facet 全周期、越权写拒绝 |
 | `tests/p3-intake-validation.test.ts` | 14 | §13.5/§13.7/§13.8、§15.1 边界③：Raw Intake、接纳失败保源、可解析≠合格、版本化报告不可改写、UNKNOWN 合法、不可用降级、归约唯一、端点类别纪律、授权轴与派生视图截点 |
 | `tests/p4-read-isolation.test.ts` | 9 | §13.6/§13.10/§13.11/§13.12、§15.1 边界④：ReadContext 必需性、双时间顺序、五出口空间隔离、缓存出口、呈现脱敏不可区分、Journal 缺口与"Journal 不能充当历史"、游标续跑与滞后标注、影响只给候选、截断必须标注 |
+| `attacks/invariant/*.test.ts`、`attacks/host/*.test.ts` | 9 | 阶段 D 审查员攻击面：登记序/精确引用/记录标识/路由权威/SQL 守卫（其失败即 finding） |
 | `tests/arch-independence.test.ts` | 7 | 任务硬约束「Kernel 不包含科研语义判定规则」+ 依赖方向 + 领域插件扩展不需改 Kernel（面哈希）+ 五类 kind 路由 + 必需依赖成环拒绝 |
 
 ## 3. 关键实测现象（不是类型签名推断）

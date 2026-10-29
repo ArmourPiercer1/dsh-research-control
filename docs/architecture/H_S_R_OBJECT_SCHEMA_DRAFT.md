@@ -234,13 +234,13 @@ subtype_entry = { subtype_code, kind, slot_set[], identity_slots[],
 | SS-51 | `declared_params` 只接受注册表声明过的参数名；未知参数名 → 注册表条目非法（与记录侧同理的封闭模型）。 |
 | SS-52 | 子型条目变更槽位集或身份槽位集 → 新版本；已登记记录按其 `identity_slot_set_digest` 重放（SS-12、SF-62）。 |
 | SS-53 | 子型退役不删除：`DEPRECATED` 条目永久可解析（SF-64）。 |
-| SS-54 | **`identity_slots` 锚定在契约层**：子型条目的 `identity_slots` 必须是契约层该 `kind` 身份构成表所列槽位的**超集**——可以追加更严格的子型专有身份槽位，**不得删除、置空或"暂不启用"任何契约已列出的槽位**。注册一致性检查对不满足者判定条目非法（不得启用）；否则注册一个 `identity_slots: []` 的子型就能让该类对象永久失去身份判据，这是比记录自声明（SS-50）更大的洞，因为注册表在记录之上。 |
+| SS-54 | **`identity_slots` 锚定在契约层**：子型条目的 `identity_slots` 必须是契约层该 `kind` 身份构成表所列槽位的**超集**——可以追加更严格的子型专有身份槽位，**不得删除、置空或"暂不启用"任何契约已列出的槽位**。**唯一例外是受控豁免**：条目可带 `identity_slot_exemptions[]`，其中每一项**必须援引契约层裁定它的规则号**（当前唯一已裁项：`world_membership.individual_ref` ← `EN-W-7` 根世界），豁免集默认空、由注册一致性检查核验援引是否成立；**子型不得自行宣布豁免**，也不得借此把 `identity_slots` 整体置空——豁免是"从超集里减去契约点名的一项"，不是"取消超集约束"。注册一致性检查对不满足者判定条目非法（不得启用）；否则注册一个 `identity_slots: []` 的子型就能让该类对象永久失去身份判据，这是比记录自声明（SS-50）更大的洞，因为注册表在记录之上。 |
 | SS-55 | **`completion_basis` 不得覆盖身份变化**：若变化集触及 `identity_slots` 中**已声明**的值，任何 `completion_basis`（含 `SAME_INTENT_CONFIRMED`）都**不被接受**，请求按 `F-CONFLICT` 拒绝并提示应新建对象（G-REV、RV-04）。理由：`completion_basis` 是登记者对"这是同一事项的补全"的主张，而身份判据不能由主张放宽——否则"改判成另一台设备 + 标原意确认"就是合法的同 ID 身份漂移。 |
-| SS-56 | **未注册子型的保存路径（候选态）**：`subtype_code` 解析不到注册表条目时，SS-01 的键白名单与 SS-50 的槽位集**都无从取得**，因此该载荷**不可能**被规范化成正式 HCF 对象，也**不得冒充**已规范化对象。裁决：原样保存调用方提交的键值集合 + 完整信封与来源，标记为**候选载荷**，并产 `FAIL(SUBTYPE_UNREGISTERED, DEFICIENCY)`（SS-13）。可观测后果（不新增状态键，一律由检查报告表达，避免造出第二个真源）：作用于它的 S-L1/R-L1 检查结果记 `INDETERMINATE(DEPENDENCY_MISSING)`（依赖的子型契约缺失，上游既有裁决码，不新造），**不得**记 PASS 也不得记 NOT_APPLICABLE；查询响应中它可被检索，但呈现时必须带该报告结论。**与未注册词表码的处置刻意相反**：词表按 `OPEN` 对待（SF-16、SRG-21）因为词表开放不阻断形态；子型决定槽位集，缺失即形态不可构造，属封闭域。补全路径见 T-GAP-07，**不由本层自行发明**。**候选态只针对"解析不到"**：`DEPRECATED` 的子型码解析得到、槽位集与白名单俱在，走 SRG-13（正常规范化 + `FAIL(CODE_DEPRECATED, DEFICIENCY)`），**不得**当候选载荷处理。 |
+| SS-56 | **未注册子型的保存路径（候选态）**：`subtype_code` 解析不到注册表条目时，SS-01 的键白名单与 SS-50 的槽位集**都无从取得**，因此该载荷**不可能**被规范化成正式 HCF 对象，也**不得冒充**已规范化对象。裁决：原样保存调用方提交的键值集合 + 完整信封与来源，标记为**候选载荷**，并产 `FAIL(SUBTYPE_UNREGISTERED, DEFICIENCY)`（SS-13）。可观测后果（不新增状态键，一律由检查报告表达，避免造出第二个真源）：**它不获得任何正式的 S-L1/R-L1 层级结果**（既非 PASS、非 NOT_APPLICABLE，也非 `INDETERMINATE`）：候选载荷不宣称自己已是完整 HCF 对象，因此没有可归约的层级声明——这样就不与 RPT-02（同层 `FAIL` 优先于 `INDETERMINATE`）发生归约歧义。`FAIL(SUBTYPE_UNREGISTERED)` 是**入口检查报告**里的结论，与层级结果是**两个不同载体**，RPT-02 的优先级只作用于后者。正式检查结果只能由子型注册后的重规范化过程产生（T-GAP-07，本轮仍未裁决，交由 PoC 以实际反例选择方案）。**与未注册词表码的处置刻意相反**：词表按 `OPEN` 对待（SF-16、SRG-21）因为词表开放不阻断形态；子型决定槽位集，缺失即形态不可构造，属封闭域。补全路径见 T-GAP-07，**不由本层自行发明**。**候选态只针对"解析不到"**：`DEPRECATED` 的子型码解析得到、槽位集与白名单俱在，走 SRG-13（正常规范化 + `FAIL(CODE_DEPRECATED, DEFICIENCY)`），**不得**当候选载荷处理。 |
 
 ## 6. 负面清单（构造层拒绝）
 
-**形态类**（任何对象）：`{"@st":"DECLARED","v":[]}`；缺 `@st`；缺槽位；`UNKNOWN` 带 `v`；集合元素位放 `NOT_APPLICABLE`/`UNKNOWN`（SF-14）；无版本引用、`latest`、`space:` 前缀；`rec:` 赋给端点槽位；载荷重复信封键（SS-09）；键名以 `@` 开头（SF-02a）。
+**形态类**（任何对象）：缺 `@st`；缺**该子型 `slot_set[]` 内**的槽位；`UNKNOWN` 带 `v`；**空集合的正负例成对写**（SF-14）：同一形态 `{"@st":"DECLARED","v":[]}` 在 `empty_allowed = true` 的槽位上是**合法正例**（已确认为空），在 `empty_allowed = false` 的槽位上是**负例**，产 `FAIL(EMPTY_NOT_PERMITTED, VIOLATION)` 且记录仍保存；把这一形态整体列为负例会把刚修好的合法空集合再次判死；集合元素位放 `NOT_APPLICABLE`/`UNKNOWN`（SF-14）；无版本引用、`latest`、`space:` 前缀；`rec:` 赋给端点槽位；载荷重复信封键（SS-09）；键名以 `@` 开头（SF-02a）。
 
 **禁止键（封闭集，按对象；校验器按此表逐字拒绝，出现即形态非法）**——五类中有四类逐字取自各自契约的禁令小节，Argumentation 一行是本层补充并已标出（见该行出处列与 A-11）：
 
@@ -264,6 +264,8 @@ subtype_entry = { subtype_code, kind, slot_set[], identity_slots[],
 5. 派生视图不被持久化：尝试写入 `used_in[]`/冲突内联字段 → 拒绝（`SL1-ENT-08`、`SL1-ASS-07`）。
 6. 信封不变量：`object_kind`/`space_id` 在修订分支被拒；`head_revision` 无法写入。
 7. 摘要重放：旧修订用其 `identity_slot_set_digest` 重放判定，结果与当时一致。
+8. **根世界的一对（收口 SS-54 与 EN-W-7 的冲突）**：正例——`WORLD_ROOT` 实例，`slot_set[]` 不含 `world_membership`、`identity_slots` = 基类身份槽位减去 `EN-W-7` 裁定的豁免项、WorldType 分类由注册表条目的 `kind` + `subtype_code` 承载 → 注册一致性检查**通过**、形态合法、不触发缺槽位判定。负例——同一 space 的第二个 `WORLD_ROOT` → **保存不阻断** + `FAIL(SINGLETON_SUBTYPE_DUPLICATE, VIOLATION)`，不得静默合并、不得拒写。反向断言：若某子型把豁免用来置空整个 `identity_slots`、或豁免项援引不到契约规则号 → 条目**非法（不得启用）**，这是 SS-54 唯一允许的例外路径被越界的唯一形态。
+9. **候选态与退役码的边界**：未注册子型码 → 保存为候选载荷，且响应**不含任何 S-L1/R-L1 层级结果**（不得出现 `INDETERMINATE` 或 `PASS`，以免与 `RPT-02` 的 FAIL 优先归约相撞）；已退役子型码 → 正常规范化 + `FAIL(CODE_DEPRECATED, DEFICIENCY)`，**不是**候选载荷。二者由"解析得到与否"唯一区分。
 
 ## 8. 本层尚未裁决的内容
 

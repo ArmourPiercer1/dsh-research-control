@@ -42,7 +42,7 @@
 
 | 工具名 (IC) | 必填 | 可选 | 成功响应 | 失败码 | 视图 | 测试锚点 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `hsr_association_register` (IC-A1) | `relation_type_ref` = `ref`, `participants[]`(端点 `ref` + 角色名), `directionality`, `described_interval`（必填，可 `UNKNOWN(reason)`）, `source_assertion`(含 `registrant_ref`/`actor_ref?`/`voice`/`basis_refs`), `applicability_context`（必填，可 `UNKNOWN`） | — | `object_id` + `r1` + `report_refs[]` | `F-UNRESOLVED`, `F-CONFLICT`, `F-WITHHELD`, `F-INCOMPLETE` | `—` | 出现内联冲突/替代字段 → FAIL(`SL1-ASS-07`)；作者 `UNKNOWN` 必须 PASS+gap（`SL1-ASS-05`） |
+| `hsr_association_register` (IC-A1) | `relation_type_ref` = `ref`, `participants[]`(端点 `ref` + 角色名), `directionality`, `described_interval`（必填，可 `UNKNOWN(reason)`）, `source_assertion`(**只含** `actor_ref?`/`voice`/`basis_refs`；**`registrant_ref` 不是请求字段**——登记主体由宿主注入进信封，调用方提交它就会与信封形成异名重复，SS-09a 判形态非法。调用方提交的是"原始作者、声称方式与来源"，不是"谁在登记"), `applicability_context`（必填，可 `UNKNOWN`） | — | `object_id` + `r1` + `report_refs[]` | `F-UNRESOLVED`, `F-CONFLICT`, `F-WITHHELD`, `F-INCOMPLETE` | `—` | 出现内联冲突/替代字段 → FAIL(`SL1-ASS-07`)；作者 `UNKNOWN` 必须 PASS+gap（`SL1-ASS-05`） |
 | `hsr_association_amend` (IC-A2) | `object_id`, `expected_head_revision`, `changeset`, `revision_class` | `reason` | 新 `revision_id` | `F-CONFLICT`, `F-PRECONDITION-REVISION` | `—` | 不得实现为"更新为现状"（AS-ID-6） |
 | `hsr_association_adopt` (IC-A3) | `adopted_ref` = `ref`, `adoption_scope`, `adoption_at`, `basis_ref` | `assumptions[]` | 采用记录 `record_id`（A5 载体） | `F-UNRESOLVED`, `F-DENIED-AUTH` | `—` | 采用 ≠ 验证 ≠ 接纳（AD-03）；外推到新场景必须新记录（AD-02） |
 

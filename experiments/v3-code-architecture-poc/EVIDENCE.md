@@ -87,5 +87,14 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
   DSH_HOME 残留无关。
 
 处置：该两条与 `experiments/**` 无代码交集（本区被根 vitest 排除、被根 tsconfig 排除、
-不参与 lint、不进 build）。归因需要对照运行（基线提交全量重跑）才能定论，见 `REVIEW.md`
-的门禁归因节；在得到对照结果前，**不得**声称主门禁全绿。
+不参与 lint、不进 build）。
+
+**最可能的归因（待一次独占串行重跑确认）**：两次全量运行都与其他进程**并发**跑在同一工作树：
+- 第 1 次（2 失败）期间，作者正在提交并执行 `pnpm run docs:sync --write`——而
+  `eb2-docs.test.ts` 那条正是**就地改写 `docs/README.md` 再断言 sync 能逐字节还原**，
+  并发的 sync 会直接破坏它；
+- 第 2 次（1 失败，另一条自愈）期间，多个审查子代理正在并发执行 `pnpm run test:poc:arch`
+  与只读 git 命令。
+
+这条归因是**可证伪的**：在所有其他进程停止后重跑 `pnpm test`，若两条都消失即成立；
+若仍失败，则须回到基线提交做对照，且**不得**声称主门禁全绿。

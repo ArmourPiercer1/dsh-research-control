@@ -52,3 +52,37 @@
 | P2-11 / P2-13 | （新红，我造成） | 子路径查找取错根键（`head['world_membership.individual_ref']` 恒 undefined） | 改测试 helper：先取根槽名再下钻 |
 
 **诚实记账**：6 个原红里有 3 个是改 core 转绿的（裁决确实解决了问题），另外 3 个绿是我**修改测试夹具与期望**换来的——修改的正确性依赖 `SS-15a` 那条新裁决本身成立。若该裁决被推翻，P2-01/11/13/18 会重新变红，这正是要请审查确认的点。
+
+---
+
+## 第二轮（core 按规则原文重写后）：夹具对齐、新增断言与变异断言
+
+`node --test poc/hsr-form/poc2-identity.poc.mjs` → **24 用例：24 passed / 0 failed**（上面的 15/6 是首轮状态，保留作历史）。poc1/poc3 一并复跑无回归（46/46）。
+
+- **本轮没有新增「对新核心的反例」一节**：未遇到"红是核心不忠实于文档造成的"的用例，因此没有保留任何红；也没有弱化任何断言。
+- 6 个原红全部由裁决闭合：F-4/F-2/F-3→`SS-15a` 扩写（c262d7e）、F-5→PR #42 事件作用域、F-1→`conclusionTransition` 按 `AR-ID-2` 比较 `proposition_rev` 本体、F-6→无 head 改由双参 `(undefined, next)` 表达且单参返回 `ILLEGAL_INPUT`。
+- 用例映射变化：原 P2-09b 重写为「`(undefined,next)`=补全 + 单参=`ILLEGAL_INPUT`」；原 P2-11b 并入新 **P2-07b** 正反例对（首次登记 `NONE_DECLARED+INCONCLUSIVE+CLOSED_DRAFT` 必产 `NONE_DECLARED_NOT_SUBMITTED`；带 prev 的 `SUBMITTED→WITHDRAWN` 生命周期修订 0 finding——审查纠正 #6）；原 P2-12 并入 P2-09 第三行（`ASSERTS(P1)→ASSERTS(P2)`=新论证）；新增 **P2-03c**（父槽位 `world_membership` 冒充子路径豁免 → `EXEMPTION_NOT_ADJUDICATED`+`IDENTITY_SLOT_DROPPED`）与 **P2-19a/b/c** 变异断言。
+
+### 本轮哪些绿是改夹具换来的、依赖哪条裁决
+
+| 夹具改动 | 受益（否则必红）的用例 | 其正确性依赖的裁决 |
+| --- | --- | --- |
+| 标识换 SF-22 文法（`HENT-*`/`HCON-*`/`HPRO-*`+`@r1`）、`schema_version` 换整数、信封删 `boundary`、`source_refs`/`proposition_rev` 换合法引用 | 所有走 ingest 的：P2-01/02/06/15 | `SF-22` 文法固定；`SF-04` ②（`schema_version` 整数）；`SS-15a` 第③类仅响应侧。这些绿证明的是"夹具合法"，不是核心正确——旧夹具下同一批用例会以夹具自身违规红 |
+| `identity_slots`/豁免项/`contractRulings` 键统一到契约点名的子路径规范键名（`world_membership.individual_ref`） | P2-01/03/03b/03c/04/16/18 | `SS-15a`「身份判定单位=契约点名的引用位、同形态、规范键名、摘要=去重排序序列」（c262d7e 裁决）。**单点故障**：该裁决若被推翻，这 7 个用例全红（与首轮"诚实记账"节同一风险） |
+| `reg.refPaths` 声明引用位（`world_membership` 两半、`conclusion.v.proposition_rev`） | P2-01 负例、P2-15 正例 | `SF-04` ④ 只作用于声明为引用的位置（`SF-26/SF-28`）；引用位之外的自由文本不受文法约束 |
+| P2-15 的 DEPRECATED 层级结果值钉为 `INDETERMINATE` | P2-15 | `SCR-77`（零适用规则 → `INDETERMINATE`，新 core `reduceLevel([])`）；候选载荷仍断言 null（`SS-56` 三非：非 PASS/NOT_APPLICABLE/INDETERMINATE） |
+
+### 变异断言（P2-19）的钉法
+
+在测试内就地实现三个错误版本，断言它们与文档判据（现 core）在本文件用例集上**恰好**分歧，并先钉 core 侧基线（合法条目 0 判罚、每条非法条目必判非法），防止"两边都错"蒙混过关：
+
+- 前缀容忍（父槽位冒充子路径）→ 必须在 P2-03c 那一行把文档判非法的豁免放行；
+- 豁免不核验援引契约号 → 必须在 `EN-W-99` 行放行；
+- 转移只看声明形态不看 `proposition_rev` → 必须恰在 `ASSERTS(P1)→ASSERTS(P2)` 行返回 `NO_CHANGE`（分歧集合按行名逐一比对，不是"至少一条不同"的弱断言）。
+
+### 观察（非反例、无红，供后续审查）
+
+- `AR-ID-6`/§4.1 末句「其产生时的 **head** 为 `SUBMITTED`」按字面读（head=上一版）与 core 现读法（产生该声明的修订自身 `construction_state=SUBMITTED`）只在窄场景分歧：prev=`ASSERTS@SUBMITTED`、新修订**新声明** `NONE_DECLARED` 且 `cs=WITHDRAWN`（字面读放行，core 报 `NONE_DECLARED_NOT_SUBMITTED`）。已按 core 读法钉（与 §4.1 表行「产生该声明时」一致），但字面读者会在此判反。
+- `conclusionTransition` 把 `ABSENT→ABSENT` 这类"结论未变"对也标 `COMPLETION`——文档未裁该组合，路由后果（同 id 追加）一致，仅标签粗糙。
+- `EN-W-7` 的 singleton 谓词按「统计**活跃**对象」，core 数整个 store；PoC 的 store 无生命周期状态字段，区分不了——记为已钉简化。
+- `SS-55` 的 `completion_basis` 不参与判定由测试内 `submitRevision` helper 编码（core 未提供该判据）；载体 `F-CONFLICT` 沿用 F-8 的已钉选择。

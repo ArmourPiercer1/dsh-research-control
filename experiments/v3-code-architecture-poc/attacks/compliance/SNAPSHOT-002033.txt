@@ -1,0 +1,32 @@
+# 合规席最终锚点快照 — 2026-10-30 00:20:33 (+0800)
+# HEAD: 86debfa7637eca7f0bc2aa5582b0d8e913f2b39b
+# 套件终态（00:15:13 实跑）: 24 files / 129 tests, 18 failed / 111 passed, exit 1
+# 00:17 复跑（攻击文件追加后）: 25 files / 133 tests, 15 failed / 118 passed, exit 1
+# 18→15 红全部为第 3 轮新攻击文件（REVIEW.md §9 逐条登记未收口）
+# 工作树相对 HEAD 的 M: kernel.ts / read-context.ts / KERNEL_SURFACE.sha256 / test-records.ts / p1 / lifecycle-sequence / reduce-coverage / xc28（第 3 轮在途）
+
+## 关键文件 sha256（最终锚点时点）
+2f992b79ea66ffc22cae06d1de6022c0717ff9191eb618c257c63c11d6ba1d98  src/kernel/kernel.ts
+2984e767fd49b51d4b075b6fcd723fa8df0e21c7330584a7537c298e33a48713  src/kernel/read-context.ts
+0b4e624c3d9d08da47a8d114e09279157950ee63552ee4c21553b6cb9d3f56c4  src/kernel/projection.ts
+9421d66d8d4c75b46c24ab887053e2994658be28b911da8e5271ddb50381bee6  src/contracts/index.ts
+8e2b853e62a8b3ba8ce1c5158837f3a9c925e3b116d16675b29f6907af628558  src/storage-sqlite/sqlite-port.ts
+88ff7108164787ab019feb511b9b1dc4c0a6f9111895166917cda4a3503c7a74  src/domains/test-validation.ts
+2b9839930b665ec2f8da021b7212ecc9823734f1c35a7b6946d1754bd0ee0ade  src/domains/test-records.ts
+89fe3a517861769fced24f553f9a002c0d9e847ceea543791b5741deaf04bf12  tests/p1-storage-tx.test.ts
+6ff3144b04a93a11d0232a18580d1ae513c90a9dcfedb2b6aad4aaae689f8be6  tests/p2-identity-plugin.test.ts
+21fa27886565cc335895251f4134292312e97d208c1d94bc15263cfb2e929955  tests/p4-read-isolation.test.ts
+90720c6c3a6d8a9d1505bb655f6444b4420ab43f6bcc3a0fb3555bee87688eb4  tests/sql-guard.test.ts
+abd6a77ea7c93197f66347588be99c28e7e80eae7a80318bb0dc2e9b1fdec5db  tests/schema-evolution.test.ts
+6dc3eae2d4d363e6238fc6bb77d1ac9d0f14be13c9b560e2461648133f2d8f43  tests/multiprocess-contention.test.ts
+a429bcfdfbb450affc13c69e67991a79bae5c8e49dea7b504a35e07079a95d97  tests/arch-independence.test.ts
+b4cb1d043ce1e6f402ca41d257b0b1fcc96b9b2478942fd7187e175579572c79  KERNEL_SURFACE.sha256
+474e79821a4b9b1450f9373f7417c86e9fb85c335c942cb4f08012c97a083627  CONTRACTS.md
+bd48ea8696dc2aa27b3d46c146d68e1d3fa43019e9eead60194c9cf7d0f039dd  RECONCILIATION.md
+517cd058bffe4079d79914dc901da4ed56b89f6adea951b76255ec0bad7e8d94  EVIDENCE.md
+0c579429ebff47985c49cd04ce2f0e2b075407a3351f0a2adffda59befa8bed9  REVIEW.md
+16b0e867e27798e22e3d1c7433e97f2a973264edaa94921ee9817db85fccc2e9  README.md
+a28b386207403d9129cd9b7cd19c773db5fe81eb15ab8e71e5e39790a57f2a5a  ASSESSMENT.md
+2da6860e39a8c38ba2448aa106b9873a6a50d3ab040640049fa30ea33bcdec32  READINESS.md
+
+## 旧快照 SNAPSHOT-235458.txt 为 23:54:58 时点（f9a6c86 前），已被本文件取代

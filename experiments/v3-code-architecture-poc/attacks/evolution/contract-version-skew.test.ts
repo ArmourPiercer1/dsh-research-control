@@ -1,33 +1,47 @@
 /**
- * 演化轴攻击 3 —— 契约版本偏差：manifest contractVersion v1 → v2。
+ * 演化轴攻击 3（第 3 轮后重构）—— 契约版本偏差：manifest contractVersion v1 → v2。
  *
- * 任务问题：机制层是否有**可判定的**不兼容路径？旧登记的 payload 形状与新读取器共存会怎样？
+ * 第 3 轮前的行为（本轴第 1 轮证伪）：contractVersion 纯装饰——持久路由的 v1 被
+ * 静默覆盖进 v2 清单的内存视图；v1 payload 原样交给 v2 读取器（b===undefined 静默错答）；
+ * requires[].contractVersion 从不参与装配判定。
  *
- * 代码事实（静态核验，见 attacks/evolution 的 grep 证据）：
- *  - `capability_route.contract_version` 被持久化并被 `activate()` 覆盖进内存视图
- *    （kernel.ts:204-211），但**没有任何一处**把它与加载的 manifest `provides[].contractVersion`
- *    比较；
- *  - `activate()` 的依赖环检测（kernel.ts:98-114）只检查能力**存在性**，
- *    `requires[].contractVersion` 从参与判定；
- *  - `routeNs`（kernel.ts:145-154）只比较存储命名空间 ns，不比较契约版本。
+ * 第 3 轮（HEAD 2284a99）的契约（F-26/F-27）：
+ *  - requires 版本 vs 生效 provider 版本不符 ⇒ 装配期 ACTIVATION_IMPOSSIBLE（F-26）；
+ *  - 同一所有者换契约版本（持久路由版本 ≠ 清单声明版本）⇒ ACTIVATION_IMPOSSIBLE，
+ *    消息要求"先迁移数据，再显式移交路由"（F-27）；
+ *  - domain_state 行带写入时的 contract_version 戳，readRevision 精确引用读面
+ *    assertContractVersion：行版本 ≠ 生效版本 ⇒ SCHEMA_INCOMPATIBLE。
  *
- * 被检验的契约：`PluginManifest.provides[].contractVersion` / `requires[].contractVersion`
- * 是契约面上被持久化、被回显的字段 ⇒ 机制必须对版本偏离开出一条可判定路径
- * （拒绝装配 / SCHEMA_INCOMPATIBLE），而不是让旧 payload 形状与新读取器静默共存。
+ * 本文件：
+ *  - T1/T2/T3 守卫上述装配期判据（通过 = 守卫，失败 = 回归）；
+ *  - T4a/T4b 探测**残留缺口**：跨所有者移交（v1 包 → v2 包）是机制内的合法路径，
+ *    它产生"行戳 v1 / 路由 v2"的混合版本库——F-27 的装配检查只判"同一所有者"，
+ *    跨所有者移交不触发；域内也没有 domain_state 回填器（READINESS D-6）。
+ *    于是快照读面（readObject，主读面）与双时间读面（readAsOf）是否仍会把
+ *    旧版本形状的 payload 静默交给新读取器？
  */
 import { describe, expect, test } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { POC_DATA_DIR } from '../../src/harness/paths.ts';
 import { openWorld, PRINCIPAL, type World } from '../../src/harness/world.ts';
-import { TEST_OBJECT_MODEL, CAP_OBJECT_MODEL } from '../../src/domains/test-object-model.ts';
-import type { PluginManifest } from '../../src/contracts/index.ts';
+import { readAsOf } from '../../src/kernel/read-context.ts';
+import { TEST_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT, CAP_OBJECT_MODEL } from '../../src/domains/test-object-model.ts';
+import { Refusal, asSpaceId, type ObjectOid, type PluginManifest } from '../../src/contracts/index.ts';
 
 const ALICE = PRINCIPAL('alice');
-const GRANTS = { alice: ['space-write', 'capability-admin'] };
+const ADMIN = PRINCIPAL('admin');
+const GRANTS = { alice: ['space-write'], admin: ['space-write', 'capability-admin'] };
+const SPACE = 'SP-CVS';
 
 /** 同一能力的 v2 契约实现：payload 形状新增必填字段 b（v1 形状只有 a）。 */
-const V2: PluginManifest = {
+const SPLIT_V2: PluginManifest = {
+  ...TEST_OBJECT_MODEL_SPLIT,
+  provides: [{ capability: CAP_OBJECT_MODEL, contractVersion: 'v2' }],
+};
+
+/** 同一所有者换契约版本（F-27 的"同一实现"形态）。 */
+const V2_SAME_OWNER: PluginManifest = {
   ...TEST_OBJECT_MODEL,
   codeVersion: '0.0.2',
   provides: [{ capability: CAP_OBJECT_MODEL, contractVersion: 'v2' }],
@@ -36,87 +50,59 @@ const V2: PluginManifest = {
 function freshWorld(prefix: string, plugins: readonly PluginManifest[]) {
   const dir = mkdtempSync(join(POC_DATA_DIR, prefix));
   const file = join(dir, 'world.db');
-  const w = openWorld({ file, space: 'SP-CVS', grants: GRANTS, plugins });
+  const w = openWorld({ file, space: SPACE, grants: GRANTS, plugins });
   return { dir, file, w };
 }
 
-describe('evolution attacks: contractVersion v1 -> v2 skew has no decidable mechanism path', () => {
-  test('re-opening a v1-persisted space with a v2 manifest must be decidable (refuse or adopt the loaded version)', () => {
-    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-cvs-activate-'));
+const dualTimeRead = (w: World) =>
+  readAsOf(w.kernel, {
+    space: asSpaceId(SPACE), principal: ALICE, mode: 'as-recorded',
+    recordedAsOf: w.ledgerHead(), consistency: 'required',
+  });
+
+describe('evolution attacks: contractVersion v1 -> v2 (post round-3: F-26/F-27 guards + residual probe)', () => {
+  test('guard: same owner re-opened with a changed contractVersion must be a decidable activation refusal (F-27)', () => {
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-cvs-sameowner-'));
     const file = join(dir, 'world.db');
     try {
-      const w1 = openWorld({ file, space: 'SP-CVS', grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
-      w1.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { a: 1 } }));
+      const w1 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
       w1.close();
 
-      // 以 v2 清单重开同一空间。机制必须**可判定**：要么装配期拒绝（版本不兼容），
-      // 要么生效的契约版本就是加载代码声明的 v2。静默沿用持久化的 v1 意味着"版本轴"不承载任何判定。
+      // 机制必须**可判定**：要么装配期拒绝（版本不兼容），要么生效版本就是加载声明的 v2。
+      // 静默沿用持久化的 v1 意味着"版本轴"不承载任何判定（第 1 轮证伪的形态）。
       let activated: World | undefined;
       let activationError: unknown;
       try {
-        activated = openWorld({ file, space: 'SP-CVS', grants: GRANTS, plugins: [V2] });
+        activated = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [V2_SAME_OWNER] });
       } catch (e) { activationError = e; }
       const effective = activated?.kernel.registry.capability(CAP_OBJECT_MODEL)?.contractVersion;
-      const declared = V2.provides.find((p) => p.capability === CAP_OBJECT_MODEL)!.contractVersion;
+      const declared = V2_SAME_OWNER.provides.find((p) => p.capability === CAP_OBJECT_MODEL)!.contractVersion;
       expect(
         activationError !== undefined || effective === declared,
         `装配静默成功且生效契约版本=${JSON.stringify(effective)}（持久路由的旧值），加载代码声明=${declared}：` +
           '机制对 contractVersion 偏差无任何可判定路径',
       ).toBe(true);
+      if (activationError instanceof Refusal) expect(activationError.code).toBe('ACTIVATION_IMPOSSIBLE');
       activated?.close();
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('old-registered payload shape must not be handed to the new reader without a decidable signal', () => {
-    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-cvs-reader-'));
-    const file = join(dir, 'world.db');
-    try {
-      const w1 = openWorld({ file, space: 'SP-CVS', grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
-      const oid = w1.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { a: 1 } }));
-      w1.close();
-
-      const w2 = openWorld({ file, space: 'SP-CVS', grants: GRANTS, plugins: [V2] });
-      try {
-        // v2 读取器（合成）：形状上新增必填字段 b。
-        const readAsV2 = (): { b: number } => {
-          const snap = w2.readObject(oid)!;
-          if (snap.payload.b === undefined) throw new Error('SILENT_WRONG_READ');
-          return { b: snap.payload.b as number };
-        };
-        let mechanismSignal: unknown;
-        let silentRead: unknown;
-        try {
-          silentRead = w2.readObject(oid);
-          readAsV2();
-        } catch (e) { mechanismSignal = e; }
-        const decidable = mechanismSignal instanceof Error && /SCHEMA_INCOMPATIBLE|Refusal/.test(String(mechanismSignal.code ?? mechanismSignal.message));
-        expect(
-          decidable,
-          `旧 v1 payload ${JSON.stringify(silentRead?.payload)} 被原样交给 v2 读取器（b===undefined ⇒ 静默错答）；` +
-            '机制没有 SCHEMA_INCOMPATIBLE 之类的可判定信号（routeNs 只比 ns，不比契约版本）',
-        ).toBe(true);
-      } finally { w2.close(); }
-    } finally { rmSync(dir, { recursive: true, force: true }); }
-  });
-
-  test('requires[].contractVersion is decorative: a v2 requirement silently assembles against a v1 provider', () => {
+  test('guard: requires[].contractVersion mismatch against the effective provider must be decidable (F-26)', () => {
     const CONSUMER_V2: PluginManifest = {
       pluginId: 'consumer.v2', codeVersion: '1.0.0',
       provides: [{ capability: 'cap.consumer', contractVersion: 'v1' }],
       requires: [{ capability: CAP_OBJECT_MODEL, contractVersion: 'v2' }],
       storageNamespace: 'dom_consumer',
     };
-    let dir: string; let w: ReturnType<typeof freshWorld>['w'] | undefined;
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-cvs-requires-'));
+    const file = join(dir, 'world.db');
     try {
-      ({ dir, w } = freshWorld('evolution-cvs-requires-', [TEST_OBJECT_MODEL, CONSUMER_V2]));
-      // 装配已发生（openWorld 内部 activate）。若机制能判定版本满足性，它应当：
-      // 拒绝装配（ACTIVATION_IMPOSSIBLE）——没有这条路径；或至少记录降级/不满足。
-      // 断言改为与同文件第一条同形（作者改写，理由见 REVIEW.md §10）：
-      // "要么拒绝装配，要么生效版本等于声明版本"。修复前这里永远走"静默装配"分支；
-      // 修复后 activate() 抛 ACTIVATION_IMPOSSIBLE ⇒ 断言的判定面从"版本相等"扩为
-      // "可判定（拒绝或相等）"，覆盖面严格更大，不是放宽。
-      let assembled: unknown; let refusal: unknown;
-      try { assembled = w; } catch (e) { refusal = e; }
+      // 可判定断言（与 T1 同形）：要么装配期拒绝，要么生效版本等于声明版本。
+      let w: World | undefined;
+      let refusal: unknown;
+      try {
+        w = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL, CONSUMER_V2] });
+      } catch (e) { refusal = e; }
       const provider = w?.kernel.registry.capability(CAP_OBJECT_MODEL);
       const required = CONSUMER_V2.requires[0].contractVersion;
       expect(
@@ -124,10 +110,16 @@ describe('evolution attacks: contractVersion v1 -> v2 skew has no decidable mech
         `装配静默成功：consumer 声明 requires cap@${required}，实际 provider 契约版本=${provider?.contractVersion}；` +
           'requires[].contractVersion 从不参与装配判定（activate() 只查能力存在性）',
       ).toBe(true);
-    } finally { w?.close(); if (dir) rmSync(dir, { recursive: true, force: true }); }
+      if (refusal instanceof Refusal) {
+        expect(refusal.code).toBe('ACTIVATION_IMPOSSIBLE');
+        expect(refusal.detail?.required).toBe('v2');
+        expect(refusal.detail?.effective).toBe('v1');
+      }
+      w?.close();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('contrast anchor: a version-satisfied requires assembles (the gap is version matching, not the requires machinery)', () => {
+  test('contrast anchor: version-satisfied requires assembles (the gap is version matching, not the requires machinery)', () => {
     const CONSUMER_V1: PluginManifest = {
       pluginId: 'consumer.v1', codeVersion: '1.0.0',
       provides: [{ capability: 'cap.consumer', contractVersion: 'v1' }],
@@ -139,5 +131,67 @@ describe('evolution attacks: contractVersion v1 -> v2 skew has no decidable mech
       expect(w.kernel.registry.capability('cap.consumer')).toBeDefined();
       expect(w.kernel.registry.capability(CAP_OBJECT_MODEL)?.contractVersion).toBe('v1');
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('residual T4a: cross-owner transfer v1 -> v2 produces a mixed-version DB that assembles; the SNAPSHOT surface must not silently serve v1-shaped rows to the v2 reader (F-27 gap)', () => {
+    // 机制内合法序列：v1 包写对象（行戳 v1）→ 移交路由给 v2 包。
+    // F-27 装配检查只判"同一所有者"，跨所有者移交不触发；域内没有 domain_state 回填器
+    // （READINESS D-6）⇒ 混合版本库可装配、可打开。
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-cvs-cross-'));
+    const file = join(dir, 'world.db');
+    try {
+      const w1 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
+      const oid = w1.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { a: 1 } }));
+      const rowVersion = w1.raw.get<{ contract_version: string }>(
+        `select contract_version from domain_state where oid=? and revision=1`, oid)!.contract_version;
+      expect(rowVersion).toBe('v1'); // 前置：行确实按写入期版本打戳
+      w1.transferCapability(CAP_OBJECT_MODEL, SPLIT_V2, ADMIN);
+      w1.close();
+
+      // 可达性锚点：新所有者（v2 清单）激活**不被拒绝**
+      const w2 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [SPLIT_V2] });
+      try {
+        expect(w2.kernel.registry.capability(CAP_OBJECT_MODEL)?.contractVersion).toBe('v2');
+        // 精确引用读面有行级版本判据（锚点：它拒绝）
+        let exactRefused: unknown;
+        try { w2.readRevision({ kind: 'revision-ref', oid, revision: 1 }); } catch (e) { exactRefused = e; }
+        expect(exactRefused, '锚点：readRevision 的行级 assertContractVersion 应当拒绝').toBeInstanceOf(Refusal);
+        expect(String((exactRefused as Refusal).code ?? exactRefused)).toMatch(/SCHEMA_INCOMPATIBLE/);
+
+        // 快照读面（主读面）：v2 读者拿到的行若仍是 v1 形状，必须可判定（拒答或版本一致），
+        // 不得静默——v1 形状 {a} 对 v2 契约（必填 b）是错答
+        let snap: unknown;
+        try { snap = w2.readObject(oid); } catch (e) { snap = e; }
+        if (snap instanceof Refusal) return; // 可判定拒答 = 契约满足
+        const silentV1 = snap !== undefined && (snap as { payload: Record<string, unknown> }).payload.b === undefined;
+        expect(
+          silentV1,
+          `快照读面把 v1 形状 payload ${JSON.stringify((snap as { payload: unknown })?.payload)} 原样交给 v2 读者（b===undefined）；` +
+            'readLatest 不读 domain_state.contract_version，行级版本判据只装在 readRevision 上',
+        ).toBe(false);
+      } finally { w2.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('residual T4b: the same mixed-version DB must not leak v1-shaped rows through the dual-time surface either (readAsOf row-level gate missing)', () => {
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-cvs-cross-dt-'));
+    const file = join(dir, 'world.db');
+    try {
+      const w1 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
+      const oid = w1.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { a: 1 } }));
+      w1.transferCapability(CAP_OBJECT_MODEL, SPLIT_V2, ADMIN);
+      w1.close();
+
+      const w2 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [SPLIT_V2] });
+      try {
+        const rows = dualTimeRead(w2).rows.filter((r) => r.oid === oid);
+        const silentV1 = rows.length > 0 && rows[0].payload.b === undefined;
+        expect(
+          silentV1,
+          `双时间读面返回 v1 形状行 ${JSON.stringify(rows[0]?.payload)}（b===undefined）：readAsOf 的行级过滤只过 routeNs（命名空间），` +
+            '不过 domain_state.contract_version——与快照面同样的缺口',
+        ).toBe(false);
+      } finally { w2.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

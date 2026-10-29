@@ -9,12 +9,14 @@
  *    /(insert|update|delete)\s+into\s+(object_directory|domain_state|ledger|ref_edge|check_report)/i
  *    只覆盖原始**写**、且只覆盖 `… INTO <表>` 词形。
  *
- * 现状（缺陷，两处）：
- *  1. 机制面：`Kernel.port` 公开，领域经 `kernel.port.read` 即可对 check_report 原始 SELECT
- *    （F-14 的守卫只拒 DDL/PRAGMA/ATTACH，SELECT 放行；precedent：FactStandingService.standingAt
- *    本身就经 kernel.port.read 直读）。RPT-09 的合并（presentReport）是**约定**：
- *    领域不调用它就拿到完整审计内容——含 REF_UNRESOLVED 与 WITHHELD 的区分、含计数与 reportId，
- *    XC-25 的存在性侧信道在机制层没有任何屏障。
+ * 现状（缺陷，两处；对 HEAD 3b2625f 如实记录）：
+ *  1. 机制面：`Kernel.port` 仍是公开只读字段，任何触达 kernel 的调用方经 `kernel.port.read`
+ *    即可对 check_report 原始 SELECT（F-14 的守卫只拒 DDL/PRAGMA/ATTACH，SELECT 放行）。
+ *    F-22/23 已把**已发布领域**改造成只接窄面 PluginFace（FactStandingService 现走
+ *    `face.eventsOf` 机制原语），门禁也禁 `src/domains/**` 出现 `.port`——所以当前没有
+ *    已发布领域在走这条路；但机制屏障仍为零：RPT-09 的合并（presentReport）是**约定**，
+ *    拿到完整审计内容不需要任何授权——含 REF_UNRESOLVED 与 WITHHELD 的区分、含计数与 reportId，
+ *    XC-25 的存在性侧信道在机制层没有任何屏障（本测试直接持 kernel，不落在门禁扫描面内）。
  *  2. 门禁面：上面那条域扫描正则连**合法 DML 词形**都抓不到——
  *     `update check_report set …` 不匹配 `update\s+into`，`delete from ledger` 不匹配 `delete\s+into`；
  *     实际只有 `insert into <核心表>` 一种词形被检测（变异锚点也是这个词形）。
@@ -58,7 +60,8 @@ describe('S-5 check_report 原始读旁路 + 停线正则词形盲点', () => {
       };
       const out = w.uow(ALICE, (tx) => tx.recordReport(report));
 
-      // 攻击：与 FactStandingService 同型的领域读（kernel.port.read 原始 SELECT）：
+      // 攻击：触达 kernel 的调用方直接原始 SELECT（F-23 前 FactStandingService 曾同型，
+      // 现由门禁挡住已发布领域；机制层该路仍开着，本测试即机制层证据）：
       const rows = w.kernel.port.read((raw) =>
         raw.all<{ findings_json: string; verdict: string }>(
           `select findings_json, verdict from check_report where report_id=?`, out.reportId,

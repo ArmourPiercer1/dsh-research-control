@@ -47,37 +47,56 @@ const dualTimeRead = (w: World) =>
   });
 
 describe('evolution attacks: long plugin lifecycle sequence (split → transfer → disable → re-enable)', () => {
-  test('sequence guard: ObjectID / Revision / exact refs / namespace / Facet version stay self-consistent (same-ns split)', () => {
-    // 两个候选包都装载（p2-identity 惯例）：持久所有者移交后必须仍在可装配集合内
-    const { dir, w } = world('evolution-life-guard-', [TEST_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT, TEST_FACET_CALIB]);
+  test('sequence guard: ObjectID / Revision / exact refs / namespace / Facet version stay self-consistent across split → transfer → re-split → re-assembly (3-world cycle)', () => {
+    // 第 3 轮后同一装配内不得同时装载两个提供同一能力的清单（AMBIGUOUS_AUTHORITY），
+    // 因此"换包"以**重开装配**表达：每个世界只装载当前所有者 + facet 包。
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-life-guard-'));
+    const file = join(dir, 'life.db');
     try {
-      // 夹具装配更新（非断言变更）：F-23 之后领域只接窄面 PluginFace，
-      // 构造参数由 Kernel 改为 w.kernel.faceFor(...)。断言一条未动。
-      const facets = new FacetStore(w.kernel.faceFor(CAP_FACET));
-      const { a, b } = w.uow(ALICE, (tx) => {
+      // 世界 1（原始包）：建数据 + facet + required ref → 移交路由给拆分包
+      const w1 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL, TEST_FACET_CALIB] });
+      const facets1 = new FacetStore(w1.kernel.faceFor(CAP_FACET));
+      const { a, b } = w1.uow(ALICE, (tx) => {
         const a = tx.createObject({ kind: 'test.claim', payload: { text: 'claim' } });
         tx.revise(a, { payload: { text: 'claim-v2' } });
         const b = tx.createObject({ kind: 'test.claim', payload: { text: 'other' } });
         tx.linkRef({ from: { kind: 'revision-ref', oid: b, revision: 1 }, to: { kind: 'revision-ref', oid: a, revision: 2 }, role: 'supports', required: true });
         return { a, b };
       });
-      w.uow(ALICE, (tx) => { facets.write(tx, a, { calibration: 'C-1' }); });
-      w.uow(ALICE, (tx) => { facets.write(tx, a, { calibration: 'C-2' }); });
+      w1.uow(ALICE, (tx) => { facets1.write(tx, a, { calibration: 'C-1' }); });
+      w1.uow(ALICE, (tx) => { facets1.write(tx, a, { calibration: 'C-2' }); });
+      w1.transferCapability(CAP_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT, ADMIN); // 拆包（同 ns）→ 移交
+      w1.close();
 
-      // 拆包（同 ns）→ 移交 → 禁用 → 再启用
-      w.transferCapability(CAP_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT, ADMIN);
-      w.unloadCapability(CAP_OBJECT_MODEL, ADMIN);
-      w.loadCapability(CAP_OBJECT_MODEL, ADMIN);
-
-      expect(w.readObject(a)!.oid).toBe(a);                       // ObjectID 不变
-      expect(w.readObject(a)!.revision).toBe(2);                  // Revision 线未断
-      expect(w.readRevision({ kind: 'revision-ref', oid: a, revision: 1 })!.payload.text).toBe('claim'); // 精确引用仍读到旧内容
-      expect(facets.read(a).version).toBe(2);                     // Facet 版本自洽
-      expect(facets.read(a).payload.calibration).toBe('C-2');
-      const r3 = w.uow(ALICE, (tx) => tx.revise(a, { payload: { text: 'claim-v3' }, expectedRevision: 2 }));
+      // 世界 2（拆分包）：持久路由必须驱动内存视图（F-01）；数据跨所有者自洽
+      const w2 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL_SPLIT, TEST_FACET_CALIB] });
+      const facets2 = new FacetStore(w2.kernel.faceFor(CAP_FACET));
+      expect(w2.kernel.registry.capability(CAP_OBJECT_MODEL)?.pluginId).toBe('test.object-model.split');
+      expect(w2.readObject(a)!.oid).toBe(a);                       // ObjectID 不变
+      expect(w2.readObject(a)!.revision).toBe(2);                  // Revision 线未断
+      expect(w2.readRevision({ kind: 'revision-ref', oid: a, revision: 1 })!.payload.text).toBe('claim'); // 精确引用仍读到旧内容
+      expect(facets2.read(a).version).toBe(2);                     // Facet 版本自洽
+      expect(facets2.read(a).payload.calibration).toBe('C-2');
+      const r3 = w2.uow(ALICE, (tx) => tx.revise(a, { payload: { text: 'claim-v3' }, expectedRevision: 2 }));
       expect(r3).toBe(3);                                         // 写路径仍自洽（含 required ref 校验通过）
-      expect(w.readObject(b)!.revision).toBe(1);
-    } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
+      expect(w2.readObject(b)!.revision).toBe(1);
+      // 再拆包：路由交回原始包
+      w2.transferCapability(CAP_OBJECT_MODEL, TEST_OBJECT_MODEL, ADMIN);
+      w2.close();
+
+      // 世界 3（原始包）：回迁后数据完整 + 继续可写
+      const w3 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL, TEST_FACET_CALIB] });
+      try {
+        expect(w3.kernel.registry.capability(CAP_OBJECT_MODEL)?.pluginId).toBe('test.object-model');
+        expect(w3.readObject(a)!.revision).toBe(3);
+        expect(w3.readRevision({ kind: 'revision-ref', oid: a, revision: 1 })!.payload.text).toBe('claim');
+        expect(w3.readObject(b)!.revision).toBe(1);
+        const facets3 = new FacetStore(w3.kernel.faceFor(CAP_FACET));
+        expect(facets3.read(a).payload.calibration).toBe('C-2');
+        const r4 = w3.uow(ALICE, (tx) => tx.revise(a, { payload: { text: 'claim-v4' }, expectedRevision: 3 }));
+        expect(r4).toBe(4);
+      } finally { w3.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   test('disabled period: read surfaces must agree — snapshot read is refused while dual-time read silently serves the same object', () => {
@@ -161,8 +180,10 @@ describe('evolution attacks: long plugin lifecycle sequence (split → transfer 
   });
 
   test('re-enable must restore the PERSISTED owner, not the merely-loaded manifest (F-01: persistent route is the authority)', () => {
-    const { dir, w } = world('evolution-life-owner-'); // 加载清单只有原始包
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-life-owner-')); // 加载清单只有原始包
+    const file = join(dir, 'life.db');
     try {
+      const w = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
       w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { text: 'x' } }));
       w.transferCapability(CAP_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT, ADMIN); // 持久所有者 = split 包
       const persistedAfterTransfer = w.raw.get<{ plugin_id: string }>(
@@ -190,6 +211,17 @@ describe('evolution attacks: long plugin lifecycle sequence (split → transfer 
         expect(loadError, `拒绝再启用必须是封闭集机制码，实际是 ${String(loadError)}`).toBeInstanceOf(Refusal);
         expect((loadError as Refusal).code).toBe('ACTIVATION_IMPOSSIBLE');
       }
-    } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
+      w.close();
+
+      // 修复路径自洽：装载持久所有者后重开，内存与 DB 所有者必须一致（拒绝不是死路，
+      // 重启/重装后状态收敛，而不是"悄悄换人"）
+      const w2 = openWorld({ file, space: SPACE, grants: GRANTS, plugins: [TEST_OBJECT_MODEL_SPLIT] });
+      try {
+        const persisted2 = w2.raw.get<{ plugin_id: string }>(
+          `select plugin_id from capability_route where capability=?`, CAP_OBJECT_MODEL)!.plugin_id;
+        const inMemory2 = w2.kernel.registry.capability(CAP_OBJECT_MODEL)?.pluginId;
+        expect(inMemory2, `重装持久所有者后内存=${inMemory2}，DB=${persisted2}：所有者必须收敛`).toBe(persisted2);
+      } finally { w2.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

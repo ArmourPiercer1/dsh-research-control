@@ -1,6 +1,11 @@
 /**
  * 停线充分性攻击（独立审查员）— S-6：词汇扫描是"命名门"，不是"语义门"
  *
+ * 状态（对 HEAD 3b2625f）：本席位全部 5 条绿。B 条已被作者确认为 **F-31**（REVIEW.md §11.3，
+ * P1，门禁强度，作者本轮不替换被审计对象）；A 条（禁词表相对 PR #42 词族欠包含——
+ * INDETERMINATE/declaredGaps 已在被扫描的契约文件里而绿灯）与 C 条（结构性编码在构造上不可见）
+ * 是 F-31 之外的两个补充维度，一并交复审处置。
+ *
  * 问题（任务轴 2）：门禁能否拦住"用中性词承载的领域判定"？
  * 结论（本文件实证）：**拦不住**。最危险的规避不是发明新词，而是三种已存在的形态：
  *
@@ -89,13 +94,17 @@ describe('S-6 停线命名门 vs 中性词承载的领域判定', () => {
     expect(scanSemantics(`const x = { describedAt: 100 };`, EXTENDED)).toEqual(['describedAt']);
   });
 
-  test('B：小写/JSON 键名形态的领域语义对门禁完全不可见', () => {
-    // 若领域判定以 payload JSON 字段名落进 Kernel（最现实的载体形态）：
+  test('B：作者已确认为 F-31 的三种绕过形态（小写 / JSON 键名 / 下划线后缀）', () => {
+    // ① 小写 / JSON 键名形态：领域判定以 payload JSON 字段名落进 Kernel（最现实的载体形态）：
     const jsonStyle = `const f = (p) => { p.withheld = true; p.fact_standing = 'ACCEPTED'; p.is_current = 1; p.operating_context = 'W1'; return p; };`;
     expect(scanSemantics(jsonStyle)).toEqual([]);
     expect(scanSemantics(jsonStyle, EXTENDED)).toEqual([]);
-    // 对照：同一语义用门禁认识的标识符形态则会被抓（大小写敏感的另一半）：
-    expect(scanSemantics(`p.WITHHELD_REFERENCE = 1;`)).toContain('WITHHELD');
+    // ② 下划线后缀 + 点前缀：右侧词界 [^A-Za-z0-9_$] 对 '_' 不成立、左侧词界对 '.' 不成立 ⇒ 完全不可见：
+    expect(scanSemantics(`p.WITHHELD_REFERENCE = 1;`)).toEqual([]);
+    // ③ 对照锚点（证明扫描器在起作用）：裸大写词位于引号位置时抓得到：
+    expect(scanSemantics(`const x = 'WITHHELD';`)).toContain('WITHHELD');
+    // 注：作者已在 REVIEW.md §11.3 将本条确认为 F-31（P1，门禁强度），本轮不替换被审计对象，
+    // 待本席位复审结论落地后一并处置；最小修法见 §11.3（token 化 + camelCase 再切 + 归一化比对）。
   });
 
   test('C：中性词承载的领域判定（跨空间即不可判定 ⇒ UNRESOLVED）可整体穿过门禁', () => {

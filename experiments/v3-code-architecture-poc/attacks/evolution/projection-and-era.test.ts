@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { POC_DATA_DIR } from '../../src/harness/paths.ts';
 import { openWorld, PRINCIPAL, type World } from '../../src/harness/world.ts';
 import { Projection } from '../../src/kernel/projection.ts';
+import { migrateLegacyRecords } from '../../src/storage-sqlite/sqlite-port.ts';
 import { Refusal, type ObjectOid } from '../../src/contracts/index.ts';
 
 const SPACE = 'SP-ERA';
@@ -104,81 +105,49 @@ describe('evolution attacks: projection across evolution + explainability of his
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 
-  test('era attack: a record whose declaration predates the `records` table has no cut-point answer on any mechanism surface', () => {
-    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-era-olddb-'));
-    const file = join(dir, 'old.db');
+  test('era question: a declaration predating the `records` table must be decidable at open (or backfilled with a replayable cut-point), never silently absent', () => {
+    // #4 的截点问题在当前形态（S-0 之后 records 被触发器钉死）：
+    //  · 旧库特征 = ledger 里有 record_id 而 records 里没有对应行（夹具直接补这样一条行）；
+    //  · 未迁移 ⇒ 打开期 SCHEMA_UPGRADE_REQUIRED（"该年代读什么"的答案 = 机制拒绝进入该年代，
+    //    而不是读面静默给出空答案）；
+    //  · 显式迁移后 ⇒ readRecord 返回 declared_seq = 原始声明的 ledger 截点，
+    //    "表还不存在"的年代由此有了可回放的边界（T-05/RV-02 方向）。
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'evolution-era-backfill-'));
+    const file = join(dir, 'era.db');
     try {
-      // 旧版本库（测试装配）：无 records / capability_route / projection_state；
-      // REC-OLD 的声明只存在于 ledger（seq=2）——这正是 F-13 之前的合法形态。
-      const db = new DatabaseSync(file);
-      db.exec(`
-        pragma journal_mode = wal;
-        create table meta(key text primary key, value integer not null);
-        insert into meta(key, value) values('id_counter', 0), ('ledger_seq', 3);
-        create table ledger(
-          seq integer primary key, space text not null, event_type text not null,
-          actor text, object_id text, revision integer, record_id text,
-          payload_json text not null, described_at integer, recorded_at integer not null
-        );
-        create table object_directory(
-          oid text primary key, space text not null, kind text not null,
-          owner_capability text not null, ns text not null, created_seq integer not null
-        );
-        create table domain_state(
-          ns text not null, oid text not null, revision integer not null,
-          payload_json text not null, recorded_seq integer not null,
-          primary key(ns, oid, revision)
-        );
-        create table journal(
-          seq integer primary key autoincrement, tx_epoch integer not null,
-          ns text, oid text, op text not null, payload_json text
-        );
-        create table projection_cursor(
-          projection text primary key, journal_seq integer not null,
-          authority_seq integer, status text not null
-        );
-        create table ref_edge(
-          from_oid text not null, from_rev integer not null,
-          to_oid text, to_rev integer, to_record text,
-          role text not null, required integer not null default 0,
-          primary key(from_oid, from_rev, role, to_oid, to_record)
-        );
-        create table check_report(
-          report_id text primary key, target_kind text not null, target_oid text, target_rev integer,
-          target_record text, validator_id text not null, rule_version text not null, schema_version text not null,
-          environment text not null, executed_at integer not null, guarantee_scope text not null,
-          verdict text not null, findings_json text not null, declared_gaps_json text not null,
-          recorded_seq integer not null
-        );
-        insert into object_directory(oid, space, kind, owner_capability, ns, created_seq)
-          values('OBJ-${SPACE}-1', '${SPACE}', 'test.claim', 'cap.test.object-model', 'dom_test_om', 1);
-        insert into domain_state(ns, oid, revision, payload_json, recorded_seq)
-          values('dom_test_om', 'OBJ-${SPACE}-1', 1, '{"v":"old"}', 1);
-        insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
-          values(1, '${SPACE}', 'object-registered', 'alice', 'OBJ-${SPACE}-1', 1, null, '{}', null, 1000);
-        insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
-          values(2, '${SPACE}', 'synth:raw-intake', 'alice', null, null, 'REC-OLD', '{"text":"material"}', null, 1001);
-        insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
-          values(3, '${SPACE}', 'synth:note', 'alice', null, null, null, '{}', null, 1002);
-      `);
-      db.close();
+      const w0 = openWorld({ file, space: SPACE, grants: GRANTS });
+      w0.close();
+      // 旧库特征：ledger 里有 record_id 而 records 里没有对应行
+      const raw0 = new DatabaseSync(file);
+      const declSeq = (raw0.prepare(`select value from meta where key='ledger_seq'`).get() as { value: number }).value + 1;
+      raw0.prepare(`update meta set value = ? where key='ledger_seq'`).run(declSeq);
+      raw0.prepare(
+        `insert into ledger(seq, space, event_type, actor, record_id, payload_json, described_at, recorded_at)
+         values(?,?,?,?,?,?,?,?)`,
+      ).run(declSeq, SPACE, 'synth:raw-intake', 'legacy-importer', 'REC-ERA',
+        JSON.stringify({ text: 'material' }), null, Date.now());
+      raw0.close();
 
-      const w: World = openWorld({ file, space: SPACE, grants: GRANTS });
-      // 截点落在"records 表还不存在"的年代（在本旧库 = 全部历史年代）：
-      // T-05 要求任何结果都标注实际使用的两个时间；记录面的读路径必须让
-      // recorded_as_of 查询能判定"该截点时声明是否已存在"——机制必须给出
-      // 声明截点（declared_seq）或一个可判定的不可判定信号，而不是静默 undefined。
-      let rec: unknown;
-      let refused: unknown;
-      try { rec = w.readRecord('REC-OLD'); } catch (e) { refused = e; }
-      const decidable = rec !== undefined || refused instanceof Refusal;
-      expect(
-        decidable,
-        `截点前于 records 表存在年代时，记录声明（ledger seq=2）在机制面无任何答案：` +
-          `readRecord=${JSON.stringify(rec)}，refused=${String(refused ?? 'none')}；` +
-          'readAsOf 的 echo 只覆盖对象状态，记录面既不回显截点也不标记"早于表年代"⇒ 静默错答',
-      ).toBe(true);
-      w.close();
+      // (a) 未迁移：打开必须可判定拒绝（不得静默进入"表年代之前"的历史）
+      let thrown: unknown;
+      try { openWorld({ file, space: SPACE, grants: GRANTS }); } catch (e) { thrown = e; }
+      expect(thrown, '模式新/历史旧必须打开期检出，不得让 readRecord 静默 undefined').toBeInstanceOf(Refusal);
+      expect((thrown as Refusal).code).toBe('SCHEMA_UPGRADE_REQUIRED');
+
+      // (b) 显式迁移：回填后打开通过，声明截点可回放
+      const n = migrateLegacyRecords(file);
+      expect(n).toBe(1);
+      const w = openWorld({ file, space: SPACE, grants: GRANTS });
+      try {
+        const rec = w.readRecord('REC-ERA');
+        expect(rec, '迁移后 readRecord 必须读到回填行').toBeDefined();
+        expect(rec!.seq, `declared_seq=${rec!.seq} 必须等于原始声明截点 ${declSeq}`).toBe(declSeq);
+        // 回填事件本身也登记在 ledger（历史仍可被 recorded_as_of 截点看见，不撞号）
+        const backfill = w.raw.get<{ seq: number }>(
+          `select seq from ledger where event_type='record-backfilled' and record_id='REC-ERA'`);
+        expect(backfill, '回填必须留痕（可回放的迁移登记）').toBeDefined();
+        expect(backfill!.seq).toBeGreaterThan(declSeq);
+      } finally { w.close(); }
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

@@ -1,0 +1,50 @@
+# 合规席最终锚点快照（FINAL）— 2026-10-30 00:25:34 (+0800)
+# HEAD: 5d614c5d83a3c711982db4a2baa9710ccd157a11
+# 第 3 轮收口链: 2284a99 → 3b2625f → 14ea9b6 → 86debfa
+# 套件终态（00:23:48 实跑 pnpm run test:poc:arch, exit 1）:
+#   Test Files 7 failed | 20 passed (27)
+#   Tests 16 failed | 124 passed (140)
+#   红全部在审查方攻击文件；作者 8 个测试文件全绿
+#   红集合收口期流动 18→15→13→16（攻击文件被复审员就地改写）
+#   EVIDENCE.md §2b 逐文件归属表 + REVIEW.md §9 逐条登记未收口
+# 工作树相对 HEAD 的在途（第 3 轮未收口/复审中）:
+    M experiments/v3-code-architecture-poc/attacks/compliance/compliance-findings.md
+    M experiments/v3-code-architecture-poc/attacks/semantics/checkreport-raw-read-attack.test.ts
+    M experiments/v3-code-architecture-poc/attacks/semantics/dml-guard-attack.test.ts
+    M experiments/v3-code-architecture-poc/attacks/semantics/stopline-vocabulary-attack.test.ts
+    M experiments/v3-code-architecture-poc/src/domains/test-records.ts
+    M experiments/v3-code-architecture-poc/src/domains/test-validation.ts
+    M experiments/v3-code-architecture-poc/src/domains/validation-contract.ts
+    M experiments/v3-code-architecture-poc/tests/arch-independence.test.ts
+   ?? experiments/v3-code-architecture-poc/attacks/compliance/SNAPSHOT-002033.txt
+   ?? experiments/v3-code-architecture-poc/attacks/compliance/SNAPSHOT-002348.txt
+   ?? experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R3.md
+
+## 关键文件 sha256（最终锚点时点，工作树值）
+2f992b79ea66ffc22cae06d1de6022c0717ff9191eb618c257c63c11d6ba1d98  src/kernel/kernel.ts
+2984e767fd49b51d4b075b6fcd723fa8df0e21c7330584a7537c298e33a48713  src/kernel/read-context.ts
+0b4e624c3d9d08da47a8d114e09279157950ee63552ee4c21553b6cb9d3f56c4  src/kernel/projection.ts
+9421d66d8d4c75b46c24ab887053e2994658be28b911da8e5271ddb50381bee6  src/contracts/index.ts
+8e2b853e62a8b3ba8ce1c5158837f3a9c925e3b116d16675b29f6907af628558  src/storage-sqlite/sqlite-port.ts
+88eba13ff035b584def416c50da1974990a1e820b26238a29cb73af440fa6638  src/domains/test-validation.ts
+76d766209ce213573c2556163438a45d2b41ac9a5e6178ed03fcc2a3f4c366b4  src/domains/test-records.ts
+89fe3a517861769fced24f553f9a002c0d9e847ceea543791b5741deaf04bf12  tests/p1-storage-tx.test.ts
+6ff3144b04a93a11d0232a18580d1ae513c90a9dcfedb2b6aad4aaae689f8be6  tests/p2-identity-plugin.test.ts
+fa0d4d5305aff98836132fb97ef025ca82784d40b058a44df7b8eb1f2f1c20d8  tests/p3-intake-validation.test.ts
+21fa27886565cc335895251f4134292312e97d208c1d94bc15263cfb2e929955  tests/p4-read-isolation.test.ts
+90720c6c3a6d8a9d1505bb655f6444b4420ab43f6bcc3a0fb3555bee87688eb4  tests/sql-guard.test.ts
+abd6a77ea7c93197f66347588be99c28e7e80eae7a80318bb0dc2e9b1fdec5db  tests/schema-evolution.test.ts
+6dc3eae2d4d363e6238fc6bb77d1ac9d0f14be13c9b560e2461648133f2d8f43  tests/multiprocess-contention.test.ts
+fce9f0aa8fbc4198f486752eeb76e2d8a88a4b003dad79ff37732333ac10afac  tests/arch-independence.test.ts
+9ffbc044a2774fc41ecffee763ea17ab456455a72f9dd72f659afb3501a7b701  KERNEL_SURFACE.sha256
+474e79821a4b9b1450f9373f7417c86e9fb85c335c942cb4f08012c97a083627  CONTRACTS.md
+bd48ea8696dc2aa27b3d46c146d68e1d3fa43019e9eead60194c9cf7d0f039dd  RECONCILIATION.md
+1358ae175d666f9bd7d3cfe2d45ef9b794b219ef524b76cc8c37da0d86b32a67  EVIDENCE.md
+44ba330358881c66d5b6f7d7b26d4dbee1f178943ae5290e3c3656b0c20f3a6a  REVIEW.md
+16b0e867e27798e22e3d1c7433e97f2a973264edaa94921ee9817db85fccc2e9  README.md
+634ca4d04d209d9d44f08d3dbf075da4ddbac73619d30ac369cd059ae79b2ce3  ASSESSMENT.md
+2da6860e39a8c38ba2448aa106b9873a6a50d3ab040640049fa30ea33bcdec32  READINESS.md
+
+## 历史快照（已被本文件取代，保留为审计轨迹）:
+   SNAPSHOT-235458.txt  23:54:58 时点（f9a6c86 前）
+   SNAPSHOT-002033.txt  00:20:33 时点（HEAD 2284a99 后、86debfa 前）

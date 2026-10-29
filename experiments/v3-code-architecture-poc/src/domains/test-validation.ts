@@ -6,7 +6,8 @@
  * 归约顺序镜像 RPT-02/RD-38 的**结构**（FAIL 优先于 INDETERMINATE），因为那正是本 PoC 要验的
  * "机制能否表达这条契约规则"，而不是声称已实现该契约的科研含义。
  */
-import type { PluginManifest, Coverage, ValidationContribution, ValidationInput, ValidationOutcome, Finding } from '../contracts/index.ts';
+import type { PluginManifest } from '../contracts/index.ts';
+import type { Coverage, Finding, ValidationContribution, ValidationInput, ValidationOutcome } from './validation-contract.ts';
 
 export const CAP_VALIDATION = 'cap.test.validation';
 export const VALIDATOR_ID = 'synth.claim-checker';

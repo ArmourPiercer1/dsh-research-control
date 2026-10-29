@@ -56,7 +56,12 @@ export interface VerifiedPrincipal {
  * - `domain-admission`：科研接纳授权（有前者无后者 ⇒ 允许“未生效声明”，不得改变派生业务视图）
  * 字符串只是 Port 的键名；**含义与判定规则由领域声明**，Kernel 不理解。
  */
-export type AuthorityResource = 'space-write' | 'domain-admission' | 'audit-view' | string;
+/**
+ * Kernel **自己执行**的授权资源。业务授权轴（例如某域的"接纳资格"）由领域插件自定义字符串，
+ * Kernel 只按名字问授权层——写权与业务授权分轴（SP-09），因此这里不得预置任何领域资源名。
+ */
+export type MechanismResource = 'space-write' | 'capability-admin';
+export type AuthorityResource = MechanismResource | (string & {});
 
 export interface ScopedCapabilities {
   can(resource: AuthorityResource): boolean;
@@ -88,7 +93,9 @@ export type RefusalCode =
   | 'PROJECTION_UNAVAILABLE'; // 投影落后/缺口且调用方要求一致完整
 
 /** 领域扩展拒绝码：强制前缀，避免与 Kernel 封闭集混淆或被误当成机制语义。 */
-export type DomainRefusalCode = `synth:${string}`;
+/** 领域扩展码必须带命名空间前缀（含冒号），既不与 Kernel 封闭集混淆，也不把某个域的
+ * 前缀写进机制契约本身。 */
+export type DomainRefusalCode = `${string}:${string}`;
 export type AnyRefusalCode = RefusalCode | DomainRefusalCode;
 
 export class Refusal extends Error {
@@ -150,7 +157,12 @@ export interface PluginManifest {
   /** 实现代码版本（与下面三者分属不同版本轴，#44 §11）。 */
   readonly codeVersion: string;
   readonly provides: readonly { readonly capability: CapabilityId; readonly contractVersion: string }[];
-  readonly requires: readonly { readonly capability: CapabilityId; readonly contractVersion: string }[];
+  readonly requires: readonly {
+    readonly capability: CapabilityId;
+    readonly contractVersion: string;
+    /** 缺省视为必需。必需依赖缺失/成环 ⇒ 不可装配；可选依赖缺失 ⇒ 降级装配。 */
+    readonly required?: boolean;
+  }[];
   /** 该插件独占的持久命名空间（表前缀），避免跨插件私有 schema 互碰。 */
   readonly storageNamespace: string;
   /** 领域事件权威声明；每空间至多一个非 `none`（#44 §7.1「历史双写」）。 */
@@ -162,50 +174,8 @@ export interface PluginManifest {
 // ---------------------------------------------------------------- 校验贡献
 
 /** 校验贡献：规则/版本由领域拥有；Kernel 只登记与调用（#44 §9.2 / Q39）。 */
-export interface ValidationContribution {
-  readonly validatorId: string;
-  readonly ruleVersion: string;
-  readonly schemaVersion: string;
-  /** 返回报告**载荷**；Kernel 不解释 verdict 的科学含义。 */
-  check(input: ValidationInput): ValidationOutcome;
-}
-export interface ValidationInput {
-  readonly target: RevisionRef | RecordRef;
-  /** 被检对象的声明内容（校验器只查声明形态，不判科研语义，RPT-07）。 */
-  readonly payload: unknown;
-  readonly declaredGaps: readonly string[];
-  readonly environment: unknown;
-}
-/**
- * 逐项判定。verdict **不由本类型承载**：一份报告可以同时含 FAIL 与 INDETERMINATE 项，
- * 归约是领域规则（RPT-02/RD-38：FAIL 优先），若在这里用联合类型把"整份不可判定"与
- * "某项不可判定"混为一谈，XC-27 就无法表达。
- */
-export type CheckOutcome = 'PASS' | 'FAIL' | 'INDETERMINATE' | 'NOT_APPLICABLE';
-export type Coverage = 'COMPLETE' | 'INCOMPLETE_DUE_TO_VISIBILITY' | 'NOT_DISCLOSED' | 'CHECK_UNAVAILABLE';
-export interface ValidationOutcome {
-  readonly findings: readonly Finding[];
-  readonly declaredGaps: readonly string[];
-  readonly coverage: Coverage;
-}
-export interface Finding {
-  readonly code: string;
-  readonly outcome: CheckOutcome;
-  readonly severity: 'VIOLATION' | 'DEFICIENCY' | 'NOTE';
-  readonly fieldPath?: string;
-  readonly detail?: Readonly<Record<string, unknown>>;
-}
-
-/** Facet 贡献：独立拥有扩展记录，禁止复制核心权威（#44 §6.2 / Q45、XC-28）。 */
-export interface FacetContribution {
-  readonly facetId: string;
-  readonly mountKind: ObjectKindLabel;
-  readonly recordVersion: string;
-}
-
-// ---------------------------------------------------------------- 检查报告
-
-/** CheckReport 由 Kernel 提供**通用持久化通道**；内容归领域（#44 §9.2 / C11）。 */
+// 校验词汇（逐项判定、覆盖度、Finding）不在本文件：那是检查报告的语义，属领域校验能力的契约
+// （见 domains/validation-contract.ts）。Kernel 只见不透明报告载荷（#44 §9.2）。
 export interface CheckReportRecord {
   readonly reportId: string;
   readonly target: RevisionRef | RecordRef;
@@ -215,8 +185,9 @@ export interface CheckReportRecord {
   readonly environment: string;
   readonly executedAt: number;
   readonly guaranteeScope: string;
+  /** 对 Kernel 不透明：机制层不解释 verdict/findings 的科研含义（#44 §9.2、RPT-04）。 */
   readonly verdict: string;
-  readonly findings: readonly Finding[];
+  readonly findings: readonly unknown[];
   readonly declaredGaps: readonly string[];
   readonly recordedAt: CommitSequence;
 }

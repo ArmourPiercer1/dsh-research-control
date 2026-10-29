@@ -9,7 +9,8 @@
 import type { Kernel, UnitOfWork } from '../kernel/kernel.ts';
 import { VALIDATOR_ID, synthClaimChecker, type SynthInput } from './test-validation.ts';
 import type { Authorizer } from '../kernel/kernel.ts';
-import { Refusal, type CommitSequence, type Finding, type ObjectKindLabel, type ObjectOid, type AnyRef, type Coverage } from '../contracts/index.ts';
+import { Refusal, type CommitSequence, type ObjectKindLabel, type ObjectOid, type AnyRef } from '../contracts/index.ts';
+import type { Coverage, Finding } from './validation-contract.ts';
 
 export const SYNTH_NOTE = '本模块为**测试专用**的合成策略，仅验证机制承载能力，不代表科研语义政策。';
 

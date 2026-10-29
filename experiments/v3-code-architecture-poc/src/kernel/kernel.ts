@@ -6,7 +6,6 @@
  * 单空间 Unit-of-Work（含 Change Journal）。它不知道五类对象、不知道 S-L1、不知道
  * FactStanding、不知道 WITHHELD（#44 §5.3）。
  */
-import { SYNTHETIC_AUDIT_VISIBILITY } from './presentation.ts';
 import {
   Refusal,
   asOid,
@@ -45,9 +44,10 @@ export interface Authorizer {
 export class CapabilityRegistry {
   private readonly caps = new Map<CapabilityId, ActivatedCapability>();
   private readonly kindOwner = new Map<ObjectKindLabel, CapabilityId>();
-  private readonly requires = new Map<string, readonly { capability: CapabilityId }[]>();
+  private readonly requires = new Map<string, readonly { capability: CapabilityId; contractVersion: string; required?: boolean }[]>();
   private eventAuthority: { pluginId: string; mode: string } | null = null;
   private readonly manifests = new Map<string, PluginManifest>();
+  readonly degraded: { plugin: string; optionalCapability: string }[] = [];
 
   register(m: PluginManifest): void {
     this.manifests.set(m.pluginId, m);
@@ -96,6 +96,12 @@ export class CapabilityRegistry {
       }
       state.set(id, 'visiting');
       for (const r of this.requires.get(id) ?? []) {
+        // 只有**必需**依赖进入"必需依赖图"：可选依赖缺失是降级装配，不是装配失败；
+        // 可选依赖参与环检测会把"两条独立路线彼此可选"误判为不可装配。
+        if (r.required === false) {
+          if (provider(r.capability) === undefined) this.degraded.push({ plugin: id, optionalCapability: r.capability });
+          continue;
+        }
         const to = provider(r.capability);
         if (to === undefined) {
           throw new Refusal('ACTIVATION_IMPOSSIBLE', { plugin: id, missingCapability: r.capability });
@@ -262,16 +268,17 @@ export class Kernel {
   }
 
   /**
-   * 对外解析一个引用（SP-02/SP-07/RPT-09）。**本 Kernel 只看得到本空间**，因此它无法区分
-   * "目标不存在""目标在别的空间""目标尚未提交"——按 SP-02 的保守侧，三者对外一律呈现为
-   * 同一个 `UNVERIFIABLE_REFERENCE`；差异只保留在审计视图里。
+   * 对外解析一个引用（SP-02/SP-07）。**本 Kernel 只看得到本空间**，因此它从不区分
+   * "目标不存在""目标在别的空间""目标尚未提交"——三者都是同一个中性形态 `OPAQUE`。
+   * 报告语汇的映射是呈现层职责（RPT-09、SP-10），不进 Kernel。
    */
-  resolvePresented(ref: AnyRef, caller: string, canAudit: (actor: string) => boolean = SYNTHETIC_AUDIT_VISIBILITY): { state: string } {
+  resolvePresented(ref: AnyRef): { state: 'PRESENT' | 'OPAQUE' } {
     const found = ref.kind === 'object-ref' ? this.readSnapshot(ref.oid) !== undefined
       : ref.kind === 'revision-ref' ? this.readRevision(ref) !== undefined
         : this.port.read((raw) => raw.get(`select 1 as x from ledger where record_id=?`, ref.recordId) !== undefined);
-    if (found) return { state: 'PRESENT' };
-    return { state: canAudit(caller) ? 'NOT_FOUND_IN_SPACE' : 'UNVERIFIABLE_REFERENCE' };
+    // Kernel 只看得到本空间，因此**从不**区分"不存在 / 在别的空间 / 尚未提交"。
+    // 报告侧词汇（UNVERIFIABLE_REFERENCE 等）由呈现层映射，Kernel 只用中性机制形态。
+    return { state: found ? 'PRESENT' : 'OPAQUE' };
   }
 
   /**

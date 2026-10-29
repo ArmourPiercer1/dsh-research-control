@@ -10,7 +10,7 @@ import { TEST_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
 import { TEST_VALIDATION } from '../src/domains/test-validation.ts';
 import { Projection } from '../src/kernel/projection.ts';
 import { readAsOf } from '../src/kernel/read-context.ts';
-import { presentReport } from '../src/kernel/presentation.ts';
+import { presentReport, presentOpaque } from '../src/domains/report-presentation.ts';
 import { asOid, type ReadContextSpec } from '../src/contracts/index.ts';
 
 const ALICE = PRINCIPAL('alice');
@@ -80,9 +80,9 @@ describe('P4 读取上下文 / 空间隔离 / 滞后投影', () => {
       tx.linkRef({ from: { kind: 'revision-ref', oid: o, revision: 1 }, to: { kind: 'object-ref', oid: secret }, role: 'synth:open', required: false });
       return o;
     });
-    const pMine = b.kernel.resolvePresented({ kind: 'object-ref', oid: mine }, 'alice');
-    const pForeign = b.kernel.resolvePresented({ kind: 'object-ref', oid: secret }, 'alice');
-    const pGhost = b.kernel.resolvePresented({ kind: 'object-ref', oid: asOid('OBJ-SP-2-000000') }, 'alice');
+    const pMine = b.kernel.resolvePresented({ kind: 'object-ref', oid: mine });
+    const pForeign = b.kernel.resolvePresented({ kind: 'object-ref', oid: secret });
+    const pGhost = b.kernel.resolvePresented({ kind: 'object-ref', oid: asOid('OBJ-SP-2-000000') });
     expect(pForeign).toEqual(pGhost);          // 对外：跨空间目标与不存在同形
     expect(pMine).not.toEqual(pForeign);
     expect(JSON.stringify(pForeign)).not.toMatch(/SP-1/);   // 不泄漏目标所在空间

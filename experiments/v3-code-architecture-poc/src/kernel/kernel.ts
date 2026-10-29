@@ -344,7 +344,7 @@ export class Kernel {
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {
     this.uow(by, (held) => {
       const tx = held as UnitOfWorkImpl;
-      const raw = UnitOfWorkImpl.peekRaw(tx);
+      const raw = RAW_OF_UOW.get(tx)!;
       const seq = this.nextLedgerSeq(raw);
       raw.run(`update capability_route set enabled=?, changed_seq=? where capability=?`, enabled ? 1 : 0, seq, cap);
       raw.run(
@@ -475,7 +475,7 @@ export class Kernel {
   }
 
   namespacedWriter(capability: CapabilityId, tx: UnitOfWork): NamespaceWriter {
-    return new NamespaceWriterImpl(this, capability, UnitOfWorkImpl.peekRaw(tx as UnitOfWorkImpl));
+    return new NamespaceWriterImpl(this, capability, RAW_OF_UOW.get(tx as UnitOfWorkImpl)!);
   }
 
   /** 机制内部的只读命名空间读取（不经插件句柄）。 */
@@ -620,6 +620,16 @@ class NamespaceWriterImpl implements NamespaceWriter {
   }
 }
 
+/**
+ * 事务句柄的**对象图外**存储（席位 A 发现的 P1 的修法）。
+ *
+ * 原先写成静态方法回读，我以为"类未导出"就挡住了外部回读。**错了**：插件拿到的 `tx`
+ * 满足 `tx.constructor === 实现类`，经 `.constructor` 就能拿到类引用与它上面的静态方法，
+ * `private` 与未导出都拦不住。换 WeakMap 后，句柄既不是实例属性、也不是原型成员、
+ * 也不是类的静态成员：**对象图上不存在任何名字能指向它**，只有本模块内的这个闭包能取到。
+ */
+const RAW_OF_UOW = new WeakMap<UnitOfWorkImpl, RawTx>();
+
 class UnitOfWorkImpl implements UnitOfWork {
   // D-16：同 NamespaceWriterImpl。`readonly raw` 连 TS 层面的 private 都不是，
   // 却靠接口不声明来"隐藏"——类型面藏得住，运行时藏不住。
@@ -628,16 +638,9 @@ class UnitOfWorkImpl implements UnitOfWork {
   readonly principal: VerifiedPrincipal;
   constructor(k: Kernel, principal: VerifiedPrincipal, raw: RawTx) {
     this.#k = k; this.principal = principal; this.#raw = raw;
+    RAW_OF_UOW.set(this, raw);
   }
 
-  /**
-   * 机制内部的回读通道（`setRouteEnabled` 与 `namespacedWriter` 需要当前事务的句柄）。
-   * 之所以成立：`#raw` 只能在**同类体内**访问，而本类未从本模块导出——
-   * 模块外的代码连类引用都拿不到，因此不存在 `X.peekRaw(tx)` 这条路。
-   * 交给插件的实例上**没有** `raw`/`k` 属性，由 `tests/namespace-writer-surface.test.ts`
-   * 与 `tests/arch-independence.test.ts` 沿原型链断言。
-   */
-  static peekRaw(u: UnitOfWorkImpl): RawTx { return u.#raw; }
 
   createObject(a: { kind: ObjectKindLabel; payload: unknown }): ObjectOid {
     const owner = this.#k.registry.ownerOfKind(a.kind);

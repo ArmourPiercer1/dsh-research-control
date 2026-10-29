@@ -28,6 +28,30 @@ const surface = (x: object): string[] => {
 };
 
 describe('窄面对象的运行时接口面（§14.6 规则 1）', () => {
+  test('构造器路径不得成为第二条逃逸通道（席位 A 发现的 P1）', () => {
+    // 上一版只断言"实例上没有 raw/k 这两个名字"，于是 `tx.constructor` 上挂着静态回读方法
+    // 也照样绿。**测成员名 ≠ 测可达性**，这是门禁自身的一种假绿。
+    // 本条把可达性闭合：从插件可及的对象出发，凡能拿到类引用，就检查类自身携带什么。
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'ctor-path-'));
+    const w = openWorld({ file: join(dir, 'w.db'), space: 'SP-CT', grants: { alice: ['space-write'] } });
+    try {
+      const seen = w.uow(PRINCIPAL('alice'), (tx) => {
+        const writer = w.kernel.faceFor(CAP_RECORDS).writerFor(tx) as unknown as object;
+        const staticsOf = (o: object): string[] => {
+          const ctor = (o as { constructor?: object }).constructor;
+          if (!ctor) return ['<无 constructor>'];
+          return [...Object.getOwnPropertyNames(ctor), ...Object.getOwnPropertySymbols(ctor).map(String)]
+            .filter((n) => !['length', 'name', 'prototype'].includes(n));
+        };
+        // WeakMap 修法下：句柄不在对象图上任何位置，构造器只该剩 length/name/prototype
+        return { tx: staticsOf(tx as object), writer: staticsOf(writer) };
+      });
+      expect(seen.tx).toEqual([]);
+      expect(seen.writer).toEqual([]);
+    } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
+
   test('PluginFace.writerFor() 返回的对象在运行时不再携带 k / raw（D-17 已修）', () => {
     const dir = mkdtempSync(join(POC_DATA_DIR, 'ns-writer-'));
     const w = openWorld({ file: join(dir, 'w.db'), space: 'SP-NW', grants: { alice: ['space-write'] } });

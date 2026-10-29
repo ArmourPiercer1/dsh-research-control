@@ -230,3 +230,12 @@ exit=0
 `tsc` 0；`check-imports`、`docs:check` OK。红条仍全部位于审查方 8 个攻击文件，性质同上表。
 新增的 1 例是 `tests/namespace-writer-surface.test.ts`——它**通过**，但按"断言漏洞现状"约定
 钉的是 `writerFor(tx)` 携带 `k`/`raw` 这一**漏洞现状**（D-17），修复后会自动转红。
+
+### G0 首批修复后（D-15 / D-16 / D-17）
+
+作者侧 **14 文件 88 例，0 红**；`tsc` 0；`check-imports` OK。`KERNEL_SURFACE.sha256`
+`da5d3d2f… → f3f3a0fa…`（`kernel.ts` 字节变更；属收紧：插件对象上删除 `k`/`raw` 两个可见成员）。
+两条原本钉"漏洞现状"的断言（D-16 `escapes`、D-17 `leaks`）已翻正为真判据；
+`sql-guard.test.ts` 的句柄取得路径从"顺洞取裸句柄"改走受守卫包装；
+`arch-independence.test.ts` 的 `DECLARED` 清单移除误列的 `k`/`raw`。详见 `REVIEW.md` §27。
+**这三项是作者自述已修，尚未经独立复验**——按本项目纪律，未复验不计入解除条件。

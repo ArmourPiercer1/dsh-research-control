@@ -18,7 +18,15 @@ function world(prefix: string) {
   return { dir, w: openWorld({ file: join(dir, 'guard.db'), space: 'SP-GUARD', grants: { 'guard-tester': ['space-write'] } }) };
 }
 type Handle = { run(sql: string, ...p: unknown[]): void; all(sql: string, ...p: unknown[]): unknown[]; get(sql: string, ...p: unknown[]): unknown };
-const handle = (tx: unknown): Handle => (tx as { raw: Handle }).raw;
+/**
+ * 机制句柄的取得路径。
+ * 原先写作 `(tx as { raw: Handle }).raw`——那是**顺着 D-16 的洞**拿句柄：
+ * 洞一封，测试就取到 undefined，报的是 TypeError 而不是预期拒绝。
+ * 测试不得把漏洞当夹具。改走 StoragePort 的受守卫包装（`guard` / `guardRead` 与原路径
+ * 是同一套判据，被检对象没变），D-16 封与否都不影响本文件的语义。
+ */
+const withHandle = <R>(w: ReturnType<typeof openWorld>, fn: (h: Handle) => R): R =>
+  w.kernel.port.tx((raw) => fn(raw as unknown as Handle));
 
 describe('机制句柄 SQL 守卫（F-14′ 完整覆盖）', () => {
   test.each([
@@ -32,7 +40,7 @@ describe('机制句柄 SQL 守卫（F-14′ 完整覆盖）', () => {
     const { dir, w } = world('guard-neg-');
     try {
       for (const call of [(h: Handle) => h.run(sql), (h: Handle) => h.all(sql), (h: Handle) => h.get(sql)]) {
-        expect(() => w.uow(ALICE, (tx) => call(handle(tx)))).toThrow(/RAW_SQL_REFUSED/);
+        expect(() => withHandle(w, (h) => call(h))).toThrow(/RAW_SQL_REFUSED/);
       }
       // 反差：拒绝之后不可变性仍然把守 DML（守卫不是唯一一层）
       const oid = w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: {} }));
@@ -49,7 +57,7 @@ describe('机制句柄 SQL 守卫（F-14′ 完整覆盖）', () => {
     const { dir, w } = world('guard-pos-');
     try {
       w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: {} }));
-      expect(() => w.uow(ALICE, (tx) => handle(tx).run(sql))).not.toThrow();
+      expect(() => withHandle(w, (h) => h.run(sql))).not.toThrow();
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 

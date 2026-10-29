@@ -334,14 +334,15 @@ export class Kernel {
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {
     this.uow(by, (held) => {
       const tx = held as UnitOfWorkImpl;
-      const seq = this.nextLedgerSeq(tx.raw);
-      tx.raw.run(`update capability_route set enabled=?, changed_seq=? where capability=?`, enabled ? 1 : 0, seq, cap);
-      tx.raw.run(
+      const raw = UnitOfWorkImpl.peekRaw(tx);
+      const seq = this.nextLedgerSeq(raw);
+      raw.run(`update capability_route set enabled=?, changed_seq=? where capability=?`, enabled ? 1 : 0, seq, cap);
+      raw.run(
         `insert into ledger(seq, space, event_type, actor, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?)`,
         seq, this.space, enabled ? 'capability-enabled' : 'capability-disabled', by.actorId,
         JSON.stringify({ capability: cap }), null, Date.now(),
       );
-      this.journalEpoch(tx.raw, seq, enabled ? 'capability-enabled' : 'capability-disabled');
+      this.journalEpoch(raw, seq, enabled ? 'capability-enabled' : 'capability-disabled');
     // 装卸同样是运维权威轴（SP-09），不得只凭 space-write。
     }, 'capability-admin');
     if (!enabled) { this.registry.dropRoute(cap); return; }
@@ -428,7 +429,7 @@ export class Kernel {
   }
 
   namespacedWriter(capability: CapabilityId, tx: UnitOfWork): NamespaceWriter {
-    return new NamespaceWriterImpl(this, capability, (tx as UnitOfWorkImpl).raw);
+    return new NamespaceWriterImpl(this, capability, UnitOfWorkImpl.peekRaw(tx as UnitOfWorkImpl));
   }
 
   /** 机制内部的只读命名空间读取（不经插件句柄）。 */
@@ -519,9 +520,15 @@ export interface PluginFace {
 
 
 class NamespaceWriterImpl implements NamespaceWriter {
-  constructor(private readonly k: Kernel, private readonly cap: CapabilityId, private readonly raw: RawTx) {}
+  // D-17：`private readonly` 参数属性只活在编译期，运行时是**自有实例字段**——
+  // 插件经 faceFor().writerFor(tx) 就能拿到 k（全量 Kernel）与 raw（裸 SQL 句柄）。
+  // 必须用 `#` 私有字段让属性在运行时**根本不存在**（`obj['#k']` 求值为 undefined，不报错）。
+  readonly #k: Kernel;
+  readonly #raw: RawTx;
+  private readonly cap: CapabilityId;
+  constructor(k: Kernel, cap: CapabilityId, raw: RawTx) { this.#k = k; this.cap = cap; this.#raw = raw; }
   get ns(): string {
-    const c = this.k.registry.capability(this.cap);
+    const c = this.#k.registry.capability(this.cap);
     if (!c) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.cap });
     return c.storageNamespace;
   }
@@ -529,28 +536,28 @@ class NamespaceWriterImpl implements NamespaceWriter {
     if (a.ns !== this.ns) {
       throw new Refusal('NAMESPACE_ESCAPE', { attempted: a.ns, own: this.ns, capability: this.cap, oid: a.oid });
     }
-    const seq = this.k.nextLedgerSeq(this.raw);
-    this.raw.run(
+    const seq = this.#k.nextLedgerSeq(this.#raw);
+    this.#raw.run(
       `insert into domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version) values(?,?,?,?,?,?)`,
       a.ns, a.oid, a.revision, JSON.stringify(a.payload), seq,
-      (() => { const c = capabilityOfNs(this.k.registry, a.ns); return c ? this.k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
+      (() => { const c = capabilityOfNs(this.#k.registry, a.ns); return c ? this.#k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
     );
     // 扩展记录的变更同样进 H（#44 §6.2：Facet 需要自己的 H 追溯）
-    this.raw.run(
+    this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
        values(?,?,?,?,?,?,?,null,?)`,
-      seq, this.k.space, a.eventType, 'system:capability', a.oid, a.revision, '{}', Date.now(),
+      seq, this.#k.space, a.eventType, 'system:capability', a.oid, a.revision, '{}', Date.now(),
     );
-    this.raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, a.ns, a.oid, 'extension-upsert');
+    this.#raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, a.ns, a.oid, 'extension-upsert');
   }
   /** 本命名空间**生效路由**上的契约版本（装配后的真实值，不是清单意图）。 */
   private effectiveContractVersion(): { cap: CapabilityId; version: string } {
-    const cap = capabilityOfNs(this.k.registry, this.ns) ?? this.cap;
-    return { cap, version: this.k.registry.capability(cap)?.contractVersion ?? '' };
+    const cap = capabilityOfNs(this.#k.registry, this.ns) ?? this.cap;
+    return { cap, version: this.#k.registry.capability(cap)?.contractVersion ?? '' };
   }
 
   readLatest(oid: ObjectOid) {
-    const row = this.raw.get<{ revision: number; payload_json: string; contract_version: string }>(
+    const row = this.#raw.get<{ revision: number; payload_json: string; contract_version: string }>(
       `select revision, payload_json, contract_version from domain_state where ns=? and oid=? order by revision desc limit 1`,
       this.ns, oid,
     );
@@ -564,68 +571,80 @@ class NamespaceWriterImpl implements NamespaceWriter {
 }
 
 class UnitOfWorkImpl implements UnitOfWork {
-  constructor(
-    private readonly k: Kernel,
-    readonly principal: VerifiedPrincipal,
-    readonly raw: RawTx,
-  ) {}
+  // D-16：同 NamespaceWriterImpl。`readonly raw` 连 TS 层面的 private 都不是，
+  // 却靠接口不声明来"隐藏"——类型面藏得住，运行时藏不住。
+  readonly #k: Kernel;
+  readonly #raw: RawTx;
+  readonly principal: VerifiedPrincipal;
+  constructor(k: Kernel, principal: VerifiedPrincipal, raw: RawTx) {
+    this.#k = k; this.principal = principal; this.#raw = raw;
+  }
+
+  /**
+   * 机制内部的回读通道（`setRouteEnabled` 与 `namespacedWriter` 需要当前事务的句柄）。
+   * 之所以成立：`#raw` 只能在**同类体内**访问，而本类未从本模块导出——
+   * 模块外的代码连类引用都拿不到，因此不存在 `X.peekRaw(tx)` 这条路。
+   * 交给插件的实例上**没有** `raw`/`k` 属性，由 `tests/namespace-writer-surface.test.ts`
+   * 与 `tests/arch-independence.test.ts` 沿原型链断言。
+   */
+  static peekRaw(u: UnitOfWorkImpl): RawTx { return u.#raw; }
 
   createObject(a: { kind: ObjectKindLabel; payload: unknown }): ObjectOid {
-    const owner = this.k.registry.ownerOfKind(a.kind);
+    const owner = this.#k.registry.ownerOfKind(a.kind);
     if (!owner) throw new Refusal('CAPABILITY_INACTIVE', { kind: a.kind });
-    const idn = this.raw.get<{ value: number }>(`select value from meta where key='id_counter'`)!.value + 1;
-    this.raw.run(`update meta set value = ? where key='id_counter'`, idn);
-    const oid = asOid(`OBJ-${this.k.space}-${idn}`);
-    const seq = this.k.nextLedgerSeq(this.raw);
-    this.raw.run(
+    const idn = this.#raw.get<{ value: number }>(`select value from meta where key='id_counter'`)!.value + 1;
+    this.#raw.run(`update meta set value = ? where key='id_counter'`, idn);
+    const oid = asOid(`OBJ-${this.#k.space}-${idn}`);
+    const seq = this.#k.nextLedgerSeq(this.#raw);
+    this.#raw.run(
       `insert into object_directory(oid, space, kind, owner_capability, ns, created_seq) values(?,?,?,?,?,?)`,
-      oid, this.k.space, a.kind, owner.capability, owner.storageNamespace, seq,
+      oid, this.#k.space, a.kind, owner.capability, owner.storageNamespace, seq,
     );
-    this.raw.run(
+    this.#raw.run(
       `insert into domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version) values(?,?,?,?,?,?)`,
       owner.storageNamespace, oid, 1, JSON.stringify(a.payload), seq, owner.contractVersion,
     );
     // 登记序属机制事实（"何时被系统记录"），不是领域事件解释（#44 §7.1）。
-    this.raw.run(
+    this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
        values(?,?,?,?,?,?,?,?,?)`,
-      seq, this.k.space, 'object-registered', this.principal.actorId, oid, 1, '{}', null, Date.now(),
+      seq, this.#k.space, 'object-registered', this.principal.actorId, oid, 1, '{}', null, Date.now(),
     );
-    this.raw.run(
+    this.#raw.run(
       `insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, owner.storageNamespace, oid, 'state-upsert',
     );
     return oid;
   }
 
   revise(oid: ObjectOid, a: { payload: unknown; expectedRevision?: number }): number {
-    const dir = this.raw.get<{ kind: string; owner_capability: string; ns: string }>(
+    const dir = this.#raw.get<{ kind: string; owner_capability: string; ns: string }>(
       `select kind, owner_capability, ns from object_directory where oid=?`, oid,
     );
     if (!dir) throw new Refusal('NOT_FOUND_IN_SPACE', { oid });
-    const ns = routeNs(this.k.registry, dir);
-    const cur = this.raw.get<{ m: number | null }>(
+    const ns = routeNs(this.#k.registry, dir);
+    const cur = this.#raw.get<{ m: number | null }>(
       `select max(revision) m from domain_state where ns=? and oid=?`, ns, oid,
     )!.m ?? 0;
     if (a.expectedRevision !== undefined && a.expectedRevision !== cur) {
       throw new Refusal('REQUIRED_REF_MISSING', { oid, expected: a.expectedRevision, actual: cur });
     }
     const next = cur + 1;
-    const seq = this.k.nextLedgerSeq(this.raw);
-    this.raw.run(
+    const seq = this.#k.nextLedgerSeq(this.#raw);
+    this.#raw.run(
       // F-EV-R2 根因：`revise` 此前**不盖契约版本戳**，于是 revision≥2 的行的 contract_version
       // 全是默认空串。配合"空标记=不可判定=拒绝"的读侧纪律（R3-B），这意味着
       // 修订过的对象在快照面根本不可读；而漏装判据的面又会把它静默端出去。
       // 写侧必须每次都盖戳，否则读侧任何判据都建立在"行里碰巧有标记"上。
       `insert into domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version) values(?,?,?,?,?,?)`,
       ns, oid, next, JSON.stringify(a.payload), seq,
-      (() => { const c = capabilityOfNs(this.k.registry, ns); return c ? this.k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
+      (() => { const c = capabilityOfNs(this.#k.registry, ns); return c ? this.#k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
     );
-    this.raw.run(
+    this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
        values(?,?,?,?,?,?,?,?,?)`,
-      seq, this.k.space, 'object-revised', this.principal.actorId, oid, next, '{}', null, Date.now(),
+      seq, this.#k.space, 'object-revised', this.principal.actorId, oid, next, '{}', null, Date.now(),
     );
-    this.raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, ns, oid, 'state-upsert');
+    this.#raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, ns, oid, 'state-upsert');
     return next;
   }
 
@@ -633,29 +652,29 @@ class UnitOfWorkImpl implements UnitOfWork {
     eventType: string; payload: unknown; objectId?: ObjectOid; revision?: number;
     recordId?: string; describedAt?: number; declaresRecord?: boolean;
   }): CommitSequence {
-    if (a.objectId !== undefined && !this.raw.get(`select oid from object_directory where oid=?`, a.objectId)) {
+    if (a.objectId !== undefined && !this.#raw.get(`select oid from object_directory where oid=?`, a.objectId)) {
       throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
     }
-    const seq = this.k.nextLedgerSeq(this.raw);
+    const seq = this.#k.nextLedgerSeq(this.#raw);
     if (a.recordId !== undefined) {
       // ID-08：记录有自身标识 ⇒ "首次声明"必须是唯一事件。让同一 record_id 对应多条历史行，
       // 会把精确记录引用变成歧义引用（读哪一条？），也让不可变声明可以被静默改写。
       const declaring = a.declaresRecord ?? true;
       if (declaring) {
         try {
-          this.raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
+          this.#raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
             a.recordId, seq, JSON.stringify(a.payload));
         } catch {
           throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: a.recordId });
         }
-      } else if (!this.raw.get(`select 1 as x from records where record_id=?`, a.recordId)) {
+      } else if (!this.#raw.get(`select 1 as x from records where record_id=?`, a.recordId)) {
         throw new Refusal('RECORD_UNDECLARED', { recordId: a.recordId });
       }
     }
-    this.raw.run(
+    this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
        values(?,?,?,?,?,?,?,?,?,?)`,
-      seq, this.k.space, a.eventType, this.principal.actorId, a.objectId ?? null, a.revision ?? null,
+      seq, this.#k.space, a.eventType, this.principal.actorId, a.objectId ?? null, a.revision ?? null,
       a.recordId ?? null, JSON.stringify(a.payload), a.describedAt ?? null, Date.now(),
     );
     return seq;
@@ -666,7 +685,7 @@ class UnitOfWorkImpl implements UnitOfWork {
   }
 
   linkRef(a: { from: RevisionRef; to: AnyRef; role: string; required?: boolean }): void {
-    this.raw.run(
+    this.#raw.run(
       `insert into ref_edge(from_oid, from_rev, to_oid, to_rev, to_record, role, required) values(?,?,?,?,?,?,?)`,
       a.from.oid, a.from.revision,
       a.to.kind === 'record-ref' ? null : a.to.oid,
@@ -677,34 +696,34 @@ class UnitOfWorkImpl implements UnitOfWork {
   }
 
   recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; recordedAt: CommitSequence; seq: CommitSequence } {
-    const seq = this.k.nextLedgerSeq(this.raw);
+    const seq = this.#k.nextLedgerSeq(this.#raw);
     // 报告本身就是历史事件：与 check_report 同一事务写 ledger 行 + journal epoch。
     // 缺了它 ⇒ (a) 历史真源分裂成"报告表 + 登记表"两处，recorded_as_of 截点看不见报告；
     //         (b) 该 seq 在 ledger 里凭空消失，下一次成功提交会把它当成缺口。
     const isRev = a.target.kind === 'revision-ref';
-    this.raw.run(
+    this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
        values(?,?,?,?,?,?,?,?,?,?)`,
-      seq, this.k.space, 'check-report-recorded', this.principal.actorId,
+      seq, this.#k.space, 'check-report-recorded', this.principal.actorId,
       isRev ? a.target.oid : null, isRev ? a.target.revision : null,
       isRev ? null : (a.target as { recordId: string }).recordId,
       JSON.stringify({ validatorId: a.validatorId, ruleVersion: a.ruleVersion, verdict: a.verdict }),
       null, Date.now(),
     );
-    this.raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`,
-      seq, this.k.space, isRev ? a.target.oid : (a.target as { recordId: string }).recordId, 'check-report');
+    this.#raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`,
+      seq, this.#k.space, isRev ? a.target.oid : (a.target as { recordId: string }).recordId, 'check-report');
     const reportId = `RPT-${seq}`;
     // S-3：报告自身必须有身份。此前 ledger 行的 record_id 只在"目标是记录"时被占用成
     // **目标** id，报告自己既无 records 行也无身份 ⇒ 本空间已提交报告对外恒 OPAQUE、
     // required 的 record-ref 指向报告恒 REQUIRED_REF_MISSING——ID-08"报告可被引用"在机制层不可达。
     // 身份登记是机制事实（谁在何 seq 声明了什么），不含科研语义判定。
     try {
-      this.raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
+      this.#raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
         reportId, seq, JSON.stringify({ validatorId: a.validatorId, ruleVersion: a.ruleVersion, verdict: a.verdict }));
     } catch {
       throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: reportId });
     }
-    this.raw.run(
+    this.#raw.run(
       `insert into check_report(report_id, target_kind, target_oid, target_rev, target_record, validator_id,
         rule_version, schema_version, environment, executed_at, guarantee_scope, verdict, findings_json,
         declared_gaps_json, recorded_seq) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -719,20 +738,20 @@ class UnitOfWorkImpl implements UnitOfWork {
   }
 
   readLatest(oid: ObjectOid): ObjectSnapshot | undefined {
-    const dir = this.raw.get<{ kind: string; owner_capability: string; ns: string }>(
+    const dir = this.#raw.get<{ kind: string; owner_capability: string; ns: string }>(
       `select kind, owner_capability, ns from object_directory where oid=?`, oid,
     );
     if (!dir) return undefined;
-    const ns = routeNs(this.k.registry, dir);
-    const row = this.raw.get<{ revision: number; payload_json: string; recorded_seq: number; contract_version: string }>(
+    const ns = routeNs(this.#k.registry, dir);
+    const row = this.#raw.get<{ revision: number; payload_json: string; recorded_seq: number; contract_version: string }>(
       `select revision, payload_json, recorded_seq, contract_version from domain_state where ns=? and oid=? order by revision desc limit 1`,
       ns, oid,
     );
     if (!row) return undefined;
     // F-EV-R2：与 readRevision 共用同一条判据函数，不搞第二套。
     {
-      const cap = capabilityOfNs(this.k.registry, ns);
-      if (cap) assertContractVersion(cap, this.k.registry.capability(cap)?.contractVersion ?? '', row.contract_version);
+      const cap = capabilityOfNs(this.#k.registry, ns);
+      if (cap) assertContractVersion(cap, this.#k.registry.capability(cap)?.contractVersion ?? '', row.contract_version);
     }
     return {
       oid, kind: dir.kind, revision: row.revision,
@@ -743,27 +762,27 @@ class UnitOfWorkImpl implements UnitOfWork {
   /** 仅机制内部可达（接口上没有此方法）；权威校验在 Kernel.transferRoute。 */
   reassignRouteInternal(cap: CapabilityId, toPlugin: string, ns: string, contractVersion?: string): void {
     // 二次核对（SP-09）：即使有人绕过 Kernel.transferRoute 直接触达本方法，没有 capability-admin 也写不动路由。
-    this.k.assertAuthority(this.principal, 'capability-admin');
-    const cur = this.raw.get<{ plugin_id: string; ns: string; contract_version: string }>(
+    this.#k.assertAuthority(this.principal, 'capability-admin');
+    const cur = this.#raw.get<{ plugin_id: string; ns: string; contract_version: string }>(
       `select plugin_id, ns, contract_version from capability_route where capability=?`, cap,
     );
     if (!cur) throw new Refusal('CAPABILITY_INACTIVE', { capability: cap });
-    const seq = this.k.nextLedgerSeq(this.raw);
-    this.raw.run(
+    const seq = this.#k.nextLedgerSeq(this.#raw);
+    this.#raw.run(
       `update capability_route set plugin_id=?, ns=?, contract_version=?, changed_seq=? where capability=?`,
       toPlugin, ns, contractVersion ?? cur.contract_version, seq, cap,
     );
-    this.raw.run(
+    this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?)`,
-      seq, this.k.space, 'capability-transferred', this.principal.actorId,
+      seq, this.#k.space, 'capability-transferred', this.principal.actorId,
       JSON.stringify({ capability: cap, from: cur.plugin_id, to: toPlugin, fromNs: cur.ns, toNs: ns }), null, Date.now(),
     );
-    this.k.journalEpoch(this.raw, seq, 'capability-transferred');
+    this.#k.journalEpoch(this.#raw, seq, 'capability-transferred');
   }
 
   /** 硬业务完整性引用：事务内确实存在，否则整体回滚（#44 §7.3 / RF-02）。 */
   checkRequiredRefs(): void {
-    const rows = this.raw.all<{
+    const rows = this.#raw.all<{
       from_oid: string; from_rev: number; role: string;
       to_oid: string | null; to_rev: number | null; to_record: string | null;
     }>(
@@ -771,11 +790,11 @@ class UnitOfWorkImpl implements UnitOfWork {
     );
     for (const r of rows) {
       // 源端同样要成立：一条 from 修订不存在的必需边，本身就是不存在的历史在主张约束力。
-      if (!this.raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.from_oid, r.from_rev)) {
+      if (!this.#raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.from_oid, r.from_rev)) {
         throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, revision: r.from_rev, level: 'source' });
       }
       if (r.to_oid !== null) {
-        if (!this.raw.get(`select oid from object_directory where oid=?`, r.to_oid)) {
+        if (!this.#raw.get(`select oid from object_directory where oid=?`, r.to_oid)) {
           throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, role: r.role, to: r.to_oid });
         }
         // S-4：硬引用不得指向**浮动目标**。object-ref 不带修订 ⇒ to_rev 为 NULL ⇒
@@ -792,13 +811,13 @@ class UnitOfWorkImpl implements UnitOfWork {
         }
         // 精确引用要验到修订级：只验 oid 会让"指向不存在的修订"静默提交（RD-05 的精确性在此）。
         if (r.to_rev !== null
-          && !this.raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.to_oid, r.to_rev)) {
+          && !this.#raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.to_oid, r.to_rev)) {
           throw new Refusal('REQUIRED_REF_MISSING', {
             from: r.from_oid, role: r.role, to: r.to_oid, revision: r.to_rev, level: 'revision',
           });
         }
       } else if (r.to_record !== null) {
-        if (!this.raw.get(`select record_id from records where record_id=?`, r.to_record)) {
+        if (!this.#raw.get(`select record_id from records where record_id=?`, r.to_record)) {
           throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, role: r.role, to: r.to_record });
         }
       }

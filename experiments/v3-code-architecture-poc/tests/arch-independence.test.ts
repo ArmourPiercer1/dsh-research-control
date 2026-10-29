@@ -197,9 +197,15 @@ describe('架构独立性硬门', () => {
         return [...out].sort();
       };
       const seen = w.uow(PRINCIPAL('alice'), (tx) => surface(tx as object));
-      const DECLARED = [                       // CONTRACTS.md §6 承诺给插件的封闭集
+      // CONTRACTS.md §6 承诺给插件的封闭集。
+      // **`k` 与 `raw` 原先被列在这里**——那是错的：它们从来不是承诺给插件的成员
+      // （同一文件下方正是用 @ts-expect-error 判它们不在类型面上）。清单又经过 `.sort()`，
+      // 两个名字排进被检的前 8 项，于是这条门禁反过来**要求漏洞必须存在**。
+      // D-16 修复把它们变成 `#` 私有字段后，本条才第一次暴露出清单自身的错误。
+      // 运行时不得出现 k/raw 由下方 `escapes` 断言专门负责，不混进"承诺清单"这条轴。
+      const DECLARED = [
         'declareRecord', 'appendLedger', 'linkRef', 'recordReport', 'createObject', 'revise',
-        'readLatest', 'principal', 'checkRequiredRefs', 'reassignRouteInternal', 'k', 'raw', 'space',
+        'readLatest', 'principal', 'checkRequiredRefs', 'reassignRouteInternal', 'space',
       ].sort();
       // 只要求"承诺的方法一个都不能少"——多出来的是机制内部成员，由上一条门禁限制插件可达性
       for (const m of DECLARED.slice(0, 8)) expect(seen, `契约承诺的 ${m} 不在运行时面上`).toContain(m);
@@ -227,12 +233,11 @@ describe('架构独立性硬门', () => {
         const escapePort = tx.port;
         return [escapeRaw === undefined, escapeKernel === undefined, escapePort === undefined];
       });
-      // D-16（P1，开放）：实测得 [false, false, true] —— `tx.raw`（裸 SQL 句柄）与 `tx.k`
-      // （全量 Kernel 引用）在运行时**确实可达**，只有 `tx.port` 不在。类型面靠 @ts-expect-error
-      // 藏住了它们，运行时没藏住：任何 JS 写的插件、或一次 `as unknown as` 强转，就拿到全库读写。
-      // 按本仓"断言漏洞现状"的既有约定（见 attacks/semantics/stopline-vocabulary-attack.test.ts）
-      // 写下当前值：修复后本条会因值改变而红，强制回来更新。**绝不允许退回恒真式。**
-      expect(escapes).toEqual([false, false, true]);
+      // D-16（已修）：修复前实测为 [false, false, true]——`tx.raw` 与 `tx.k` 运行时可达，
+      // 全靠一条恒真断言把洞盖着。现在两个成员改成 `#` 私有字段，运行时**不存在**该属性。
+      // 本条从"断言漏洞现状"翻正为真判据；若有人退回 TS `private`（只是编译期擦除），
+      // 这里会立刻转红。
+      expect(escapes).toEqual([true, true, true]);
       w.close();
     } finally { try { w.close(); } catch { /* 已关 */ } rmSync(dir, { recursive: true, force: true }); }
   });

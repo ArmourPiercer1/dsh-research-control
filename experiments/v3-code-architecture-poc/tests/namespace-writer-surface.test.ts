@@ -28,7 +28,7 @@ const surface = (x: object): string[] => {
 };
 
 describe('窄面对象的运行时接口面（§14.6 规则 1）', () => {
-  test('PluginFace.writerFor() 返回的对象在运行时携带 k / raw（D-17，开放）', () => {
+  test('PluginFace.writerFor() 返回的对象在运行时不再携带 k / raw（D-17 已修）', () => {
     const dir = mkdtempSync(join(POC_DATA_DIR, 'ns-writer-'));
     const w = openWorld({ file: join(dir, 'w.db'), space: 'SP-NW', grants: { alice: ['space-write'] } });
     try {
@@ -39,9 +39,9 @@ describe('窄面对象的运行时接口面（§14.6 规则 1）', () => {
         const names = surface(writer);
         return ['k', 'raw', 'port'].filter((m) => names.includes(m));
       });
-      // D-17（P1，开放）：按本仓"断言漏洞现状"约定钉住当前实测值（见 attacks/semantics/
-      // stopline-vocabulary-attack.test.ts 的同型处置）。修复后本条会因值改变而红，强制回来更新。
-      expect(leaks).toEqual(['k', 'raw']);
+      // D-17（已修）：修复前实测为 ['k','raw']。NamespaceWriterImpl 改用 `#k`/`#raw` 后，
+      // 交出的实例上这两个名字都不存在（Kernel 侧回读走类内静态 peekRaw，类未导出）。
+      expect(leaks).toEqual([]);
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 });

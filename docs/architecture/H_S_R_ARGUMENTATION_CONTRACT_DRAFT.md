@@ -110,8 +110,10 @@
 | --- | --- | --- |
 | 尚在构造，未得结论 | `@st = ABSENT` | `DRAFT` |
 | 放弃了未完成的构造 | `@st = ABSENT` | `CLOSED_DRAFT` |
-| 研究完成但无定论 | `mode = NONE_DECLARED`，配 `local_outcome = INCONCLUSIVE` | `SUBMITTED` |
+| 研究完成但无定论 | `mode = NONE_DECLARED`，配 `local_outcome = INCONCLUSIVE` | **产生该声明时**为 `SUBMITTED` |
 | 已形成明确命题结论 | 精确 `PropositionRevision` | 按实际生命周期记录 |
+
+**`construction_state` 列的配对是"产生该声明那一刻"的约束，不是此后每个修订都必须满足的永久约束**：已提交论证转 `WITHDRAWN` / `TERMINATED_BY_SCOPE` 是生命周期修订，按 `AR-ID-4` 不改其它状态轴，此时 `NONE_DECLARED` 仍合法、不得因此新增违规（把本列读成永久约束会让每次撤回都凭空产出一条 FAIL）。跨修订校验只要求：`NONE_DECLARED` 一旦出现，其**产生时**的 head 为 `SUBMITTED` 且配 `INCONCLUSIVE`。
 
 **两条转移**：`ABSENT → 明确结论` 沿同一 `ArgumentationID` 追加修订（补全，不产生新论证）；`NONE_DECLARED → 明确结论` 是已声明含义的变化 → 新论证。
 

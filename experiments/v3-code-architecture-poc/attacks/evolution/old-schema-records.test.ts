@@ -103,9 +103,9 @@ function buildOldDb(file: string, requiredEdge: boolean): void {
     insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
       values(2, '${SPACE}', 'object-revised', 'alice', 'OBJ-SP-OLD-1', 2, null, '{}', null, 1001);
     insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
-      values(3, '${SPACE}', 'synth:raw-intake', 'alice', null, null, 'REC-OLD', '{"text":"material","sourceRef":"src"}', 1002);
+      values(3, '${SPACE}', 'synth:raw-intake', 'alice', null, null, 'REC-OLD', '{"text":"material","sourceRef":"src"}', null, 1002);
     insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
-      values(4, '${SPACE}', 'synth:objectified', 'alice', null, null, 'REC-OLD', '{}', 1003);
+      values(4, '${SPACE}', 'synth:objectified', 'alice', null, null, 'REC-OLD', '{}', null, 1003);
     insert into ref_edge(from_oid, from_rev, to_oid, to_rev, to_record, role, required)
       values('OBJ-SP-OLD-1', 1, null, null, 'REC-OLD', 'synth:derived-from', ${requiredEdge ? 1 : 0});
     insert into journal(tx_epoch, ns, oid, op) values(1, 'dom_test_om', 'OBJ-SP-OLD-1', 'state-upsert');

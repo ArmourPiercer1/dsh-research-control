@@ -6,7 +6,7 @@
  * 模型还是实验；把含义写进 payload 是领域的事（#44 §5.3 停线）。
  */
 import { Refusal, type CommitSequence, type ObjectOid, type ReadContextSpec } from '../contracts/index.ts';
-import type { Kernel } from './kernel.ts';
+import { routeNs, type Kernel } from './kernel.ts';
 
 export interface ReadRow { readonly oid: ObjectOid; readonly revision: number; readonly payload: Record<string, unknown>; readonly recordedSeq: CommitSequence }
 export interface ReadResult {
@@ -44,11 +44,29 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
   const during = spec.describedAtOrDuring?.during ?? null;
 
   return k.port.read((raw) => {
+    // 每条状态行都要过**与快照读面同一条** routeNs 判据（F-03 的声明是"读写共用一条判据"，
+    // 而此前只有快照面真的在用它）。两种分歧在这里的形态不同，且都必须与快照面同形：
+    //  · 能力未启用/未装配 ⇒ 快照面报 CAPABILITY_INACTIVE；扫描面没有"这个对象"可报，
+    //    于是把该行剔除——留着就是"禁用期双时间面还在端出对象"（F-24）。
+    //  · 命名空间漂移 ⇒ 快照面报 SCHEMA_INCOMPATIBLE；这里同样抛出，不把旧实现形状的
+    //    payload 交给当前读者（F-03 泄漏面）。
+    const dirs = new Map(raw.all<{ oid: string; owner_capability: string; ns: string }>(
+      `select oid, owner_capability, ns from object_directory`,
+    ).map((d) => [d.oid, d] as const));
+    const serveable = (oid: string): boolean => {
+      const dir = dirs.get(oid);
+      if (!dir) throw new Refusal('CONTEXT_INCOMPLETE', { oid, reason: 'domain_state 有行但 Directory 无登记' });
+      try { routeNs(k.registry, dir); return true; }
+      catch (e) {
+        if (e instanceof Refusal && e.code === 'CAPABILITY_INACTIVE') return false;
+        throw e;
+      }
+    };
     // 第一步：可见性（知识截点）。这一层永远先跑，且与对象时间无关。
     const visible = raw.all<{ oid: string; revision: number; payload_json: string; recorded_seq: number }>(
       `select oid, revision, payload_json, recorded_seq from domain_state where recorded_seq <= ? order by recorded_seq, oid`,
       cutoff,
-    );
+    ).filter((r) => serveable(r.oid));
     // 第二步：对象时间。仅在可见集合上施加。
     const rows = visible
       .map((r) => ({ oid: r.oid as ObjectOid, revision: r.revision, payload: JSON.parse(r.payload_json) as Record<string, unknown>, recordedSeq: r.recorded_seq as CommitSequence }))

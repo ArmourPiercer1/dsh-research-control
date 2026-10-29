@@ -16,8 +16,7 @@ import { join } from 'node:path';
 import { POC_DATA_DIR } from '../../src/harness/paths.ts';
 import { openWorld, PRINCIPAL, type World } from '../../src/harness/world.ts';
 import { Projection } from '../../src/kernel/projection.ts';
-import { ValidationService } from '../../src/domains/test-records.ts';
-import { Refusal, asSpaceId } from '../../src/contracts/index.ts';
+import { Refusal, type ObjectOid } from '../../src/contracts/index.ts';
 
 const SPACE = 'SP-ERA';
 const ALICE = PRINCIPAL('alice');
@@ -73,14 +72,21 @@ describe('evolution attacks: projection across evolution + explainability of his
   test('ruleVersion coexistence: old and new reports are self-describing and the recorded_as_of cut separates their eras (RV-03/RPT-01)', () => {
     const { dir, w } = world('evolution-rules-coexist-');
     try {
-      const vs = new ValidationService(w.kernel);
+      // 直接用机制的报告通道（领域编排层在演进中，不作攻击依赖）
+      const report = (oid: ObjectOid, revision: number, ruleVersion: string, executedAt: number) =>
+        w.uow(ALICE, (tx) => tx.recordReport({
+          target: { kind: 'revision-ref', oid, revision },
+          validatorId: 'synth.claim-checker', ruleVersion, schemaVersion: 'synth-1',
+          environment: 'synth-env', executedAt, guaranteeScope: 'SYNTH-STRUCTURAL-ONLY',
+          verdict: 'ACHIEVED', findings: [], declaredGaps: [],
+        }));
       const oid = w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { text: 'ok' } }));
-      const r1 = vs.run(oid, 1, { actor: 'alice' }, 'v1');
+      const r1 = report(oid, 1, 'v1', 111);
       const row1Before = w.raw.get<{ rule_version: string; verdict: string; findings_json: string }>(
         `select rule_version, verdict, findings_json from check_report where report_id=?`, r1.reportId)!;
       // 对象修订 ⇒ 新规则版本产生**新**报告（RV-03：修订不得改写历史检查）
       w.uow(ALICE, (tx) => { tx.revise(oid, { payload: { text: 'ok-v2' } }); });
-      const r2 = vs.run(oid, 2, { actor: 'alice' }, 'v2');
+      const r2 = report(oid, 2, 'v2', 222);
 
       const rows = w.raw.all<{ report_id: string; rule_version: string; target_rev: number }>(
         `select report_id, rule_version, target_rev from check_report order by recorded_seq`);
@@ -151,7 +157,7 @@ describe('evolution attacks: projection across evolution + explainability of his
         insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
           values(1, '${SPACE}', 'object-registered', 'alice', 'OBJ-${SPACE}-1', 1, null, '{}', null, 1000);
         insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
-          values(2, '${SPACE}', 'synth:raw-intake', 'alice', null, null, 'REC-OLD', '{"text":"material"}', 1001);
+          values(2, '${SPACE}', 'synth:raw-intake', 'alice', null, null, 'REC-OLD', '{"text":"material"}', null, 1001);
         insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
           values(3, '${SPACE}', 'synth:note', 'alice', null, null, null, '{}', null, 1002);
       `);

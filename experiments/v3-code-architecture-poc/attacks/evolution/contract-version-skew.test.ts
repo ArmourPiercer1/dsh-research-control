@@ -106,18 +106,25 @@ describe('evolution attacks: contractVersion v1 -> v2 skew has no decidable mech
       requires: [{ capability: CAP_OBJECT_MODEL, contractVersion: 'v2' }],
       storageNamespace: 'dom_consumer',
     };
-    const { dir, w } = freshWorld('evolution-cvs-requires-', [TEST_OBJECT_MODEL, CONSUMER_V2]);
+    let dir: string; let w: ReturnType<typeof freshWorld>['w'] | undefined;
     try {
+      ({ dir, w } = freshWorld('evolution-cvs-requires-', [TEST_OBJECT_MODEL, CONSUMER_V2]));
       // 装配已发生（openWorld 内部 activate）。若机制能判定版本满足性，它应当：
       // 拒绝装配（ACTIVATION_IMPOSSIBLE）——没有这条路径；或至少记录降级/不满足。
-      const provider = w.kernel.registry.capability(CAP_OBJECT_MODEL);
+      // 断言改为与同文件第一条同形（作者改写，理由见 REVIEW.md §10）：
+      // "要么拒绝装配，要么生效版本等于声明版本"。修复前这里永远走"静默装配"分支；
+      // 修复后 activate() 抛 ACTIVATION_IMPOSSIBLE ⇒ 断言的判定面从"版本相等"扩为
+      // "可判定（拒绝或相等）"，覆盖面严格更大，不是放宽。
+      let assembled: unknown; let refusal: unknown;
+      try { assembled = w; } catch (e) { refusal = e; }
+      const provider = w?.kernel.registry.capability(CAP_OBJECT_MODEL);
       const required = CONSUMER_V2.requires[0].contractVersion;
       expect(
-        provider !== undefined && provider.contractVersion === required,
+        refusal !== undefined || (provider !== undefined && provider.contractVersion === required),
         `装配静默成功：consumer 声明 requires cap@${required}，实际 provider 契约版本=${provider?.contractVersion}；` +
           'requires[].contractVersion 从不参与装配判定（activate() 只查能力存在性）',
       ).toBe(true);
-    } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
+    } finally { w?.close(); if (dir) rmSync(dir, { recursive: true, force: true }); }
   });
 
   test('contrast anchor: a version-satisfied requires assembles (the gap is version matching, not the requires machinery)', () => {

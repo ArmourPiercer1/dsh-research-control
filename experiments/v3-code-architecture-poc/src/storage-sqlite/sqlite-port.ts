@@ -52,6 +52,10 @@ create table if not exists capability_route(
 create table if not exists domain_state(
   ns text not null, oid text not null, revision integer not null,
   payload_json text not null, recorded_seq integer not null,
+  -- 写入时的生效契约版本。空串只允许出现在迁移器回填之前；读面据此判断
+  -- "这份 payload 的形状是不是当前读者能理解的"（F-27）。只比 ns 不比契约版本，
+  -- 就会把旧实现写的形状原样交给新读取器——那是静默错答，不是兼容读取。
+  contract_version text not null default '',
   primary key(ns, oid, revision)
 );
 
@@ -159,7 +163,7 @@ class Adapter implements RawTx {
  *  2. 因此：空库才建表；已有库必须先过版本与表集/触发器集校验，通过后**不再执行任何 DDL**。
  *     任何分歧都 fail-loud，交显式迁移器处理。
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 const REQUIRED_TABLES = [
   'meta', 'ledger', 'records', 'check_report', 'object_directory', 'domain_state',
   'journal', 'capability_route', 'projection_state', 'ref_edge',

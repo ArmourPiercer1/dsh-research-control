@@ -178,7 +178,7 @@ describe('架构独立性硬门', () => {
   });
 
   test('UnitOfWork 的运行时面与契约声明的封闭集一致（契约↔实现漂移探测器）', () => {
-    const w = openWorld({ file: join(dir, 'uow-surface.db'), space: 'SP-1' });
+    const w = openWorld({ file: join(dir, 'uow-surface.db'), space: 'SP-1', grants: { alice: ['space-write'] } });
     try {
       // 方法挂在原型上，Object.keys 只看自有属性 ⇒ 必须沿原型链收集，否则这条门禁是假绿
       const surface = (x: object): string[] => {
@@ -197,8 +197,19 @@ describe('架构独立性硬门', () => {
       ].sort();
       // 只要求"承诺的方法一个都不能少"——多出来的是机制内部成员，由上一条门禁限制插件可达性
       for (const m of DECLARED.slice(0, 8)) expect(seen, `契约承诺的 ${m} 不在运行时面上`).toContain(m);
-      // 反向：机制内部成员必须存在但**不在**插件可见类型面上（类型面由 tsc 把关，这里守住存在性）
-      expect(seen).toContain('reassignRouteInternal');
+      // 反向：机制内部成员在运行时对象上确实存在（沿原型链可见）……
+      for (const m of ['checkRequiredRefs', 'reassignRouteInternal']) expect(seen, `${m} 应在运行时面上`).toContain(m);
+      // ……但它们**不在插件可见的类型面上**：拿 UnitOfWork 类型去碰 SQL 句柄必须是编译错误。
+      // 用 @ts-expect-error 做机验——若哪天有人把它们加进 interface，这行会因"没有错误"而红。
+      w.uow(PRINCIPAL('alice'), (tx) => {
+        // @ts-expect-error raw 属于机制内部，不承诺给插件
+        const escapeRaw = tx.raw;
+        // @ts-expect-error k 是全量 Kernel 引用，不承诺给插件
+        const escapeKernel = tx.k;
+        // @ts-expect-error port / 驱动句柄同样不在插件可见面上
+        const escapePort = tx.port;
+        expect([escapeRaw, escapeKernel, escapePort].every((x) => x === undefined || x !== undefined)).toBe(true);
+      });
       w.close();
     } finally { try { w.close(); } catch { /* 已关 */ } rmSync(dir, { recursive: true, force: true }); }
   });

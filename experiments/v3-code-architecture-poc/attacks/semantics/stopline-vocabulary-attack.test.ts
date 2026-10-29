@@ -82,7 +82,11 @@ describe('S-6 停线命名门 vs 中性词承载的领域判定', () => {
     const src = readFileSync(join(POC_ROOT, 'src/kernel/read-context.ts'), 'utf-8');
     expect(scanSemantics(src)).toEqual([]);
     expect(codeOf('src/kernel/read-context.ts')).toContain('describedAt');
-    expect(scanSemantics(src, EXTENDED)).toEqual(['describedAt']);
+    // B′（位置盲点）：即使把 describedAt 加进禁词表，`r.payload.describedAt` 这种**点前缀
+    // 属性访问**位置也抓不到——扫描器左边界把 `.` 排除在词界之外：
+    expect(scanSemantics(src, EXTENDED)).toEqual([]);
+    // 变异锚点：同一词在对象字面量位置是抓得到的 ⇒ 可见性差异纯属位置，不是词：
+    expect(scanSemantics(`const x = { describedAt: 100 };`, EXTENDED)).toEqual(['describedAt']);
   });
 
   test('B：小写/JSON 键名形态的领域语义对门禁完全不可见', () => {

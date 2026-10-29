@@ -29,7 +29,9 @@ afterAll(() => { w.close(); rmSync(dir, { recursive: true, force: true }); });
 
 describe('多进程并发写同一空间文件', () => {
   test('子进程持写事务时：父进程写被拒（TX_CONTENTION）、读不受阻、子进程未提交行不可见', async () => {
-    const child = spawn(process.execPath, [join(HERE, 'helpers/hold-write-lock.mjs'), file, '3000'], {
+    // 持锁时长必须显著大于 busy_timeout(2000ms)：并发跑整套时调度抖动会吃掉余量，
+    // 3000ms 实测偶发让父进程在子进程提交后才重试 ⇒ 假红。8000ms 留 4 倍余量。
+    const child = spawn(process.execPath, [join(HERE, 'helpers/hold-write-lock.mjs'), file, '8000'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let childOut = '';

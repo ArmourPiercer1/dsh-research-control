@@ -50,7 +50,9 @@ describe('evolution attacks: long plugin lifecycle sequence (split → transfer 
   test('sequence guard: ObjectID / Revision / exact refs / namespace / Facet version stay self-consistent (same-ns split)', () => {
     const { dir, w } = world('evolution-life-guard-', [TEST_OBJECT_MODEL, TEST_FACET_CALIB]);
     try {
-      const facets = new FacetStore(w.kernel, CAP_FACET);
+      // 夹具装配更新（非断言变更）：F-23 之后领域只接窄面 PluginFace，
+      // 构造参数由 Kernel 改为 w.kernel.faceFor(...)。断言一条未动。
+      const facets = new FacetStore(w.kernel.faceFor(CAP_FACET));
       const { a, b } = w.uow(ALICE, (tx) => {
         const a = tx.createObject({ kind: 'test.claim', payload: { text: 'claim' } });
         tx.revise(a, { payload: { text: 'claim-v2' } });

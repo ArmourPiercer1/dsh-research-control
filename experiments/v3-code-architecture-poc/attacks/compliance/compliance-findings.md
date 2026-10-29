@@ -10,13 +10,17 @@
 - 已审提交链（审查期间 HEAD 从 `ec07538` 推进到 `6ec6852`）：
   `f9a6c86`（第 1 轮 5 处 P1 修复）→ `4ab5cf6`（复审/演化 4 处，F-14 改判 P0）→
   `0af67e2` / `afdba51` / `c76da3a` / `b914125` / `30dc739` / `6ec6852`（入档与守卫回归）。
-- 最终核验时点：**2026-10-30 00:09:03，HEAD = `6ec6852`，工作树含 14 个 M + 5 个未跟踪**
-  （第 3 轮修复进行中：`attacks/evolution/`、`attacks/semantics/`、`tests/schema-evolution.test.ts`
-  等正在被创建/改写）。本文 findings 以"HEAD `6ec6852` + 该时点工作树"为锚；
+- 最终核验时点：**2026-10-30 00:15:13，HEAD = `2284a99`**（第 3 轮演化/语义席位收口提交：
+  窄面 `PluginFace` + 三处领域越界已修，7 个新攻击文件 + `multiprocess`/`schema-evolution`
+  入库，2228 行插入），工作树另有 4 个 M + 1 个未跟踪（`lifecycle-sequence`、
+  `stopline-vocabulary-attack`、`kernel.ts`、`read-context.ts`、`xc28-dual-source-attack`
+  仍在迭代）。本文 findings 以"HEAD `2284a99` + 该时点工作树"为锚；
   进行中修复以【在途】标注，不作为定论。
-- 时点快照（sha256）见 `SNAPSHOT-235458.txt` 与本文件末附；关键文件：
-  `kernel.ts=55401efe…`、`read-context.ts=c70218c4…`、`sqlite-port.ts=72ed2619…`、
-  `CONTRACTS.md=b614e6ae…`、`RECONCILIATION.md=bd48ea86…`、`EVIDENCE.md=8b8698a0…`（00:09:03 时点值）。
+- 套件终态（00:15:13 实跑，`pnpm run test:poc:arch`，exit 1）：
+  **`Test Files 9 failed | 15 passed (24) / Tests 18 failed | 111 passed (129)`**。
+  18 红全部来自第 3 轮新攻击文件（F-24/25/26/27/28/29/30 + 在途 xc28），作者测试文件与前
+  两轮审查文件全绿；红项在 `REVIEW.md` §9 逐条如实登记为"本轮未修复，如实登记"。
+- 时点快照（sha256）见 `SNAPSHOT-001513.txt`。
 
 ## 1. 前 6 条主张的复核结论（对应 `REVIEW.md` §8 / `ASSESSMENT.md` §3 的逐条核验）
 
@@ -44,18 +48,20 @@
   git log --all --oneline -- 'experiments/v3-code-architecture-poc/attacks/evolution/*'  # 空
   grep -n "演化攻击例" REVIEW.md                        # :44 F-15 行
   ```
-- 根因：F-15 的演化攻击文件（手造缺 `records` 旧库 ⇒ `SCHEMA_UPGRADE_REQUIRED`）从未被提交；
-  `REVIEW.md` 台账把"演化攻击例 + 新库可正常打开的反差锚点"整体记为回归，但树内只存留下
-  反差锚点（`tests/sql-guard.test.ts` "F-15 反差" 一例）。版本/表集/触发器集不匹配的
-  三个 throw 分支因此无测试保护，属于"作者自称修好不算证据"的同类情形。
-- 最小修法：把手造旧库的负例提交进 `tests/` 或 `attacks/evolution/`（一个负例 + 现有反差锚点即可）。
-- 回归测试：即该负例本身（建议断言三要素：无版本标记 / 版本不符 / 版本对但缺表，各抛
-  `SCHEMA_UPGRADE_REQUIRED` 且 detail 含 `missingTables`/`expectedVersion`）。
-- 【在途】00:09 时点观察到 `attacks/evolution/old-schema-{counters,records}.test.ts`、
-  `tests/schema-evolution.test.ts` 正在创建（且 `schema-evolution.test.ts` 已 grep 命中
-  `SCHEMA_UPGRADE_REQUIRED`），并引出更深一层缺口（"模式新、历史旧"：`records` 出现前经
-  `ledger.record_id` 声明的记录 ⇒ `readRecord` 静默 undefined ⇒ 必需 record-ref 永判缺失）。
-  若该轮按台账纪律提交并复审，本条可关闭；**在提交与独立复审之前，本条成立**。
+- 根因：F-15 的演化攻击文件（手造缺 `records` 旧库 ⇒ `SCHEMA_UPGRADE_REQUIRED`）在
+  `6ec6852` 及之前的 HEAD 上从未被提交；`REVIEW.md` 台账把"演化攻击例 + 新库可正常打开的
+  反差锚点"整体记为回归，但树内只存留下反差锚点（`tests/sql-guard.test.ts` "F-15 反差"
+  一例）。版本/表集/触发器集不匹配的 throw 分支因此无测试保护，属于"作者自称修好不算
+  证据"的同类情形。
+- 最小修法：手造旧库的负例须以**可判读的红→绿**形态进入回归资产：负例断言
+  `SCHEMA_UPGRADE_REQUIRED`（detail 含 `missingTables`/`missingTriggers`/`expectedVersion`），
+  并与现有反差锚点（新库正常打开、模式不再被重写）成对。
+- 【已部分落位，仍未收口】`2284a99` 已把 `attacks/evolution/old-schema-{records,counters}.test.ts`
+  与 `tests/schema-evolution.test.ts` 入库，但 00:15 实跑中它们仍红（计入 18 红）：
+  F-28（5 红）`REVIEW.md` §9 自认"夹具自身有缺陷（insert 9 值对 10 列）…其结论无法从当前
+  红测试读出，必须由复审员在修正夹具后重判"；F-29（2 红）断言仍写修复前形态，"改写权在
+  审查方，作者不改"。**红不等于回归：在夹具修复、断言改写为修复后形态并转绿之前，
+  F-15 的"打开期模式契约"分支仍无有效回归证明，本条成立。**
 
 ### P2-C1 — "46 个规则号"计数不可复现
 

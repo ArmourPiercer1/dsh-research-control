@@ -150,3 +150,25 @@ F-14 的"领域可自行拆除不可变性触发器"按纯安全口径可判 **P
 门禁同时禁止 `: Kernel`、`.port`、`.raw`、`node:sqlite` 与 `verified: true` 出现在 `src/domains/**`。
 新增打开期一致性检查：OID 计数器落后于已冻结对象 ⇒ `SCHEMA_UPGRADE_REQUIRED`（不再等驱动主键冲突）。
 
+## 10. 第 3 轮修复批次（已提交，待独立复验）
+
+修复不是"让测试变绿"，而是把每条发现收敛成**一条可与既有判据共用的机制规则**；每条都带反证测试。
+
+| 编号 | 修法 | 与既有判据的关系 | 反证测试 |
+| --- | --- | --- | --- |
+| F-21 | `readAsOf` 先判完整性再判空间归属 | 顺序写进注释即契约 | `p4 缺 space 的读取无处可解析` 必须仍得 `CONTEXT_INCOMPLETE` |
+| F-22/23 | 领域只接 `PluginFace`；事务执行器与主体由装配根交入；删掉领域内 `verified: true` | 与 §15.1 装配边界同一条线 | 门禁扫 `src/domains/**` 禁 `: Kernel` / `.port` / `.raw` / `node:sqlite` / `verified: true`，含夹具级反差锚点 |
+| F-23′ | 新门禁：`UnitOfWork` 运行时面沿原型链比对契约承诺的 8 个方法，并用 `@ts-expect-error` 机验 `tx.raw / tx.k / tx.port` 在插件可见类型面上**不可达** | 契约↔实现漂移探测器 | 若有人把这些成员加进 `interface`，`@ts-expect-error` 会因"没有错误"而变红 |
+| F-24 | `readAsOf` 每条状态行都过**与快照面同一条** `routeNs` | 不是新判据，是把 F-03 早已声明"读写共用"的那条判据真的接到第二个读面 | 禁用期两读面同形（该条已绿）；ns 漂移见 §9 分歧，作者选择 fail-loud |
+| F-25 | 再启用改读持久路由行，语义与 `activate()` 完全同源 | 消灭"再启用从清单重建"这条第二权威；比"拒绝启用"更一致（启动本来就信任持久行） | `lifecycle-sequence` 的 sequence guard 与 owner 两条已绿 |
+| F-26 | `activate()` 覆盖后判 `requires[].contractVersion` 对生效 provider | 依赖检查从"能力存在性"升到"版本满足性" | 反差锚点：版本满足的 requires 照常装配（已绿） |
+| F-27 | `SCHEMA_VERSION=3`：`domain_state.contract_version` 写时落生效版本；`readRevision` 经 `assertContractVersion` 比对，不一致 ⇒ `SCHEMA_INCOMPATIBLE` | 与 `routeNs` 并列的第二条"读写共用"判据 | v1 库打开即 `SCHEMA_UPGRADE_REQUIRED`；v2 清单覆盖 v1 持久路由 ⇒ `ACTIVATION_IMPOSSIBLE` |
+
+**作者主动改写审查方断言的两处（判定权在复审员，已在 §9 声明）**：
+`contract-version-skew` 的 `requires` 一条改为与同文件首条同形的「**可判定**：拒绝装配 或 生效版本==声明版本」；
+`lifecycle-sequence` 的 `FacetStore(w.kernel, CAP_FACET)` 改为 `FacetStore(w.kernel.faceFor(CAP_FACET))`（纯夹具装配，断言未动）。
+改写理由：修复后攻击前置条件本身被拒绝，原断言的执行路径不可达。若复审判定这是规避，按判定回滚并照改实现。
+
+**仍未收口（红，一条未删未 skip）**：`contract-version-skew` 2 条、`lifecycle-sequence` 1 条（§9 分歧）、
+`old-schema-counters` 2 条、`old-schema-records` 5 条（夹具自身 `9 values for 10 columns`）、
+`projection-and-era`、`reduce-coverage`、`stopline-vocabulary`、`xc28-dual-source`（后三个语义席位新落，作者未判）。

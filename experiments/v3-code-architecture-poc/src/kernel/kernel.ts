@@ -114,6 +114,8 @@ export class CapabilityRegistry {
   }
 
   allManifests(): readonly PluginManifest[] { return [...this.manifests.values()]; }
+  /** 生效路由的只读快照：判据要读实际生效的是谁，不是清单声明了谁。 */
+  routes(): readonly ActivatedCapability[] { return [...this.caps.values()]; }
   setRoute(cap: CapabilityId, route: ActivatedCapability): void { this.caps.set(cap, route); }
   dropRoute(cap: CapabilityId): void { this.caps.delete(cap); }
   ownerOfKind(kind: ObjectKindLabel): ActivatedCapability | undefined {
@@ -142,6 +144,25 @@ export class CapabilityRegistry {
  * Capability→实现映射漂移时 fail-loud：换包未迁移不得静默变空（#44 §11）。
  * 读写路径共用这一条判据，避免出现"写得进读不出"的两套实现。
  */
+/** 命名空间 → 能力（写侧落契约版本时用；反向映射的唯一来源是路由表）。 */
+export function capabilityOfNs(registry: CapabilityRegistry, ns: string): CapabilityId | undefined {
+  for (const c of registry.routes()) if (c.storageNamespace === ns) return c.capability;
+  return undefined;
+}
+
+/**
+ * 读面的契约版本判据：行上记录的版本与当前生效版本不同 ⇒ fail-loud。
+ * 与 routeNs 并列，是第二条"读写共用"的判据；缺它就是把旧形状 payload 静默交给新读者。
+ */
+export function assertContractVersion(capability: CapabilityId, effective: string, recorded: string): void {
+  if (recorded !== '' && recorded !== effective) {
+    throw new Refusal('SCHEMA_INCOMPATIBLE', {
+      capability, recordedContractVersion: recorded, effectiveContractVersion: effective,
+      reason: '该行由不同契约版本的实现写入，形状不由当前读者保证',
+    });
+  }
+}
+
 export function routeNs(registry: CapabilityRegistry, dir: { owner_capability: string; ns: string }): string {
   const cap = registry.capability(dir.owner_capability);
   if (!cap) throw new Refusal('CAPABILITY_INACTIVE', { capability: dir.owner_capability });
@@ -224,6 +245,30 @@ export class Kernel {
         }
       }
     });
+    // 装配期的两条契约版本判定（F-26 / F-27）。放在覆盖之后，判的是**生效路由**而非清单意图。
+    for (const m of this.registry.allManifests()) {
+      for (const r of m.requires) {
+        const eff = this.registry.capability(r.capability);
+        if (!eff) continue;                       // 能力缺失由 registry.activate() 的既有检查负责
+        if (r.contractVersion !== undefined && eff.contractVersion !== r.contractVersion) {
+          throw new Refusal('ACTIVATION_IMPOSSIBLE', {
+            plugin: m.pluginId, capability: r.capability, reason: 'requires 声明的契约版本与生效 provider 不符',
+            required: r.contractVersion, effective: eff.contractVersion,
+          });
+        }
+      }
+      for (const p of m.provides) {
+        const eff = this.registry.capability(p.capability);
+        // 只在"持久路由的所有者就是本清单"时比对：换所有者是移交（transferRoute）的职责，不由这里判。
+        if (eff && eff.pluginId === m.pluginId && eff.contractVersion !== p.contractVersion) {
+          throw new Refusal('ACTIVATION_IMPOSSIBLE', {
+            capability: p.capability, owner: m.pluginId,
+            reason: '同一实现换了契约版本：先迁移数据，再显式移交路由，不允许静默改版本',
+            persistedContractVersion: eff.contractVersion, declaredContractVersion: p.contractVersion,
+          });
+        }
+      }
+    }
     this.activated = true;
   }
 
@@ -235,11 +280,13 @@ export class Kernel {
       );
       if (!dir) return undefined;
       const ns = routeNs(this.registry, dir);
-      const row = raw.get<{ revision: number; payload_json: string; recorded_seq: number }>(
-        `select revision, payload_json, recorded_seq from domain_state where ns=? and oid=? and revision=?`,
+      const row = raw.get<{ revision: number; payload_json: string; recorded_seq: number; contract_version: string }>(
+        `select revision, payload_json, recorded_seq, contract_version from domain_state where ns=? and oid=? and revision=?`,
         ns, ref.oid, ref.revision,
       );
       if (!row) return undefined;
+      // 第二条读写共用判据（F-27）：这一行是谁写的版本，必须与当前生效版本一致才交出去。
+      assertContractVersion(dir.owner_capability, this.registry.capability(dir.owner_capability)!.contractVersion, row.contract_version);
       return { oid: ref.oid, kind: dir.kind, revision: row.revision, payload: JSON.parse(row.payload_json), recordedSeq: row.recorded_seq as CommitSequence };
     });
   }
@@ -270,12 +317,19 @@ export class Kernel {
       this.journalEpoch(tx.raw, seq, enabled ? 'capability-enabled' : 'capability-disabled');
     // 装卸同样是运维权威轴（SP-09），不得只凭 space-write。
     }, 'capability-admin');
-    if (enabled) {
-      for (const m of this.registry.allManifests()) {
-        const p = m.provides.find((x) => x.capability === cap);
-        if (p) this.registry.setRoute(cap, { capability: cap, pluginId: m.pluginId, contractVersion: p.contractVersion, storageNamespace: m.storageNamespace });
-      }
-    } else this.registry.dropRoute(cap);
+    if (!enabled) { this.registry.dropRoute(cap); return; }
+    // 再启用与 activate 用**同一条**权威判据：持久路由行本身（F-01：所有者是空间状态，
+    // 不是装配期输入）。此前这条路径从"已加载的清单"重建路由 ⇒ 内存所有者与 DB 所有者背离，
+    // ledger 里没有任何移交登记，重启后却"悄悄换人"。
+    // 语义与启动一致：持久行指向的实现哪怕没在本次清单里，也照样以持久行为准（数据就写在那里），
+    // 而不是退回清单——退回清单才是不动声色的权限转移。
+    const row = this.port.read((raw) => raw.get<{ plugin_id: string; ns: string; contract_version: string }>(
+      `select plugin_id, ns, contract_version from capability_route where capability=? and enabled=1`, cap,
+    ));
+    if (!row) throw new Refusal('ACTIVATION_IMPOSSIBLE', { capability: cap, reason: '持久路由缺失或仍未启用' });
+    this.registry.setRoute(cap, {
+      capability: cap, pluginId: row.plugin_id, contractVersion: row.contract_version, storageNamespace: row.ns,
+    });
   }
 
   /**
@@ -432,8 +486,9 @@ class NamespaceWriterImpl implements NamespaceWriter {
     }
     const seq = this.k.nextLedgerSeq(this.raw);
     this.raw.run(
-      `insert into domain_state(ns, oid, revision, payload_json, recorded_seq) values(?,?,?,?,?)`,
+      `insert into domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version) values(?,?,?,?,?,?)`,
       a.ns, a.oid, a.revision, JSON.stringify(a.payload), seq,
+      (() => { const c = capabilityOfNs(this.k.registry, a.ns); return c ? this.k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
     );
     // 扩展记录的变更同样进 H（#44 §6.2：Facet 需要自己的 H 追溯）
     this.raw.run(
@@ -471,8 +526,8 @@ class UnitOfWorkImpl implements UnitOfWork {
       oid, this.k.space, a.kind, owner.capability, owner.storageNamespace, seq,
     );
     this.raw.run(
-      `insert into domain_state(ns, oid, revision, payload_json, recorded_seq) values(?,?,?,?,?)`,
-      owner.storageNamespace, oid, 1, JSON.stringify(a.payload), seq,
+      `insert into domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version) values(?,?,?,?,?,?)`,
+      owner.storageNamespace, oid, 1, JSON.stringify(a.payload), seq, owner.contractVersion,
     );
     // 登记序属机制事实（"何时被系统记录"），不是领域事件解释（#44 §7.1）。
     this.raw.run(

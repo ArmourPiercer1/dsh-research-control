@@ -54,6 +54,7 @@
 | `docs/architecture/OPEN_DESIGN_QUESTIONS.md` | Proposed |
 | `docs/architecture/POC_IMPLEMENTATION_PLAN.md` | Proposed |
 | `docs/architecture/README.md` | Proposed |
+| `docs/architecture/V3_CODE_ARCHITECTURE_DRAFT.md` | Proposed |
 | `docs/architecture/V3_IMPLEMENTATION_CONTRACT-DRAFT.md` | Proposed |
 | `docs/architecture/W3C_ALIGNMENT.md` | Proposed |
 | `docs/architecture/adr/D13_OPEN_WORLD_REGISTRY.md` | Proposed |

@@ -113,8 +113,10 @@ describe('P1 单空间跨插件 Unit-of-Work 原子性', () => {
       w.uow(ALICE, (tx) => { tx.createObject({ kind: 'test.claim', payload: { label: 'blocked' } }); });
     } catch (e) { busy = e as { code?: string; errcode?: number; message: string }; }
     other.raw.run(`commit;`);
-    expect(busy?.errcode).toBe(5);
-    expect(String(busy?.message)).toMatch(/locked/);
+    // 机制层必须给出可判定的语义（可重试），驱动码只作为证据保留在 detail 内。
+    expect(busy?.code).toBe('TX_CONTENTION');
+    expect((busy as unknown as { detail: Record<string, unknown> }).detail.driverErrcode).toBe(5);
+    expect((busy as unknown as { detail: Record<string, unknown> }).detail.retryable).toBe(true);
     expect(w.raw.get<{ c: number }>(`select count(*) c from object_directory where kind='test.claim'`)!.c).toBe(0);
     other.close();
     w.close();

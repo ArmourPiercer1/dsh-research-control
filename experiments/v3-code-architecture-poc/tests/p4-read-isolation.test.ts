@@ -159,4 +159,48 @@ describe('P4 读取上下文 / 空间隔离 / 滞后投影', () => {
     expect('affected' in r).toBe(false);
     w.close();
   });
+
+  test('缓存不是跨空间出口：另一空间的 Kernel 无法从任何缓存层命中（SP-01）', () => {
+    const a = mk('p4-cacheA', 'SP-1');
+    const b = mk('p4-cacheB', 'SP-2');
+    const secret = a.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { label: '私有' } }));
+    // 先在 A 侧把对象读进"缓存"（投影 + 快照读面）
+    const pa = new Projection(a.kernel, 'test.cache');
+    pa.catchUp();
+    expect(pa.indexQuery('test.claim').oids).toContain(secret);
+    // B 侧独立 Kernel：全新投影 + 快照 + 呈现，四条缓存性出口都不得命中
+    const pb = new Projection(b.kernel, 'test.cache');
+    pb.catchUp();
+    expect(pb.indexQuery('test.claim').oids).not.toContain(secret);
+    expect(b.kernel.readSnapshot(secret)).toBeUndefined();
+    expect(b.kernel.impactCandidates(secret, 1).candidates).toEqual([]);
+    // 投影名相同也不共享：命名空间按 Kernel 隔离
+    expect(pb.status().watermark).toBe(0);
+    a.close(); b.close();
+  });
+
+  test('被截断的读取必须自带 partial 标注，不得报"没有更多"（C12、CS-24、IC-P5）', () => {
+    const w = mk('p4-partial');
+    // 投影必须在写入之前建立，这样 baseline=0，之后的 Journal 缺口才落在"会被使用"的区间内。
+    const proj = new Projection(w.kernel, 'test.idx');
+    for (let i = 0; i < 5; i++) w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { i } }));
+    const all = readAsOf(w.kernel, ctx(w));
+    const limited = readAsOf(w.kernel, ctx(w), { limit: 2 });
+    expect(all.rows.length).toBe(5);
+    expect(limited.rows.length).toBe(2);
+    expect(limited.echo.truncated).toBe(true);          // 截断必须显式声明
+    expect(limited.echo.moreRows).toBe(true);
+    // 未截断时必须如实报 false，否则 partial 标注就失去了区分力
+    expect(all.echo.truncated).toBe(false);
+    // 缺口与滞后是两种不同状态，都必须可判定（不得当成"空结果"）
+    expect(proj.indexQuery('test.claim').status).toBe('STALE');   // 尚未续跑 ⇒ 滞后
+    proj.catchUp();
+    expect(proj.indexQuery('test.claim').status).toBe('FRESH');
+    w.raw.run(`delete from journal where tx_epoch=3`);   // 缺口落在 baseline 之上
+    const afterGap = proj.indexQuery('test.claim');
+    expect(afterGap.status).toBe('STALE');              // 缺口 ⇒ 不得报 FRESH
+    expect(() => proj.catchUp()).toThrow(/FULL_REBUILD_REQUIRED/);
+    w.close();
+  });
 });
+

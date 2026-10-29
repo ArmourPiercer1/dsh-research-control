@@ -12,12 +12,20 @@ export interface ReadRow { readonly oid: ObjectOid; readonly revision: number; r
 export interface ReadResult {
   readonly rows: readonly ReadRow[];
   /** T-05：任何结果都要回显它实际使用的两个时间与是否采用了默认截点。 */
-  readonly echo: { readonly usedRecordedAsOf: CommitSequence; readonly usedDescribedAt: number | null; readonly recordedAsOfWasDefaulted: boolean; readonly mode: string };
+  readonly echo: {
+    readonly usedRecordedAsOf: CommitSequence;
+    readonly usedDescribedAt: number | null;
+    readonly recordedAsOfWasDefaulted: boolean;
+    readonly mode: string;
+    /** 截断必须显式声明：空/短结果不得被读成"没有更多"（C12、CS-24、IC-P5）。 */
+    readonly truncated: boolean;
+    readonly moreRows: boolean;
+  };
 }
 
 const REQUIRED_FIELDS = ['space', 'principal', 'mode', 'consistency'] as const;
 
-export function readAsOf(k: Kernel, spec: ReadContextSpec): ReadResult {
+export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly limit: number }): ReadResult {
   if (!spec || typeof spec !== 'object') {
     throw new Refusal('CONTEXT_INCOMPLETE', { missing: [...REQUIRED_FIELDS] });
   }
@@ -47,6 +55,13 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec): ReadResult {
         if (during) return typeof t === 'number' && t >= during[0] && t <= during[1];
         return true;
       });
-    return { rows, echo: { usedRecordedAsOf: cutoff, usedDescribedAt: described, recordedAsOfWasDefaulted: defaulted, mode: spec.mode } };
+    const truncated = page !== undefined && rows.length > page.limit;
+    return {
+      rows: truncated ? rows.slice(0, page.limit) : rows,
+      echo: {
+        usedRecordedAsOf: cutoff, usedDescribedAt: described, recordedAsOfWasDefaulted: defaulted,
+        mode: spec.mode, truncated, moreRows: truncated,
+      },
+    };
   });
 }

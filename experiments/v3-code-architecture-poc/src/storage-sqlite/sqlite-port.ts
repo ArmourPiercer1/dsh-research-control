@@ -8,6 +8,7 @@
  *  - `journal` 允许删除与压缩 ⇒ 它不是 H（#44 §7.4），缺口由 Kernel 的游标校验暴露。
  */
 import { DatabaseSync } from 'node:sqlite';
+import { Refusal } from '../contracts/index.ts';
 import type { RawTx, StoragePort } from '../contracts/index.ts';
 import { assertInsidePocData } from '../harness/paths.ts';
 
@@ -118,9 +119,14 @@ export class SqlitePort implements StoragePort {
     this.failBeforeCommit = opts.failBeforeCommit;
   }
 
+  /**
+   * 单事务边界：`begin immediate` 让写冲突在开始时而非提交时才暴露，但**仍**可能提交期
+   * 拿不到写锁（实测 SQLITE_BUSY errcode=5，等待 busy_timeout 后失败且无部分提交）。
+   */
   tx<T>(fn: (raw: RawTx) => T): T {
-    this.db.exec('begin immediate;');
     try {
+      // begin 本身也可能因写锁失败 ⇒ 必须在同一个 try 内，才能走同一条翻译路径。
+      this.db.exec('begin immediate;');
       const r = fn(this.adapter);
       if (this.failBeforeCommit) {
         const e = this.failBeforeCommit;
@@ -131,7 +137,7 @@ export class SqlitePort implements StoragePort {
       return r;
     } catch (e) {
       try { this.db.exec('rollback;'); } catch { /* 已隐式回滚 */ }
-      throw e;
+      throw translate(e);   // 驱动词汇不得越过 Storage Port 边界
     }
   }
 
@@ -145,4 +151,18 @@ export class SqlitePort implements StoragePort {
   get raw(): RawTx { return this.adapter; }
 
   get file(): string { return this.opts.file; }
+}
+
+/**
+ * 驱动错误 → 机制拒绝码。Storage Port 是**唯一**允许出现 SQLite 错误码的地方；
+ * 上层拿到的必须是可判定的机制语义（含"可否重试"），而不是需要反推的驱动异常。
+ */
+function translate(e: unknown): unknown {
+  const err = e as { errcode?: number; code?: string; message?: string };
+  if (err?.errcode === 5 || err?.errcode === 6) {   // SQLITE_BUSY / SQLITE_LOCKED
+    return new Refusal('TX_CONTENTION', {
+      retryable: true, driverErrcode: err.errcode, driverMessage: String(err.message ?? '').slice(0, 120),
+    });
+  }
+  return e;
 }

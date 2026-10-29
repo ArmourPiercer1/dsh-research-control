@@ -20,6 +20,18 @@ export interface ReadResult {
     /** 截断必须显式声明：空/短结果不得被读成"没有更多"（C12、CS-24、IC-P5）。 */
     readonly truncated: boolean;
     readonly moreRows: boolean;
+    /**
+     * 空结果的第二种成因必须与"没有对象"分开（F-24 残余，C12/T-05）。
+     * 只给**数量**不给 oid：调用方需要知道"这个空是被禁用态遮出来的"，
+     * 但列出被遮对象会把隐藏内容本身泄露出去。
+     */
+    readonly hiddenByInactiveCapability: number;
+    /**
+     * S-2：时间谓词命中零行时，"区间内确实没有"与"对象时间根本不叫这个键"
+     * 是两件事。形状检查（可见行里有没有顶层数字 `describedAt`）能区分二者，
+     * 且只看形状不解释含义 ⇒ 仍是机制判定，不是科研语义。
+     */
+    readonly timeFieldMissing: boolean;
   };
 }
 
@@ -33,7 +45,6 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
   if (missing.length > 0) throw new Refusal('CONTEXT_INCOMPLETE', { missing });
   // 完整性先判（缺字段是调用方错误），再判跨空间：否则缺 space 的请求会得到 CROSS_SPACE_REFUSED，
   // 把"你没填全"误报成"你不该看这里"。顺序本身就是契约。
-  if (spec.space !== k.space) throw new Refusal('CROSS_SPACE_REFUSED', { requested: spec.space, owned: k.space });
   // 一个 Kernel 只服务一个空间：让 SP-1 的 Kernel 去解析 SP-2 是上下文错误，不是数据查询。
   if (spec.space !== k.space) throw new Refusal('CROSS_SPACE_REFUSED', { requested: spec.space, owned: k.space });
 
@@ -53,12 +64,13 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
     const dirs = new Map(raw.all<{ oid: string; owner_capability: string; ns: string }>(
       `select oid, owner_capability, ns from object_directory`,
     ).map((d) => [d.oid, d] as const));
+    let hiddenByInactive = 0;
     const serveable = (oid: string): boolean => {
       const dir = dirs.get(oid);
       if (!dir) throw new Refusal('CONTEXT_INCOMPLETE', { oid, reason: 'domain_state 有行但 Directory 无登记' });
       try { routeNs(k.registry, dir); return true; }
       catch (e) {
-        if (e instanceof Refusal && e.code === 'CAPABILITY_INACTIVE') return false;
+        if (e instanceof Refusal && e.code === 'CAPABILITY_INACTIVE') { hiddenByInactive += 1; return false; }
         throw e;
       }
     };
@@ -76,12 +88,19 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
         if (during) return typeof t === 'number' && t >= during[0] && t <= during[1];
         return true;
       });
+    // S-2：只有在"有可见行、但没有任何一行带顶层数字 describedAt"时才声明形状缺失；
+    // 可见集本身为空时不适用（那时空结果的成因是截点，不是键名）。
+    const timePredicateActive = described !== null || during !== null;
+    const timeFieldMissing = timePredicateActive && rows.length === 0
+      && visible.length > 0
+      && !visible.some((r) => typeof (JSON.parse(r.payload_json) as Record<string, unknown>).describedAt === 'number');
     const truncated = page !== undefined && rows.length > page.limit;
     return {
       rows: truncated ? rows.slice(0, page.limit) : rows,
       echo: {
         usedRecordedAsOf: cutoff, usedDescribedAt: described, recordedAsOfWasDefaulted: defaulted,
         mode: spec.mode, truncated, moreRows: truncated,
+        hiddenByInactiveCapability: hiddenByInactive, timeFieldMissing,
       },
     };
   });

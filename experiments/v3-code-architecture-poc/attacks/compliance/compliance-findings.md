@@ -140,7 +140,8 @@
 
 ### P2-C7 — 代码注释引用了台账里不存在的 F-16
 
-- 位置：`src/storage-sqlite/sqlite-port.ts:107`（"见 `REVIEW.md` F-16/F-17"）。
+- 位置：`src/storage-sqlite/sqlite-port.ts:160`（"见 `REVIEW.md` F-16/F-17"；`2284a99` 增补
+  `migrateLegacyRecords` 后行号自 107 下移）。
 - 复现：`grep -rn "F-16" *.md src/ tests/ attacks/` → 仅该注释自身命中；`REVIEW.md` 编号为
   F-10..F-15、F-17、F-18、F-14′、F-14″，无 F-16（演化轴发现记为 F-15）。
 - 最小修法：注释改为 "F-15/F-17"。

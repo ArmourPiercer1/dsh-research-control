@@ -50,6 +50,17 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 | `attacks/review/`（P1 修复复审） | 5 | 第 1 轮修复完整性：报告三件套同滚、源端修订、守卫绕过（注释前缀/多语句）、目标 manifest |
 | `tests/arch-independence.test.ts` | 7 | 任务硬约束「Kernel 不包含科研语义判定规则」+ 依赖方向 + 领域插件扩展不需改 Kernel（面哈希）+ 五类 kind 路由 + 必需依赖成环拒绝 |
 
+## 2b. 第 3 轮红测试的逐条归属（不得笼统说"剩余问题"）
+
+| 红文件 | 判定 | 依据 |
+| --- | --- | --- |
+| `evolution/old-schema-records` 5 红 | 夹具自身 `9 values for 10 columns`，且现在被打开期 `SCHEMA_UPGRADE_REQUIRED` 先拦住 ⇒ 断言写的是修复前形态，**结论不可从当前红测试读出** | `REVIEW.md` §9 F-28；作者独立复现见 `tests/schema-evolution.test.ts`（检出 + 显式迁移器，3 条全绿） |
+| `evolution/old-schema-counters` 2 红 | **路劲已封**：缺 `schema_version` 即拒绝打开，另加 OID 计数器落后检查；断言仍写"打开成功然后撞号" | `REVIEW.md` §9 F-29，改写权在审查方 |
+| `evolution/contract-version-skew` 2 红 | 攻击前置条件已被装配期拒绝，攻击构造不出来；断言编码修复前静默装配 | `REVIEW.md` §9 F-26/F-27、§10 |
+| `evolution/lifecycle-sequence` 2 红（流动） | 1 条为语义分歧（ns 漂移：作者 fail-loud vs 审查方要求返回 0 行），1 条待复审判定 | `REVIEW.md` §9 F-24、`CONTRACTS.md` §12b |
+| `evolution/projection-and-era` 1 红 | era 前置条件被打开期拒绝 | `REVIEW.md` §11.1 |
+| `semantics/stopline-vocabulary` 1 红 | **成立**，确认缺陷 F-31（词汇门禁被 `WITHHELD_REFERENCE`／小写／JSON 键名绕过）；本轮不改，避免替换正在被审计的对象 | `REVIEW.md` §11.3 |
+
 ## 3. 关键实测现象（不是类型签名推断）
 
 > **[实测] 的作用域**：指"断言跑在真实 `node:sqlite` 文件上且可复跑"。它**不**自动蕴含多进程
@@ -141,7 +152,8 @@ exit=0
 | 架构独立性门禁首跑 | **红** | `2 failed`：Kernel 面基线未重生成；可选依赖成环被误判为不可装配 |
 | 阶段 D 攻击测试引入 | **红** | `45 failed`（`no such column: to_revision`）；随后 `4 failed`（审查员断言写的是修复前契约） |
 | 第 2 轮复审/演化轴打穿后 | **红** | `1 failed`：守卫被前导注释绕过（`4ab5cf6` 之前）；另 `4 failed`：源端修订未验 + Kernel 面基线未重生成 |
-| 两轮修复后（当前） | 绿 | `Test Files 8 passed / Tests 63 passed`，`tsc` 0 诊断 |
+| 两轮修复后 | 绿 | `Test Files 8 passed / Tests 63 passed`，`tsc` 0 诊断 |
+| **第 3 轮（当前，`HEAD 14ea9b6`）** | **不通过** | `121 passed / 13 failed`（`--reporter=json` 逐文件生成）：**作者测试文件 8 个全绿（0 红）**；红全部在审查方攻击文件 — `old-schema-records` 1/6、`contract-version-skew` 2/4、`lifecycle-sequence` 3/5、`old-schema-counters` 1/3、`projection-and-era` 3/4、`stopline-vocabulary` 4/5。一条未删、未 `skip`、未放宽。`lifecycle-sequence` 正被复审员就地编辑，其数字处于流动状态，不作为收口依据 |
 
 另有一次**作者自己写错的断言**被记入证据而非抹掉：`tests/p4-read-isolation.test.ts` 的缺口用例
 最初把 Journal 缺口构造在重建 baseline 之下（那里缺口确实不影响索引），断言 `STALE` 是错的；

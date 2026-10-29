@@ -1,6 +1,6 @@
 {
-  "generated_from_commit": "0fba915",
-  "note": "审查方 attacks/** 的已知失败集合，逐条定性见 ../EVIDENCE.md。g0-gate.mjs 要求实际集合与本集合完全相等：新增红要先定性，红条消失要确认是否为洞已关闭。",
+  "generated_from_commit": "3508d2d5d74ab4f18e93978af3bca316c76f2e5e",
+  "note": "审查方 attacks/** 已知失败集合；逐条定性见 ../EVIDENCE.md。g0-gate 要求实际集合与本集合完全相等。",
   "failures": [
     "experiments/v3-code-architecture-poc/attacks/host/host-boundary-attack.test.ts > host-boundary adversarial attacks plugin handles must not carry arbitrary SQL (immutability triggers are not theirs to drop)",
     "experiments/v3-code-architecture-poc/attacks/review/r3-independent-attacks.test.ts > R3 independent boundary attacks PluginFace revisionOf is not namespace-scoped: a domain face can read another capability",
@@ -21,6 +21,7 @@
     "experiments/v3-code-architecture-poc/attacks/review/r5r8-sql-guard-attack.test.ts > S-0D：CTE 内 DML（头部为合法 WITH） 【漏洞探针】journal 无触发器：读句柄 CTE-INSERT 成功 ⇒ 幽灵 journal 行且 ledger 无对应行",
     "experiments/v3-code-architecture-poc/attacks/review/r5r8-sql-guard-attack.test.ts > S-0D：CTE 内 DML（头部为合法 WITH） 【漏洞探针】meta.ledger_seq 无触发器：读句柄 CTE-UPDATE 成功 ⇒ 审计序号凭空 +7",
     "experiments/v3-code-architecture-poc/attacks/review/r5r8-sql-guard-attack.test.ts > S-0E：触发器稳健性（未守卫面 world.raw，纵深防御核查） PRAGMA ignore_delete_triggers 实测不生效：DELETE 触发器仍 abort",
+    "experiments/v3-code-architecture-poc/attacks/review/rereview-g0a-escape.test.ts > G0-A：插件视角逃逸攻击（D-7/D-16/D-17，ccc1449 后形态） F1+F2：tx/writer/face 穷举——构造器路径闭合、对象图无句柄、闭包/异常/回调无旁路",
     "experiments/v3-code-architecture-poc/attacks/semantics/checkreport-raw-read-attack.test.ts > S-5 check_report 原始读旁路 + 停线正则词形盲点 领域形态的原始 SELECT 直接拿到未脱敏审计内容（无 principal、无 presentReport）",
     "experiments/v3-code-architecture-poc/attacks/semantics/dml-guard-attack.test.ts > S-0 守卫只拒 DDL，读句柄的 run() 可对无触发器表执行 DML capability_route 可被原始 DML 劫持（F-11 的 capability-admin 在存储层可绕过）",
     "experiments/v3-code-architecture-poc/attacks/semantics/dml-guard-attack.test.ts > S-0 守卫只拒 DDL，读句柄的 run() 可对无触发器表执行 DML domain_state 可被原地改写（\"旧 revision 行永不覆盖 [实测]\" 不成立）",

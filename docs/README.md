@@ -98,6 +98,7 @@
 | `experiments/v3-code-architecture-poc/attacks/compliance/compliance-findings.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/ADJUDICATION-scan-face.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/CANARY.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G0-A.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G0-B.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R12-FOREGROUND.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R12-NARROW.md` | Unranked |

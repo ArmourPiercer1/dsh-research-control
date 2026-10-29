@@ -41,7 +41,7 @@ contracts  ←  kernel  ←  domains  ←  product/harness(装配根)
 | 表 | 建议索引 | 服务的实测查询 | 隔离/锁含义 |
 | --- | --- | --- | --- |
 | `object_directory(oid PK, space, kind, owner_capability, ns, created_seq)` | `(kind)` | 快照重建全扫；kind 分桶 | 单写者；UPDATE 被触发器封死 |
-| `domain_state(ns, oid, revision, payload_json, recorded_seq)` | `PK(ns,oid,revision)` + `(recorded_seq)` | 双时间读取 `recorded_seq<=cutoff` | 追加式；旧 revision 行永不覆盖 **[实测]** |
+| `domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version)` | `PK(ns,oid,revision)` + `(recorded_seq)` | 双时间读取 `recorded_seq<=cutoff`；读侧按 `contract_version` 判形状可解性 | 追加式；旧 revision 行永不覆盖 **[实测]**。`contract_version` 是 F-27 逼出来的：只比 ns 不比契约版本 ⇒ 旧实现写的形状被原样交给新读者（静默错答）。写入时落**生效**版本，读侧不一致 ⇒ `SCHEMA_INCOMPATIBLE` **[实测]** |
 | `ledger(seq PK, …, object_id, record_id)` | `(object_id, seq)`、`(record_id, seq)` | 派生业务视图按截点回源（`standingAt`）| 触发器禁改删；是**唯一历史真源** |
 | `journal(tx_epoch, ns, oid, op)` | `(tx_epoch)` | 缺口检测逐 epoch 探测 | 可压缩可删除；不得充当历史 |
 | `ref_edge(from_oid, from_rev, to_oid, to_rev, to_record, role, required)` | `(to_oid, to_rev)` | 反向影响候选查询（当前全表扫） | `required` 决定提交期完整性校验 |
@@ -143,6 +143,14 @@ PoC 未接 DSH。可迁移的是"装配根注入 principal + 授权表"这一形
 | F-14′ | **P0**（定级纠正，复审实证） | SQL 守卫被前导注释绕过 ⇒ 不可变性仍可被领域拆除 | 判定前归一化 + 拒绝多语句（`REVIEW.md` §2.1） |
 | F-15 | P1 | DDL 挂在每次打开路径 ⇒ 读操作携带写语义，旧库被静默"半迁移" | `meta.schema_version` + 表集 + 触发器集校验；已有库不再执行 DDL；`SCHEMA_UPGRADE_REQUIRED` |
 | F-17 | P1 | 必需引用只验目标端修订 ⇒ 不存在的源修订在主张约束力 | 必需边两端都验到 `domain_state(oid, revision)` |
+| F-19 | P2 | 契约承诺与实现面漂移无探测器（`UnitOfWork` 承诺 8 个方法，靠人眼对齐） | 运行时面沿原型链比对 + `@ts-expect-error` 机验 `raw/k/port` 不在插件可见类型面上 **[实测]** |
+| F-21 | P1 | 跨空间读取先判归属 ⇒ 缺字段的请求泄漏"该空间存在与否" | `read-context` 先 `CONTEXT_INCOMPLETE` 后 `CROSS_SPACE_REFUSED`；**顺序本身是契约** **[实测]** |
+| F-22/F-23 | **P1** | 领域插件持有 `Kernel`／经 `kernel.port` 全库扫描／自造 `verified:true` 主体 ⇒ 命名空间隔离与身份核验对该领域形同虚设 | 领域只接 `PluginFace`；事务执行器与主体由装配根交入；门禁禁 `: Kernel` / `.port` / `.raw` / `node:sqlite` / `verified: true` **[实测]** |
+| F-24 | P1 | 禁用期快照读面拒绝、双时间读面照样端出同一对象 ⇒ 同一对象两个矛盾答案 | `readAsOf` 每条状态行过**与快照面同一条** `routeNs`（不是新判据，是把 F-03 早已声明"读写共用"的那条真的接到第二个读面）**[实测]** |
+| F-25 | P1 | 再启用从**已加载清单**重建路由 ⇒ 内存所有者与 DB 所有者背离，ledger 无移交登记而重启后悄悄换人 | 再启用改读持久路由行，与 `activate()` 完全同源（持久行指向的实现即便不在本次清单也照样生效）**[实测]** |
+| F-26 | P1 | `requires[].contractVersion` 是装饰品：v2 需求可静默装配到 v1 provider | `activate()` 覆盖生效路由后判版本满足性，不符 ⇒ `ACTIVATION_IMPOSSIBLE` **[实测]** |
+| F-27 | P1 | 旧登记 payload 形状被原样交给新读者；v2 清单打开 v1 持久空间不可判定 | `contract_version` 落库（表结构 v3）+ 读侧 `assertContractVersion`；同一所有者改版本 ⇒ `ACTIVATION_IMPOSSIBLE` **[实测]** |
+| F-31 | P1（门禁强度，非机制） | 业务无知词汇扫描被 `WITHHELD_REFERENCE`／小写／JSON 键名三种形态完全绕过 | 待改：token 切分 + camelCase + 大小写与 `-_` 归一（修法见 `REVIEW.md` §11.3）。**词汇门禁本质上不可能完备**，止损线是架构性的，绿门禁不得被引用为"业务无知已证明" |
 | F-18 | P1 | 机制级事件缺 journal epoch ⇒ 缺口检测误判，派生面永久拒绝续跑 | `Kernel.journalEpoch` 统一登记（报告、路由变更、装卸） |
 ## 12. 已选 vs 已拒（含替换代价）
 
@@ -158,6 +166,15 @@ PoC 未接 DSH。可迁移的是"装配根注入 principal + 授权表"这一形
 | 权威唯一性 | 装配期拒绝 | 运行期"最后注册者胜出" | 后者静默改变事件语义 | 低 |
 | 报告语义位置 | 领域契约 | 机制契约 | 见 F-06 | 低：类型搬移，无数据变更 |
 | 移交语义 | 路由表 UPDATE | 新对象命名空间迁移脚本作为唯一路径 | 迁移脚本无法回答"谁是当前所有者" | 中：需引入外部注册中心 |
+
+## 12b. 第 3 轮新增的取舍（含替换代价）
+
+| 议题 | 选定 | 拒绝 | 替换代价 |
+| --- | --- | --- | --- |
+| ns 漂移时第二个读面的形态 | **fail-loud 抛 `SCHEMA_INCOMPATIBLE`**（与快照面同形；读者能区分"没有数据"与"数据读不了"） | 返回 0 行（审查方断言的形态） | 低：一行改 `filter` 而非 `throw`；但会让"扫描结果少一行"变成不可解释的静默缩减。分歧**未收口**，见 `REVIEW.md` §9 |
+| 再启用时持久路由指向未加载的实现 | **信任持久行**（与启动语义一致） | 拒绝启用（作者第一版） | 拒绝启用会让"同 ns 换实现"的正常运维在重启后卡死；改回信任后 `lifecycle-sequence` 两条转绿 |
+| `recordReport` 返回名 | **一个值两个名字** `{reportId, recordedAt: seq, seq}` + 恒等断言 | 静默改名 `seq→recordedAt` | 改名实测打断 4 个在用调用方；别名是已知瑕疵，实施期应二选一（`READINESS.md` D 项） |
+| 旧库（无版本标记 / 历史早于 `records` 表） | **打开即拒绝** + 显式迁移器 `migrateLegacyRecords` | 打开时静默补表/补键/回填 | 打开路径零写入；代价：`domain_state.contract_version` 尚无回填器，v2 库需实施期补迁移（`READINESS.md`） |
 
 ## 13. 本 PoC **没有**证明的（不得越级引用）
 

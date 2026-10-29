@@ -101,20 +101,23 @@
   "完整性先判…顺序本身就是契约"），但**同一检查重复了两行**（`if (spec.space !== k.space)
   throw …` 连写两次）——【在途】文件，提交前应删重。
 
-### P2-C4 — `EVIDENCE.md` 计数在采纳修复后再次过期（同 #3 一类）
+### P2-C4 — `EVIDENCE.md` 计数在采纳修复后再次过期，且 §7 的"当前 = 绿"行与当前红门直接矛盾（同 #3 一类）
 
-- 位置：`EVIDENCE.md` §2 首行（"Test Files 7 passed (7) / Tests 58 passed (58)"）vs 同节表
-  （8 行合计 63）vs 实际（00:09 时点 10 个测试文件；`b914125` 后至少 74 例）。
+- 位置：`EVIDENCE.md:144`（§7 表末行"两轮修复后（**当前**）| **绿** | `Test Files 8 passed /
+  Tests 63 passed`"）vs 00:15/00:17 两次实跑（`Test Files 9 failed | 15 passed (24)` /
+  `8 failed | 17 passed (25)`，18→15 红）；同文件 §2 首行（"Test Files 7 / Tests 58"）与
+  同节席位表（8 行合计 63，缺 `sql-guard` 10 例、`multiprocess` 1 例两行）同样过期。
 - 复现：
   ```bash
-  grep -cE "^\s*(test\(|test\.each\()" tests/*.test.ts attacks/*/*.test.ts   # 静态行数
-  # test.each 需展开：sql-guard = 6 负例 + 3 正例 + 1 F-15 反差 = 10 例
+  pnpm run test:poc:arch    # 00:15:13 实跑：24 文件 / 129 例，18 failed / 111 passed，exit 1
+  sed -n '144p' EVIDENCE.md # "两轮修复后（当前） | 绿 | … 63 passed"
   ```
-- 根因：按席位拆表在 `f9a6c86` 后生成一次，`b914125`（+sql-guard 10 例）与
-  多进程例（+1）之后未重生成；首行数字是更早一次（`f9a6c86`）的。
-- 最小修法：按 EVIDENCE §2 自己的约定"增删测试须重生成"，用
-  `npx vitest run --config …/vitest.config.ts --reporter=json` 重跑一次全表。
-- 【在途】00:09 时点 `EVIDENCE.md` 正在被修改（M），可能已重生成；以提交态复核为准。
+  注：`REVIEW.md` §9（同提交 `2284a99`）已如实登记"102 passed / 18 failed"，故全台账并非
+  掩盖红门；失真的只是 EVIDENCE §7 自标"当前"的绿行与 §2 的过期数字。
+- 根因：§7 的"当前"行是第 2 轮收口时的快照，第 3 轮（18 红）落树后未重生成；
+  §2 席位表在 `b914125` 后亦未重生成（违反 §2 自己的"增删测试须重生成"约定）。
+- 最小修法：第 3 轮收口提交时按 `--reporter=json` 重跑 §2 全表与 §7 末行；收口前
+  §7 末行应加"（截至 4ab5cf6）"时点限定或改为红态登记。
 
 ### P2-C5 — `READINESS.md` §1 首行计数与树内攻击例数对不上
 

@@ -109,6 +109,10 @@ pnpm test                                                     # 根全量（当�
 **建议的 echo 加强（不改形态）**：补首个被剔除行的 `{capability, recordedContractVersion, effectiveContractVersion}`
 版本对——给操作者一次读即可行动的线索，仍不给 oid。
 
+| D-15 | **P1 — 已修并经独立复验（席位 B）** | 装配未交边视图时双正源检查静默不执行，报告仍报 ACHIEVED + COMPLETE | 未交 ⇒ `SYNTH_EDGES_UNAVAILABLE`(INDETERMINATE) 真挡 ACHIEVED（reducer、端到端、呈现层三处实测）；**未新增 coverage 第四值** |
+| N-1 | **P2（席位 B）** | 装配根交**恒空**视图而库中真有 `USED_IN` 边 ⇒ 仍 ACHIEVED + COMPLETE + 零信号 | 机制无法校验交来的视图内容（受信任输入边界，同 `hostSnapshot`）。作者测试 3 bless 的"交而空 ⇒ ACHIEVED"**有条件**（视图须完整真实），条件**无机制保证、当前依赖装配纪律**。装配级保证待 G1 |
+| N-2 | **P2（席位 B）主张强于实现** | `includes('USED_IN')` 精确匹配 + 只认 `operating_context`：`used_in`/`Used_In`/`" USED_IN"` 漏检；`operatingContext`、嵌套 `context.operating` 连 INDETERMINATE 都不触发 | 已在 `CONTRACTS.md` 把"可检测"收窄为"规范化角色名与已声明字段名范围内"，并列出解除该限定所需三项交付 |
+| N-3 | **P2（席位 B）** | 视图抛异常 ⇒ `run()` 直接抛、不落报告，无 INDETERMINATE 降级（与 `CHECKER_UNAVAILABLE` 的降级哲学不一致）；`as unknown as` 注入不受 domains 扫描覆盖 | 方向安全（无假通过），但哲学不一致；降级路径待 G1 与 N-1 一并处理 |
 | E-00 | **已修（作者自述，待独立复验）** | `eventsOf()` 可被任意能力按任意 oid 取回他能力对象的原始事件载荷 | 默认拒绝 + 装配根 `CROSS_EVENT_READ` 显式授权表（走既有 `capability-admin` 权威轴，未新增枚举值）；见 `REVIEW.md` §29 |
 | E-01 | **P2（登记，待 G1 裁定）** | `NAMESPACE_ESCAPE` 的拒绝本身声明「该 oid 存在且属他人」；与 D-12 的可预测 oid 叠加即成存在性 oracle | 当前取舍=显式拒读（静默返空会把「没权限」读成「没有历史」，属被禁止的「缺失读成空」家族）；`tests/events-of-scope.test.ts` 已钉住该取舍 |
 | D-17 | **P1 — 已修（作者自述，待独立复验）**：`NamespaceWriterImpl` 改 `#k`/`#raw`，Kernel 回读走类内静态 `peekRaw()`（类未导出）| `faceFor()` 交给插件的 `writerFor(tx)` 返回 `NamespaceWriterImpl`，以 TS 参数属性持有 `k`/`raw`（`kernel.ts:522`），运行时实测可达 ⇒ 第三个逃逸对象 | 作者侧 `tests/namespace-writer-surface.test.ts` 已复现并按漏洞现状钉住；**与 D-7/D-16 同批修**，只修前两者不够 |

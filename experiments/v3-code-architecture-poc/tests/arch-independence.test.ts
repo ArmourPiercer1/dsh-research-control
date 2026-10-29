@@ -229,10 +229,15 @@ describe('架构独立性硬门', () => {
       // 运行时不得出现 k/raw 由下方 `escapes` 断言专门负责，不混进"承诺清单"这条轴。
       const DECLARED = [
         'declareRecord', 'appendLedger', 'linkRef', 'recordReport', 'createObject', 'revise',
-        'readLatest', 'principal', 'checkRequiredRefs', 'reassignRouteInternal', 'space',
+        'readLatest', 'principal', 'checkRequiredRefs', 'reassignRouteInternal',
       ].sort();
+      // `space` 原先也在清单里，但它既不在 `UnitOfWork` 接口、也不在 CONTRACTS §6——
+      // 这是本清单第三次被写歪（前两次：`k`/`raw` 被当承诺成员；`slice(0,8)` 只查排序后前 8 项）。
+      // 收紧成全量循环后它立刻现形：门禁查的是"清单说该有"，而清单本身没人对着 §6 核过。
       // 只要求"承诺的方法一个都不能少"——多出来的是机制内部成员，由上一条门禁限制插件可达性
-      for (const m of DECLARED.slice(0, 8)) expect(seen, `契约承诺的 ${m} 不在运行时面上`).toContain(m);
+      // 原为 `DECLARED.slice(0, 8)`：清单有 11 项却只查 8 项，且被查的是**排序后的前 8 项**
+      // ——哪些成员受检取决于字母序，属于门禁自身的隐性覆盖洞（席位 B 观察到）。
+      for (const m of DECLARED) expect(seen, `契约承诺的 ${m} 不在运行时面上`).toContain(m);
       // 反向：机制内部成员在运行时对象上确实存在（沿原型链可见）……
       for (const m of ['checkRequiredRefs', 'reassignRouteInternal']) expect(seen, `${m} 应在运行时面上`).toContain(m);
       // ……但它们**不在插件可见的类型面上**：拿 UnitOfWork 类型去碰 SQL 句柄必须是编译错误。

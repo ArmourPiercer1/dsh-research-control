@@ -152,7 +152,7 @@ ObjectRevisionEnvelope = {
 | `scheme_ref` | `ref`（Concept@rev，InferenceSchemeDefinition） | D（不允许 `UNKNOWN`） | ★ 换 Scheme → 新论证 | `RL0-01`、`RL0-02`、AR-ID-2 |
 | `engagement_target` | `ref?` 或 `NONE` | D / A(`NONE`) | ★ 不可变 | `RL1-03`、AR-ID-2 |
 | `engagement_role` | `vocab(engagement_role)` | D / U | ◐ `SUPPORTS → ATTACKS` 视同换目标 | AR-ID-2 |
-| `conclusion` | `{mode ∈ enum(ASSERTS, DENIES_TARGET, ASSERTS_ABOUT_TARGET, NONE_DECLARED), proposition_rev: ref?}` | D / A | ★ 结论内容改变 → 新论证 | `RL1-04`、CN-01、CN-02、AR-ID-2 |
+| `conclusion` | `{mode ∈ enum(ASSERTS, DENIES_TARGET, ASSERTS_ABOUT_TARGET, NONE_DECLARED), proposition_rev: ref?}` | **`A` 与 `NONE_DECLARED` 含义不同，不可互换（AR-ID-6）**：`A`＝草稿尚未给出结论（配合构造状态 `CLOSED_DRAFT`），`NONE_DECLARED`＝**研究完成而无结论**（须与 `INCONCLUSIVE` 同现） | ★ 结论内容改变 → 新论证；但 `A → ASSERTS*` 是**补全修订、不产生新论证**，`NONE_DECLARED → ASSERTS*` **是**身份变化（AR-ID-1/AR-ID-2） | `RL1-04`、CN-01、CN-02、AR-ID-2、AR-ID-6 |
 | `conclusion_vs_target` | `enum(SAME, NEGATION, META_ABOUT_TARGET, UNRELATED_BY_SCHEME)` | D / U / A | — | `SL1-ARG-S1` |
 | `input_bindings[]` | `{binding_id, role_name, endpoint_ref: ref?, endpoint_kind, role_kind ∈ enum(CONCLUSION_INPUT, BACKGROUND, CASE_STUDY, SUBJECT_OF_DISCUSSION), alignment_claim, notes}` 集合 | 槽位 D；元素可 `UNBOUND(reason)`（等价呈现为未绑定，判定不受 reason 影响） | `binding_id` 稳定（重排等价改身份） | `RL1-01`、`RL1-02`、`RL1-14`、RPT-06、CS-06、AR-ID-5 |
 | `alignment_claims[]` | `{from_ref, to_ref, relation ∈ enum(EXACT_MAP, DECLARED_MAP, ASSUMED, UNKNOWN), basis_ref}` 集合 | D / A | — | `RL1-10`、CS-12、CS-13 |

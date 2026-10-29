@@ -21,7 +21,7 @@
 | --- | --- |
 | SRG-10 | 词表头：`{vocabulary_id, openness ∈ {CLOSED, OPEN}, contract_ref, version, entries[]}`。`CLOSED` 词表出现未注册条目 → **形态非法**（写入被拒，`TOOL_INPUT`）；`OPEN` 词表见 SRG-21。 |
 | SRG-11 | 词表版本 = 该版本条目集合的 `record_digest`（SF-52）；条目集合变化即新版本。词表本身是非对象记录，可被 `rec:` 引用（ID-08）。 |
-| SRG-12 | 词表条目**只增不改不删**：`{entry_code, status ∈ {ACTIVE, DEPRECATED}, introduced_in, deprecated_in?, contract_ref, note?}`。已被历史记录使用的码**永不退役**（SF-64），使其永远可解析。 |
+| SRG-12 | 词表条目**只增不改不删**：`{entry_code, status ∈ {ACTIVE, DEPRECATED}, introduced_in, deprecated_in?, contract_ref, note?}`。**允许退役、不允许删除，也不允许改变历史解释**（SF-64）：状态置 `DEPRECATED` 后条目永久保留、永远可解析；原句写作「已被历史记录使用的码永不退役」与同行 `status` 含 `DEPRECATED` 自相矛盾，本轮按 SF-64 统一。 |
 | SRG-13 | 退役条目仍参与解析与展示（附 `DEPRECATED` 标注），但新登记使用它时产生 `FAIL(CODE_DEPRECATED, DEFICIENCY)` 型 finding——提示而非阻断（DF-07）。 |
 
 ## 3. 未注册取值的处置（不许一刀切）

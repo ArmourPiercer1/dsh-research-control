@@ -34,3 +34,17 @@
 ## 结论
 
 审查的判断我接受：**发现了问题，但还没验证规则可同时成立**——因为当时的一部分绿灯是桩件与测试一起错在同一个方向上。现在的差别是每条判据都有正反例 + 变异锚点，错误实现会红，而不是"看起来对"。
+
+## 验证记录（不写结论只写观测）
+
+| 命令 | 结果 |
+| --- | --- |
+| `node --test poc/hsr-form/*.poc.mjs` | **47 passed / 0 failed** |
+| `pnpm run docs:check` | OK（1192 tracked files） |
+| `docs:probe --fail-on-blocking` | exit 0 |
+| `pnpm run check:types` | 精确复现 19 条已知债务（身份匹配，非计数匹配） |
+| `pnpm run lint` | OK |
+| `npx vitest run` × 3 | **2 failed / 0 failed / 1 failed** |
+| `npx vitest run tests/git/tc-git-016.test.ts` | 1 passed（隔离通过） |
+
+vitest 三次结果不一致，第 3 次点名的 `tc-git-016` 是**超时 kill 的 mock 用例**（依赖计时），隔离通过。本轮改动只有 `docs/` 3 个文件 + `poc/` 9 个文件，对 `src`/`tests`/`schema`/`scripts`/`package.json` 的改动数是 **0**，因此这些偶发与本轮无因果关系；但我没跑足够多轮把它们的成因定位掉——**记为"未定位的既有计时偶发"，不说成已排除**。

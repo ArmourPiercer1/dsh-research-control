@@ -87,6 +87,8 @@
 | `docs/poc/gates/P4.md` | Proposed |
 | `docs/poc/gates/POC-COMPLETION-REVIEW.md` | Proposed |
 | `docs/testing.md` | Current |
+| `experiments/v3-code-architecture-poc/CONTRACTS.md` | Unranked |
+| `experiments/v3-code-architecture-poc/README.md` | Unranked |
 | `experiments/v3-code-architecture-poc/RECONCILIATION.md` | Unranked |
 | `experiments/v3-semantic-poc/NOTES.md` | Unranked |
 | `experiments/v3-semantic-poc/README.md` | Unranked |

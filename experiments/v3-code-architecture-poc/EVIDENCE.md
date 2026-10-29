@@ -105,8 +105,21 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 - 第 2 次（1 失败，另一条自愈）期间，多个审查子代理正在并发执行 `pnpm run test:poc:arch`
   与只读 git 命令。
 
-这条归因是**可证伪的**：在所有其他进程停止后重跑 `pnpm test`，若两条都消失即成立；
-若仍失败，则须回到基线提交做对照，且**不得**声称主门禁全绿。
+**对照结果：归因成立。** 在所有其他进程停止、工作树无并发 `docs:sync` 之后独占重跑
+（`HEAD c76da3a`，日志 `.scratch/root-serial.log`，gitignored 故不入仓，关键输出已抄录于此）：
+
+```
+Test Files  358 passed | 6 skipped (364)
+     Tests  5082 passed | 21 skipped (5103)
+exit=0
+```
+
+⇒ 根全量在本分支**全绿**，此前两次失败是并发干扰而非代码缺陷：`eb2-docs` 那条会就地改写
+`docs/README.md` 并断言 sync 能逐字节还原，与作者并发执行的 `docs:sync --write` 直接冲突；
+`g5-real-registry` 依赖 `history_query` 重放的计数，对并发负载下的时序敏感。
+两条在独占重跑中均未复现，因此可以声称根门禁全绿——但**附带条件**：该结论只在"无并发测试流量"
+的前提下成立，本仓这两个文件本身对并发敏感（属既有测试面的脆弱点，不在本轮修复范围，
+登记为实施期观察项）。
 
 ## 7. 新门禁的红→绿证据（`docs:probe` 对 `package.json` 变更的要求）
 

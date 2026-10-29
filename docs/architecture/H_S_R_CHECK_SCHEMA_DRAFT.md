@@ -1,0 +1,129 @@
+# 检查报告与规则注册表的 Schema
+
+> **PR #47 · DRAFT-PROPOSAL · 2026-10-29。** 把[规范化契约](H_S_R_NORMALIZATION_CONTRACT_DRAFT.md)（PR #42，未合并）的 `CheckReport`、`finding`、`level_result`、`declared_gap`、`coverage`、两视图与规则编号落到编码层。**判定语义由规范化契约裁决，本文只裁决形态**；凡冲突以契约层为准。编码基线见[Schema 基座](H_S_R_SCHEMA_FOUNDATIONS_DRAFT.md)。**Proposed，不表示已实施。**
+
+## 1. 报告记录形态（真源 = 审计视图）
+
+```
+CheckReport = {
+  report_id, report_digest,
+  target,                     // 被检对象的精确引用
+  subject_space,
+  contract_version, schema_version, rule_set_version,
+  checker { id, version, env_ref },
+  checked_at,                 // 带 @st 的时间槽（SF-30 系）
+  level_results[], findings[], declared_gaps[],
+  coverage
+}
+```
+
+| 编号 | 规则 |
+| --- | --- |
+| **编号** | SCR 编号按族分配而非连续：`SCR-01`～`SCR-06` 报告形态、`SCR-10`～`SCR-14` finding、`SCR-20`～`SCR-23` verdict 与归约、`SCR-30`～`SCR-33` 缺口与覆盖、`SCR-50`～`SCR-57` 两视图与脱敏、`SCR-60`～`SCR-62` 理由码注册、`SCR-70`～`SCR-77` 规则注册表。跨节引用以编号为准 |
+| SCR-01 | 报告是**非对象记录**（ID-08）：有 `report_id`，可被 `rec:` 引用（SF-24），但**没有** `object_id`/`revision_id`，也不得被赋给对象引用槽位。 |
+| SCR-02 | `target` 是精确引用：`"${object_id}@${revision_id}"` 或带表示片段，**或** `rec:` 形式（可用性检查记录等被检目标）。缺 `@rev` → 形态非法。 |
+| SCR-03 | 三个版本字段（`contract_version`、`schema_version`、`rule_set_version`）**全部必填**，缺一即形态非法：报告必须可追溯到"当时按哪套规则判的"（RPT-01、SF-63）。 |
+| SCR-04 | `checker` 记录检查器标识与版本；`env_ref` 是可选的 `rec:` 或精确引用（计算基/规则环境），未声明 → 五态之一，不得省略键。 |
+| SCR-05 | 报告对象模型是**封闭**的：未知键 → 形态非法。这是 RPT-04（报告不得含科学判真）与 SF-N-02 在 Schema 层的机器兜底——没有开放字段，就无处塞"充分性/置信度/通过率"。 |
+| SCR-06 | 报告一经写入永不改写；重检产生新 `report_id`（RPT-01、SI-61）。`report_digest` 是**其规范字节形态去掉 `report_digest` 自身之后**的摘要（SF-52a：排除集 = 恰 `{report_digest}` 一项，封闭登记，实现不得自行增减——原写法"是其规范字节形态的摘要"在自摘要键存在时是不可实现的循环定义），用于回放核验，不是身份（SF-52）。 |
+
+## 2. `finding` 形态
+
+```
+finding = { finding_id, rule_id, outcome, severity?, field_path?, reason_code?, note? }
+```
+
+| 编号 | 规则 |
+| --- | --- |
+| SCR-10 | `outcome` 是封闭枚举 `{"PASS","FAIL","NOT_APPLICABLE","INDETERMINATE"}`；`severity` **仅当** `outcome = FAIL` 时存在且 ∈ `{DEFICIENCY, VIOLATION}`，其余取值携带 `severity` → 形态非法。 |
+| SCR-11 | `NOT_APPLICABLE` 与 `INDETERMINATE` **必须**携带 `reason_code`；`INDETERMINATE` 的 `reason_code` ∈ `{WITHHELD_REFERENCE, CHECKER_UNAVAILABLE, DEPENDENCY_MISSING, RULE_UNREGISTERED}`（契约层 §1.2 原文四值，封闭）。缺失或越界 → 形态非法。 |
+| SCR-12 | `field_path` 是 RFC 6901 JSON Pointer，指向**规范形态**中的槽位（如 `/fields/world_ref`、`/fields/input_bindings/3/role_kind`）。检查项不依赖具体序列化偏移或数据库列。 |
+| SCR-13 | `rule_id` 必须解析到规则注册表条目（SCR-70～SCR-75）；解析不到 → 该 finding 本身非法，整份报告按 `INDETERMINATE(RULE_UNREGISTERED)` 记录一条 finding，而不是静默丢弃（对应契约层 `INDETERMINATE` 理由）。 |
+| SCR-14 | finding **不得**携带：分数、权重、聚合支持度、真值、置信度、"建议补全值"。`note` 只可是文本说明，且不得被呈现层用来暗示缺失值应为某具体值（UN-02、SF-N-03）。 |
+
+## 3. `level_result` 与层级归约
+
+```
+level_result = { level, verdict }    // level ∈ {"S-L0","S-L1","R-L0","R-L1"}
+```
+
+| 编号 | 规则 |
+| --- | --- |
+| SCR-20 | `verdict ∈ {"ACHIEVED","NOT_ACHIEVED","INDETERMINATE"}` 是**审计视图**归约值，按契约层 RPT-02 的唯一顺序计算（`FAIL` 优先）。`UNVERIFIABLE_TO_YOU` **不是**存储取值——它是呈现层对脱敏调用者的替代呈现（RPT-10、SCR-51）。 |
+| SCR-21 | 归约是**可重算的派生值**，但重算有三个**必须钉住的前提**，缺任何一个都算不出同一结果：**① 规则集版本**——必须使用报告自己钉住的 `rule_set_version`（SCR-03、SF-63），用**当前**规则集重算得到的不同结论是**另一份新报告**，不构成对旧报告的更正，也不得被呈现为"旧报告判错了"（SF-62 不回溯）；**② 授权类与调用者**——不同授权类可见的引用集不同，findings 可能不同，因此**不声称"任何人"可重算**，只声称同一授权类、同一时间参数下可重算（与 SCR-54 的界定同域）；**③ 知识截点**——引用一律按载荷内的精确 `@rev` 解析（ID-05、禁 latest 保证引用集不漂移），但 `DEPENDENCY_MISSING` / `CHECKER_UNAVAILABLE` 这类"当时缺"的判定必须**按 `checked_at` 为截点**评估，否则事后重算必然与当时不一致。存储 verdict 只为免重算与可追溯，不得反过来覆盖 findings。 |
+| SCR-22 | 未涉及的层级**不出现**在 `level_results[]` 中（非论证对象没有 `R-*` 项）；"该层级不适用"与"该层级未检查"由 `findings` 中的 `NOT_APPLICABLE` 项与规则注册表的适用范围共同说明，**在有权看到的报告里**不得用空数组或 `null` 表达。**作用域限定**：本禁令针对"某层级本该有声明却拿空值搪塞"；SCR-57 的呈现常量 `S` 的 `level_results[]` 为空数组不在此列——`S` 不声称任何层级状态，它声称的是"你无从得知"（`UNVERIFIABLE_TO_YOU`）。 |
+| SCR-23 | 报告**不得**含跨层级总分、总评、等级百分比（NEV-06、SF-N-02）。 |
+
+## 4. `declared_gaps` 与 `coverage`
+
+| 编号 | 规则 |
+| --- | --- |
+| SCR-30 | `declared_gaps[] = {gap_id, field_path, state, note}`，`state` 复用 §3 的存在状态标签（`UNKNOWN(reason)` / `UNRESOLVED(ref)` / `ABSENT`）；它**不是** finding，不参与层级计算（契约层 §1.2、RPT-00）。编码上的隔离方式：两者是**不同数组、不同形态**，无共用类型。 |
+| SCR-31 | 排序：`declared_gaps[]` 按 `field_path` 码位序、`findings[]` 按 `(rule_id, field_path)` 码位序写入规范形态（SF-50），使两份实现产出的报告可逐字节比较（SCR-60）。 |
+| SCR-32 | `coverage ∈ {"COMPLETE","INCOMPLETE_DUE_TO_VISIBILITY","NOT_DISCLOSED"}` 是**报告级**字段，独立于 `level_results` 与 `declared_gaps`，不参与归约（RPT-02）。 |
+| SCR-33 | **存储层的 `coverage` 永不取 `NOT_DISCLOSED`**：`NOT_DISCLOSED` 是呈现值（SP-03、RPT-03 的对外降级）。真源写 `COMPLETE` 或 `INCOMPLETE_DUE_TO_VISIBILITY`；对无可见权调用者由脱敏函数改写为 `NOT_DISCLOSED`（SCR-50）。落盘 `NOT_DISCLOSED` 会把"谁看不见"写进真源，污染审计（SP-10）。 |
+
+## 5. 两视图的编码：只存一份，脱敏在呈现层
+
+| 编号 | 规则 |
+| --- | --- |
+| SCR-50 | **不为任何调用者存储脱敏副本**（SF-13 的镜像）：真源只有完整审计报告；`presented_view = sanitize(canonical_report, authority_class)` 每次读取现算。理由：预存副本会（a）把"某主体看不到某物"写成记录，（b）让脱敏规则变更无法回溯生效，（c）制造第二份可被误广播的真源（SP-10、RPT-09）。 |
+| SCR-51 | `sanitize()` 的形态映射固定：`FAIL(REF_UNRESOLVED)` 与 `INDETERMINATE(WITHHELD_REFERENCE)` 两条 finding 合并为**一条** `UNVERIFIABLE_REFERENCE`（`outcome = INDETERMINATE`，对外码 `UNVERIFIABLE_REFERENCE`）；`coverage → NOT_DISCLOSED`；被合并项移除后若该层级曾受其影响，该层级的 `verdict → UNVERIFIABLE_TO_YOU`（RPT-09/RPT-10）。**报告级 `verdict` 同判**：只要本次呈现发生过任何脱敏，报告级 `verdict` 就必须是 `UNVERIFIABLE_TO_YOU`，**不得由可见子集的 findings 归约得出**（原写法只点了层级，实现会保留存储归约值——PoC 第二轮的 P0 就是这么漏的：两个世界的隐藏 finding 分别是 `FAIL(REF_UNRESOLVED)` 与 `INDETERMINATE(WITHHELD_REFERENCE)`，存储 verdict 因此不同，呈现面照抄存储值即把"隐藏了什么"说了出来。判据本身由 `SCR-54` 的两世界逐字节同形 + `SCR-55` 的"差异只允许出现在 A/S 这一条边界"共同决定，本条只是把它写到可实现粒度）。 |
+| SCR-52 | `UNVERIFIABLE_REFERENCE` 与 `UNVERIFIABLE_TO_YOU` 是**呈现层专用取值，永不出现在存储形态中**（与 SCR-33 同理）。二者必须位于与存储枚举**分离的类型空间**，防止实现者图省事直接落库。 |
+| SCR-53 | 脱敏不得泄漏：合并后的 finding 的 `field_path` 必须替换为该层级的**固定占位**（如 `/fields`），不得保留被屏蔽字段名；被移除项的条数、原 `rule_id`、被屏蔽空间标识一律不出现（RPT-09(c)）。 |
+| SCR-54 | **逐字节同形**（XC-25）：对同一请求（同一调用者、同一授权类、同一时间参数），"目标存在于他空间"与"目标不存在"两个世界产生的呈现视图必须具有**相同的规范字节形态**（同键集合、同占位值、同数组长度、同稳定形态）。**同形判定的排除集是封闭的两项**：`report_id`、`checked_at`——它们按各自类型与长度同形即可；**其余任何字段一律计入同形判定**。原先写作"`report_id`/`checked_at` **等**每次都变的字段不计入"，而"等"无界：任何字段都能自称"每次都变"从而豁免，测试便永不可能判违规（这是不可证伪的措辞，不是宽松）。新增排除项属契约层变更，不得由实现自行添加。 |
+| SCR-55 | 跨授权类的形态差异**只允许出现在"是否给出审计视图 A"这一条授权边界上**：有权者见 A、无权者见恒定脱敏形态 S。任何更细的差异（S 内部再分档、按对象种类改变字段名、按被遮蔽项数量改变数组长度）都会把"存在性"泄漏给本来不该知道它的人，一律禁止。 |
+| SCR-56 | 脱敏是纯函数且无副作用；不得按调用者身份做除授权类以外的细分美化（避免形成"按人改写历史"的观感，SP-10）。 |
+| SCR-57 | **`S`（无可见权呈现形态）是本层定义的固定常量**——**固定是"按操作固定"**：同一操作在两个世界必须逐字节相同，跨 `kind` 必须相同；跨操作可以不同；**`S` 的粒度是 (操作, 本次请求生效页长) 而非仅"操作"**——因为 `limit_applied` 按 SI-14 必须如实反映请求页长、不是常量，若把 `S` 钉成"每操作一个值"，则任何 `limit ≠ 缺省页长` 的请求都会让 `sanitize(…) == S` 永假，判据又变成自我否决。差异只能来自**调用方自己提交的请求参数**（页长、操作），绝不得来自被请求对象的任何属性（后者才是区分世界的线索；请求参数调用方本来就知道，不构成泄漏）（否则又成了区分世界的线索），且**以 golden 工件形式存在于测试资产中，并按 (操作, 生效页长) 逐份生成**（只存"每操作一份"会让任何非缺省页长的请求令等式永假，反而把实现者诱导去把 `limit_applied` 钉回缺省值，倒过来违反 SI-14）（逐键、逐数组穷举：`level_results[]` 是**空数组**——无可见权者不获得任何层级声明，`findings[]` 为空数组、`verdict = UNVERIFIABLE_TO_YOU`，并**含响应包络的 `boundary`**——`{coverage: NOT_DISCLOSED, truncated: false, limit_applied: **本次请求的生效页长**（未指定时才等于该操作缺省页长）}`。`boundary` 必须列进这个穷举：SI-14 要求它在**所有读响应**恒定在场，若常量里没有它，"有没有 `boundary` 键"本身就把无可见权世界与其他世界区分开，正是 SI-14 修掉的那个存在性 oracle（只是换了位置）。原写"固定元素集合与顺序"与 SCR-22 冲突：非论证对象本来就没有 `R-*` 项，单一常量若含层级项就必须给实体类报告塞进 `R-*`。SCR-53 的"固定占位"另有作用域，只用于**部分可见**报告里被屏蔽层级的 `field_path` 替换，不适用于 `S`）。规范判据是可观测的字节等式，**且必须先界定比较面**：等式作用的对象是 `sanitize()` 的返回值本身（呈现对象 + 其 `boundary`）。**分页回显 `limit`/`next_cursor`/`exhausted` 由响应包络承载，不是 `sanitize()` 返回值的一部分，因此天然落在比较面之外**——不需要、也不得把它们加进 SCR-54 的排除集，**不含响应包络里的可变键**（该集合逐字由 `SCR-54` 封闭为 `report_id`、`checked_at` 两项，本条不复述第三项）——它们由 `sanitize()` 之外的外层承载，不进比较面（**比较面与排除集只有 SCR-54 一个定义**：比较面 = `sanitize()` 的返回值，排除集 = 封闭两项 `report_id`、`checked_at`，逐字以 SCR-54 为准，本条不得另列一份、也不得写"这类每次都变的键"——那个"这类"正是 SCR-54 亲手封闭掉的无界"等"，一处写"这类"就等于把整组同形测试重新变成不可证伪；`report_id`/`checked_at` 若出现在该平面上，按 SCR-54 只要求同类型同长度，不出现在该平面上则不参与比较。此前不统一的后果是"逐字节等于常量"永不可能成立，判据自己否决自己）。在此界定下：**对无对象空间可见权的调用者，`sanitize(任意报告, NO_VIS) == S` 必须逐字节成立，且对不同 `kind` 的报告输出必须彼此逐字节相等**（论证类四层与实体类两层的输出必须一致，`level_results.length` 必须相同）。SCR-53 的逐层占位与本常量同源，不得两处各写。理由（非独立判据）：若实现"从实际报告现算"，`level_results[]` 元素数会随被屏蔽对象的 kind 变化，数组长度即泄漏类别——但"现算/返回常量"本身在字节相同时无观测差异，故不作为断言，只作为该等式为何必须跨 kind 成立的说明。 |
+
+## 6. 理由码注册表
+
+```
+reason_code_entry = { code, applies_to ∈ {NOT_APPLICABLE, INDETERMINATE, FAIL, PRESENTATION},
+                      severity_default?, label, introduced_in, contract_ref }
+```
+
+| 编号 | 规则 |
+| --- | --- |
+| SCR-60 | `INDETERMINATE` 的四值理由与 `outcome` 枚举本身是**封闭**注册表：新增即契约层变更，不是词表扩容（N-02）。 |
+| SCR-61 | `FAIL` 的理由码**开放注册**，但每个码必须标出 `contract_ref`（文件 + 规则号），并区分两种出处（本层逐码实证分类，不靠感觉）：**(a) 契约层字面出现的码**（14 个）：`ROLE_UNBOUND`、`REF_UNRESOLVED`、`STATE_UNDECLARED`、`REGISTRANT_ABSENT`、`ROLE_CATEGORY_MISMATCH`、`CONCLUSION_POLICY_UNDECLARED`、`DEGREE_SCALE_UNDECLARED`、`OPS_STATE_UNDECLARED`、`ALIGNMENT_UNDECLARED`、`GAP_CROSSING_UNDECLARED`、`NO_CONCLUSION_AS_CONCLUSION_INPUT`、`ROLE_KIND_UNDECLARED`、`COMPOSITION_ROLE_UNDECLARED`、`COMPOSITION_ROLE_CONTRADICTION`。**(b) 本层在既有规则下新命名的码**（6 个，均需契约层确认，见[决策文档](H_S_R_SCHEMA_DECISIONS_DRAFT.md) A-08）：`LATEST_REF_IN_FORMAL_SLOT` ← `SL1-COM-01`、`FORBIDDEN_FIELD_PRESENT` ← `SL1-COM-04`、`VOCABULARY_CODE_UNREGISTERED` ← `SL1-ASS-01`（「类型引用必须解析到定义」的一般化）、`CODE_DEPRECATED` ← 无对应规则（退役码使用只在本层成文，是最弱的一条，优先请契约层裁决）、`SUBTYPE_UNREGISTERED` ← `SRG-21` 的一般化。`SINGLETON_SUBTYPE_DUPLICATE` ← `EN-W-7`（根 WorldContext 的 singleton 唯一性，本层新命名，同样待契约层确认）**(b) 类不新增语义**，只给既有 FAIL 条件命名；未获确认前不得进入跨空间交换工件的规范性版本。无出处的码不得注册。 |
+| SCR-62 | `PRESENTATION` 类码（`UNVERIFIABLE_REFERENCE`）与 `PRESENTATION` 类 verdict（`UNVERIFIABLE_TO_YOU`）在注册表中单独标注 `storage_forbidden: true`，供 Schema 校验器拒绝落库（SCR-52）。 |
+
+## 7. 规则注册表（机器可读索引，不改写规则文本）
+
+```
+rule_entry = { rule_id, doc_ref, level, applies_to{kind, subtypes[], scheme_role?},
+               field_selector?, outcome_on_fail, severity_default, unknown_allowed,
+               na_allowed, na_reasons[]?, contract_version, negative_case_refs[] }
+```
+
+| 编号 | 规则 |
+| --- | --- |
+| SCR-70 | **规则正文唯一真源仍是规范化契约文档**；注册表条目只是索引 + 机器可消费的适用范围，**不得**复制规则正文（EB1 单正源）。`doc_ref` 是文件 + 规则号。 |
+| SCR-71 | `applies_to` 决定该项对哪些对象产生 finding：不匹配时**不产出** finding（不是 `NOT_APPLICABLE`）。`NOT_APPLICABLE` 只在规则声明"在某 kind/子型/Scheme 下本身不适用"时由该规则自己产出（契约层 §1.2 原文）。二者混淆会使分母漂移，必须各有一条负例。 |
+| SCR-72 | `unknown_allowed: true` 的槽位相关规则必须满足：如实 `UNKNOWN(reason)` → `PASS` 且产生对应 `declared_gap`（RPT-05）。Schema 校验器检查"规则未声明 `unknown_allowed` 但其字段规范要求允许未知"的不一致（一致性检查，不判语义）。 |
+| SCR-73 | `negative_case_refs[]` 必须至少含一条反例编号（`CS-*`/`XC-*`/`CC-*`），使每条规则可被测试锚定（契约层 §8 的可测试性要求）。 |
+| SCR-74 | 规则集变更一律 bump `rule_set_version`；新增规则可能改变历史 verdict，但**只产生新报告**，历史报告按其钉住的旧版本重放（SF-62、DF-06）。 |
+| SCR-75 | 规则注册表自身是**非对象记录**（`rec:` 可引用），不是第六类对象；其条目状态机同注册表生命周期（`ACTIVE/DEPRECATED`，SF-64）。 |
+| SCR-76 | **`na_allowed` 与 `unknown_allowed` 对称**：规则条目必须声明其槽位是否允许登记方标注 `NOT_APPLICABLE`，以及允许的理由集 `na_reasons[]`（缺省 `na_allowed: false`）。据此：槽位值为 `NOT_APPLICABLE` 而规则未允许 → `FAIL(NOT_APPLICABLE_UNDECLARED, DEFICIENCY)`；理由不在集内 → `FAIL(NOT_APPLICABLE_SCOPE_MISMATCH, DEFICIENCY)`。一致性检查另须捕获一种具体组合：**存在某条规则的 `field_selector` 命中该槽位且要求它必填，却没有任何规则声明其 `na_allowed`**（此时缺失只能靠 `ABSENT` 表达，两者语义不同，SF-12）。**触发条件必须这样限定**：不加限定的"契约声明可缺却没有 na_allowed"检查与 SF-61「新增可空槽位属兼容扩展」直接冲突——按 SF-61 合法新增一个可空槽位会立刻被后者判为一致性错误。这条封堵的是**形态合法但语义后门**的通路：自由文本"不适用"曾是本层最大的必填逃逸口。 |
+| SCR-77 | **沉默不得等于通过**：对任一已注册的 `kind` × 子型 × Scheme 组合，若该层**没有任何规则适用**，该层 verdict 必须是 `INDETERMINATE(RULE_UNREGISTERED)`，**不得**为 `PASS`（RPT-05、SCR-71）。理由：`SCR-71` 规定不适用的规则不产出 finding，而注册表可增子型与 Scheme——若某组合一条规则都不匹配，"检查通过"就只是无人检查的别名；新注册一个子型即可让该类对象永久干净。规则注册表的一致性检查必须枚举所有已注册组合并报告零覆盖者。 |
+
+## 8. 负面清单
+
+不做：报告分数与总评（SCR-23）；存储呈现态取值（SCR-33、SCR-52）；存储被屏蔽项计数或标识（SCR-53）；把 `declared_gaps` 计入层级（RPT-00）；用 `null`/空数组表达"未检查"；在报告里塞开放字段以承载"充分性"类判断（SCR-05）；为性能预生成脱敏副本（SCR-50）；报告改写历史 PASS（RPT-01）。
+
+## 9. 落地的最小验证预期（供后续测试设计，非已运行）
+
+1. 封闭性：报告与 finding 添加任意未知键 → 形态非法（含 `confidence`、`score`、`is_current`）。
+2. `severity` 仅随 `FAIL`；`INDETERMINATE` 缺 reason → 非法。
+3. 归约唯一性：`FAIL × 3 + INDETERMINATE × 2` → `NOT_ACHIEVED` 且 `coverage` 独立呈现（XC-27）。
+4. 视图同形：SCR-54 的两个世界逐字节比较；且存储层禁止出现 `UNVERIFIABLE_*`（写盘前校验）。
+5. 分母稳定：构造"规则不适用"与"规则未执行"两种世界，`level_result` 输入集合必须可区分。
+6. 版本钉住：同一对象在两个 `rule_set_version` 下重检 → 两份报告并存、旧报告字节不变、verdict 可不同。
+7a. 不适用逃逸：对某必填槽位打 `NOT_APPLICABLE(reason="不适用")`，在 `na_allowed` 未声明的规则下必须 `FAIL(NOT_APPLICABLE_UNDECLARED)`；换成注册内的合法理由后必须不再 FAIL（同一对象两跑，只差状态标签）。
+7. 规则表一致性：注册表中 `unknown_allowed = false` 而契约要求允许未知的条目 → 一致性检查报错。
+8. `field_path` 可解析：每条 finding 的指针必须能在被检对象的规范形态中定位（否则报告自身非法）。
+
+## 10. 本层尚未裁决的内容
+
+S-L2/S-L3 与更高 R 等级报告的形态（契约层只留扩展点）；规则执行引擎与调度；检查器环境与计算基的记录形态；跨空间委托检查的授权链路；性能与批量检查形态。**不属于本层职责。**

@@ -5,6 +5,7 @@
  * 否则绿色不携带任何信息（扫描器可能只是没在工作）。
  */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { KERNEL_PORT } from '../src/kernel/internal.ts';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -86,6 +87,29 @@ describe('架构独立性硬门', () => {
     expect(offenders).toEqual([]);
   });
 
+  test('领域层与契约层不得 import 机制内部通道 internal.ts（D-7 的可门禁性所在）', () => {
+    // KERNEL_PORT 是 symbol 键：不进 getOwnPropertyNames，但**可被 import、也可被
+    // getOwnPropertySymbols 枚举**。所以"通道不泄露"不靠隐蔽性，靠这条禁令 + 门禁。
+    const offenders: string[] = [];
+    for (const d of ['src/domains', 'src/contracts']) {
+      for (const f of filesUnder(d)) {
+        if (/from\s+'[^']*kernel\/internal\.ts'/.test(readFileSync(f, 'utf-8'))) offenders.push(f);
+      }
+    }
+    expect(offenders).toEqual([]);
+    // 变异锚点：确认扫描真在起作用（路径写错会得到空 offenders ⇒ 假绿，正是本项目的老毛病）
+    const kernelSrc = readFileSync(join(POC_ROOT, 'src/kernel/kernel.ts'), 'utf-8');
+    expect(/from\s+'\.\/internal\.ts'/.test(kernelSrc)).toBe(true);
+    // 运行时面：symbol 不得以名字出现在任何插件可见对象的属性名里
+    const w = openWorld({ file: join(mkdtempSync(join(POC_DATA_DIR, 'sym-')), 's.db'), space: 'SP-SYM',
+      grants: { a: ['space-write', 'capability-admin'] } });
+    try {
+      const face = w.kernel.faceFor(CAP_RECORDS) as unknown as object;
+      expect(Object.getOwnPropertyNames(face)).not.toContain('port');
+      expect(Object.getOwnPropertyNames(w.kernel)).not.toContain('port');
+    } finally { w.close(); }
+  });
+
   test('新增第二个领域插件不需要改动 Kernel（面哈希 + 行为同时成立）', () => {
     const surface = [...KERNEL_DIRS.flatMap((d) => filesUnder(d))].sort();
     const hash = createHash('sha256');
@@ -152,7 +176,7 @@ describe('架构独立性硬门', () => {
   // ── 插件面纪律（F-19/F-23 的门禁化）────────────────────────────────────────
   test('领域插件不得持有 Kernel，也不得触碰 port / raw / 驱动句柄', () => {
     // 这一条此前没有门禁，于是"插件只拿窄面"停留在文档里：FacetStore 曾持有 Kernel，
-    // FactStandingService 甚至直接 kernel.port.read() 全库扫描——命名空间隔离对它形同虚设。
+    // FactStandingService 甚至直接 kernel[KERNEL_PORT].read() 全库扫描——命名空间隔离对它形同虚设。
     const FORBIDDEN = [
       // 允许 import type PluginFace/NamespaceWriter/UnitOfWork；禁的是**持有 Kernel 这个值**
       { re: /:\s*Kernel\b|new Kernel|extends Kernel/, why: '持有 Kernel 即持有运维权威面（transferRoute/activate/setRouteEnabled）' },

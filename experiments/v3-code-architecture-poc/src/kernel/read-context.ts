@@ -6,6 +6,7 @@
  * 模型还是实验；把含义写进 payload 是领域的事（#44 §5.3 停线）。
  */
 import { Refusal, type CommitSequence, type ObjectOid, type ReadContextSpec } from '../contracts/index.ts';
+import { KERNEL_PORT } from './internal.ts';
 import { assertContractVersion, capabilityOfNs, routeNs, type Kernel } from './kernel.ts';
 
 export interface ReadRow { readonly oid: ObjectOid; readonly revision: number; readonly payload: Record<string, unknown>; readonly recordedSeq: CommitSequence }
@@ -56,7 +57,7 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
   const described = spec.describedAtOrDuring?.at ?? null;
   const during = spec.describedAtOrDuring?.during ?? null;
 
-  return k.port.read((raw) => {
+  return k[KERNEL_PORT].read((raw) => {
     // 每条状态行都要过**与快照读面同一条** routeNs 判据（F-03 的声明是"读写共用一条判据"，
     // 而此前只有快照面真的在用它）。两种分歧在这里的形态不同，且都必须与快照面同形：
     //  · 能力未启用/未装配 ⇒ 快照面报 CAPABILITY_INACTIVE；扫描面没有"这个对象"可报，

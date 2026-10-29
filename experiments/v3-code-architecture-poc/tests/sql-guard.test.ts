@@ -6,6 +6,7 @@
  * 并保证每条负例都有正例反差——否则"全都拒绝"也能让测试假绿。
  */
 import { describe, expect, test } from 'vitest';
+import { KERNEL_PORT } from '../src/kernel/internal.ts';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { POC_DATA_DIR } from '../src/harness/paths.ts';
@@ -26,7 +27,7 @@ type Handle = { run(sql: string, ...p: unknown[]): void; all(sql: string, ...p: 
  * 是同一套判据，被检对象没变），D-16 封与否都不影响本文件的语义。
  */
 const withHandle = <R>(w: ReturnType<typeof openWorld>, fn: (h: Handle) => R): R =>
-  w.kernel.port.tx((raw) => fn(raw as unknown as Handle));
+  w.kernel[KERNEL_PORT].tx((raw) => fn(raw as unknown as Handle));
 
 describe('机制句柄 SQL 守卫（F-14′ 完整覆盖）', () => {
   test.each([

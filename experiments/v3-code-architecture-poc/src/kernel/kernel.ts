@@ -23,6 +23,7 @@ import {
   type StoragePort,
   type VerifiedPrincipal,
 } from '../contracts/index.ts';
+import { KERNEL_PORT } from './internal.ts';
 
 // ---------------------------------------------------------------- Capability 注册
 
@@ -225,7 +226,14 @@ export class Kernel {
   readonly registry = new CapabilityRegistry();
   private activated = false;
 
-  constructor(readonly space: SpaceId, readonly port: StoragePort, private readonly auth: Authorizer) {}
+  // D-7：句柄不再是公开属性。兄弟模块经 `KERNEL_PORT` symbol 取用（见 internal.ts 的代价说明）。
+  readonly #port: StoragePort;
+  readonly space: SpaceId;
+  private readonly auth: Authorizer;
+  get [KERNEL_PORT](): StoragePort { return this.#port; }
+  constructor(space: SpaceId, port: StoragePort, auth: Authorizer) {
+    this.space = space; this.#port = port; this.auth = auth;
+  }
 
   /**
    * 激活：先做代码依赖检查，再用**空间内持久路由**覆盖内存视图（Q44：换实现/移交是
@@ -233,7 +241,7 @@ export class Kernel {
    */
   activate(): void {
     this.registry.activate();
-    this.port.read((raw) => {
+    this.#port.read((raw) => {
       for (const r of raw.all<{ capability: string; plugin_id: string; ns: string; contract_version: string; enabled: number }>(
         `select capability, plugin_id, ns, contract_version, enabled from capability_route`,
       )) {
@@ -244,7 +252,7 @@ export class Kernel {
       }
     });
     // 首次见到且尚无路由记录的能力 → 登记路由（此后以实现映射为准）
-    this.port.tx((raw) => {
+    this.#port.tx((raw) => {
       for (const m of this.registry.allManifests()) {
         for (const p of m.provides) {
           const exists = raw.get(`select capability from capability_route where capability=?`, p.capability);
@@ -301,7 +309,7 @@ export class Kernel {
 
   /** 读一条精确引用（RD-05）。路由漂移时 fail-loud。 */
   readRevision(ref: RevisionRef): ObjectSnapshot | undefined {
-    return this.port.read((raw) => {
+    return this.#port.read((raw) => {
       const dir = raw.get<{ kind: string; owner_capability: string; ns: string }>(
         `select kind, owner_capability, ns from object_directory where oid=?`, ref.oid,
       );
@@ -351,7 +359,7 @@ export class Kernel {
     // ledger 里没有任何移交登记，重启后却"悄悄换人"。
     // 语义与启动一致：持久行指向的实现哪怕没在本次清单里，也照样以持久行为准（数据就写在那里），
     // 而不是退回清单——退回清单才是不动声色的权限转移。
-    const row = this.port.read((raw) => raw.get<{ plugin_id: string; ns: string; contract_version: string }>(
+    const row = this.#port.read((raw) => raw.get<{ plugin_id: string; ns: string; contract_version: string }>(
       `select plugin_id, ns, contract_version from capability_route where capability=? and enabled=1`, cap,
     ));
     if (!row) throw new Refusal('ACTIVATION_IMPOSSIBLE', { capability: cap, reason: '持久路由缺失或仍未启用' });
@@ -371,7 +379,7 @@ export class Kernel {
         // S-3：身份的正源是 `records`（声明即身份），不是 ledger 的 record_id 列——
         // 后者只在"目标恰为记录"时被写，用它判定会把**本空间已提交的报告**误判成 OPAQUE。
         // 保留 ledger 分支只为兼容"身份在 records 之前"的历史形态。
-        : this.port.read((raw) => raw.get(
+        : this.#port.read((raw) => raw.get(
           `select 1 as x from records where record_id=?
            union all select 1 from ledger where record_id=? limit 1`, ref.recordId, ref.recordId) !== undefined);
     // Kernel 只看得到本空间，因此**从不**区分"不存在 / 在别的空间 / 尚未提交"。
@@ -388,7 +396,7 @@ export class Kernel {
     readonly claim: 'CANDIDATES_ONLY';
     readonly undeclaredDepsClaimed: false;
   } {
-    const candidates = this.port.read((raw) => raw.all<{ from_oid: string; from_rev: number; role: string }>(
+    const candidates = this.#port.read((raw) => raw.all<{ from_oid: string; from_rev: number; role: string }>(
       `select from_oid, from_rev, role from ref_edge where to_oid=? and to_rev=?`, oid, revision,
     ).map((r) => ({ oid: r.from_oid as ObjectOid, revision: r.from_rev, role: r.role })));
     return { candidates, claim: 'CANDIDATES_ONLY', undeclaredDepsClaimed: false };
@@ -406,7 +414,7 @@ export class Kernel {
    * 若让它自己去碰 `port`/`raw`，就等于把全库读写交出去，命名空间隔离只在句柄层生效、在这里失效。
    */
   eventsFor(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; payload: unknown }[] {
-    return this.port.read((raw) => raw.all<{ seq: number; payload_json: string }>(
+    return this.#port.read((raw) => raw.all<{ seq: number; payload_json: string }>(
       `select seq, payload_json from ledger where object_id=? and event_type=? and seq <= ? order by seq`,
       oid, eventType, cutoff,
     ).map((r) => ({ seq: r.seq as CommitSequence, payload: JSON.parse(r.payload_json) as unknown })));
@@ -435,7 +443,7 @@ export class Kernel {
   /** 机制内部的只读命名空间读取（不经插件句柄）。 */
   readNamespaced(capability: CapabilityId, oid: ObjectOid): { revision: number; payload: Record<string, unknown> } | undefined {
     if (!this.registry.capability(capability)) throw new Refusal('CAPABILITY_INACTIVE', { capability });
-    return this.port.read((raw) => new NamespaceWriterImpl(this, capability, raw).readLatest(oid));
+    return this.#port.read((raw) => new NamespaceWriterImpl(this, capability, raw).readLatest(oid));
   }
 
   /**
@@ -449,7 +457,7 @@ export class Kernel {
   }
 
   get head(): CommitSequence {
-    return this.port.read((r) => r.get<{ value: number }>(`select value from meta where key='ledger_seq'`)!.value) as CommitSequence;
+    return this.#port.read((r) => r.get<{ value: number }>(`select value from meta where key='ledger_seq'`)!.value) as CommitSequence;
   }
 
   /**
@@ -464,7 +472,7 @@ export class Kernel {
         space: this.space, required: requires,
       });
     }
-    return this.port.tx((raw) => {
+    return this.#port.tx((raw) => {
       const tx = new UnitOfWorkImpl(this, principal, raw);
       const out = fn(tx);
       tx.checkRequiredRefs();
@@ -474,7 +482,7 @@ export class Kernel {
 
   /** 只读快照（无权限语义；带可见性/截点的读取见 ReadContext，#44 §5.1）。 */
   readSnapshot(oid: ObjectOid): ObjectSnapshot | undefined {
-    return this.port.read((raw) => new UnitOfWorkImpl(this, { actorId: '-', verified: true }, raw).readLatest(oid));
+    return this.#port.read((raw) => new UnitOfWorkImpl(this, { actorId: '-', verified: true }, raw).readLatest(oid));
   }
 
   /**

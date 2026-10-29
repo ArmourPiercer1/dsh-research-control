@@ -793,3 +793,35 @@ stopline B 的"计数假象"叙述与断言逐字一致。
 `KERNEL_SURFACE.sha256` 由 `da5d3d2f…` 重生成，因为 `kernel.ts` 字节变了。
 **属收紧非放宽**：删除的是插件对象上的 `k`/`raw` 两个可见成员，未新增任何对外可达调用。
 方向证据不是哈希本身（哈希覆盖全文件字节、无方向信息），而是本节的逐条说明。
+
+## 28. D-7 已修：`Kernel.port` 不再公开，改为 symbol 内部通道（代价如实写）
+
+**改法**：`constructor(readonly port: StoragePort)` → `readonly #port` +
+`get [KERNEL_PORT]()`，键是 `src/kernel/internal.ts` 导出的模块级 symbol。
+Kernel 自身 11 处 `this.port` 改走 `#port`；兄弟模块 `projection.ts`（9 处）与
+`read-context.ts`（1 处）改走 `k[KERNEL_PORT]`；作者测试夹具同样走该通道。
+面哈希 `f3f3a0fa… → a3e4b168…`（`kernel.ts` 变更 + 新增 `internal.ts` 进入覆盖面）。
+
+**为什么不是"改成 private 就算"**：`kernel['port']` 在 JS 里照样取得，`#port` 才是运行时不存在。
+**但 symbol 也不是密码学隔离**，代价必须写清：
+
+- ✅ 不进 `Object.getOwnPropertyNames` / `for...in` / `JSON.stringify`，
+  插件可见对象的运行时面断言因此仍然成立（新断言已加）；
+- ❌ **可被 `Object.getOwnPropertySymbols` 枚举，也可被 `import`**。
+  所以这条通道买到的是**边界显式化 + 可门禁性**，不是"谁也拿不到"。
+  真正的强度来自新增的机验禁令：`src/domains/**` 与 `src/contracts/**` 禁止 import
+  `kernel/internal.ts`，由 `arch-independence.test.ts` 扫描把守，
+  并带**变异锚点**（同时断言 `kernel.ts` 确实 import 了它）——
+  否则路径写错会得到空 offenders 集合，又是一条假绿。
+
+**仍然存在的有意后门**：`harness/world.ts` 的 `World.raw`（装配根测试后门，走 `SqlitePort.raw`，
+不经 Kernel）。它是刻意保留的，不属于逃逸；但它是"全库可读写"的能力，
+**生产装配根不得暴露**——这条已在本项目"诚实边界"里，不因 D-7 修复而改变。
+
+### 28.1 过程记录：又一次险些 splice 坏文件
+
+补 import 时我写的循环把新行插进了一个**跨行 `import { ... }` 的括号内部**。
+这次没造成损坏纯属巧合：插入条件 `'internal.ts' not in t` 被我刚写进注释里的
+`internal.ts` 字样挡住，**根本没插**。改成锚定 `} from '../contracts/index.ts';` 后一次成功。
+教训与前两次（第 7 轮 splice 删掉 30 行、第 11 轮半应用版本门）同源：
+**在这个文件上做任何插入，必须锚定唯一的完整语句终结符，插完立刻 `tsc` + `git diff --stat` 双验。**

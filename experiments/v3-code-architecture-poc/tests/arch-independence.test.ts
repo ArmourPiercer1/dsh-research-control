@@ -213,15 +213,26 @@ describe('架构独立性硬门', () => {
       const AUTHORITY = ['transferRoute', 'setRouteEnabled', 'activate', 'port', 'raw', 'registry', 'uow', 'nextLedgerSeq'];
       expect(faceSurface.filter((m) => AUTHORITY.includes(m))).toEqual([]);
 
-      w.uow(PRINCIPAL('alice'), (tx) => {
+      // 原断言 `x === undefined || x !== undefined` 是**恒真式**（第 9-12 轮复验席指出，成立）：
+      // 它对任何值都通过，等于没验。改为真判据——窄面对象在运行时不得携带这些成员。
+      // 注意这判的是**对象实际内容**，比 @ts-expect-error 强：类型面藏得住，运行时藏不住。
+      // 判据只带出布尔值、在事务**外**断言：在回调内抛断言会让回滚路径接管，
+      // 真实失败会被 `database is not open` 盖掉（实测踩过）。
+      const escapes = w.uow(PRINCIPAL('alice'), (tx) => {
         // @ts-expect-error raw 属于机制内部，不承诺给插件
         const escapeRaw = tx.raw;
         // @ts-expect-error k 是全量 Kernel 引用，不承诺给插件
         const escapeKernel = tx.k;
         // @ts-expect-error port / 驱动句柄同样不在插件可见面上
         const escapePort = tx.port;
-        expect([escapeRaw, escapeKernel, escapePort].every((x) => x === undefined || x !== undefined)).toBe(true);
+        return [escapeRaw === undefined, escapeKernel === undefined, escapePort === undefined];
       });
+      // D-16（P1，开放）：实测得 [false, false, true] —— `tx.raw`（裸 SQL 句柄）与 `tx.k`
+      // （全量 Kernel 引用）在运行时**确实可达**，只有 `tx.port` 不在。类型面靠 @ts-expect-error
+      // 藏住了它们，运行时没藏住：任何 JS 写的插件、或一次 `as unknown as` 强转，就拿到全库读写。
+      // 按本仓"断言漏洞现状"的既有约定（见 attacks/semantics/stopline-vocabulary-attack.test.ts）
+      // 写下当前值：修复后本条会因值改变而红，强制回来更新。**绝不允许退回恒真式。**
+      expect(escapes).toEqual([false, false, true]);
       w.close();
     } finally { try { w.close(); } catch { /* 已关 */ } rmSync(dir, { recursive: true, force: true }); }
   });

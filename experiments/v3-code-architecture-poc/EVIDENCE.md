@@ -192,3 +192,29 @@ exit=0
 
 **口径**：本轮起，`arch-independence` 的"绿"不再覆盖插件逃逸这一项——它现在断言的是漏洞现状。
 任何引用测试计数的地方都必须连带这一条。
+
+## 门禁测量行（第 31 轮，`HEAD dd3e740`）
+
+| 门 | 结果 |
+| --- | --- |
+| `vitest`（poc 配置，全量 35 文件） | **166 passed / 22 failed**；`Test Files 8 failed / 27 passed` |
+| 作者侧 | **12 文件 84 例，0 红** |
+| `tsc -p`（include 仅 `src`+`tests`） | 0 诊断 |
+| `check-imports`（INV-PERM-5） | OK |
+| `docs:check` | OK |
+
+**22 条红全部位于审查方所有的 8 个攻击文件**，逐文件的性质：
+
+| 文件 | 红数 | 性质 |
+| --- | --- | --- |
+| `attacks/semantics/dml-guard-attack.test.ts`、`attacks/review/r5-with-dml.test.ts` | 6 + 1 | S-0 修复后 DML 经读句柄不可执行 ⇒ 攻击无法构造 |
+| `attacks/review/r5r8-sql-guard-attack.test.ts`、`r5r8-semantics-attack.test.ts` | 5 + 2 | 席位 `1faae161` 自述：其中 **6 条是 CTE-DML 探针被驱动语法拒绝**（该通道封死的实证，断言按"洞存在"形状写故转红），**1 条是席位自己的 fixture 错误** |
+| `attacks/review/r3-independent-attacks.test.ts` | 3 | R3-A/B/C 封堵后越界读不可构造 |
+| `attacks/semantics/report-record-identity-attack.test.ts` | 2 | S-3 报告身份入 `records` 后旁路消失 |
+| `attacks/semantics/reduce-coverage-attack.test.ts` | 2 | S-1 coverage 不再驱动 verdict；同文件剩 1 条绿是**手写四值列表的过时断言**，非产品通过 |
+| `attacks/semantics/required-floating-ref-attack.test.ts` | 1 | S-4 悬空钉死引用改判 `HARD_REF_NOT_PINNED` |
+
+**引用本行时必须连带的五条口径**：① `attacks/**` 不在 `tsc` include 内，"类型门干净"不覆盖攻击文件；
+② `reduce-coverage` 剩余的那条绿是过时断言；③ 审查方工作树有未提交编辑，HEAD 计数与工作树计数会不同；
+④ **`arch-independence` 的绿不覆盖"插件逃逸"一项**——它现按"断言漏洞现状"钉为 `[false,false,true]`（D-16 开放）；
+⑤ 任何计数都必须连带说明红条性质，否则"封死的实证"会被读成退步。

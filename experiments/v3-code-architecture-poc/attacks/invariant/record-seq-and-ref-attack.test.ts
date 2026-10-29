@@ -49,13 +49,19 @@ describe('invariant attacks: sequence and exact-reference validation', () => {
   test('appendLedger permits duplicate record identifiers', () => {
     const { dir, w } = world('attack-duplicate-record-');
     try {
-      w.uow(ALICE, (tx) => {
+      // 修复后契约（作者按更强形态改写本断言，见 REVIEW.md F-10）：同一记录标识的第二次**声明**
+      // 必须被拒绝，且整个事务回滚 ⇒ 不允许出现"精确记录引用解析出两条历史行"。
+      expect(() => w.uow(ALICE, (tx) => {
         tx.appendLedger({ eventType: 'record-a', recordId: 'REC-DUP', payload: { n: 1 } });
         tx.appendLedger({ eventType: 'record-b', recordId: 'REC-DUP', payload: { n: 2 } });
+      })).toThrow(/RECORD_ALREADY_DECLARED/);
+      expect(w.raw.all(`select seq from ledger where record_id=?`, 'REC-DUP')).toEqual([]);
+      // 反差锚点：显式声明一次 + 之后按引用追加，是合法形态
+      w.uow(ALICE, (tx) => {
+        tx.declareRecord({ recordId: 'REC-OK', eventType: 'record-a', payload: { n: 1 } });
+        tx.appendLedger({ eventType: 'record-b', recordId: 'REC-OK', payload: { n: 2 }, declaresRecord: false });
       });
-      const rows = w.raw.all<{ seq: number }>(`select seq from ledger where record_id=? order by seq`, 'REC-DUP');
-      // Attack assertion: one exact record reference resolves to two historical rows.
-      expect(rows).toHaveLength(1);
+      expect(w.readRecord('REC-OK')!.payload).toEqual({ n: 1 });
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 });

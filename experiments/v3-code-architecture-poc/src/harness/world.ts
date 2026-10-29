@@ -57,7 +57,7 @@ export class World {
   readRecord(recordId: string): { seq: number; payload: Record<string, unknown> } | undefined {
     return this.port.read((raw) => {
       const r = raw.get<{ seq: number; payload_json: string }>(
-        `select seq, payload_json from ledger where record_id=? order by seq`, recordId,
+        `select declared_seq as seq, payload_json from records where record_id=?`, recordId,
       );
       return r ? { seq: r.seq, payload: JSON.parse(r.payload_json) } : undefined;
     });

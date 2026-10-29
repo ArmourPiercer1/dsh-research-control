@@ -173,12 +173,17 @@ export interface UnitOfWork {
     readonly revision?: number;
     readonly recordId?: string;
     readonly describedAt?: number;
+    /** 缺省 true：本事件即该记录标识的首次声明；引用既有记录时须显式传 false。 */
+    readonly declaresRecord?: boolean;
   }): CommitSequence;
   linkRef(a: { readonly from: RevisionRef; readonly to: AnyRef; readonly role: string; readonly required?: boolean }): void;
   recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; seq: CommitSequence };
   readLatest(oid: ObjectOid): ObjectSnapshot | undefined;
-  reassignCapabilityRoute(cap: CapabilityId, toPlugin: string, ns: string, contractVersion?: string): void;
-  readonly raw: RawTx;
+  /**
+   * 声明一条 Raw Record（ID-08：记录有自身标识）。**声明**与**引用**在机制上是两件事：
+   * 只有本方法会建立 record_id，重复声明 ⇒ `RECORD_ALREADY_DECLARED`。
+   */
+  declareRecord(a: { readonly recordId: string; readonly eventType: string; readonly payload: unknown }): CommitSequence;
   /** 本事务的已验证主体；领域策略据此判定业务授权（与写权分轴，SP-09）。 */
   readonly principal: VerifiedPrincipal;
 }
@@ -241,16 +246,20 @@ export class Kernel {
 
   /** 所有权移交 / 能力停用：数据库内原子改路由 + 留审计登记；**提交成功后**才改内存视图。 */
   transferRoute(cap: CapabilityId, to: PluginManifest, by: VerifiedPrincipal): void {
+    const target = to.provides.find((p) => p.capability === cap);
+    if (!target) throw new Refusal('ACTIVATION_IMPOSSIBLE', { capability: cap, targetPlugin: to.pluginId });
     this.uow(by, (tx) => {
-      tx.reassignCapabilityRoute(cap, to.pluginId, to.storageNamespace, to.provides.find((p) => p.capability === cap)!.contractVersion);
-    });
+      (tx as UnitOfWorkImpl).reassignRouteInternal(cap, to.pluginId, to.storageNamespace, target.contractVersion);
+    // 移交是运维权威轴，不是空间写权：只凭 space-write 就能把能力路由改到攻击者命名空间。
+    }, 'capability-admin');
     this.registry.setRoute(cap, {
       capability: cap, pluginId: to.pluginId, storageNamespace: to.storageNamespace,
-      contractVersion: to.provides.find((p) => p.capability === cap)!.contractVersion,
+      contractVersion: target.contractVersion,
     });
   }
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {
-    this.uow(by, (tx) => {
+    this.uow(by, (held) => {
+      const tx = held as UnitOfWorkImpl;
       const seq = this.nextLedgerSeq(tx.raw);
       tx.raw.run(`update capability_route set enabled=?, changed_seq=? where capability=?`, enabled ? 1 : 0, seq, cap);
       tx.raw.run(
@@ -258,7 +267,8 @@ export class Kernel {
         seq, this.space, enabled ? 'capability-enabled' : 'capability-disabled', by.actorId,
         JSON.stringify({ capability: cap }), null, Date.now(),
       );
-    });
+    // 装卸同样是运维权威轴（SP-09），不得只凭 space-write。
+    }, 'capability-admin');
     if (enabled) {
       for (const m of this.registry.allManifests()) {
         const p = m.provides.find((x) => x.capability === cap);
@@ -296,9 +306,25 @@ export class Kernel {
     return { candidates, claim: 'CANDIDATES_ONLY', undeclaredDepsClaimed: false };
   }
 
-  /** 命名空间写入器：插件只能写自己那一份持久状态（#44 §4.2、§6.2）。 */
-  namespacedWriter(capability: CapabilityId, raw: RawTx): NamespaceWriter {
-    return new NamespaceWriterImpl(this, capability, raw);
+  /** 插件面入口：只交出 UnitOfWork；插件不再拿得到任意 SQL 句柄（#44 §4.2、§6.2、SP-10）。 */
+  namespacedWriter(capability: CapabilityId, tx: UnitOfWork): NamespaceWriter {
+    return new NamespaceWriterImpl(this, capability, (tx as UnitOfWorkImpl).raw);
+  }
+
+  /** 机制内部的只读命名空间读取（不经插件句柄）。 */
+  readNamespaced(capability: CapabilityId, oid: ObjectOid): { revision: number; payload: Record<string, unknown> } | undefined {
+    if (!this.registry.capability(capability)) throw new Refusal('CAPABILITY_INACTIVE', { capability });
+    return this.port.read((raw) => new NamespaceWriterImpl(this, capability, raw).readLatest(oid));
+  }
+
+  /**
+   * 事务内的**二次**授权核对：入口检查过了还不够，因为机制内部方法在类型系统之外仍可能
+   * 被强转触达。权威核对必须贴着写点，否则"移除接口方法"只是把门从牌匾上摘掉。
+   */
+  assertAuthority(principal: VerifiedPrincipal, resource: AuthorityResource): void {
+    if (!this.auth.can(principal.actorId, resource, this.space)) {
+      throw new Refusal('AUTHORITY_REQUIRED', { actor: principal.actorId, required: resource, space: this.space });
+    }
   }
 
   get head(): CommitSequence {
@@ -441,12 +467,27 @@ class UnitOfWorkImpl implements UnitOfWork {
 
   appendLedger(a: {
     eventType: string; payload: unknown; objectId?: ObjectOid; revision?: number;
-    recordId?: string; describedAt?: number;
+    recordId?: string; describedAt?: number; declaresRecord?: boolean;
   }): CommitSequence {
     if (a.objectId !== undefined && !this.raw.get(`select oid from object_directory where oid=?`, a.objectId)) {
       throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
     }
     const seq = this.k.nextLedgerSeq(this.raw);
+    if (a.recordId !== undefined) {
+      // ID-08：记录有自身标识 ⇒ "首次声明"必须是唯一事件。让同一 record_id 对应多条历史行，
+      // 会把精确记录引用变成歧义引用（读哪一条？），也让不可变声明可以被静默改写。
+      const declaring = a.declaresRecord ?? true;
+      if (declaring) {
+        try {
+          this.raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
+            a.recordId, seq, JSON.stringify(a.payload));
+        } catch {
+          throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: a.recordId });
+        }
+      } else if (!this.raw.get(`select 1 as x from records where record_id=?`, a.recordId)) {
+        throw new Refusal('RECORD_UNDECLARED', { recordId: a.recordId });
+      }
+    }
     this.raw.run(
       `insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
        values(?,?,?,?,?,?,?,?,?,?)`,
@@ -454,6 +495,10 @@ class UnitOfWorkImpl implements UnitOfWork {
       a.recordId ?? null, JSON.stringify(a.payload), a.describedAt ?? null, Date.now(),
     );
     return seq;
+  }
+
+  declareRecord(a: { recordId: string; eventType: string; payload: unknown }): CommitSequence {
+    return this.appendLedger({ eventType: a.eventType, payload: a.payload, recordId: a.recordId, declaresRecord: true });
   }
 
   linkRef(a: { from: RevisionRef; to: AnyRef; role: string; required?: boolean }): void {
@@ -469,6 +514,21 @@ class UnitOfWorkImpl implements UnitOfWork {
 
   recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; seq: CommitSequence } {
     const seq = this.k.nextLedgerSeq(this.raw);
+    // 报告本身就是历史事件：与 check_report 同一事务写 ledger 行 + journal epoch。
+    // 缺了它 ⇒ (a) 历史真源分裂成"报告表 + 登记表"两处，recorded_as_of 截点看不见报告；
+    //         (b) 该 seq 在 ledger 里凭空消失，下一次成功提交会把它当成缺口。
+    const isRev = a.target.kind === 'revision-ref';
+    this.raw.run(
+      `insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
+       values(?,?,?,?,?,?,?,?,?,?)`,
+      seq, this.k.space, 'check-report-recorded', this.principal.actorId,
+      isRev ? a.target.oid : null, isRev ? a.target.revision : null,
+      isRev ? null : (a.target as { recordId: string }).recordId,
+      JSON.stringify({ validatorId: a.validatorId, ruleVersion: a.ruleVersion, verdict: a.verdict }),
+      null, Date.now(),
+    );
+    this.raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`,
+      seq, this.k.space, isRev ? a.target.oid : (a.target as { recordId: string }).recordId, 'check-report');
     const reportId = `RPT-${seq}`;
     this.raw.run(
       `insert into check_report(report_id, target_kind, target_oid, target_rev, target_record, validator_id,
@@ -501,7 +561,10 @@ class UnitOfWorkImpl implements UnitOfWork {
     };
   }
 
-  reassignCapabilityRoute(cap: CapabilityId, toPlugin: string, ns: string, contractVersion?: string): void {
+  /** 仅机制内部可达（接口上没有此方法）；权威校验在 Kernel.transferRoute。 */
+  reassignRouteInternal(cap: CapabilityId, toPlugin: string, ns: string, contractVersion?: string): void {
+    // 二次核对（SP-09）：即使有人绕过 Kernel.transferRoute 直接触达本方法，没有 capability-admin 也写不动路由。
+    this.k.assertAuthority(this.principal, 'capability-admin');
     const cur = this.raw.get<{ plugin_id: string; ns: string; contract_version: string }>(
       `select plugin_id, ns, contract_version from capability_route where capability=?`, cap,
     );
@@ -520,16 +583,25 @@ class UnitOfWorkImpl implements UnitOfWork {
 
   /** 硬业务完整性引用：事务内确实存在，否则整体回滚（#44 §7.3 / RF-02）。 */
   checkRequiredRefs(): void {
-    const rows = this.raw.all<{ from_oid: string; role: string; to_oid: string | null; to_record: string | null }>(
-      `select from_oid, role, to_oid, to_record from ref_edge where required=1`,
+    const rows = this.raw.all<{
+      from_oid: string; role: string; to_oid: string | null; to_rev: number | null; to_record: string | null;
+    }>(
+      `select from_oid, role, to_oid, to_rev, to_record from ref_edge where required=1`,
     );
     for (const r of rows) {
       if (r.to_oid !== null) {
         if (!this.raw.get(`select oid from object_directory where oid=?`, r.to_oid)) {
           throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, role: r.role, to: r.to_oid });
         }
+        // 精确引用要验到修订级：只验 oid 会让"指向不存在的修订"静默提交（RD-05 的精确性在此）。
+        if (r.to_rev !== null
+          && !this.raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.to_oid, r.to_rev)) {
+          throw new Refusal('REQUIRED_REF_MISSING', {
+            from: r.from_oid, role: r.role, to: r.to_oid, revision: r.to_rev, level: 'revision',
+          });
+        }
       } else if (r.to_record !== null) {
-        if (!this.raw.get(`select record_id from ledger where record_id=?`, r.to_record)) {
+        if (!this.raw.get(`select record_id from records where record_id=?`, r.to_record)) {
           throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, role: r.role, to: r.to_record });
         }
       }

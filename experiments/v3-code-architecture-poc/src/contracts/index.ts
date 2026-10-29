@@ -85,6 +85,9 @@ export type RefusalCode =
   | 'SCHEMA_INCOMPATIBLE'     // 空间内插件存储 Schema/解释器不兼容
   | 'CONTEXT_INCOMPLETE'      // ReadContext 缺必需字段（T-01：未声明截点的查询视为未定义）
   | 'CROSS_SPACE_REFUSED'     // 用一个空间的 Kernel 解析另一个空间（SP-04）
+  | 'RECORD_ALREADY_DECLARED' // 记录标识已被声明（ID-08：标识唯一）
+  | 'RECORD_UNDECLARED'       // 引用了从未声明的记录标识
+  | 'RAW_SQL_REFUSED'        // 领域句柄试图执行 DDL/PRAGMA/ATTACH
   | 'TX_CONTENTION'           // 写锁竞争（可重试）；驱动错误码只保留在 detail 里作证据
   | 'FULL_REBUILD_REQUIRED'   // Journal 缺口越过后不得增量续跑（#44 §7.4）
   | 'ACTIVATION_IMPOSSIBLE'   // 必需能力缺席或必需代码依赖成环，无法装配（#44 §6.3）

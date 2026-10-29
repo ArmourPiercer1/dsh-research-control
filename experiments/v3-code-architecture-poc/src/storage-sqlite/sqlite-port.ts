@@ -55,6 +55,12 @@ create table if not exists domain_state(
   primary key(ns, oid, revision)
 );
 
+create table if not exists records(
+  record_id     text primary key,
+  declared_seq  integer not null,
+  payload_json  text not null
+);
+
 create table if not exists journal(
   seq integer primary key autoincrement, tx_epoch integer not null,
   ns text, oid text, op text not null, payload_json text
@@ -127,7 +133,7 @@ export class SqlitePort implements StoragePort {
     try {
       // begin 本身也可能因写锁失败 ⇒ 必须在同一个 try 内，才能走同一条翻译路径。
       this.db.exec('begin immediate;');
-      const r = fn(this.adapter);
+      const r = fn(guard(this.adapter));
       if (this.failBeforeCommit) {
         const e = this.failBeforeCommit;
         this.failBeforeCommit = undefined;
@@ -141,7 +147,7 @@ export class SqlitePort implements StoragePort {
     }
   }
 
-  read<T>(fn: (raw: RawTx) => T): T { return fn(this.adapter); }
+  read<T>(fn: (raw: RawTx) => T): T { return fn(guard(this.adapter)); }
 
   /** 供隔离/并发攻击测试使用的第二条真实连接（同文件、同 WAL）。 */
   openSecond(): SqlitePort { return new SqlitePort({ ...this.opts, file: this.file }); }
@@ -165,4 +171,24 @@ function translate(e: unknown): unknown {
     });
   }
   return e;
+}
+
+/**
+ * 机制边界上的 SQL 守卫：插件与领域服务拿到的 RawTx 只是**受限视图**。
+ * 不可变性由触发器把守，而触发器本身是 DDL 可删的对象——若把未守卫的句柄交给领域，
+ * "存储层保证不可变"就退化为"没人去删触发器时保证不可变"。因此 DDL / 附加库 / PRAGMA
+ * 在这一层直接拒绝（纵深防御：类型面上 UnitOfWork 已不再暴露 raw）。
+ */
+const FORBIDDEN_SQL = /^\s*(drop|alter|create|attach|detach|pragma|vacuum|reindex|analyze)\b/i;
+function guard(raw: RawTx): RawTx {
+  const check = (sql: string): void => {
+    if (FORBIDDEN_SQL.test(sql)) {
+      throw new Refusal('RAW_SQL_REFUSED', { reason: 'DDL/PRAGMA/ATTACH 不得经机制句柄执行', sql: sql.slice(0, 60) });
+    }
+  };
+  return {
+    get<T>(sql: string, ...p: unknown[]) { check(sql); return raw.get<T>(sql, ...p); },
+    all<T>(sql: string, ...p: unknown[]) { check(sql); return raw.all<T>(sql, ...p); },
+    run(sql: string, ...p: unknown[]) { check(sql); return raw.run(sql, ...p); },
+  };
 }

@@ -15,6 +15,7 @@ import { POC_DATA_DIR } from '../src/harness/paths.ts';
 import { openWorld, type World } from '../src/harness/world.ts';
 import { asOid, type VerifiedPrincipal } from '../src/contracts/index.ts';
 import { TEST_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
+import { TEST_FACET_CALIB, CAP_FACET, FacetStore } from '../src/domains/test-facet.ts';
 
 const ALICE: VerifiedPrincipal = { actorId: 'alice', verified: true };
 
@@ -84,6 +85,45 @@ describe('P1 单空间跨插件 Unit-of-Work 原子性', () => {
     expect(w2.readObject(oid)!.payload.label).toBe('durable');
     expect(w2.raw.get<{ c: number }>(`select count(*) c from domain_state where json_extract(payload_json,'$.label')='lost'`)!.c).toBe(0);
     w2.close();
+  });
+
+  test('跨能力单事务：对象 + 扩展记录 + 报告必须同生共死（#44 §7.3）', () => {
+    // 一次 UoW 内由**两个不同能力**写入（核心对象走 object-model，扩展记录走 facet 能力），
+    // 再加一份检查报告：三者必须落在同一个 SQLite 事务里。
+    const w = openWorld({
+      file: join(dir, 's3b.db'), space: 'SP-1', grants: { alice: ['space-write'] },
+      plugins: [TEST_OBJECT_MODEL, TEST_FACET_CALIB],
+    });
+    const facets = new FacetStore(w.kernel, CAP_FACET);
+    const counts = () => w.raw.get<{ a: number; b: number; c: number; d: number }>(
+      `select (select count(*) from object_directory) a,
+              (select count(*) from domain_state) b,
+              (select count(*) from ledger) c,
+              (select count(*) from check_report) d`,
+    )!;
+
+    const out = w.uow(ALICE, (tx) => {
+      const oid = tx.createObject({ kind: 'test.subject', payload: { serial: 'X' } });
+      facets.write(tx, oid, { calibration: 'C-1' });          // 另一个能力的持久命名空间
+      const r = tx.recordReport({
+        target: { kind: 'revision-ref', oid, revision: 1 }, validatorId: 'synth.x', ruleVersion: 'v1',
+        schemaVersion: 's', environment: 'e', executedAt: 1, guaranteeScope: 'g', verdict: 'ACHIEVED',
+        findings: [], declaredGaps: [],
+      });
+      return { oid, ...r };
+    });
+    expect(counts()).toEqual({ a: 1, b: 2, c: 3, d: 1 });        // 核心 1 + 扩展 1；三条登记；一份报告
+    expect(w.readObject(out.oid)!.payload.serial).toBe('X');
+
+    // 中途失败：第二个能力已写入之后抛出 ⇒ 全部消失，且第二个能力的命名空间也没留下痕迹
+    expect(() => w.uow(ALICE, (tx) => {
+      const oid = tx.createObject({ kind: 'test.subject', payload: { serial: 'Y' } });
+      facets.write(tx, oid, { calibration: 'C-2' });
+      throw new Error('跨能力中途失败');
+    })).toThrow('跨能力中途失败');
+    expect(counts()).toEqual({ a: 1, b: 2, c: 3, d: 1 });
+    expect(w.raw.get<{ c: number }>(`select count(*) c from domain_state where ns='dom_test_facet'`)!.c).toBe(1);
+    w.close();
   });
 
   // ---------- 以下为对抗性探针：不是 TDD 驱动的新行为，而是尝试证伪已声明的架构不变量。

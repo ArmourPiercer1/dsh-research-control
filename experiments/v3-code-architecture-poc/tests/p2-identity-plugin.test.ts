@@ -119,11 +119,15 @@ describe('P2 身份 / 引用 / 插件演化', () => {
   test('移交路由是持久的：重启后仍是新所有者，且失败事务不改路由（Q44 原子性）', () => {
     const w = world('p2-transfer');
     const oid = w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: {} }));
-    // 失败事务里的移交不得生效
-    expect(() => w.uow(ALICE, (tx) => { tx.reassignCapabilityRoute(CAP_OBJECT_MODEL, 'test.object-model.split', 'dom_test_om'); throw new Error('回滚'); })).toThrow('回滚');
+    // 失败的移交不得回写内存视图，也不得留下登记：这里用"缺运维权威"制造失败，
+    // 顺带钉住移交属 capability-admin 轴而非空间写权（SP-09）。
+    const OUTSIDER = { actorId: 'carol', verified: true } as const;   // 只有 space-write
+    expect(() => w.transferCapability(CAP_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT, OUTSIDER)).toThrow(/AUTHORITY_REQUIRED/);
     expect(w.kernel.registry.capability(CAP_OBJECT_MODEL)!.pluginId).toBe('test.object-model');
-
+    expect(w.raw.get<{ c: number }>(`select count(*) c from ledger where event_type='capability-transferred'`)!.c).toBe(0);
+    // 反差锚点 + 持久性：授权主体同一调用必须成功，然后重启只看持久性
     w.transferCapability(CAP_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT, ALICE);
+    expect(w.kernel.registry.capability(CAP_OBJECT_MODEL)!.pluginId).toBe('test.object-model.split');
     const w2 = w.restart();
     expect(w2.kernel.registry.capability(CAP_OBJECT_MODEL)!.pluginId).toBe('test.object-model.split');
     expect(w2.readObject(oid)!.oid).toBe(oid);

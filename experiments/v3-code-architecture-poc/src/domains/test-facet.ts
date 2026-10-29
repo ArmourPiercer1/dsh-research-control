@@ -20,7 +20,7 @@ export const TEST_FACET_CALIB: PluginManifest = {
 export class FacetStore {
   constructor(private readonly kernel: Kernel, private readonly cap: string) {}
 
-  private writer(tx: UnitOfWork): NamespaceWriter { return this.kernel.namespacedWriter(this.cap, tx.raw); }
+  private writer(tx: UnitOfWork): NamespaceWriter { return this.kernel.namespacedWriter(this.cap, tx); }
 
   write(tx: UnitOfWork, oid: ObjectOid, payload: unknown): void {
     const w = this.writer(tx);
@@ -34,7 +34,7 @@ export class FacetStore {
   }
 
   read(oid: ObjectOid): { version: number; payload: Record<string, unknown> } {
-    const snap = this.kernel.port.read((raw) => this.kernel.namespacedWriter(this.cap, raw).readLatest(oid));
+    const snap = this.kernel.readNamespaced(this.cap, oid);
     if (!snap) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.cap, oid });
     return { version: snap.revision, payload: snap.payload };
   }

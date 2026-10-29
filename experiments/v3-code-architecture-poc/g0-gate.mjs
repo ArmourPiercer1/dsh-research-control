@@ -85,6 +85,16 @@ else note(`  OK —— ${a.passed} 例全绿（skip=${a.skipped}，exit=0，succ
 
 note('[3/3] 审查方基线门（attacks/**：多一条要查，少一条也要查）');
 const b = JSON.parse(readFileSync(baselinePath, 'utf-8'));
+// P2-4（席位 A）：`generated_from_commit` 原先只是注释性字段，不参与校验 ⇒ 基线可以悄悄
+// 停在旧提交上，红条集合早已变化而门禁仍"完全相等"。现在要求它存在、且确实是 HEAD 的祖先。
+if (!/^[0-9a-f]{7,40}$/.test(b.generated_from_commit ?? '')) {
+  fail.push('BASELINE.json 缺 generated_from_commit 或不是提交号：基线来源不可追溯');
+} else {
+  const anc = spawnSync('git', ['merge-base', '--is-ancestor', b.generated_from_commit, 'HEAD'],
+    { cwd: REPO, encoding: 'utf-8' });
+  if (anc.status !== 0) fail.push(`BASELINE.json 的 ${b.generated_from_commit} 不是 HEAD 的祖先：`
+    + `基线来自分叉或已 rebase，须在其对应的干净 worktree 上重生成`);
+}
 const known = new Set(b.failures);
 const v = runVitest([join(ROOT, 'attacks')]);
 if (v.failed === null) fail.push('审查方门无法解析 vitest 输出:\n' + v.raw);

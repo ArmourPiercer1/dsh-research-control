@@ -575,16 +575,18 @@ class NamespaceWriterImpl implements NamespaceWriter {
   // 必须用 `#` 私有字段让属性在运行时**根本不存在**（`obj['#k']` 求值为 undefined，不报错）。
   readonly #k: Kernel;
   readonly #raw: RawTx;
-  private readonly cap: CapabilityId;
-  constructor(k: Kernel, cap: CapabilityId, raw: RawTx) { this.#k = k; this.cap = cap; this.#raw = raw; }
+  // P2-2（席位 A）：TS `private` 只是编译期，运行时是自有字段——
+  // `Object.getOwnPropertyNames(writer)` 得到 ['cap']，`JSON.stringify` 会把 capability id 泄露出去。
+  readonly #cap: CapabilityId;
+  constructor(k: Kernel, cap: CapabilityId, raw: RawTx) { this.#k = k; this.#cap = cap; this.#raw = raw; }
   get ns(): string {
-    const c = this.#k.registry.capability(this.cap);
-    if (!c) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.cap });
+    const c = this.#k.registry.capability(this.#cap);
+    if (!c) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.#cap });
     return c.storageNamespace;
   }
   write(a: { ns: string; oid: ObjectOid; revision: number; payload: unknown; eventType: string }): void {
     if (a.ns !== this.ns) {
-      throw new Refusal('NAMESPACE_ESCAPE', { attempted: a.ns, own: this.ns, capability: this.cap, oid: a.oid });
+      throw new Refusal('NAMESPACE_ESCAPE', { attempted: a.ns, own: this.ns, capability: this.#cap, oid: a.oid });
     }
     const seq = this.#k.nextLedgerSeq(this.#raw);
     this.#raw.run(
@@ -602,7 +604,7 @@ class NamespaceWriterImpl implements NamespaceWriter {
   }
   /** 本命名空间**生效路由**上的契约版本（装配后的真实值，不是清单意图）。 */
   private effectiveContractVersion(): { cap: CapabilityId; version: string } {
-    const cap = capabilityOfNs(this.#k.registry, this.ns) ?? this.cap;
+    const cap = capabilityOfNs(this.#k.registry, this.ns) ?? this.#cap;
     return { cap, version: this.#k.registry.capability(cap)?.contractVersion ?? '' };
   }
 

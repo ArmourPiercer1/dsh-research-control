@@ -278,3 +278,18 @@ exit=0
 另：席位 B 观察到 `DECLARED` 检查原先是 `slice(0, 8)`——11 项只查排序后前 8 项。
 作者已收紧为全量循环，**当场现形第三处清单失真**：`space` 既不在 `UnitOfWork` 接口、
 也不在 CONTRACTS §6，却被列为"契约承诺成员"。已移除并在测试内注明。
+
+### 第三例"审查方断言钉的是修复前形态"（P2-2 修复的副作用）
+
+作者把 `NamespaceWriterImpl` 的 `private cap` 改为 `#cap`（席位 A 的 P2-2：TS `private` 运行时
+是自有字段，`JSON.stringify(writer)` 会泄露 capability id）后，`g0-gate` 立刻报
+**审查方新增红 1 条**，位置 `attacks/review/rereview-g0a-escape.test.ts:215`：
+
+```ts
+expect(R.enumWriter.ownNames).toContain('cap'); // TS private 的 cap 仍是自有字段（P2 信息泄露，保留证据）
+```
+
+**定性：这条红是 P2-2 已关闭的证据**，与 `host-boundary`（顺 `tx.raw` 取句柄）、
+`checkreport-raw-read`（顺 `kernel.port` 取读句柄）同族——三例都是审查方夹具依赖被审的洞。
+处置不变：**作者不修改审查方文件**；基线在干净 worktree 上重生成并在此定性，
+若席位回归应自行把该断言翻正。

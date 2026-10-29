@@ -18,7 +18,7 @@
 | `review/r5-contention-repro.test.ts`、`review/r5-with-dml.test.ts` | 第 5 轮事务/历史席位（具体模型未在本会话日志中确证） | 多进程争用与 DML 守卫复现 |
 | `compliance/compliance-findings.md`、`compliance/SNAPSHOT-*.txt` | 合规席位（模型未确证） | 8 条 P2 合规发现（C1/C2/C5–C9/C11）与快照证据 |
 | `review/RE-REVIEW-G0-B.md`、`review/re-review-g0b-attacks.test.ts` | 席位 `260b99c7`（`qiyuan-self/qwen3.8-27b`） | G0 首批修复的独立复验（D-15 轴 + 门禁完整性）。**结论：无新 P0/P1；4 条新 P2**（N-1 恒空视图残留、N-2 主张强于实现、N-3 视图异常无降级、N-4 登记缺口）。实测在独立 worktree 完成后已移除 |
-| `review/RE-REVIEW-G0-A.md`（待落盘） | 席位 `570abdf5`（`qiyuan-self/qwen3.8-27b`） | G0 逃逸面复验（D-7/D-16/D-17 + `.constructor` 逃逸 + `g0-gate.mjs` 可绕过性）。**已产出真 P1：`tx.constructor` 取回类引用后静态回读方法可达**，作者已按 WeakMap 修法修复 |
+| `review/RE-REVIEW-G0-A.md`、`review/rereview-g0a-escape.test.ts` | 席位 `570abdf5`（`qiyuan-self/qwen3.8-27b`） | G0 逃逸面复验（双状态实测：`fa9c2d0` 可复现 / `ccc1449` 不可复现）（D-7/D-16/D-17 + `.constructor` 逃逸 + `g0-gate.mjs` 可绕过性）。**已产出真 P1：`tx.constructor` 取回类引用后静态回读方法可达**，作者已按 WeakMap 修法修复 |
 | `evolution/*.test.ts` | 长期演化席位 | 契约版本偏差、生命周期时序、旧 schema 计数器等 |
 | `semantics/*.test.ts` | 语义组合与安全边界席位 | 停线词汇、报告身份、覆盖度归约、浮动引用等 |
 

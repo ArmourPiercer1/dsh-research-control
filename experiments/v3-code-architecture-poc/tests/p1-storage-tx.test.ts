@@ -114,6 +114,10 @@ describe('P1 单空间跨插件 Unit-of-Work 原子性', () => {
     });
     expect(counts()).toEqual({ a: 1, b: 2, c: 3, d: 1 });        // 核心 1 + 扩展 1；三条登记；一份报告
     expect(w.readObject(out.oid)!.payload.serial).toBe('X');
+    // recordReport 回的两个名字必须是同一个值：一个事实两个名字是已知瑕疵，
+    // 但绝不允许它们各自演化出第二个正源。上一轮我把 seq 直接改名成 recordedAt，
+    // 当场打断了 4 个已在用 seq 的调用方 ⇒ 别名 + 恒等断言，而不是静默改名。
+    expect(out.recordedAt).toBe(out.seq);
 
     // 中途失败：第二个能力已写入之后抛出 ⇒ 全部消失，且第二个能力的命名空间也没留下痕迹
     expect(() => w.uow(ALICE, (tx) => {

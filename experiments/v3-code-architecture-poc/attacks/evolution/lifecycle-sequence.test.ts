@@ -25,7 +25,7 @@ import { openWorld, PRINCIPAL, type World } from '../../src/harness/world.ts';
 import { readAsOf } from '../../src/kernel/read-context.ts';
 import { TEST_OBJECT_MODEL, TEST_OBJECT_MODEL_SPLIT, CAP_OBJECT_MODEL } from '../../src/domains/test-object-model.ts';
 import { TEST_FACET_CALIB, CAP_FACET, FacetStore } from '../../src/domains/test-facet.ts';
-import { asSpaceId } from '../../src/contracts/index.ts';
+import { asSpaceId, Refusal } from '../../src/contracts/index.ts';
 
 const SPACE = 'SP-LIFE';
 const ALICE = PRINCIPAL('alice');
@@ -102,6 +102,35 @@ describe('evolution attacks: long plugin lifecycle sequence (split → transfer 
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 
+  test('disabled period: capability-excluded rows must not be indistinguishable from "object never existed" (C12: 空结果≠¬P)', () => {
+    // 同一截点下两个世界的双时间读数必须可区分：
+    //  A：对象存在但能力被禁用（行因能力状态被剔除）
+    //  B：对象从未存在
+    // 若两者结果（含 echo）深度相等，调用者无法把"禁用期被剔除"读成"从未登记"。
+    const dirA = mkdtempSync(join(POC_DATA_DIR, 'evolution-life-excl-a-'));
+    const wA = openWorld({ file: join(dirA, 'a.db'), space: SPACE, grants: GRANTS });
+    const dirB = mkdtempSync(join(POC_DATA_DIR, 'evolution-life-excl-b-'));
+    const wB = openWorld({ file: join(dirB, 'b.db'), space: SPACE, grants: GRANTS });
+    try {
+      wA.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { text: 'x' } }));
+      wA.unloadCapability(CAP_OBJECT_MODEL, ADMIN);
+      const readA = readAsOf(wA.kernel, { space: asSpaceId(SPACE), principal: ALICE, mode: 'as-recorded', recordedAsOf: 1, consistency: 'required' });
+      const readB = readAsOf(wB.kernel, { space: asSpaceId(SPACE), principal: ALICE, mode: 'as-recorded', recordedAsOf: 1, consistency: 'required' });
+      expect(readA.rows.length).toBe(0);
+      expect(readB.rows.length).toBe(0);
+      const same = JSON.stringify(readA.echo) === JSON.stringify(readB.echo) && JSON.stringify(readA.rows) === JSON.stringify(readB.rows);
+      expect(
+        same,
+        `禁用剔除的结果与"从未存在"的结果深度相等（echo=${JSON.stringify(readA.echo)}）：` +
+          'C12/T-05 要求截断与剔除必须显式标注，历史重建面不得把能力状态造成的空洞留成静默空集',
+      ).toBe(false);
+    } finally {
+      wA.close(); wB.close();
+      rmSync(dirA, { recursive: true, force: true });
+      rmSync(dirB, { recursive: true, force: true });
+    }
+  });
+
   test('ns drift: SCHEMA_INCOMPATIBLE on the snapshot surface must not leak data through the dual-time surface (CP-6/F-03)', () => {
     const { dir, w } = world('evolution-life-drift-');
     try {
@@ -112,14 +141,21 @@ describe('evolution attacks: long plugin lifecycle sequence (split → transfer 
       expect(String((snapshotRefused as { code?: string })?.code ?? snapshotRefused), '锚点：漂移后快照读面 fail-loud（p2-drift 已证）')
         .toMatch(/SCHEMA_INCOMPATIBLE/);
 
-      const rows = dualTimeRead(w).rows.filter((r) => r.oid === oid);
-      // F-03 的修复声明是"读写共用同一条 routeNs 判据"——双时间读面绕过了这条判据：
-      // 旧 ns 的 payload（形状归属旧实现）被原样交给当前读者。
-      expect(
-        rows.length,
-        `快照/精确读面报 SCHEMA_INCOMPATIBLE，双时间读面仍返回 ${rows.length} 行旧 ns payload：` +
-          'readAsOf（read-context.ts）完全不引用 registry/routeNs/capability',
-      ).toBe(0);
+      // F-03 的修复声明是"读写共用同一条 routeNs 判据"——双时间读面必须给出同形答案：
+      // 要么抛出 SCHEMA_INCOMPATIBLE，要么不返回旧 ns 的行；两者都不发生（静默端数据）即违例。
+      let dualRead: unknown;
+      try { dualRead = dualTimeRead(w); } catch (e) { dualRead = e; }
+      if (dualRead instanceof Error) {
+        expect(String(dualRead.code ?? dualRead.message), '双时间面要么拒答（同形 SCHEMA_INCOMPATIBLE），要么不端数据')
+          .toMatch(/SCHEMA_INCOMPATIBLE/);
+      } else {
+        const rows = (dualRead as { rows: Array<{ oid: string }> }).rows.filter((r) => r.oid === oid);
+        expect(
+          rows.length,
+          `快照/精确读面报 SCHEMA_INCOMPATIBLE，双时间读面仍返回 ${rows.length} 行旧 ns payload：` +
+            'readAsOf 不引用 registry/routeNs/capability',
+        ).toBe(0);
+      }
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -133,19 +169,26 @@ describe('evolution attacks: long plugin lifecycle sequence (split → transfer 
       expect(persistedAfterTransfer).toBe('test.object-model.split');
 
       w.unloadCapability(CAP_OBJECT_MODEL, ADMIN);
-      w.loadCapability(CAP_OBJECT_MODEL, ADMIN);
+      let loadError: unknown;
+      try { w.loadCapability(CAP_OBJECT_MODEL, ADMIN); } catch (e) { loadError = e; }
 
       const persisted = w.raw.get<{ plugin_id: string }>(
         `select plugin_id from capability_route where capability=?`, CAP_OBJECT_MODEL)!.plugin_id;
       const inMemory = w.kernel.registry.capability(CAP_OBJECT_MODEL)?.pluginId;
-      // F-01：所有者是空间状态，持久路由是权威；激活时以持久路由覆盖内存视图。
-      // 再启用走的是另一条路径（从加载 manifest 恢复）⇒ 进程内所有者与 DB 所有者背离，
-      // 重启后"悄悄换人"，而 ledger 里没有任何新的移交登记。
-      expect(
-        inMemory,
-        `再启用后内存所有者=${JSON.stringify(inMemory)}，持久所有者=${JSON.stringify(persisted)}：` +
-          'setRouteEnabled(true) 从加载的 manifest 恢复而非持久路由行',
-      ).toBe(persisted);
+      // F-01：所有者是空间状态，持久路由是权威。再启用必须是**可判定**的：
+      // 要么把内存所有者恢复为持久所有者，要么以封闭集里的机制码明确拒绝——
+      // 不得"从加载清单里挑一个别的包悄悄顶替"（那等于无声的权限转移，
+      // 且 ledger 里没有任何新的移交登记，重启后却换了人）。
+      if (loadError === undefined) {
+        expect(
+          inMemory,
+          `再启用后内存所有者=${JSON.stringify(inMemory)}，持久所有者=${JSON.stringify(persisted)}：` +
+            'setRouteEnabled(true) 从加载的 manifest 恢复而非持久路由行',
+        ).toBe(persisted);
+      } else {
+        expect(loadError, `拒绝再启用必须是封闭集机制码，实际是 ${String(loadError)}`).toBeInstanceOf(Refusal);
+        expect((loadError as Refusal).code).toBe('ACTIVATION_IMPOSSIBLE');
+      }
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 });

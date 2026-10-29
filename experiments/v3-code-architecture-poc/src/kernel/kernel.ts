@@ -198,7 +198,14 @@ export interface UnitOfWork {
     readonly declaresRecord?: boolean;
   }): CommitSequence;
   linkRef(a: { readonly from: RevisionRef; readonly to: AnyRef; readonly role: string; readonly required?: boolean }): void;
-  recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; seq: CommitSequence };
+  /**
+   * 登记成功后回三个字段：报告号 + 该报告在 H 中的位置。
+   * `recordedAt` 与 `seq` 是**同一个值的两个名字**（前者沿用它写下的那条记录的字段名，
+   * 后者是机制侧历史名，既有调用方在用）。一个值两个名字是已知瑕疵，实施期应二选一；
+   * 这里保留别名而不是静默改名——上一轮改名直接打断了 4 个已在用的调用方。
+   * 二者必须恒等，由 tests/p1-storage-tx.test.ts 断言。
+   */
+  recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; recordedAt: CommitSequence; seq: CommitSequence };
   readLatest(oid: ObjectOid): ObjectSnapshot | undefined;
   /**
    * 声明一条 Raw Record（ID-08：记录有自身标识）。**声明**与**引用**在机制上是两件事：
@@ -615,7 +622,7 @@ class UnitOfWorkImpl implements UnitOfWork {
     );
   }
 
-  recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; seq: CommitSequence } {
+  recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; recordedAt: CommitSequence; seq: CommitSequence } {
     const seq = this.k.nextLedgerSeq(this.raw);
     // 报告本身就是历史事件：与 check_report 同一事务写 ledger 行 + journal epoch。
     // 缺了它 ⇒ (a) 历史真源分裂成"报告表 + 登记表"两处，recorded_as_of 截点看不见报告；
@@ -644,7 +651,7 @@ class UnitOfWorkImpl implements UnitOfWork {
       a.validatorId, a.ruleVersion, a.schemaVersion, a.environment, a.executedAt, a.guaranteeScope,
       a.verdict, JSON.stringify(a.findings), JSON.stringify(a.declaredGaps), seq,
     );
-    return { reportId, seq };
+    return { reportId, recordedAt: seq, seq };
   }
 
   readLatest(oid: ObjectOid): ObjectSnapshot | undefined {

@@ -123,7 +123,7 @@ export class ValidationService {
       environment: 'synth-env', executedAt: Date.now(), guaranteeScope: 'SYNTH-STRUCTURAL-ONLY',
       verdict, findings, declaredGaps,
     }));
-    return { reportId: res.reportId, verdict, findings, declaredGaps, coverage, recordedAt: res.seq };
+    return { reportId: res.reportId, verdict, findings, declaredGaps, coverage, recordedAt: res.recordedAt };
   }
 
   /** 端点资格判据（RF-05/RF-06）：这条规则住在**领域**，不在 Kernel。 */

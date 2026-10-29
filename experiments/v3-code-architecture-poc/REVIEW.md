@@ -172,3 +172,46 @@ F-14 的"领域可自行拆除不可变性触发器"按纯安全口径可判 **P
 **仍未收口（红，一条未删未 skip）**：`contract-version-skew` 2 条、`lifecycle-sequence` 1 条（§9 分歧）、
 `old-schema-counters` 2 条、`old-schema-records` 5 条（夹具自身 `9 values for 10 columns`）、
 `projection-and-era`、`reduce-coverage`、`stopline-vocabulary`、`xc28-dual-source`（后三个语义席位新落，作者未判）。
+
+## 11. 第 3 轮追加：未判定攻击文件的处置、一次作者自我失误、一条确认的门禁缺陷
+
+### 11.1 五个此前"作者未判"的攻击文件，逐条判定
+
+| 文件 | 判定 | 依据 |
+| --- | --- | --- |
+| `semantics/reduce-coverage-attack.test.ts` | **非缺陷**：红是作者 F-23 窄面化的连带（夹具仍按旧构造签名注入 Kernel） | 只改装配行 `new ValidationService(w.kernel.faceFor(CAP_RECORDS), runIn)`，断言一字未动 ⇒ 3 条全绿 |
+| `semantics/xc28-dual-source-attack.test.ts` | **非缺陷**：同一连带原因 | 同上，4 条全绿 |
+| `semantics/read-shapes-attack.test.ts` | **无发现**：4 条本来就全绿 | 直接跑 |
+| `evolution/projection-and-era.test.ts` | **一半成立一半不可构造**：`ruleVersion coexistence` 见 §11.2；`era attack` 被打开期 `SCHEMA_UPGRADE_REQUIRED` 拦住，前置条件构造不出来（与 `old-schema-*` 同一类，待复审独立验证） | 跑 + 栈定位到 `assertOpenableThenPrepare` |
+| `semantics/stopline-vocabulary-attack.test.ts` | **成立**，见 §11.3 | B 条可复现 |
+
+### 11.2 作者自我失误（登记为纪律事件，不粉饰）
+
+`ruleVersion coexistence` 报错 `Provided value cannot be bound to SQLite parameter 1`，我第一反应判成
+"机制返回名不一致导致领域静默拿到 undefined"，于是把 `recordReport` 的返回 `seq` **改名**为 `recordedAt`。
+实际根因是**审查方夹具**取的是 `r1.recordedAt` 而当时机制回的是 `seq`；`src/domains/test-records.ts` 读 `.seq`
+一直是正确的。改名的直接后果是**当场打断 4 个已在用 `seq` 的调用方**
+（`host-boundary` / `record-seq-and-ref` / `reviewer-boundary` / `report-record-identity` 由绿转红）。
+
+处置：不回滚成"只有 recordedAt"，改为**一个值两个名字**的显式别名
+`{ reportId, recordedAt: seq, seq }`，并在 `tests/p1-storage-tx.test.ts` 加 `expect(out.recordedAt).toBe(out.seq)`
+恒等断言；"一个事实两个名字"作为已知瑕疵登记进 `READINESS.md` 的实施期待办。
+**为什么不静默改名**：上一轮已经证明，改名会打断既有调用方；而门禁此刻是绿的，说明既有调用方
+就是这个契约的事实面。教训写进注释：**先跑一遍看谁在用，再决定改契约还是改夹具**。
+
+该条现由红转绿，但转绿的**原因必须写清**：不是修好了领域的 bug，而是别名让 `r1.recordedAt` 有了值。
+
+### 11.3 确认缺陷 F-31（P1，门禁强度，非机制缺陷）
+
+`tests/arch-independence.test.ts` 的业务无知词汇扫描器用
+`(^|[^A-Za-z0-9_$.])WORD([^A-Za-z0-9_$]|$)`，因此三种形态**完全绕过**：
+`p.WITHHELD_REFERENCE = 1`（下划线后缀使 `\b` 不成立）、小写 `withheld`、JSON 键名 `"withheld": …`。
+复现：`npx vitest run --config experiments/v3-code-architecture-poc/vitest.config.ts attacks/semantics/stopline-vocabulary-attack.test.ts`
+⇒ `expected [] to include 'WITHHELD'`。
+
+最小修法：按非字母数字切 token、camelCase 再切、小写归一、`-_` 归一后比对原子集合（而不是边界正则）。
+**作者本轮不改**：复审员正在审计这份门禁是否假绿（我明确要求他做这件事），中途替换被审计对象
+会让他的审计结论失效；等 `attacks/review/RE-REVIEW-R3.md` 落地后与他的结论一并处置。
+诚实边界：词汇表门禁**本质上不可能完备**——同文件的 C 条已证明"中性词承载领域判定"能整体穿过；
+真正的止损线是架构性的（判定词汇与规则住在 `src/domains/**`，Kernel 只搬运不透明字符串），
+门禁只是漂移探测器，不是业务无知的证明。这句话要留在实施契约里，不能让绿门禁冒充证明。

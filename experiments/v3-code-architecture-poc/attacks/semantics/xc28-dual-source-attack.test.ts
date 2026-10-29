@@ -90,7 +90,8 @@ describe('S-7 XC-28：字段 + 已注册关联并存（真双重源）静默可�
       grants: { alice: ['space-write'] }, plugins: [TEST_OBJECT_MODEL, TEST_FACET_CALIB],
     });
     try {
-      const facets = new FacetStore(w.kernel, CAP_FACET);
+      // 夹具装配同步（F-23）；断言未动。
+      const facets = new FacetStore(w.kernel.faceFor(CAP_FACET));
       const subject = w.uow(ALICE, (tx) =>
         tx.createObject({ kind: 'test.subject', payload: { serial: 'A1' } }),
       );

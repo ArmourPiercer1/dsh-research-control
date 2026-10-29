@@ -30,38 +30,39 @@
 | 2 | M-3 登记序断言表述含糊 | 部分采纳 | **已落实**：`EVIDENCE.md` M-3 现读为"其后第一次成功提交落在 `seq=1`、`ledger_head()===1`、`count(seq>1)===0` … `p1` 中途失败例 :60-67"；行号核对准确（`tests/p1-storage-tx.test.ts:60-67` 断言一致） |
 | 3 | `EVIDENCE.md` §2 例数过期 | 采纳 | **部分落实，已再次过期**：按席位拆开的表已加入（8 行合计 63），但表内缺 `tests/sql-guard.test.ts`（10 例）与 `tests/multiprocess-contention.test.ts`（1 例）两行；同节首行仍是 "Test Files 7 / Tests 58"。见 P2-C4 |
 | 4 | `docs:check` "直接 OK" 掩盖先红后绿 | 采纳 | **已落实**：`EVIDENCE.md` §4 现记录 `FAIL DOCS_INDEX_STALE @ docs/README.md` → `docs:sync --write`（只写派生索引）→ `OK — 1200 tracked files`，并注明未剔除问题文件 |
-| 5 | `[实测]` 把纯逻辑断言包了进去 | 采纳 | **部分落实**：`EVIDENCE.md` §3 已加"[实测] 的作用域"定义；`CONTRACTS.md:56` kind 路由已改 **[实现断言]**；但 `CONTRACTS.md:60` 循环引用行仍标 **[实测]**（处置记录称"循环引用无证明力"也改 [实现断言]，未落地）。见 P2-C10 |
+| 5 | `[实测]` 把纯逻辑断言包了进去 | 采纳 | **已落实（最终锚点复核）**：`EVIDENCE.md` §3 有"[实测] 的作用域"定义；`CONTRACTS.md:56` kind 路由、`:60` 循环引用行均已改 **[实现断言]**（`:60` 附注"证明力本就不在机制面"） |
 | 6 | `test-validation.ts` "UNKNOWN → 合规：PASS" 措辞 | 采纳 | **未落实**：该文件与 HEAD 一致（`git diff HEAD -- …/test-validation.ts` 为空，最后提交 `ec07538`），`:46` 仍为"⇒ PASS 并记入 declared_gaps（RPT-05、RD-25）"；全树 grep "状态合法" 仅命中 `REVIEW.md:126` 的处置记录本身。且处置记录里的替代措辞（UNKNOWN 情形下 `coverage=INCOMPLETE_DUE_TO_VISIBILITY`）与 P3 断言语义不符（该 coverage 值只属于被屏蔽引用情形，`test-validation.ts:52-56`）。见 P2-C11 |
 
 ## 2. 本轮新 findings
 
-### P1-C3 — F-15 的回归测试在 HEAD 上缺失（台账引用了不存在的回归）
+### P1-C3 —（在最终锚点已关闭，留历史记录）F-15 的回归测试曾缺失于 `6ec6852`
 
-- 违反条款：本仓自定纪律——`tests/sql-guard.test.ts:7` "缺一条测试就等于该分支未被证明"；
-  `README.md` 布局表 "`attacks/<审查轴>/` … 其失败本身就是 finding"；`READINESS.md` §1
+- 违反条款（当时）：本仓自定纪律——`tests/sql-guard.test.ts:7` "缺一条测试就等于该分支未被
+  证明"；`README.md` 布局表 "`attacks/<审查轴>/` … 其失败本身就是 finding"；`READINESS.md` §1
   "attacks/** 攻击测试 | 作为回归资产随契约演进扩充"。
-- 位置：`REVIEW.md:44`（§2.1 F-15 行）；`src/storage-sqlite/sqlite-port.ts:167/173/180`
-  （三处 `SCHEMA_UPGRADE_REQUIRED` 抛出点，无任何测试触达）。
-- 复现：
+- 历史复现（锚 `6ec6852`）：
   ```bash
-  grep -rn "SCHEMA_UPGRADE_REQUIRED" tests/ attacks/   # 在 HEAD 6ec6852 上：零命中
-  git log --all --oneline -- 'experiments/v3-code-architecture-poc/attacks/evolution/*'  # 空
-  grep -n "演化攻击例" REVIEW.md                        # :44 F-15 行
+  git -C <repo> grep -l "SCHEMA_UPGRADE_REQUIRED" 6ec6852 -- 'experiments/v3-code-architecture-poc/tests' 'experiments/v3-code-architecture-poc/attacks'   # 零命中
+  git log --all --oneline -- '…/attacks/evolution/*'   # 当时为空
   ```
-- 根因：F-15 的演化攻击文件（手造缺 `records` 旧库 ⇒ `SCHEMA_UPGRADE_REQUIRED`）在
-  `6ec6852` 及之前的 HEAD 上从未被提交；`REVIEW.md` 台账把"演化攻击例 + 新库可正常打开的
-  反差锚点"整体记为回归，但树内只存留下反差锚点（`tests/sql-guard.test.ts` "F-15 反差"
-  一例）。版本/表集/触发器集不匹配的 throw 分支因此无测试保护，属于"作者自称修好不算
-  证据"的同类情形。
-- 最小修法：手造旧库的负例须以**可判读的红→绿**形态进入回归资产：负例断言
-  `SCHEMA_UPGRADE_REQUIRED`（detail 含 `missingTables`/`missingTriggers`/`expectedVersion`），
-  并与现有反差锚点（新库正常打开、模式不再被重写）成对。
-- 【已部分落位，仍未收口】`2284a99` 已把 `attacks/evolution/old-schema-{records,counters}.test.ts`
-  与 `tests/schema-evolution.test.ts` 入库，但 00:15 实跑中它们仍红（计入 18 红）：
-  F-28（5 红）`REVIEW.md` §9 自认"夹具自身有缺陷（insert 9 值对 10 列）…其结论无法从当前
-  红测试读出，必须由复审员在修正夹具后重判"；F-29（2 红）断言仍写修复前形态，"改写权在
-  审查方，作者不改"。**红不等于回归：在夹具修复、断言改写为修复后形态并转绿之前，
-  F-15 的"打开期模式契约"分支仍无有效回归证明，本条成立。**
+  即 `REVIEW.md:44`（§2.1 F-15 行）登记的"演化攻击例"回归在 `6ec6852` 树内不存在，
+  版本/表集/触发器集不匹配的 throw 分支无测试保护。
+- **关闭证据（锚 `2284a99`，00:17 实跑）**：
+  1. 修复在提交态：`git show 2284a99:…/sqlite-port.ts | grep -c migrateLegacyRecords` = 3；
+     打开期校验（`assertOpenableThenPrepare`：空库才建表；既有库须版本 + 表集 + 触发器集
+     齐备 + OID 计数器不落后，否则 `SCHEMA_UPGRADE_REQUIRED`）在 `sqlite-port.ts` 提交态。
+  2. 回归绿：`tests/schema-evolution.test.ts` 3/3 绿（"模式新、历史旧" + `migrateLegacyRecords`
+     修复路径）、`tests/sql-guard.test.ts` 10/10 绿（含 "F-15 反差"：既有库打开后模式不再
+     被重写、版本标记存在）。
+  3. 攻击侧红（F-28/F-29，`attacks/evolution/old-schema-{records,counters}.test.ts`，
+     共 7 红）已逐条核实其失败点：`old-schema-records` 5 红全部止于夹具自身的
+     `openOldWorld`（该文件 :121）被打开期检查拦下（`sqlite-port.ts:220`
+     "既有库没有模式版本标记" 分支）——与 `REVIEW.md` §9 F-28 "会被打开期
+     `SCHEMA_UPGRADE_REQUIRED` 先拦住 ⇒ 断言写的是修复前形态，其结论无法从当前红测试读出"
+     的自认一致；改写权按台账留待审查方。红 = 未收口登记项（C-5），不构成对"已修"主张的
+     反证。
+- 结论：本条在 `6ec6852` 时点成立（当时台账引用的回归不存在），在 `2284a99` 已以
+  "提交态修复 + 绿回归"关闭；残余红项属演化席位新 finding 的未收口登记，非本席发现。
 
 ### P2-C1 — "46 个规则号"计数不可复现
 

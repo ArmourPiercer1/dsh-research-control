@@ -682,3 +682,48 @@ ID-08/T-01/T-02 要求历史可按 `recorded_as_of` 回放，RPT 系列要求旧
 
 **处置纪律**：席位正在跑实证，我**不改 `src/`**——中途改会让它的攻击跑在变动的对象上，
 那才是真正毁掉审计。等它的实测结果，再按 `receiving-code-review` 自己复现一遍才动手。
+
+## 25. 对席位 `1faae161` 两条发现的处置（一驳一收，均经实测）
+
+### 25.1 驳回：CTE 内 DML 这条**不是 P1**，该引擎上语法层就不存在
+
+席位的怀疑是：`guardRead` 只锚定语句头部，`WITH x AS (DELETE … RETURNING) SELECT` 可绕过。
+我用**内存库**探针（零写入，不碰 `.poc-data`，避免干扰正在跑攻击的席位）实测：
+
+```
+sqlite 3.53.4
+ERR  cte-delete  near "delete": syntax error
+ERR  cte-update  near "update":  syntax error
+ERR  cte-insert  near "insert":  syntax error
+```
+
+SQLite 不像 PostgreSQL 允许数据修改语句出现在 CTE 体内。头部锚定确实是弱判据，
+但**在这个引擎上它没有可绕的缺口**。定级不能建立在"其它数据库也许允许"上——
+本 PoC 的存储契约就绑在 `node:sqlite` 3.53.4。
+
+读句柄实际由**四道独立机制**合起来封死：头部锚定 + 多语句禁令（`/;\s*\S/`）+
+`RawTx` 接口**只有 `run/all/get`、全 PoC 无 `exec`**（连多语句通道都不存在）+
+引擎拒绝 CTE DML。任一条被拆，其余仍成立。
+
+### 25.2 接受：触发器覆盖面比我说得窄（记 D-14）
+
+席位说"三张追加表有触发器兜底，其余没有"——静态核对**成立**：
+有触发器的是 `ledger`、`object_directory`（**仅 UPDATE，没有 no_delete**）、`check_report`、
+`domain_state`、`ref_edge`、`records`；**没有**的是 `meta`（序列计数器）、`capability_version`（归属）、
+`journal`、`projection_state`，而 `object_directory` 的 DELETE 是敞开的。
+**我在文档里把"追加式存储"讲成了一条全局性质，实际它只是部分表的性质。**
+
+但这条的正确归因不是"S-0 封了一半"：触发器只在**有写路径可达**时才重要，
+而唯一的非受控写入口正是 D-7（`SqlitePort.raw` 无守卫 getter、`Kernel.port` 公开）。
+所以两件事其实**是同一件事**——收口 D-7 会同时消掉这一整类；单加触发器则是给
+一条已经封死的通道再上一道锁。**优先级：D-7 在前，D-14 是纵深防御。**
+
+### 25.3 接受：`registeredEdges` 缺省让"可检测性"变成 opt-in（记 D-15，这条打在我设计上）
+
+规则 `SYNTH_DUAL_SOURCE` 只在 `edges` 含 `USED_IN` 时触发，而装配根没交边视图时缺省是
+`() => []`，此时双正源违规**静默通过且 coverage 仍报 COMPLETE**。
+也就是说机制**分不清"没交边视图"和"交了的视图里没有这条边"**。
+
+这正是我在读面上刚修过的那类错误——`empty-vs-absent`（F-24/S-2）——
+**却只修了读面，没修校验输入面**。修法方向：边视图未交时 coverage 必须是 `INCOMPLETE`
+（或独立的"未检"信号），不得报 COMPLETE。属合成领域，级别 **P2**。

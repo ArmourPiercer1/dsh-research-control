@@ -153,7 +153,8 @@ exit=0
 | 阶段 D 攻击测试引入 | **红** | `45 failed`（`no such column: to_revision`）；随后 `4 failed`（审查员断言写的是修复前契约） |
 | 第 2 轮复审/演化轴打穿后 | **红** | `1 failed`：守卫被前导注释绕过（`4ab5cf6` 之前）；另 `4 failed`：源端修订未验 + Kernel 面基线未重生成 |
 | 两轮修复后 | 绿 | `Test Files 8 passed / Tests 63 passed`，`tsc` 0 诊断 |
-| **第 3 轮（当前，`HEAD 14ea9b6`）** | **不通过** | `121 passed / 13 failed`（`--reporter=json` 逐文件生成）：**作者测试文件 8 个全绿（0 红）**；红全部在审查方攻击文件 — `old-schema-records` 1/6、`contract-version-skew` 2/4、`lifecycle-sequence` 3/5、`old-schema-counters` 1/3、`projection-and-era` 3/4、`stopline-vocabulary` 4/5。一条未删、未 `skip`、未放宽。`lifecycle-sequence` 正被复审员就地编辑，其数字处于流动状态，不作为收口依据 |
+| **第 3 轮（当前，`HEAD 14ea9b6`）** | **不通过** | `121 passed / 13 failed`（`--reporter=json` 逐文件生成）：**作者测试文件 8 个全绿（0 红）**；红全部在审查方攻击文件 — `old-schema-records` 1/6、`contract-version-skew` 2/4、`lifecycle-sequence` 3/5、`old-schema-counters` 1/3、`projection-and-era` 3/4、`stopline-vocabulary` 4/5。一条未删、未 `skip`、未放宽。**计数假象**：`stopline-vocabulary` B 条由红转绿不是 F-31 被修，而是语义席位把断言改写为"实测拦不住"（记录漏洞）——F-31 仍是开放 P1，引用本行必须同时引用 `REVIEW.md` §12.1 |
+| **独立复审第 3 轮后（`HEAD bf3185f`）** | **不通过** | `125 passed / 15 failed`；作者 9 个测试文件 0 红。复审员三条攻击全部成立并全部封死（`NAMESPACE_ESCAPE`／`SCHEMA_INCOMPATIBLE`／`ACTIVATION_IMPOSSIBLE`，见 `REVIEW.md` §12 与 `tests/rereview-r3.test.ts`）；其攻击文件 0/3 转红正是"漏洞不再可构造"的证据 |
 
 另有一次**作者自己写错的断言**被记入证据而非抹掉：`tests/p4-read-isolation.test.ts` 的缺口用例
 最初把 Journal 缺口构造在重建 baseline 之下（那里缺口确实不影响索引），断言 `STALE` 是错的；

@@ -48,7 +48,7 @@ ObjectRevisionEnvelope = {
 | SS-10 | `object_kind` 与 `space_id` 在 `r1` 固定且**永不出现在后续修订的可变部分**（ID-01、ID-02）；`hsr_revision_append` 提交这两个槽位即 `TOOL_INPUT` 拒绝（SI-10）。 |
 | SS-11 | **不存 `head_revision` 或 `is_head`**：链首是登记簿的派生属性，写进记录就变成可被写歪的第二真源（AX-03、DF-03）。查询 `version_selection = latest` 只用于导航（ID-05、SF-23）。 |
 | SS-12 | `identity_slot_set_digest` 的摘要对象是**子型注册表声明的槽名集合**（按 SF-50 规范字节形态取摘要），不是记录内容，与 SF-20「禁止内容寻址身份」无关；它记录"当时该子型声明了哪些身份构成槽位"，使旧修订的判定可**按当时的声明**重放；它不改变契约层的身份判据，只是防漂移（SF-60、RV-04）。 |
-| SS-13 | `subtype_code` 必须解析到子型注册表条目；解析不到 → 保存成功 + `FAIL(SUBTYPE_UNREGISTERED, DEFICIENCY)`（SRG-21）。 |
+| SS-13 | `subtype_code` 必须解析到子型注册表条目；解析不到 → 保存成功 + `FAIL(SUBTYPE_UNREGISTERED, DEFICIENCY)`（SRG-21）。**存什么由 SS-56 规定**——此时既没有槽位集也没有键白名单可用。 |
 | SS-14 | 非对象记录（检查报告、采用记录、可用性检查、H 原始记录、Assertion 链成员声明）**不使用本信封**：它们有各自的记录形态，且不得被赋对象引用类型（ID-08、SCR-01、SF-24）。 |
 | SS-15 | `external_citations[]` 只能出现在信封，**不得**进入 `payload` 的任何端点/参与者/正式声明槽位；它是"本记录涉及某 V1 对象"的断言，不参与身份判定、不隐含存在性校验（SF-28、SD-20）。 |
 
@@ -236,6 +236,7 @@ subtype_entry = { subtype_code, kind, slot_set[], identity_slots[],
 | SS-53 | 子型退役不删除：`DEPRECATED` 条目永久可解析（SF-64）。 |
 | SS-54 | **`identity_slots` 锚定在契约层**：子型条目的 `identity_slots` 必须是契约层该 `kind` 身份构成表所列槽位的**超集**——可以追加更严格的子型专有身份槽位，**不得删除、置空或"暂不启用"任何契约已列出的槽位**。注册一致性检查对不满足者判定条目非法（不得启用）；否则注册一个 `identity_slots: []` 的子型就能让该类对象永久失去身份判据，这是比记录自声明（SS-50）更大的洞，因为注册表在记录之上。 |
 | SS-55 | **`completion_basis` 不得覆盖身份变化**：若变化集触及 `identity_slots` 中**已声明**的值，任何 `completion_basis`（含 `SAME_INTENT_CONFIRMED`）都**不被接受**，请求按 `F-CONFLICT` 拒绝并提示应新建对象（G-REV、RV-04）。理由：`completion_basis` 是登记者对"这是同一事项的补全"的主张，而身份判据不能由主张放宽——否则"改判成另一台设备 + 标原意确认"就是合法的同 ID 身份漂移。 |
+| SS-56 | **未注册子型的保存路径（候选态）**：`subtype_code` 解析不到注册表条目时，SS-01 的键白名单与 SS-50 的槽位集**都无从取得**，因此该载荷**不可能**被规范化成正式 HCF 对象，也**不得冒充**已规范化对象。裁决：原样保存调用方提交的键值集合 + 完整信封与来源，标记为**候选载荷**，并产 `FAIL(SUBTYPE_UNREGISTERED, DEFICIENCY)`（SS-13）。可观测后果（不新增状态键，一律由检查报告表达，避免造出第二个真源）：作用于它的 S-L1/R-L1 检查结果记 `INDETERMINATE(DEPENDENCY_MISSING)`（依赖的子型契约缺失，上游既有裁决码，不新造），**不得**记 PASS 也不得记 NOT_APPLICABLE；查询响应中它可被检索，但呈现时必须带该报告结论。**与未注册词表码的处置刻意相反**：词表按 `OPEN` 对待（SF-16、SRG-21）因为词表开放不阻断形态；子型决定槽位集，缺失即形态不可构造，属封闭域。补全路径见 T-GAP-07，**不由本层自行发明**。 |
 
 ## 6. 负面清单（构造层拒绝）
 

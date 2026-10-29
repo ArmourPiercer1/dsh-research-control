@@ -183,3 +183,27 @@ PoC 未接 DSH。可迁移的是"装配根注入 principal + 授权表"这一形
 - 领域判据全部是**合成占位规则**（文件头已标注），不得被引用为 PR #42 科研语义政策的实现。
 - 因此本实验区最高只能声称 **POC VERIFIED**；`IMPLEMENTATION READY` 需 §12 的未决项收口，
   `PRODUCT READY` 另论，且**不得由前三者推出**。
+
+## 14. 第 5–6 轮实测回写的契约条目（先前版本落后于实现，此处补齐）
+
+> 标签含义同前：**[实测]** = 有可运行的红/绿断言支撑，括号内是证据文件；**[实现断言]** = 代码如此但未独立复验。
+> 本节的存在本身就是一条事实：**契约曾经落后于实现**，且落差是在三席审查压力下才暴露的。
+
+| # | 契约条目 | 判据（可判定形态） | 证据 |
+| --- | --- | --- | --- |
+| 1 | 机制交出的**读句柄只能是查询**；追加式表在存储层被钉住 | 非 `SELECT/WITH` ⇒ `RAW_SQL_REFUSED`；`UPDATE/DELETE domain_state/ref_edge/records` ⇒ 触发器 abort；必备触发器集是**开库判据**，缺任一 ⇒ `SCHEMA_UPGRADE_REQUIRED`（`SCHEMA_VERSION=4`） | **[实测]** `attacks/semantics/dml-guard-attack.test.ts`（6 例修复后全红）、`tests/schema-evolution.test.ts` |
+| 2 | 检查报告**有自身身份**，与其余记录同构 | `recordReport` 同事务写 `records(RPT-<seq>)`；`record-ref` 存在性以 `records` 为正源；无身份者仍 `OPAQUE` | **[实测]** `tests/p3-intake-validation.test.ts`、`attacks/semantics/report-record-identity-attack.test.ts` |
+| 3 | `Coverage` 是 **RPT-03 封闭三值**；"校验器不可用"是 INDETERMINATE 的**理由**，不是 coverage 值，也不参与归约 | 离线 ⇒ 恰一条 `{code:CHECKER_UNAVAILABLE, outcome:INDETERMINATE}`；`synthReduce` 第二参数不参与判定 | **[实测]** `tests/p3-intake-validation.test.ts`；`attacks/semantics/reduce-coverage-attack.test.ts` |
+| 4 | **空结果必须可归因**（禁用态遮蔽 / 时间字段形状缺失 / 截点无值三者可区分） | `echo.hiddenByInactiveCapability > 0`（只给数量不给 oid）；`echo.timeFieldMissing` 四档反差 | **[实测]** `tests/empty-vs-absent.test.ts` |
+| 5 | 存储命名空间是**数据所有权键**，必须被单一能力独占；契约版本无标记 = 不可判定 = 拒绝 | 抢同一 ns ⇒ `ACTIVATION_IMPOSSIBLE`；`contract_version=''` 被读 ⇒ `SCHEMA_INCOMPATIBLE` | **[实测]** `tests/rereview-r3.test.ts` |
+| 6 | 窄面 `PluginFace` **不携带跨命名空间读，也不携带运维权威** | `revisionOf` 恒 `NAMESPACE_ESCAPE`；面对象成员集不含 `transferRoute/setRouteEnabled/activate/port/raw/registry/uow/nextLedgerSeq`（**运行时**判据，源码扫描挡不住"宿主把 Kernel 传进来"） | **[实测]** `tests/arch-independence.test.ts`、`tests/rereview-r3.test.ts` |
+| 7 | 跨命名空间要读的对象由**装配根**取好交入，不下发任意读取句柄 | 领域服务构造参数 `hostSnapshot` 由装配根提供 | **[实现断言]**（边界是否只是把洞挪到宿主侧，待复审裁定） |
+
+### 14.1 门禁能保证什么、不能保证什么（必须与任何绿灯并列引用）
+
+- `src/domains/**` 的词汇扫描是**命名门**，对"中性词承载的领域判定""无名词的规则"在构造上不可见；
+  三种已证实绕过：小写/JSON 键名、下划线后缀+点前缀、`as any` 类透传（后一类本轮已禁）。**F-31 开放**。
+- 侧车 `tsc` 只覆盖 `src` 与 `tests`：**`attacks/**` 不做类型检查**，攻击文件的类型漂移不会被门禁捕获
+  （实测：`Coverage` 收回三值后，攻击文件手写的四值字面量仍运行时通过）。
+- 因此：**任何绿灯都不构成"Kernel 业务无知"的证明**；架构性止损线是"校验词表只存在于
+  `src/domains/validation-contract.ts`"，不是扫描器的通过。

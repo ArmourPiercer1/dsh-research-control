@@ -94,7 +94,15 @@
 | `experiments/v3-code-architecture-poc/README.md` | Unranked |
 | `experiments/v3-code-architecture-poc/RECONCILIATION.md` | Unranked |
 | `experiments/v3-code-architecture-poc/REVIEW.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/README.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/compliance/compliance-findings.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/ADJUDICATION-scan-face.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/CANARY.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R12-FOREGROUND.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R12-NARROW.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R3.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R5-R8.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R9-R12.md` | Unranked |
 | `experiments/v3-semantic-poc/NOTES.md` | Unranked |
 | `experiments/v3-semantic-poc/README.md` | Unranked |
 | `experiments/v3-semantic-poc/REPORT-P4.md` | Unranked |

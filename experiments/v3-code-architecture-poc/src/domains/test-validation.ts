@@ -49,9 +49,18 @@ export const synthClaimChecker = (ruleVersion: string): ValidationContribution =
       findings.push({ code: 'SYNTH_INLINE_STATE_FIELD', outcome: 'FAIL', severity: 'VIOLATION',
         fieldPath: p.adopted_by !== undefined ? 'adopted_by' : 'superseded' });
     }
-    if (p.operating_context !== undefined && edges.includes('USED_IN')) {
-      // XC-28/RD-15：同一事实既有 payload 字段又有已注册关联边 ⇒ 两处会各自漂移且互不知情
-      findings.push({ code: 'SYNTH_DUAL_SOURCE', outcome: 'FAIL', severity: 'VIOLATION', fieldPath: 'operating_context' });
+    if (p.operating_context !== undefined) {
+      if (input.registeredEdges === undefined) {
+        // D-15（P1）：边视图**没交**时双正源检查根本没执行。此前这里静默跳过，报告仍标
+        // coverage=COMPLETE、verdict=ACHIEVED —— "没检"被读成"合格"，正是 C12/T-05 禁止的形态。
+        // 修法不动 coverage 封闭三值（那会破坏 RPT-03），而是把"没检"落到**驱动 verdict 的
+        // findings 轴**上：INDETERMINATE ⇒ verdict 只能是 INDETERMINATE，不再是 ACHIEVED。
+        findings.push({ code: 'SYNTH_EDGES_UNAVAILABLE', outcome: 'INDETERMINATE', severity: 'NOTE',
+          fieldPath: 'operating_context', detail: { reason: '边视图未交入装配根，双正源检查未执行' } });
+      } else if (edges.includes('USED_IN')) {
+        // XC-28/RD-15：同一事实既有 payload 字段又有已注册关联边 ⇒ 两处会各自漂移且互不知情
+        findings.push({ code: 'SYNTH_DUAL_SOURCE', outcome: 'FAIL', severity: 'VIOLATION', fieldPath: 'operating_context' });
+      }
     }
     const f = env.optionalField;
     if (f) {

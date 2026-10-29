@@ -105,8 +105,13 @@ export class ValidationService {
     private readonly runIn: <R>(fn: (tx: UnitOfWork) => R) => R,
     private readonly hostSnapshot: (ref: { kind: 'revision-ref'; oid: ObjectOid; revision: number }) =>
       { revision: number; payload: Record<string, unknown> } | undefined,
-    /** 可选：装配根提供的边角色视图。缺省空数组 ⇒ 双正源规则不触发（不假装检过）。 */
-    private readonly hostEdges: (oid: ObjectOid) => readonly string[] = () => [],
+    /**
+     * 可选：装配根提供的边角色视图。
+     * D-15 修复：**缺省不再填 `() => []`**。填空数组等于把"宿主根本没交接线"伪装成
+     * "交了的视图里没有这条边"，双正源检查会在报告标 COMPLETE 的情况下静默不执行。
+     * 现在缺省即 `undefined`，由校验器产出 INDETERMINATE 负信号。
+     */
+    private readonly hostEdges?: (oid: ObjectOid) => readonly string[],
   ) {}
 
   withValidatorOffline(validatorId: string, fn: () => void): void {
@@ -128,7 +133,7 @@ export class ValidationService {
     } else {
       const out = synthClaimChecker(ruleVersion).check({
         target: { kind: 'revision-ref', oid, revision }, payload: snap.payload, declaredGaps: [],
-        environment: env, registeredEdges: this.hostEdges(oid),
+        environment: env, registeredEdges: this.hostEdges ? this.hostEdges(oid) : undefined,
       });
       findings = out.findings.filter((f) => f.outcome !== 'PASS');
       declaredGaps = out.declaredGaps;

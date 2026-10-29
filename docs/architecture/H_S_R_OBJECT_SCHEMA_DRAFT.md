@@ -26,6 +26,7 @@
 | SS-07 | 修订专有槽位：`revision_id`、`revision_class`、`reason`、`completion_basis`（补全分支必填）、`expected_head_revision` 的满足记录；`completion_basis = UNDETERMINED` 时不得产生身份迁移（RV-06）。 |
 | SS-08 | 载荷中任何 `ref` 都不得由内容哈希派生；任何集合的排序语义必须由子型注册表声明（序敏感/序无关，SF-51）。 |
 | SS-09 | **信封槽位不得在 `payload` 里重复出现**：`object_id`/`revision_id`/`schema_version`/`recorded_at`/`registrant_ref`/`source_refs`/`subtype_code`/`completion_basis` 只在信封有一份；载荷表若需要同一事实只允许引用信封字段名，不得复制键；出现重复键 → 形态非法（单正源，EB1）。 |
+| SS-09a | **同义异名也算重复**：SS-09 只禁止同名键出现在载荷里，禁不了"信封写 `subtype_code`、载荷写 `entity_subtype`"这类**不同键名表达同一事实**。判据：载荷键名经**名称映射表**（决策文档 §5.2 登记的工件：类专有名 → 规范名）归一后若命中信封键集 → **形态非法**（`F-SCHEMA-INVALID`），不要求键名字面相同。**负例（必须被拒）**：信封 `subtype_code = PhysicalIndividual` 而载荷带 `entity_subtype = InformationResource`——本例还同时违反 SS-50（对象不得自我声明身份构成槽位）。当前已知需纳入映射的异名：`entity_subtype`/`concept_subtype`/`proposition_subtype` → `subtype_code`；Association 的 `source_assertion` 内 `registrant_ref` → 信封 `registrant_ref`；Concept 载荷内 `revision_class` → 修订信封 `revision_class`。映射表新增条目属契约层变更，不由实现自行补。 |
 
 ## 2. 信封（五类共用，`payload` 之外）
 
@@ -59,12 +60,12 @@ ObjectRevisionEnvelope = {
 
 | 槽位 | 类型 | 状态 | 身份 | 规则 |
 | --- | --- | --- | --- | --- |
-| `entity_subtype` | `subtype_code`（子型注册表） | D（不允许 `UNKNOWN`：无法归类先按原始材料登记） | ★ | EN-01、EN-03、EN-ID-7 |
+| `entity_subtype`（**不是载荷槽位**） | 值域就是信封 `subtype_code`；**载荷内出现它即形态非法** | —（不在载荷承载，见 SS-09a） | 子型仍是身份构成且不可变的槽位，但该事实登记在子型注册表与身份构成槽位集里 | EN-01、EN-03、EN-ID-7、`SS-50`、`SS-09a` |
 | `designated_name` | text | D / A | — | EN-ID-1 |
 | `aliases[]` | `{alias: text, source: ref? \| rec:, claimed_interval: time?}` 集合 | D / A（`empty_allowed = true`：空集合合法，且空集合必须带 `@st = DECLARED`，SF-11/SF-14） | — | EN-ID-1、`SL1-COM-03` |
 | `external_identifiers[]` | `{identifier: text, identity_scope: text, source: ref?}` 集合 | D / U / A | ◐ 仅 `ExternalResourceRef` 子型构成身份 | EN-ID-1 |
 | `world_membership` | `{kind_ref: ref?（Concept@rev，仅分类）, individual_ref: ref?（Entity@rev，世界个体）}` | D / U（整槽可 `UNKNOWN(reason)`） | `individual_ref` ★（已声明时改变 → 新 Entity）；`kind_ref` — | EN-W-1、EN-W-2、EN-W-3、EN-W-6、RV-01、RV-06 |
-| `source_refs[]` | `(ref \| rec:)` 集合（来源可为 H 记录，属 `PROVENANCE`） | D / A（**不得**由系统猜测来源） | — | IC-02、UN-02、C12 |
+| `source_refs[]`（**不是载荷槽位**） | `(ref \| rec:)` 集合，值域同信封 `source_refs`；载荷内出现即形态非法 | —（不在载荷承载，见 SS-09a）。**不得由系统猜测来源** | 来源可为 H 记录，属 `PROVENANCE` | `IC-02`、`UN-02`、C12、`SS-09a` |
 | `carrier_refs[]` | `{carrier_ref: ref \| rec:, source: ref?}` 集合 | D / NA(带 reason，数学/理想化个体无载体) / A | — | EN-ID-4（增载体/迁移是修订） |
 | `content_digest` | `{algorithm, value}` | D / U / A | ◐ 快照模式内容个体与配置个体（完整内容构成身份） | EN-ID-3、EN-ID-4、SF-52 |
 | `availability_checks[]` | `rec:` 集合（每次检查一条 A8 记录） | D / A | — | EN-MS-1、EN-MS-2、EN-MS-3、`SL1-ENT-04` |
@@ -92,14 +93,14 @@ ObjectRevisionEnvelope = {
 
 | 槽位 | 类型 | 状态 | 身份 | 规则 |
 | --- | --- | --- | --- | --- |
-| `concept_subtype` | `subtype_code` | D（不允许多值） | ★ 不可变（子型变化 = 新 Concept） | CO-ID-5 |
+| `concept_subtype`（**不是载荷槽位**） | 值域就是信封 `subtype_code`；载荷内出现即形态非法 | —（不在载荷承载，见 SS-09a） | 子型变化 = 新 Concept（身份构成、不可变，登记于注册表） | `CO-ID-5`、`SS-50`、`SS-09a` |
 | `preferred_label` | `{text, language}` | D / U | — | CO-ID-3（LEXICAL 修订） |
 | `alt_labels[]` | `{text, language}` 集合 | D / A（`empty_allowed = true`，SF-14） | — | CO-REV-3 |
 | `lexical_notes[]` | text 集合 | D / A | — | CO-REV-2 |
 | `language` | `vocab(ietf_language)` | D / U | — | SS-43 |
 | `definition_text` | `{text, language}` | D / U(reason) / A | — | CO-REV-5 |
 | `definition_version_claim` | `{claim ∈ {UNCHANGED, CHANGED}, change_basis}` | D / **A 非法于修订** | — | CO-REV-1、RPT-07 |
-| `revision_class` | `vocab(revision_class)`（种子 `LEXICAL/SUBSTANTIVE`） | D / A 非法于修订 | — | CO-REV-1、CO-REV-4、`SL1-CON-02` |
+| `revision_class`（**不是载荷槽位**） | 值域 `vocab(revision_class)`（种子 `LEXICAL/SUBSTANTIVE`），**由修订信封承载**；载荷内出现即形态非法 | —（修订类请求必填、不得 `ABSENT`，但登记在信封，见 SS-09a） | 校验器只比较"声明的类别"与"实际改动的键集合"，不判语义实质 | `CO-REV-1`、`CO-REV-4`、`SL1-CON-02`、`SS-09a` |
 | `domain_scope` | `{scope_kind, scope_ref: ref?}` | D / U / A | — | CO-REV-6 |
 | `broader` | `ref?` | D / U / A | — | CO-SKOS-1 |
 | `standard_vocabulary_alias` | 标准 URI（仅精确等价） | D / A | — | CO-SKOS-2、DF-10 |
@@ -137,7 +138,7 @@ ObjectRevisionEnvelope = {
 | `directionality` | `enum(DIRECTED / SYMMETRIC / UNSPECIFIED)` | D | ★ 不可变 | `SL1-ASS-03`、Association 契约 §3 槽位表「不可变」 |
 | `described_interval` | `{kind ∈ enum(TIMEPOINT, INTERVAL, UNTIL_REVOKED, TIMELESS), from: time?, to: time?}` | D / U(reason) / A | ◐ `UNKNOWN → 区间` 修订；`区间 A → 区间 B` 新关联 | `SL1-ASS-04`、AS-ID-1、AS-ID-4、CS-01、SF/A-06 |
 | `applicability_context` | `(ref)` 集合（World/Scope/配置语境） | D / U | ◐ 实质改变适用范围 → 新关联 | AS-ID-1 |
-| `source_assertion` | `{registrant_ref, actor_ref?, voice ∈ enum(SELF, REPORTED, IMPORTED, TOOL_OUTPUT), basis_refs[]}` | `registrant_ref` D（不可 `UNKNOWN`，由写入事件赋予）；`actor_ref` D / U | `registrant_ref` 不可变、非身份槽位；`actor_ref` — | `SL1-ASS-05`、RD-35（[方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md)，同 PR #42）、IC-02 |
+| `source_assertion` | `{**引用信封的** `registrant_ref`（不得在载荷内再存一份）, `actor_ref?`, `voice ∈ enum(SELF, REPORTED, IMPORTED, TOOL_OUTPUT)`, `basis_refs[]`}`——**登记主体只有一份**，"为谁而断"由 `voice` + `actor_ref` 表达，不用第二个 `registrant_ref` 表达 | `actor_ref` D / U；`voice` D | `actor_ref` 不可变、非身份槽位 | `SL1-ASS-05`、RD-35（[方向裁决与待决设计缺口](H_S_R_DECISIONS_AND_GAPS_DRAFT.md)，同 PR #42）、`IC-02`、`SS-09a` |
 | `recorded_via` | `rec:`（登记事件） | D（H 侧必须存在） | ★ 不可变（H 拥有） | IC-02 |
 | `standard_predicate_alias` | 标准 URI（仅精确等价） | D / A | — | N-04、DF-10 |
 | 冲突/替代/采用内联字段 | **无槽位**（冲突与替代是独立主张记录；采用是独立记录） | 不可写 | — | `SL1-ASS-07`、`SL1-ASS-08`、AS-CF-1、AD-01 |
@@ -176,7 +177,7 @@ ObjectRevisionEnvelope = {
 
 | 槽位 | 类型 | 状态 | 身份 | 规则 |
 | --- | --- | --- | --- | --- |
-| `proposition_subtype` | `subtype_code`（`PLAIN/ASSESSMENT/FACT_DESIGNATION/DECISION_BASIS/PROOF_OBLIGATION/META`） | D（不可变） | ★ | `SL1-PRO-09` |
+| `proposition_subtype`（**不是载荷槽位**） | 值域就是信封 `subtype_code`（`PLAIN/ASSESSMENT/FACT_DESIGNATION/DECISION_BASIS/PROOF_OBLIGATION/META`）；载荷内出现即形态非法 | —（不在载荷承载，见 SS-09a） | 身份构成、不可变，登记于注册表 | `SL1-PRO-09`、`SS-50`、`SS-09a` |
 | `primary_expression` | `{text, language}` | D（不得 `UNKNOWN`；原文残缺按原始材料登记） | ◐ 数值/量词/构成性定义变化 → 新命题 | `SL1-PRO-01`、PR-ID-3 |
 | `declaration_kind` | `vocab(declaration_kind)` | D / U / A | — | PR-ID-1 |
 | `sublanguage_tag` | `ref?` | D / U / A | — | `SL1-COM-01`、ID-05 |

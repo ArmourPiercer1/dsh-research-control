@@ -68,7 +68,8 @@
     "check:smoke-guard": "bash scripts/smoke-root-guard-check.sh",
     "test:e2e:v2:bootstrap": "bash e2e/world-bootstrap.sh",
     "test:e2e:v2": "bash e2e/run.sh",
-    "test:poc": "vitest run --config experiments/v3-semantic-poc/vitest.config.ts"
+    "test:poc": "vitest run --config experiments/v3-semantic-poc/vitest.config.ts",
+    "test:poc:arch": "vitest run --config experiments/v3-code-architecture-poc/vitest.config.ts"
   },
   "engines": {
     "node": "^22.19.0 || >=24"

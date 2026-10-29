@@ -38,3 +38,6 @@ dsh-research-control-*.tgz
 .npm-tmp/
 google-home-screenshot.png
 experiments/v3-semantic-poc/.poc-data/
+
+# V3 代码架构 PoC 输出区（可弃状态，沿用 v3-semantic-poc 的同型纪律）
+experiments/v3-code-architecture-poc/.poc-data/

@@ -96,6 +96,7 @@ vitest 三次结果不一致，第 3 次点名的 `tc-git-016` 是**超时 kill 
 | `docs:probe --fail-on-blocking` | exit 0（advisory `DOC_IMPACT_UNOWNED`：`poc/*.md` 未登记进 `dev/engineering/doc-ownership.yaml`，该文件人工维护、`docs:sync` 不写） |
 | `pnpm run check:types` | 精确复现 19 条已知债务（身份匹配，非计数匹配） |
 | `pnpm run lint` | OK |
+| 第三轮 `npx vitest run` × 2（收集面正常，364 文件） | 第一次 **3 failed / 5080 passed**；第二次 **1 failed / 5082 passed**；失败点见文末第三轮小节，隔离复跑全部通过 ⇒ 记为不稳定的既有用例，未定位成因 |
 | `npx vitest run`（清理后） | **358 files passed / 6 skipped，5083 passed / 21 skipped，0 failed** —— 与登记基线一致 |
 | 规则号闭包 | 定义 251 / 被引用 251 / 无定义引用 0（`T-GAP-10` 入表后两侧同步 +1） |
 
@@ -152,3 +153,5 @@ vitest 三次结果不一致，第 3 次点名的 `tc-git-016` 是**超时 kill 
 | `pnpm run check:types` / `pnpm run lint` | 精确复现 19 条已知债务 / OK |
 | 规则号闭包 | 定义 257 / 被引用 257 / 无定义引用 0（`SI-16a` + `T-GAP-11…15`） |
 | 环境纪律 | 本轮试把 worktree 建在 `/tmp` 下，**被沙箱回收**（跨命令不持久），故改用主工作区单分支切换；跑门禁前 `git worktree list` 确认只剩主工作区，vitest 收集面 364 文件未变 |
+
+**vitest 两条观察（不作排除性断言）**：第一次全量 3 条失败——`tests/current-focus/rpc-face.test.ts`（注入时钟下限：store stamp 早于 service clock floor）、`tests/g5-real-registry/workflow.test.ts` step 12（`history_query` 回放序列）、`tests/rpc-plane/hub-overview.test.ts`（`expected 29147 to be less than 10000` 的耗时上界）；第二次全量只剩 g5 那一条。单独复跑：g5 15/15 通过；把第一次那三个文件一起跑时，前两条通过、同文件内**另一条**失败 ⇒ **失败集合本身不稳定**。本轮改动面是 `docs/architecture` 2 文件 + `poc/` 5 文件，与这三个模块零交集；但**我没跑够轮次定位成因，因此只记观测、不说已排除**。

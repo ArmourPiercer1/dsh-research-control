@@ -98,3 +98,27 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json   # 0 诊断
 
 这条归因是**可证伪的**：在所有其他进程停止后重跑 `pnpm test`，若两条都消失即成立；
 若仍失败，则须回到基线提交做对照，且**不得**声称主门禁全绿。
+
+## 7. 新门禁的红→绿证据（`docs:probe` 对 `package.json` 变更的要求）
+
+本分支在 `package.json` 新增 `test:poc:arch`（侧车 runner），属门禁面变更，按 probe 的 T0 动作
+须给出红→绿证据。观测序列（均在本会话内实际发生，非叙述）：
+
+| 时点 | 状态 | 观测 |
+| --- | --- | --- |
+| P1/P2 落地后 | 绿 | `Test Files 2 passed / Tests 19 passed` |
+| 契约重构后 | **红** | `[PARSE_ERROR] Unexpected token`（`src/contracts/index.ts:84` 类型联合被 `;` 提前终止）；`4 failed`（移交授权轴缺失，`Refusal: NO_SPACE_WRITE`） |
+| 架构独立性门禁首跑 | **红** | `2 failed`：Kernel 面基线未重生成；可选依赖成环被误判为不可装配 |
+| 阶段 D 攻击测试引入 | **红** | `45 failed`（`no such column: to_revision`）；随后 `4 failed`（审查员断言写的是修复前契约） |
+| 修复后（当前） | 绿 | `Test Files 7 passed / Tests 58 passed`，`tsc` 0 诊断 |
+
+另有一次**作者自己写错的断言**被记入证据而非抹掉：`tests/p4-read-isolation.test.ts` 的缺口用例
+最初把 Journal 缺口构造在重建 baseline 之下（那里缺口确实不影响索引），断言 `STALE` 是错的；
+修正方式是调整测试构造，**不是**放宽机制语义（提交 `d0764bd`）。
+
+## 8. 分支与远端边界（避免误读）
+
+- 本分支 `poc/v3-code-arch-20261030` 已从 PR #44 head `5ec3897` 切出并**推送过一次**（远端同名新分支）。
+  未合并任何 PR、未改动 PR #42/#44/#47 的 Draft 状态、未向设计分支或 `main` 推送。
+  若按最严格口径解读"不推送远端"，该次推送应视为需要用户裁决的一处越界，用户可要求删除远端分支。
+- 后续提交（含阶段 D 修复与全部文档）**仅在本地**，等待用户裁决是否推送。

@@ -12,6 +12,10 @@
  *      而"端点位不得放 `rec:`"这条真正该拒的判据反而没有独立的类型域可依据 —— 已改为引用位**类型域**；
  *   ⑤ `EMPTY_NOT_PERMITTED` 的严重度我写成 DEFICIENCY，契约登记的是 **VIOLATION**（SF-14）。
  *      严重度与码名都是判据的一部分：顺带把两个 `NOT_APPLICABLE_*` 码名对齐 SCR-76 的注册形态。
+ * 第三轮审查（联合审查内联的读码反例）判本单元一项 P1，成立并已复现（`.scratch/probe-review3.mjs` R2）：
+ *   SF-17 的封闭键集只接在**载荷**侧，信封第②类槽位只查"有没有 @st"，于是
+ *   `{@st:'UNKNOWN', reason, v}` 在载荷被拒写、在信封被放行且零 finding。**机制实现正确 ≠ 所有使用
+ *   该机制的位置都接入了检查**；P1-8c 现在要求同一非法形态在两个位置得到同一个码。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -227,6 +231,41 @@ test('P1-8b 引用位**类型域**三类各有正反例：来源允许 rec:、�
   const nodes = naiveWalk({ '@st': 'DECLARED', v: [{ carrier_ref: 'rec:X' }] }, 'v[*].carrier_ref');
   assert.deepEqual(nodes, [undefined], '旧实现把 `[*]` 展开出的**数组**当成当前节点，下一段直接取到 undefined');
   assert.equal(nodes.filter(x => typeof x === 'string').length, 0, '于是这条判据一条都没跑过——"没有 finding"不等于"检查通过"');
+});
+test('P1-8c 信封第②类状态槽位与载荷**同一判据**：封闭键集只接了一半 = 机制漏位置（SF-17 / SF-04 ⑤；第三轮审查 P1）', () => {
+  // 审查原夹具，一字未改：SF-17 下 UNKNOWN 只允许 {@st, reason}，带 `v` 即集合外键。
+  const bad = { '@st': 'UNKNOWN', reason: 'NOT_SURVEYED', v: ['secret'] };
+  const inEnvelope = ok('ENTITY', 'PHYSICAL_OBJECT', { description: { '@st': 'ABSENT' } }, { source_refs: bad });
+  assert.equal(inEnvelope.r.refused, true, '信封里的 UNKNOWN+v 必须拒写（旧实现放行了）');
+  assert.equal(inEnvelope.r.code, 'STATE_KEYS_OUT_OF_RANGE');
+  // **位置完备性**：同一非法形态落在载荷侧必须得到同一个码——判据不许只在一侧生效。
+  const inPayload = ok('ENTITY', 'PHYSICAL_OBJECT', { description: bad });
+  assert.equal(inPayload.r.code, inEnvelope.r.code, '同一形态两位置判据不同 ⇒ 有一侧根本没接入检查');
+  // 另外四种漏法（都是我第一版会写的形态）各自钉住
+  const variants = [
+    ['ABSENT 带 reason', { source_refs: { '@st': 'ABSENT', reason: 'x' } }, 'STATE_KEYS_OUT_OF_RANGE'],
+    ['标签越界', { source_refs: { '@st': 'PENDING', v: [] } }, 'STATE_TAG_OUT_OF_RANGE'],
+    ['UNKNOWN 缺 reason', { completion_basis: { '@st': 'UNKNOWN' } }, 'STATE_KEYS_OUT_OF_RANGE'],
+    ['UNRESOLVED 用 reason 不用 ref', { completion_basis: { '@st': 'UNRESOLVED', reason: 'x' } }, 'STATE_KEYS_OUT_OF_RANGE'],
+    ['缺 @st', { source_refs: { v: ['HENT-src@r1'] } }, 'ENVELOPE_DOMAIN_SLOT_UNTAGGED'],
+    ['DECLARED 的 registrant_ref 空串', { registrant_ref: { '@st': 'DECLARED', v: '' } }, 'ENVELOPE_DOMAIN_SLOT_UNTAGGED'],
+  ];
+  for (const [name, extra, code] of variants) {
+    const t = ok('ENTITY', 'PHYSICAL_OBJECT', { description: { '@st': 'ABSENT' } }, extra);
+    assert.equal(t.r.code, code, `"${name}"应落 ${code}，实际 ${t.r.code || '未拒写'}`);
+  }
+  // 反向：合法形态一律不得被误杀（把合法来源判死是第二轮 P1 的同族错误）
+  for (const good of [{ source_refs: { '@st': 'DECLARED', v: ['rec:HREC-7'] } },
+    { source_refs: { '@st': 'NOT_APPLICABLE', reason: 'CATEGORY_MISMATCH' } },
+    { source_refs: { '@st': 'ABSENT' } }, { source_refs: { '@st': 'UNRESOLVED', ref: 'HENT-src@r1' } },
+    { completion_basis: { '@st': 'UNKNOWN', reason: 'NOT_SURVEYED' } }]) {
+    const t = ok('ENTITY', 'PHYSICAL_OBJECT', { description: { '@st': 'ABSENT' } }, good);
+    assert.equal(t.r.refused, false, `合法形态被误杀：${JSON.stringify(good)} → ${t.r.code}`);
+  }
+  // 反向锚点：第一版只查"有没有 @st"。它必须放过审查的夹具，否则这条用例没在验新代码。
+  const onlyHasTag = v => (v !== undefined && !isTagged(v) ? 'ENVELOPE_DOMAIN_SLOT_UNTAGGED' : null);
+  assert.equal(onlyHasTag(bad), null, '锚点失效检查：只查 @st 在场的实现会放过 UNKNOWN+v');
+  assert.equal(keysOutOfRange(bad), true, '判据本身成立：`v` 不在 UNKNOWN 的合法键集内');
 });
 test('P1-9 未注册子型 → 候选载荷，不拒写、不冒充规范形态（SS-13/SS-56）', () => {
   const { r, o } = ok('ENTITY', 'WORLD_MID', { whatever: { '@st': 'ABSENT' } });

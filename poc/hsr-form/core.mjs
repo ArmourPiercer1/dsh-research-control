@@ -107,7 +107,16 @@ export function ingest(env, payload, reg, out) {
   if (env.revision_id !== undefined && !REV_RE.test(String(env.revision_id))) return refuse(out, 'ENVELOPE_REVISION_GRAMMAR');
   if (typeof env.space_id !== 'string' || env.space_id === '') return refuse(out, 'ENVELOPE_SPACE_ID_TYPE');
   for (const k of CLASS3) if (k in env) return refuse(out, 'ENVELOPE_ECHO_KEY_ON_WRITE');   // 第③类仅响应侧（见 FINDINGS）
-  for (const k of CLASS2) if (env[k] !== undefined && !isTagged(env[k])) return refuse(out, 'ENVELOPE_DOMAIN_SLOT_UNTAGGED');
+  // 信封第②类槽位同样是五态值 ⇒ SF-17 的**同一套**判据必须在这里也跑一遍。
+  // 第三轮审查反例：载荷侧早就检查封闭键集，信封侧只查"有没有 @st"，于是
+  // `{@st:'UNKNOWN', reason, v}` 在载荷被拒写、在信封被放行——机制正确 ≠ 所有使用位置都接入。
+  for (const k of CLASS2) {
+    const v = env[k];
+    if (v === undefined) continue;
+    if (!isTagged(v)) return refuse(out, 'ENVELOPE_DOMAIN_SLOT_UNTAGGED');       // ② 缺 @st
+    if (!STATES.includes(v['@st'])) return refuse(out, 'STATE_TAG_OUT_OF_RANGE');  // ⑤ SF-17
+    if (keysOutOfRange(v)) return refuse(out, 'STATE_KEYS_OUT_OF_RANGE');          // ⑤ SF-17 封闭键集
+  }
   // 信封 `source_refs` 的类型域是 `(ref | rec:)`（SS-34：来源允许 rec:；SF-24）
   if (env.source_refs?.['@st'] === 'DECLARED' && refViolations(env.source_refs, [refAt('v[*]', 'either')]).length)
     return refuse(out, 'REF_PATTERN_MISMATCH');                                            // ④ 信封引用位
@@ -296,8 +305,10 @@ export const S_constant = (operation, effectiveLimit) => ({
  * 按原文的三条约束重做：
  *   SCR-51 两条被屏蔽引用 finding **按层级合并为恰一条** `UNVERIFIABLE_REFERENCE`，受影响层级的 verdict → `UNVERIFIABLE_TO_YOU`；
  *   SCR-53 被移除项的**条数**、原 `rule_id`、被屏蔽字段名与空间标识一律不出现；
- *   SCR-55 差异只允许来自 A/S 这一条边界 ⇒ **报告级 verdict 不得由可见子集归约得出**，
- *          只要发生过脱敏就是 `UNVERIFIABLE_TO_YOU`（可见子集归约等于凭空多出第三档，正是被判令禁止的那种）。
+ *   SCR-55 差异只允许来自 A/S 这一条边界 ⇒ MASKED 档的呈现面**与"本次是否过滤过内容"无关**：
+ *          层级 verdict 恒为 `UNVERIFIABLE_TO_YOU`、每层恒发一条固定占位、报告级 verdict 恒定，
+ *          既不按被遮蔽条数改数组长度，也不由可见子集归约 verdict（那是凭空多出第三档）。
+ *          与 SCR-51/53 的逐层合并之间的取舍见 `T-GAP-15`（桩件取不泄漏的一侧）。
  */
 export function sanitize(report, authClass, page) {
   const eff = page.effectiveLimit;
@@ -312,23 +323,20 @@ export function sanitize(report, authClass, page) {
   if (!MASK_SCOPES.includes(authClass.scope))
     throw new Error(`sanitize: 未知脱敏范围 ${authClass.scope}`);
   if (authClass.scope === 'NO_OBJECT_SPACE_VISIBILITY') return S_constant(report.operation, eff);   // SCR-57
+  // PARTIAL：**呈现面不得因"本次是否真的过滤过内容"而不同**（SCR-55 字面禁止"按被遮蔽项数量
+  // 改变数组长度"；第三轮审查反例：隐藏 0 条 vs 隐藏 1 条在旧实现下输出不同）。
+  // 因此这里只依赖两样东西：① 本次授权类；② 报告自身的层级结构（固定 L1..L4，不由被屏蔽内容决定）。
+  // SCR-51 的"按被屏蔽层级合并为恰一条"在这个方向上是**过脱敏**实现（每层恒发一条占位），
+  // 与 SCR-51/53 的取舍冲突已登记为 T-GAP-15；桩件取不泄漏的一侧——过脱敏不泄漏，欠脱敏会。
   const hidden = authClass.hiddenFinding || (() => false);
-  const all = report.findings || [];
-  const visible = all.filter(f => !hidden(f));
-  const masked = all.filter(f => hidden(f));
-  const seen = new Set(); const affected = [];
-  for (const f of masked) {
-    const k = String(f.level ?? '');
-    if (!seen.has(k)) { seen.add(k); affected.push({ key: k, level: f.level }); }
-  }
-  affected.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));      // 顺序稳定，不来自被屏蔽内容
+  const visible = (report.findings || []).filter(f => !hidden(f));
+  const levels = (report.level_results || []).map(l => ({ level: l.level, verdict: 'UNVERIFIABLE_TO_YOU' }));
   return {
     operation: report.operation,
-    level_results: (report.level_results || []).map(l =>
-      seen.has(String(l.level ?? '')) ? { level: l.level, verdict: 'UNVERIFIABLE_TO_YOU' } : l),
-    findings: [...visible, ...affected.map(({ level }) => ({
-      level, outcome: 'INDETERMINATE', code: 'UNVERIFIABLE_REFERENCE', field_path: FIELD_PLACEHOLDER }))],
-    verdict: masked.length ? 'UNVERIFIABLE_TO_YOU' : report.verdict,
+    level_results: levels,
+    findings: [...visible, ...levels.map(l => ({
+      level: l.level, outcome: 'INDETERMINATE', code: 'UNVERIFIABLE_REFERENCE', field_path: FIELD_PLACEHOLDER }))],
+    verdict: 'UNVERIFIABLE_TO_YOU',
     boundary: { ...BLIND, limit_applied: eff },
   };
 }

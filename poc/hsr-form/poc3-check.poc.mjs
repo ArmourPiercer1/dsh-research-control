@@ -10,6 +10,10 @@
  *   `INDETERMINATE(WITHHELD_REFERENCE)`）与"目标不存在"（存储 `FAIL(REF_UNRESOLVED)`）两个世界
  *   呈现不同 verdict，被屏蔽内容的存在性被 verdict 说了出去（违反 SCR-51/53/54/55）。
  *   上一版 P3-7 之所以是绿的：它挑的两个世界的**存储 verdict 恰好相同**，等于没测这条判据。
+ * 第三轮审查判本单元一项 P1，成立并已复现（`.scratch/probe-review3.mjs` R1）：
+ *   脱敏的呈现面仍随"本次是否真的过滤过内容"变化——**隐藏 0 条 vs 隐藏 1 条**不同形。上一轮的配对是
+ *   "隐藏 1 vs 隐藏 2"，两条都发生了遮蔽，于是"是否发生遮蔽"这个变量被构造方式固定住了：**判据的
+ *   边界在 0，配对却在 1 与 2**。现 P3-7d 把 0/1/≥2 三态一起配，并把上一轮的实现写成反向锚点。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -148,6 +152,41 @@ test('P3-7c 错误实现必红：四种我或实现者会写的脱敏变体都�
     assert.equal(discriminates(m), true, `变异体"${name}"没被抓住 ⇒ 判据分辨力不足（${why}）`);
     assert.notEqual(canonical(m(witness)), canonical(sanitize(witness, PARTIAL, PAGE)), `"${name}"与正确实现分歧在 ${why}`);
   }
+});
+
+test('P3-7d **隐藏 0 条**也必须与隐藏 ≥1 条同形：边界格才是泄漏发生的地方（SCR-55；第三轮审查 P1）', () => {
+  // 审查原话：此前覆盖了"隐藏 1 vs 隐藏 2"，却没覆盖"隐藏 0 vs 隐藏 1"。
+  // 构造照抄审查描述：可见 finding 完全一致，只有额外隐藏项的**有无**不同，连存储 verdict 都不同。
+  const none = { ...xc25('B'), findings: [visibleF], verdict: 'ACHIEVED' };
+  const one = { ...xc25('B'), findings: [visibleF, hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' })] };
+  const two = { ...xc25('B'), findings: [visibleF, hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' }),
+    hiddenAt('L1', { outcome: 'FAIL', reason: 'REF_UNRESOLVED' })] };
+  const bytesOf = r => canonical(sanitize(r, PARTIAL, PAGE));
+  const [n, o, t] = [none, one, two].map(bytesOf);
+  assert.equal(n, o, '隐藏 0 条 vs 隐藏 1 条：可见集相同 ⇒ 呈现必须逐字节相同');
+  assert.equal(o, t, '隐藏 1 条 vs 隐藏 2 条：同上');
+  assert.equal(sanitize(none, PARTIAL, PAGE).verdict, 'UNVERIFIABLE_TO_YOU',
+    'MASKED 档的 verdict 是**该授权类的常量**，不是"本次是否过滤过内容"的函数');
+  // 反向锚点：第二轮的实现（"发生过脱敏才降级 + 按受影响层级发占位"）恰好在**这一格**泄漏，
+  // 而它在"1 vs 2"那一格与正确实现同形——所以旧用例给不了这条分辨力，必须新增边界格。
+  const prevRound = r => {
+    const hid = r.findings.filter(f => f.owner !== 'me');
+    const levels = [...new Set(hid.map(f => f.level))];
+    return { ...sanitize(r, PARTIAL, PAGE),
+      level_results: hid.length ? r.level_results.map(l => ({ level: l.level, verdict: 'UNVERIFIABLE_TO_YOU' })) : r.level_results,
+      findings: [...r.findings.filter(f => f.owner === 'me'),
+        ...levels.map(level => ({ level, outcome: 'INDETERMINATE', code: 'UNVERIFIABLE_REFERENCE', field_path: FIELD_PLACEHOLDER }))],
+      verdict: hid.length ? 'UNVERIFIABLE_TO_YOU' : r.verdict };
+  };
+  assert.notEqual(canonical(prevRound(none)), canonical(prevRound(one)),
+    '锚点失效检查：上一轮的实现在"隐藏 0 vs 1"必须分歧，否则本用例没在验任何东西');
+  assert.equal(canonical(prevRound(one)), canonical(prevRound(two)),
+    '它在"1 vs 2"上同形 ⇒ 这正是 P3-7b 一片绿灯却漏掉本条缺陷的原因');
+  // 占位条数只跟**报告自身的层级结构**有关，与遮蔽了多少条无关
+  const twoLevel = r => ({ ...r, level_results: [{ level: 'L1', verdict: 'PASS' }, { level: 'L2', verdict: 'PASS' }] });
+  assert.equal(canonical(sanitize(twoLevel(none), PARTIAL, PAGE)), canonical(sanitize(twoLevel(one), PARTIAL, PAGE)));
+  assert.equal(sanitize(twoLevel(one), PARTIAL, PAGE).findings.filter(f => f.code === 'UNVERIFIABLE_REFERENCE').length, 2,
+    '每层恰一条固定占位：条数是层数的函数，不是被遮蔽条数的函数');
 });
 
 // ---- 分页（SI-14 / SI-50） --------------------------------------------------------

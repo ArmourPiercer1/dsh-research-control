@@ -31,6 +31,7 @@ const baselinePath = argv.includes('--baseline')
   ? argv[argv.indexOf('--baseline') + 1]
   : join(ROOT, 'attacks', 'BASELINE.json');
 
+const AUTHOR_MIN_PASSED = 90;   // 作者侧当前 95 例；下限兜住「测试整批消失」这一类假绿
 const fail = [];
 const note = (s) => console.log(s);
 
@@ -38,22 +39,29 @@ const note = (s) => console.log(s);
 function runVitest(paths) {
   const r = spawnSync('npx', ['vitest', 'run', '--config', CONFIG, '--reporter=json', ...paths],
     { cwd: REPO, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 });
+  // 席位 A 实测的假绿路径：测试文件在 **import 阶段**损坏时，vitest 退出码=1、success=false，
+  // 但 JSON 里没有任何 assertionResult ⇒ failed 集合为空 ⇒ 门禁会打印"全绿"。
+  // 退出码与 success 必须单独判，不能只看断言计数。
   const out = r.stdout ?? '';
   const start = out.indexOf('{');            // reporter=json 前可能混有 banner 行
   const failed = new Set();
   let passed = 0;
+  let skipped = 0;
+  let success = false;   // 必须在 try 外声明：解析失败时也要能被判为 false
   try {
     const j = JSON.parse(out.slice(start));
+    success = j.success === true;
     for (const f of j.testResults ?? []) {
       for (const a of f.assertionResults ?? []) {
         if (a.status === 'failed') failed.add(`${f.name.replace(REPO + '/', '')} > ${a.fullName}`);
         else if (a.status === 'passed') passed += 1;
+        else skipped += 1;   // pending / skipped / todo —— 作者流里一条都不许有
       }
     }
   } catch {
-    return { failed: null, passed: 0, raw: (out + (r.stderr ?? '')).slice(-800) };
+    return { failed: null, passed: 0, skipped: 0, status: r.status, success: false, raw: (out + (r.stderr ?? '')).slice(-800) };
   }
-  return { failed, passed, raw: '' };
+  return { failed, passed, skipped, status: r.status, success, raw: '' };
 }
 
 note('[1/3] 类型门（含作者 tests，不含 attacks/**）');
@@ -64,14 +72,23 @@ else note('  OK');
 note('[2/3] 作者测试门（tests/**，0 红是硬条件）');
 const a = runVitest([join(ROOT, 'tests')]);
 if (a.failed === null) fail.push('作者测试门无法解析 vitest 输出:\n' + a.raw);
+else if (a.status !== 0) fail.push(`作者测试门 vitest 退出码=${a.status}，解析到的红条数=${a.failed.size}。`
+  + `典型成因：测试文件在 import 阶段崩溃（收集期错误不进 assertionResults）——`
+  + `只看断言计数会把它读成"全绿"。`);
+else if (!a.success) fail.push('作者测试门 success=false 但未解析到红条（同上的收集期崩溃形态）');
+else if (a.skipped > 0) fail.push(`作者测试门出现 ${a.skipped} 条 skip/pending —— 跳过不是通过。`
+  + `整文件 skip 时 vitest 退出码仍为 0，只有计数能抓住它`);
+else if (a.passed < AUTHOR_MIN_PASSED) fail.push(`作者测试通过数 ${a.passed} < 下限 ${AUTHOR_MIN_PASSED}：`
+  + `测试集合被裁剪（文件丢失/被排除）同样表现为"0 红"，这条兜住"红是零但测试没了"`);
 else if (a.failed.size > 0) fail.push(`作者测试红 ${a.failed.size} 条：\n  ${[...a.failed].join('\n  ')}`);
-else note(`  OK —— ${a.passed} 例全绿`);
+else note(`  OK —— ${a.passed} 例全绿（skip=${a.skipped}，exit=0，success=true）`);
 
 note('[3/3] 审查方基线门（attacks/**：多一条要查，少一条也要查）');
 const b = JSON.parse(readFileSync(baselinePath, 'utf-8'));
 const known = new Set(b.failures);
 const v = runVitest([join(ROOT, 'attacks')]);
 if (v.failed === null) fail.push('审查方门无法解析 vitest 输出:\n' + v.raw);
+else if (v.status === 0 && v.passed === 0 && known.size > 0) fail.push('审查方门 0 通过且退出码 0：疑似整目录未被收集');
 else {
   const added = [...v.failed].filter((x) => !known.has(x));
   const gone = [...known].filter((x) => !v.failed.has(x));

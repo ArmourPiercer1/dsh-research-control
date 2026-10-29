@@ -93,7 +93,11 @@ describe('架构独立性硬门', () => {
     const offenders: string[] = [];
     for (const d of ['src/domains', 'src/contracts']) {
       for (const f of filesUnder(d)) {
-        if (/from\s+'[^']*kernel\/internal\.ts'/.test(readFileSync(f, 'utf-8'))) offenders.push(f);
+        // 只认单引号会被双引号与动态 import 旁路（席位 A 静态复算）——三类写法一律算违规
+        const src = readFileSync(f, 'utf-8');
+        if (/from\s*["'][^"']*kernel\/internal\.ts["']/.test(src)
+          || /import\(\s*["'][^"']*kernel\/internal\.ts["']\s*\)/.test(src)
+          || /require\(\s*["'][^"']*kernel\/internal\.ts["']\s*\)/.test(src)) offenders.push(f);
       }
     }
     expect(offenders).toEqual([]);

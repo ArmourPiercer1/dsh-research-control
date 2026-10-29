@@ -109,6 +109,7 @@ pnpm test                                                     # 根全量（当�
 **建议的 echo 加强（不改形态）**：补首个被剔除行的 `{capability, recordedContractVersion, effectiveContractVersion}`
 版本对——给操作者一次读即可行动的线索，仍不给 oid。
 
+| G-1 | **P1 — 门禁自身假绿，已修并经变异验证（席位 A 实测）** | `g0-gate.mjs` 作者流只数 JSON 红条、**忽略 vitest 退出码** ⇒ 测试文件 import 期崩溃被读成「92 例全绿」；整文件 `describe.skip` 静默通过；`tests/**` 流无任何兜底 | 四道保护：退出码非 0 即红（具名成因=收集期崩溃）、`success=false` 即红、`skipped>0` 即红、通过数下限 90；两条变异各自验证。另修 import 禁令正则的单引号旁路（双引号/动态 import/require） |
 | D-15 | **P1 — 已修并经独立复验（席位 B）** | 装配未交边视图时双正源检查静默不执行，报告仍报 ACHIEVED + COMPLETE | 未交 ⇒ `SYNTH_EDGES_UNAVAILABLE`(INDETERMINATE) 真挡 ACHIEVED（reducer、端到端、呈现层三处实测）；**未新增 coverage 第四值** |
 | N-1 | **P2（席位 B）** | 装配根交**恒空**视图而库中真有 `USED_IN` 边 ⇒ 仍 ACHIEVED + COMPLETE + 零信号 | 机制无法校验交来的视图内容（受信任输入边界，同 `hostSnapshot`）。作者测试 3 bless 的"交而空 ⇒ ACHIEVED"**有条件**（视图须完整真实），条件**无机制保证、当前依赖装配纪律**。装配级保证待 G1 |
 | N-2 | **P2（席位 B）主张强于实现** | `includes('USED_IN')` 精确匹配 + 只认 `operating_context`：`used_in`/`Used_In`/`" USED_IN"` 漏检；`operatingContext`、嵌套 `context.operating` 连 INDETERMINATE 都不触发 | 已在 `CONTRACTS.md` 把"可检测"收窄为"规范化角色名与已声明字段名范围内"，并列出解除该限定所需三项交付 |

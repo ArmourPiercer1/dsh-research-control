@@ -14,8 +14,10 @@ PR #44（`design/v3-code-architecture-review-20261027`）§13 列出 12 条"架�
 ## 怎么跑
 
 ```bash
-pnpm run test:poc:arch                                            # 48 例，全部跑真实 SQLite 文件
+pnpm run test:poc:arch      # 全部跑真实 SQLite 文件；作者侧 12 个测试文件 + 审查方 attacks/**
 npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json     # 本区独立类型门
+#   ↑ include 只有 src 与 tests：**attacks/** 不做类型检查**。
+#     因此"tsc 干净"绝不意味着审查方的攻击文件合法——两者是两个不同的门。
 ```
 
 根 `pnpm test` **不收集**本区（`vitest.config.ts` 排除 `experiments/**`）：侧车进度永不成为主门禁的
@@ -38,7 +40,8 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json     # 本区独立
 | `CONTRACTS.md` | 阶段 C：由实测反推的契约修订（F-01…F-09）+ 已选/已拒 + 替换代价 |
 | `EVIDENCE.md` | 阶段 B/E：命令、SHA、退出码、门禁输出 |
 | `REVIEW.md` | 阶段 D：独立对抗审查与处置 |
-| `ASSESSMENT.md` | 阶段 E：最终评估与就绪结论 |
+| `ASSESSMENT.md` | 阶段 E：最终评估与就绪结论（§5.1 解除 BLOCKED 的当前条件；§7 未收口项总账） |
+| `READINESS.md` | 实施期就绪清单 D-1…D-13 + 附录 A（`port` 收口配方）+ 附录 B（独立复验新增开放项） |
 
 ## 三条不可让步的纪律（由测试把守，不靠自觉）
 
@@ -47,3 +50,18 @@ npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json     # 本区独立
 2. **权威唯一**——重复能力、重复 kind 拥有者、第二个领域事件权威 ⇒ 装配期拒绝。
 3. **历史真源唯一**——`ledger` 由触发器不可变；`journal` 可压缩，且实测证明单独重放 Journal
    不足以重建历史（`p4` 的缺口用例：Journal 重放只得 1 条而权威记录有 2 条）。
+
+## 当前结论（第 28 轮）
+
+**BLOCKED**（作为实施依据）／机制假设层面 **POC VERIFIED**。
+
+七件交付物齐备，门禁 `143 passed / 15 failed`——**15 条红全部在审查方的攻击文件里**，一条未删、
+未 `skip`、未放宽，其中多数转红正是"漏洞不再可构造"的证据；唯一例外是 `reduce-coverage` 剩的那条绿，
+它是**过时断言**而非产品通过。作者侧 12 个测试文件 0 红。
+
+停在 BLOCKED 的原因不是还剩多少代码要改，而是**阶段 D 的硬门未满足**：P0/P1 修复必须经独立复验，
+而第 5–12 轮的复验仍未全部落定（本 PoC 迄今唯一的 P0 是独立模型发现的、作者自查未发现——
+所以"作者自测全绿"在这里不构成任何就绪证据）。
+完整条件清单见 `ASSESSMENT.md` §5.1，未收口项按归口的总账见 §7。
+
+**PRODUCT READY 与本区无关**：无生产装配、无真实数据迁移器、无并发容量与故障域实测。

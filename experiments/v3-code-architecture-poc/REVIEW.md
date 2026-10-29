@@ -57,7 +57,15 @@ F-14 的"领域可自行拆除不可变性触发器"按纯安全口径可判 **P
    **这是我的失误**，不是审查员违规；后续提交改为显式 `git add` 指定路径。
 2. 宿主席位报告"工作树含 `.scratch-patch1.py` 与多处 M"，那是作者在并行修复，非审查员改动；
    已在其后续消息中澄清。
-3. 三个审查席位与作者**并发**运行同一工作树，`.poc-data/**` 为共享目录但每个测试用独立临时
+3. **冻结面核查的结论（已核实，不是推测）**：宿主席位报告 `git diff --name-only origin/main...HEAD`
+   含 `docs/README.md` 与 `docs/architecture/V3_CODE_ARCHITECTURE_DRAFT.md`。逐条查证：
+   - `docs/architecture/V3_CODE_ARCHITECTURE_DRAFT.md` 来自**基线分支**（PR #44），
+     `git log origin/design/v3-code-architecture-review-20261027..HEAD` 对它零提交；
+   - `docs/README.md` 是**派生导航索引**：不在 `scripts/snapshot-release.mjs` 的 `FROZEN_DOCS`
+     八份根文档之内，也不在 `docs/engineering-baseline/gates/G0-inventory.yaml`（grep 命中 0 次），
+     它是 `docs:sync --write` 唯一允许自动写的文件；本轮改动 4 行全部是新增文档的索引条目。
+   ⇒ 本轮**未触碰冻结面**（`schema/**` 与 8 份根文档零改动），无需 `Frozen-Face-Review` 标记。
+4. 三个审查席位与作者**并发**运行同一工作树，`.poc-data/**` 为共享目录但每个测试用独立临时
    子目录，未见相互污染；根 `pnpm test` 在并发负载下两次运行给出 2 失败 / 1 失败（同一文件
    集合波动），已在 `EVIDENCE.md` §6 记录为"待对照归因"，未声称主门禁全绿。
 

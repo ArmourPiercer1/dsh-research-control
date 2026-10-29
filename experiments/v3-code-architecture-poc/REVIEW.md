@@ -245,3 +245,29 @@ R3-A 判 **P0** 的理由：它不是"多读到一个字段"，而是**命名空
 
 （作者本轮仍不替换词汇扫描器：复审员仍在审计该门禁是否假绿；最小修法见 §11.3，
 待其结论落地后与 R3-A/B/C 的反差锚点一起处置。）
+
+## 13. 三席终报的处置台账（语义 12 条 / 复审 2 条 / 合规 8 条）
+
+| 编号 | 级别 | 处置 | 依据（实跑） |
+| --- | --- | --- | --- |
+| S-0 读句柄可执行 DML | P1 | **已封 ①②**：`guardRead` 只放 SELECT/WITH；`domain_state/ref_edge/records` 补 no_update/no_delete 触发器并进 `REQUIRED_TRIGGERS`，`SCHEMA_VERSION` → 4 | `dml-guard` 6/6 转红；`tests/schema-evolution.test.ts` 夹具因此**再也删不掉 records 行**（伪造旧库只能改形态，不能靠删除）——封口反过来证明了漏洞消失 |
+| S-0 ③ `Kernel.port` 仍公开 | P1 | **未做，开放** | 转 private + 具名读 API 要动 `read-context` 的取数路径，本轮不做半吊子 |
+| S-1 coverage 参与 verdict | P1 | **已封**：`Coverage` 回 RPT-03 三值；离线 ⇒ 一条 `INDETERMINATE/CHECKER_UNAVAILABLE` finding；`synthReduce` 不再消费 coverage | 复审员与语义席双方均判"真修好/缺陷已修" |
+| （作者自纠）`tests/p3` 断言 `findings==[]` | — | **原断言把缺陷写进了契约**，已按 RPT-02 改写并加三值域断言 | 改后 70/70 绿 |
+| S-2 Kernel 硬编码 `payload.describedAt` ⇒ 空结果伪装"不存在" | P1 | **开放**（未修） | 修法二选一（`echo.timeFieldMissing` 或 manifest 注册时间访问器）待裁定 |
+| S-3 报告自身无 recordId ⇒ 报告永不可被引用 | P1 | **开放** | F-10 修了登记序，没修身份 |
+| S-4 `required` + object-ref 的浮动硬边 | P1 | **开放** | 需新增形状拒绝码 `HARD_REF_NOT_PINNED` |
+| S-5 原始 SELECT 读 check_report 破 RPT-09 合并 | P1 | **部分**：只读守卫收紧，但 SELECT 仍可读该表 | 根治同 S-0③ |
+| S-6 / F-31 词汇门禁不完备 | 复审判 P2、作者记 P1 | **开放**，级别分歧留档 | 两席独立给出绕过形态；作者不再自行降级 |
+| S-7 对账表把 NAMESPACE_ESCAPE 记作 XC-28 已实证 | P1 | **开放（文档过强）** | 必须拆成两行：#44 §6.2 已实证／XC-28 只有可写性证据 |
+| S-8/S-9/S-10/S-11 | P2 | **开放**，逐条登记 | 采纳正源、revise note、装饰字段、浮动入边覆盖 |
+| 复审新 P1：禁用能力 ⇒ 空结果与"从未存在"不可区分（C12/T-05） | P1 | **开放** | 与 S-2 同族（空=不存在的静默错答） |
+| 合规席 P2-C1/C2/C5/C6/C7/C8/C9/C11 | P2 | **开放**，逐条待改（计数口径、顺序耦合的普遍性主张、注释编号断裂、记录-执行脱节） | 其中 C2 有"在途编辑被既有测试当场打红"的实证，说明顺序即契约 |
+
+**门禁覆盖面的新事实（必须与任何"tsc 0 诊断"并列）**：侧车 `tsconfig.json` 的 `include` 只有 `src`、`tests`——
+`attacks/**` **不在类型检查范围**。本轮实证：`Coverage` 收回三值后，语义席攻击文件里手写的
+`const coverageMembers: Coverage[] = [...4 值]` 仍运行时通过。攻击文件的类型漂移不会被门禁捕获。
+
+**本轮计数**：`125 passed / 17 failed`，作者 9 个测试文件 **0 红**；红全部在审查方攻击文件，
+其中 `dml-guard` 0/6 与 `reduce-coverage` 的 2 条转红是"漏洞不再可构造"的证据，
+而 `reduce-coverage` 剩下的 1 条绿是**过时断言**（手写四值清单），不是产品通过。

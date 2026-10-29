@@ -31,7 +31,9 @@ export const synthClaimChecker = (ruleVersion: string): ValidationContribution =
   schemaVersion: 'synth-1',
   check(input: ValidationInput): ValidationOutcome {
     const payload = input.payload as { text?: string };
-    const env = input.environment as unknown as SynthInput;
+    // 单次收窄断言（不是双重断言）：契约侧 environment 是 unknown，具体形状由本领域自己负责。
+    // 双重断言在领域内被门禁禁止——它是类型面旁路的典型形态（复审 R3-D）。
+    const env = input.environment as SynthInput;
     const findings: Finding[] = [];
     const declaredGaps: string[] = [];
     let coverage: Coverage = 'COMPLETE';

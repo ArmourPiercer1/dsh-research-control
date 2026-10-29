@@ -71,10 +71,15 @@ export class IntakeService {
 }
 
 /** 归约顺序镜像 RPT-02/RD-38：FAIL 优先，其次 INDETERMINATE，否则达成。 */
-export function synthReduce(findings: readonly { outcome: string }[], coverage: Coverage): string {
+/**
+ * 归约只消费 findings（RPT-02：FAIL > INDETERMINATE > 达成）。
+ * coverage 参数**保留但不参与判定**：它独立呈现（RPT-03），一旦参与 verdict，
+ * "没法检"就会伪装成判定结果。校验器不可用必须落成一条 INDETERMINATE finding。
+ */
+export function synthReduce(findings: readonly { outcome: string }[], _coverage?: Coverage): string {
   if (findings.some((f) => f.outcome === 'FAIL')) return 'NOT_ACHIEVED';
   if (findings.some((f) => f.outcome === 'INDETERMINATE')) return 'INDETERMINATE';
-  return coverage === 'CHECK_UNAVAILABLE' ? 'INDETERMINATE' : 'ACHIEVED';
+  return 'ACHIEVED';
 }
 
 export interface RunResult {
@@ -114,11 +119,13 @@ export class ValidationService {
     let declaredGaps: readonly string[] = [];
     let coverage: Coverage = 'COMPLETE';
     if (this.offline.has(VALIDATOR_ID)) {
-      // 校验器不可用：不产出任何确定性判定，也不把"没法检"说成"不合格"
-      coverage = 'CHECK_UNAVAILABLE';
+      // RPT-02：校验器不可用 ⇒ 一条 INDETERMINATE finding，reason=CHECKER_UNAVAILABLE；
+      // 不是 coverage 的第四个值，也不让"没法检"被读成"不合格"或被读成"达成"。
+      findings = [{ code: 'CHECKER_UNAVAILABLE', outcome: 'INDETERMINATE', severity: 'NOTE' }];
+      coverage = 'INCOMPLETE_DUE_TO_VISIBILITY';
     } else {
       const out = synthClaimChecker(ruleVersion).check({
-        target: { kind: 'revision-ref', oid, revision }, payload: snap.payload, declaredGaps: [], environment: env as unknown as Record<string, never>,
+        target: { kind: 'revision-ref', oid, revision }, payload: snap.payload, declaredGaps: [], environment: env,
       });
       findings = out.findings.filter((f) => f.outcome !== 'PASS');
       declaredGaps = out.declaredGaps;

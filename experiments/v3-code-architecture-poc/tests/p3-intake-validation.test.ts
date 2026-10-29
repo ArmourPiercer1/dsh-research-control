@@ -138,7 +138,11 @@ describe('P3 Raw Intake / Domain Admission / 版本化校验 / 派生业务视�
     validation.withValidatorOffline('synth.claim-checker', () => {
       const rep = validation.run(oid, 1, { actor: 'alice' }, 'v1');
       expect(rep.verdict).toBe('INDETERMINATE');
-      expect(rep.findings).toEqual([]);   // 不是 FAIL：没有确定性缺陷可报
+      // RPT-02：校验器不可用必须是**一条 INDETERMINATE finding**（reason=CHECKER_UNAVAILABLE），
+      // 而不是零 finding + 让 coverage 去改 verdict（复审 S-1）。原先这里断言 [] 等于把缺陷写进契约。
+      expect(rep.findings).toEqual([{ code: 'CHECKER_UNAVAILABLE', outcome: 'INDETERMINATE', severity: 'NOTE' }]);
+      expect(rep.findings.some((f) => f.outcome === 'FAIL')).toBe(false);   // 不是 FAIL：没有确定性缺陷可报
+      expect(['COMPLETE', 'INCOMPLETE_DUE_TO_VISIBILITY', 'NOT_DISCLOSED']).toContain(rep.coverage);
     });
     const rows = w.raw.all<{ verdict: string }>(`select verdict from check_report where target_oid=? order by recorded_seq`, oid);
     expect(rows.map((r) => r.verdict)).toEqual(['ACHIEVED', 'INDETERMINATE']); // 旧 PASS 原样在

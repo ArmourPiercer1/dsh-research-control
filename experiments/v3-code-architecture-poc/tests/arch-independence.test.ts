@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { POC_DATA_DIR, POC_ROOT } from '../src/harness/paths.ts';
 import { openWorld, PRINCIPAL } from '../src/harness/world.ts';
 import { TEST_OBJECT_MODEL, CAP_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
+import { CAP_RECORDS } from '../src/domains/test-records.ts';
 import type { PluginManifest } from '../src/contracts/index.ts';
 
 const KERNEL_DIRS = ['src/kernel', 'src/contracts'];
@@ -156,6 +157,11 @@ describe('架构独立性硬门', () => {
       // 允许 import type PluginFace/NamespaceWriter/UnitOfWork；禁的是**持有 Kernel 这个值**
       { re: /:\s*Kernel\b|new Kernel|extends Kernel/, why: '持有 Kernel 即持有运维权威面（transferRoute/activate/setRouteEnabled）' },
       { re: /\bverified:\s*true\b/, why: '主体必须由宿主核验后交入，领域不得自造已验证身份' },
+      // 复审 R3-D：源码扫描挡不住"宿主把 Kernel 当普通值传进领域"，而那种绕过的必要载体
+      // 是让类型系统闭嘴的透传形态 ⇒ 三条一并禁止（禁 any / 双重断言 / ts-ignore）。
+      { re: /:\s*any\b|as any\b|<any>/, why: '领域不得用 any 接收机制句柄（绕过类型面的唯一通道）' },
+      { re: /as unknown as /, why: '双重断言是类型面的旁路，领域内禁用' },
+      { re: /@ts-(ignore|expect-error|nocheck)/, why: '领域内禁用类型抑制注释掩盖越界' },
       { re: /\.port\b/, why: 'port 是全库出入口，越过命名空间写入器' },
       { re: /\.raw\b/, why: 'raw 是事务内裸句柄，只允许机制内部使用' },
       { re: /node:sqlite/, why: '领域不得自己打开数据库文件' },
@@ -201,6 +207,12 @@ describe('架构独立性硬门', () => {
       for (const m of ['checkRequiredRefs', 'reassignRouteInternal']) expect(seen, `${m} 应在运行时面上`).toContain(m);
       // ……但它们**不在插件可见的类型面上**：拿 UnitOfWork 类型去碰 SQL 句柄必须是编译错误。
       // 用 @ts-expect-error 做机验——若哪天有人把它们加进 interface，这行会因"没有错误"而红。
+      // R3-D 的**运行时**判据：窄面对象本身不得携带任何运维权威成员。
+      // 源码扫描会被"宿主把 Kernel 传进来"绕过，而这条不会——它判的是对象的实际内容。
+      const faceSurface = surface(w.kernel.faceFor(CAP_RECORDS) as object);
+      const AUTHORITY = ['transferRoute', 'setRouteEnabled', 'activate', 'port', 'raw', 'registry', 'uow', 'nextLedgerSeq'];
+      expect(faceSurface.filter((m) => AUTHORITY.includes(m))).toEqual([]);
+
       w.uow(PRINCIPAL('alice'), (tx) => {
         // @ts-expect-error raw 属于机制内部，不承诺给插件
         const escapeRaw = tx.raw;

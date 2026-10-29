@@ -25,7 +25,12 @@ export interface ValidationInput {
  * "某项不可判定"混为一谈，XC-27 就无法表达。
  */
 export type CheckOutcome = 'PASS' | 'FAIL' | 'INDETERMINATE' | 'NOT_APPLICABLE';
-export type Coverage = 'COMPLETE' | 'INCOMPLETE_DUE_TO_VISIBILITY' | 'NOT_DISCLOSED' | 'CHECK_UNAVAILABLE';
+/**
+ * RPT-03 的**封闭三值**。曾经的第四值 'CHECK_UNAVAILABLE' 已删除（复审 S-1，P1）：
+ * "校验器不可用"是 INDETERMINATE 的**理由**（RPT-02 的 reason=CHECKER_UNAVAILABLE），
+ * 把它塞进 coverage 轴等于让 coverage 参与 verdict——那是 RPT-02 明文禁止的。
+ */
+export type Coverage = 'COMPLETE' | 'INCOMPLETE_DUE_TO_VISIBILITY' | 'NOT_DISCLOSED';
 export interface ValidationOutcome {
   readonly findings: readonly Finding[];
   readonly declaredGaps: readonly string[];

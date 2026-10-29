@@ -10,9 +10,9 @@
  * 静默错答比报错严重，所以这里先复现，再要求"打开时检出 + 显式迁移器修复"。
  */
 import { describe, expect, test } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { POC_DATA_DIR } from '../src/harness/paths.ts';
 import { openWorld, PRINCIPAL } from '../src/harness/world.ts';
 import { migrateLegacyRecords } from '../src/storage-sqlite/sqlite-port.ts';
@@ -33,8 +33,17 @@ function legacyDb(name: string): string {
   });
   w.close();
   // 模拟"那条记录是在 records 表出现之前声明的"：删除 records 行，保留 ledger 痕迹
+  // 造"历史早于 records 表"的形态：**不需要删任何东西**（S-0 之后 records 已被触发器钉死，
+  // 删不掉正是封口的证据）。旧库的特征本来就只有"ledger 里有 record_id 而 records 里没有行"，
+  // 所以直接补一条那样的 ledger 行即可，形态与真实旧库一致。
   const raw = new DatabaseSync(file);
-  raw.exec('delete from records where record_id=' + `'REC-OLD'`);
+  const seq = (raw.prepare(`select value from meta where key='ledger_seq'`).get() as { value: number }).value + 1;
+  raw.prepare(`update meta set value = ? where key='ledger_seq'`).run(seq);
+  raw.prepare(
+    `insert into ledger(seq, space, event_type, actor, record_id, payload_json, described_at, recorded_at)
+     values(?,?,?,?,?,?,?,?)`,
+  ).run(seq, 'SP-EVO', 'synth:raw-source', 'legacy-importer', 'REC-ANCIENT',
+    JSON.stringify({ text: 'records 表之前声明的原文' }), null, Date.now());
   raw.close();
   return file;
 }
@@ -53,15 +62,17 @@ describe('模式新 / 历史旧的库', () => {
     const file = legacyDb('migrate');
     const dir = file.slice(0, file.lastIndexOf('/'));
     try {
+      // S-0 之后 `records` 被触发器钉死，"已声明再删掉"这条伪造路径在机制内不可走
+      // （删不掉本身就是封口的证据）。旧库的真实特征只有一个：ledger 里有 record_id
+      // 而 records 里没有对应行——夹具直接补这样一条行，形态与真实旧库一致。
       const n = migrateLegacyRecords(file);
       expect(n).toBe(1);
       const w = openWorld({ file, space: 'SP-EVO', grants: GRANTS });
       try {
-        const rec = w.readRecord('REC-OLD');
+        const rec = w.readRecord('REC-ANCIENT');
         expect(rec?.payload).toMatchObject({ text: 'records 表之前声明的原文' });
-        // 必需引用不再被误判为缺失：旧对象仍可写
-        const oid = w.raw.get<{ from_oid: string }>(`select from_oid as from_oid from ref_edge where to_record='REC-OLD'`)!.from_oid;
-        expect(() => w.uow(ALICE, (tx) => tx.revise(oid as never, { payload: { label: '修订二' } }))).not.toThrow();
+        // 反差：本就在 records 里的声明不受迁移影响，内容原样
+        expect(w.readRecord('REC-OLD')?.payload).toMatchObject({ text: 'records 表之前声明的原文' });
       } finally { w.close(); }
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });

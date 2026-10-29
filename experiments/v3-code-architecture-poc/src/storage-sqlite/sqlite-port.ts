@@ -98,6 +98,21 @@ create trigger if not exists check_report_no_update before update on check_repor
 begin select raise(abort, 'CHECK_REPORT_IMMUTABLE'); end;
 create trigger if not exists check_report_no_delete before delete on check_report
 begin select raise(abort, 'CHECK_REPORT_IMMUTABLE'); end;
+
+-- 追加式表在**存储层**就被钉住：Kernel 自身从不 UPDATE/DELETE 这三张表（grep 实测为零），
+-- 所以放行 DML 只会留下"绕过机制就能改历史"这一条路（S-0）。
+create trigger if not exists domain_state_no_update before update on domain_state
+begin select raise(abort, 'DOMAIN_STATE_APPEND_ONLY'); end;
+create trigger if not exists domain_state_no_delete before delete on domain_state
+begin select raise(abort, 'DOMAIN_STATE_APPEND_ONLY'); end;
+create trigger if not exists ref_edge_no_update before update on ref_edge
+begin select raise(abort, 'REF_EDGE_FROZEN'); end;
+create trigger if not exists ref_edge_no_delete before delete on ref_edge
+begin select raise(abort, 'REF_EDGE_FROZEN'); end;
+create trigger if not exists records_no_update before update on records
+begin select raise(abort, 'RECORD_MATERIAL_IMMUTABLE'); end;
+create trigger if not exists records_no_delete before delete on records
+begin select raise(abort, 'RECORD_MATERIAL_IMMUTABLE'); end;
 `;
 
 /**
@@ -163,7 +178,7 @@ class Adapter implements RawTx {
  *  2. 因此：空库才建表；已有库必须先过版本与表集/触发器集校验，通过后**不再执行任何 DDL**。
  *     任何分歧都 fail-loud，交显式迁移器处理。
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 const REQUIRED_TABLES = [
   'meta', 'ledger', 'records', 'check_report', 'object_directory', 'domain_state',
   'journal', 'capability_route', 'projection_state', 'ref_edge',
@@ -171,6 +186,9 @@ const REQUIRED_TABLES = [
 const REQUIRED_TRIGGERS = [
   'ledger_no_update', 'ledger_no_delete', 'check_report_no_update', 'check_report_no_delete',
   'directory_no_update',
+  // S-0：追加式三张表也进必备集，缺一个就不算同一套模式
+  'domain_state_no_update', 'domain_state_no_delete', 'ref_edge_no_update', 'ref_edge_no_delete',
+  'records_no_update', 'records_no_delete',
 ] as const;
 
 export interface SqlitePortOptions {
@@ -285,7 +303,8 @@ export class SqlitePort implements StoragePort {
     }
   }
 
-  read<T>(fn: (raw: RawTx) => T): T { return fn(guard(this.adapter)); }
+  /** 只读句柄：走**更严**的守卫（S-0：只允许 SELECT/WITH，DML 连读路径都不给）。 */
+  read<T>(fn: (raw: RawTx) => T): T { return fn(guardRead(this.adapter)); }
 
   /** 供隔离/并发攻击测试使用的第二条真实连接（同文件、同 WAL）。 */
   openSecond(): SqlitePort { return new SqlitePort({ ...this.opts, file: this.file }); }
@@ -336,6 +355,28 @@ function normalizeSql(sql: string): string {
   }
   return out;
 }
+/**
+ * 只读守卫（S-0）。此前的"读"句柄只拒 DDL/PRAGMA/ATTACH，`run('update …')` 照样执行——
+ * 于是 `kernel.port.read(raw => raw.run(...))` 能改 ref_edge/domain_state/records/capability_route
+ * 与 `meta.ledger_seq`，且**不留 journal/ledger 痕迹**：审计链与不变量一起被拆。
+ * 读路径的正确形状是"只能是查询"，不是"不能是 DDL"。
+ */
+const READ_ONLY_HEAD = /^(select|with)\b/i;
+function guardRead(raw: RawTx): RawTx {
+  const check = (sql: string): void => {
+    const head = normalizeSql(sql);
+    if (!READ_ONLY_HEAD.test(head)) {
+      throw new Refusal('RAW_SQL_REFUSED', { reason: '只读句柄只允许 SELECT/WITH', sql: sql.slice(0, 60) });
+    }
+    if (/;\s*\S/.test(head)) throw new Refusal('RAW_SQL_REFUSED', { reason: '不得经机制句柄提交多语句', sql: sql.slice(0, 60) });
+  };
+  return {
+    run: (sql, ...p) => { check(sql); return raw.run(sql, ...p); },
+    all: (sql, ...p) => { check(sql); return raw.all(sql, ...p); },
+    get: (sql, ...p) => { check(sql); return raw.get(sql, ...p); },
+  };
+}
+
 function guard(raw: RawTx): RawTx {
   const check = (sql: string): void => {
     const head = normalizeSql(sql);

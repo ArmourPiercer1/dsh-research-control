@@ -7,11 +7,16 @@
 # 放行判据（写进 IMPLEMENTATION-PLAN-DRAFT.md §2 G1）：
 # 【现行机验，外部复审第五轮补，2026-10-31；第六轮修订谓词 + 第七轮 superseded 反洗白补门，2026-10-31】
 #   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            ⇒ exit 0（结构/语义校验绿；assigned 允许日常存在；superseded 缺人工确认在日常形态**不拦**，见下）
-#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test ⇒ exit 0（校验器变异自验，架空非删除；17 条形变：M1–M7 原有 + M8–M12 第六轮反例 + M14–M17 第七轮 superseded 反洗白【终局洗白最小形 / 带 review 仍形不足 / 旧字段 supersedes 复活 / 旧名切断继任链必双红】+ P1 正向形状【全清必须判绿，防死闸】；甩锅链完整形态在自验输出里逐字留形）
+#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test ⇒ exit 0（校验器变异自验，架空非删除；**26 条形变**（第八轮实测；条数一律以运行输出为准）：M1–M7 原有 + M8–M12 第六轮反例 + M14–M17 第七轮 superseded 反洗白【终局洗白最小形 / 带 review 仍形不足 / 旧字段 supersedes 复活 / 旧名切断继任链必双红】+ M18–M21 锚点真值（P1-2：假提交号红 / 幽灵路径红 / 真锚绿防空转 / §E4 洗白全形常驻回归）+ M22–M26 第八轮两处小口收紧【签字日期真值：9999-99-99 红、2026-02-30 红、2024-02-29 闰日必须绿；参数面 fail-loud：裸位置参数必非 0、`--file <路径>` 必须正常】+ P1 正向形状【全清必须判绿，防死闸】；甩锅链完整形态在自验输出里逐字留形）
+#   参数面 fail-loud（第八轮，验席挖出的小口）：未知参数 / 裸位置参数 / flag 缺值 / flag 重复
+#     ⇒ **exit 2** 并打印一行用法说明。旧实现用 includes/indexOf 读参数、其余静默忽略，于是
+#     `… g1-checklist-validate.mjs 某清单.yaml` 丢掉路径后去校验**默认主清单**并 exit 0——
+#     调用者以为验绿的是自己指定的那份。校验对象与调用者所指不一致时，绿就是假的。
 #   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --require-clear ⇒ exit 0
-#     （**终局放行谓词**，第六轮改写、第七轮补门：违规==0 且所有有效工作项均为 done、或为
+#     （**终局放行谓词**，第六轮改写、第七轮补门、第八轮收紧签字日期：违规==0 且所有有效工作项均为 done、或为
 #      superseded_by 链最终到达 done、且**带合法 supersession_review（REVIEW: <日期> <审查者>，
-#      审查者≠owner）的 superseded**——`open`/`assigned` 一律不放行，未经人工确认的 superseded
+#      日期须为**真实历法日期**——`9999-99-99`、`2026-02-30` 形合而历法不存在，不算签字；
+#      闰日 `2024-02-29` 是真日子必须放行，审查者≠owner）的 superseded**——`open`/`assigned` 一律不放行，未经人工确认的 superseded
 #      一律不放行。「已指派」是推进态不是终局态（旧洞由 M8 钉死）；「全改 superseded 指向任意
 #      done」的终局洗白由 SUPERSESSION-REASON/EVIDENCE + review 门 + M14/M15 钉死）
 # 【已被取代（旧 grep 判据，第三轮原文保留以示演化；锚定教训仍然有效：任何 grep 都会
@@ -51,6 +56,9 @@
 #               （SUPERSESSION-REASON / SUPERSESSION-EVIDENCE）——「它被取代了」不许是自我声明。
 #   supersession_review（终局面人工确认，第七轮；日常形态不要求）形如
 #               "REVIEW: <YYYY-MM-DD> <非作者审查者>"。--require-clear 下缺失、形态不符、
+#               **日期不是真实历法日期**（第八轮收紧：月须 01–12、日须在该月实际天数内；
+#               `9999-99-99`、`2026-02-30` 形合而历法不存在 ⇒ 不算签字；闰日 `2024-02-29` 放行，
+#               由自验 M22/M23 钉红、M24 防误伤）、
 #               或审查者与 owner 同名 ⇒ 终局判红。设计依据（第七轮裁定原话）：
 #               「机器无法自动证明两个复杂契约语义等价 ⇒ 用『结构校验 + 人工确认替代关系』的
 #               门禁，不要继续堆自动推理规则」。

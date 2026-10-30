@@ -51,7 +51,7 @@ T-P10、T-N17..N21、MUT-6..10）。
 （工程审查 P1-2）的未提交改动**——锚点真值判据（提交号 `git cat-file -e <sha>^{commit}` ∧ 路径
 存在性，假锚/幽灵路径 = 红）+ 自验常驻 M21，经轮询确认文件稳定后本席位**终态重跑门禁**：
 `g1-checklist-validate.mjs` 0（items=27 open=23 done=4 违规=0，与上轮逐字一致）；`--self-test` 0
-且**计数 17/17→21/21**（新增自验用例归 P1-2 席，本席位零触碰校验器）；`--require-clear`
+且**计数 17/17→26/26**（新增自验用例归 P1-2 席，本席位零触碰校验器）；`--require-clear`
 **1（预期红）**；`--max-open 23 / 22` ⇒ 0 / 1；`g0-gate.mjs` 0。本席位对清单 YAML、校验器、RL 契约
 及其夹具**全程零改动**——RL 计数与自验计数的变化分别归 R-8 席 / P1-2 席，本表只如实转录终态。**EA 48→51 = 三条新机验**：**S1c**（锚文件独立重探 ×
 两方/三方自述标签 × 实际比对行为 × §6.2 两态句在位，四方对齐才绿；P2-1）、**S3b**（带引号 #44 引句
@@ -79,7 +79,7 @@ EA-6.1 与 §3 RL-4、§4 逐等行的变化均为**证据文本按新措辞与�
 | `node …/g1/G1-CONTRACT-RELOCATION.fixtures.mjs` | 0 | **0** | 60 PASS / 0 FAIL（S1–S16 **含 S3b**「新增拒绝码恰一枚」+ T-P1..P10 + T-N1..N22 + MUT-1..11；第二轮终态实跑：57→60 = R-8 席 +S16/T-N22/MUT-11（见上段②），期间瞬时 55/2 FAIL exit 1 已如实登记；**R-6 轮旧枚举曾漏计 S3b（求和 56 ≠ 实测 57），按实跑输出逐行复核后更正**；旧基线 42→57 PASS） |
 | `node …/g0-gate.mjs` | 0 | **0** | 「PASS —— 三条流均符合预期（审查方红条是"已定性的已知项"，不代表产品通过）」（脚本自带措辞） |
 | `node …/g1-checklist-validate.mjs` | 0 | **0** | `items=27 open=23 assigned=0 done=4 superseded=0 unassigned=22 superseded_unreviewed=0 违规=0` |
-| `node …/g1-checklist-validate.mjs --self-test` | 0 | **0** | 「变异自验：21/21 全部捕获」（终态；17/17 为 P1-2 席锚点真值改动落盘前基线，见上段④） |
+| `node …/g1-checklist-validate.mjs --self-test` | 0 | **0** | 「变异自验：26/26 全部捕获」（终态；17/17 为 P1-2 席锚点真值改动落盘前基线，见上段④） |
 | `node …/g1-checklist-validate.mjs --require-clear` | **1（预期红）** | **1** | `open=23、assigned=0、unassigned=22、违规=0` ⇒ 放行谓词未满足 |
 | `node …/g1-checklist-validate.mjs --max-open 23` / `--max-open 22` | 0 / 1 | **0 / 1** | 进度护栏可用（`open=23 > 允许上限 22`） |
 
@@ -285,7 +285,7 @@ PY
 
 ```sh
 node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            # 结构+自测：实测 exit 0
-node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test # 变异自验：实测 exit 0（21/21，2026-11-01 第二轮终态；17/17 为该轮 P1-2 改动前基线，见 §0）
+node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test # 变异自验：实测 exit 0（26/26，2026-11-01 第二轮终态；17/17 为该轮 P1-2 改动前基线，见 §0）
 node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.fixtures.mjs  # exit 0
 node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET.fixtures.mjs           # exit 0
 node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.fixtures.mjs      # exit 0

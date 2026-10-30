@@ -77,8 +77,10 @@
  *     （SUPERSESSION-REASON / SUPERSESSION-EVIDENCE）+ 合法继任链（SUPERSEDED-CHAIN）——
  *     「指向任意一条 done」不再能洗白整片 open（第七轮点名的终局洗白反例，自验 M14/M15）。
  *   - 人工确认层（仅 --require-clear 拦，日常不阻塞推进）：每条 superseded 必须有
- *     `supersession_review: "REVIEW: <YYYY-MM-DD> <非作者审查者>"`，**缺失或审查者==owner
- *     ⇒ 终局谓词判红**——替代关系等同性由人签字，机器只核对签字存在、形态合法且非本人。
+ *     `supersession_review: "REVIEW: <YYYY-MM-DD> <非作者审查者>"`，**缺失、形态不合法、日期
+ *     不是真实历法日期（第八轮收紧：`9999-99-99`、`2026-02-30` 形合而历法不存在，不算签字），
+ *     或审查者==owner ⇒ 终局谓词判红**——替代关系等同性由人签字，机器只核对签字存在、形态
+ *     合法、日子真存在且非本人。闰日（如 `2024-02-29`）是真日子，必须放行（自验 M24 防误伤）。
  *
  * 已知边界（如实，不做超出裁定的事）：
  *   - 「id 不复用」只能靠 git diff 评审（删除条目会显示在 diff 里）；「不重排语义」同理。
@@ -114,8 +116,17 @@
  *       进度护栏：违规==0 且 open<=N。评审期可断言「open 面不扩大」，不要求清零。
  *   node g1-checklist-validate.mjs --self-test      # 变异自验（架空而非删除，见 MUTANTS；
  *       锚点真值族 M18（假提交号红）/M19（幽灵路径红）/M20（真锚绿，防空转）/M21（§E4 终局洗白
- *       全形常驻回归）为 P1-2 修复的复现-修复证据，条数以本行运行输出为准）
+ *       全形常驻回归）为 P1-2 修复的复现-修复证据；第八轮补 M22（签字日期 9999-99-99 红）/
+ *       M23（2026-02-30 红）/M24（闰日 2024-02-29 绿，防误伤）/M25（裸位置参数必非 0）/
+ *       M26（--file 正常形态必 exit 0，防把 fail-loud 修成死闸），条数以本行运行输出为准）
  *   node g1-checklist-validate.mjs --file <path>    # 指定清单路径（自验与排查用）
+ *
+ * 参数面 fail-loud（第八轮，验席挖出的第 2 处小口，写死）：**只认** `--file` / `--require-clear`
+ * / `--max-open` / `--self-test` 四个 flag；未知参数、裸位置参数（如把清单路径直接甩在命令行上）、
+ * flag 缺值、flag 重复 ⇒ 打印一行说明 + **exit 2**。理由不是洁癖：旧实现用 `includes`/`indexOf`
+ * 读参数，**其余静默忽略**——`node g1-checklist-validate.mjs 某清单.yaml` 会被丢掉路径后去校验
+ * **默认主清单**并 exit 0，调用者以为验绿的是自己指定的那份。校验器报「绿」的对象必须与调用者
+ * 指的对象一致，否则门禁的绿就是假的（自验 M25/M26 两侧常驻）。新 flag 先进 parseArgs 再谈使用。
  *
  * 为什么不存在「清单永远不可能 clear」的死判据：**open 不要求 UNASSIGNED**——
  * UNASSIGNED 只是 open 条目**被允许**的取值，任何状态都可以（也应该）指名 owner；而
@@ -126,7 +137,8 @@
  * 放宽时，放行谓词不会静默跟着松）。superseded 路径「齐形可绿」不是纸面声明：全形夹具
  * （载荷齐 + review 齐）实测 --require-clear 判绿、去 review / 审查者==owner 两种减法
  * 实测判红，第七轮实测记录见 READINESS.md 第七轮节与 G0-R-CLOSURE.md。
- * 退出码：0 无违规（且给定谓词满足）；1 任何违规 / 谓词未满足 / 变异未被捕获。
+ * 退出码：0 无违规（且给定谓词满足）；1 任何违规 / 谓词未满足 / 变异未被捕获；
+ * 2 用法错误（未知参数 / 裸位置参数 / flag 缺值或非法值 / flag 重复）——用法错误不去猜校验对象。
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -323,7 +335,27 @@ const BANNED_KEYS = new Map([
 const STATUSES = new Set(['open', 'assigned', 'done', 'superseded']);
 const ID_RE = /^G1-[A-Z][A-Z0-9]*-\d{2}$/;
 // 人工确认替代关系的形态（第七轮，仅 --require-clear 拦）：REVIEW: <YYYY-MM-DD> <审查者>
+// **第八轮收紧（验席挖出的第 1 处小口）**：正则只证「长得像日期」，`9999-99-99`、`2026-02-30`
+// 这类**形合但不可能存在**的串同样命中——而签字日期是替代关系的时间锚，不可能日期等于没锚
+// （要骗过机器的人不会写一个语法错的日期，只会写一个语法对的假日期）。故形态段之后再加
+// **真实历法日期**判据：月须 01–12、日须落在该月实际天数内（闰年 2-29 合法，防误伤）。
+// 零外部依赖：只用 `Date` 往返判等（见 isRealIsoDate）。判红位置照旧在**谓词面**（与「缺
+// review / 形态不符 / 审查者==owner」同一门），日常推进形态照旧不拦——收紧的是终局放行。
 const REVIEW_RE = /^REVIEW:\s*(\d{4}-\d{2}-\d{2})\s+(\S.*?)\s*$/;
+// 真实历法日期判据（形态已由 REVIEW_RE 保证是 4-2-2 位数字，这里只判「这个日子存在吗」）：
+// Date.UTC 会把越界的月/日**进位**（2026-02-30 → 2026-03-02），所以「往返后各字段是否仍等于
+// 字面值」就是「该月有没有这一天」的判据；不引任何外部日期库。
+function isRealIsoDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1) return false;      // 月 01–12、日至少存在到 1（00 日不存在）
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (y <= 99) dt.setUTCFullYear(y);                  // Date.UTC 把 0–99 映射到 1900–1999，回拨以核对 4 位字面年份
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
 // 可定位锚点：git 提交号（7–40 位十六进制）或带扩展名的文件路径（可带 :行号）。
 const COMMIT_RE = /\b[0-9a-f]{7,40}\b/;
 const FILE_RE = /[\w./-]+\.(?:md|ts|tsx|mjs|cjs|json|ya?ml|sql|db|jsonl)\b/i;
@@ -569,6 +601,11 @@ function validate(text, checklistPath) {
       } else if (!m) {
         supersededUnreviewed++;
         unreviewedDetail.push(`${idOf}：supersession_review 形态不合法「${rv.slice(0, 60)}」（须为 REVIEW: <YYYY-MM-DD> <审查者>）`);
+      } else if (!isRealIsoDate(m[1])) {
+        // 第八轮：形合的不可能日期（9999-99-99 / 2026-02-30）不再充当签字日期——正则过了
+        // 历法不过，同样算未经确认。闰年真实日期（2024-02-29）必须放行，常驻变异 M24 防误伤。
+        supersededUnreviewed++;
+        unreviewedDetail.push(`${idOf}：supersession_review 日期「${m[1]}」不是真实历法日期（月须 01–12、日须在该月实际天数内，含闰年 2 月 29 日）——形态合规的不可能日期不算签字`);
       } else if (m[2].trim() === ownerOf) {
         supersededUnreviewed++;
         unreviewedDetail.push(`${idOf}：supersession_review 审查者与 owner 同名「${m[2].trim()}」——自己确认自己的替代关系不算确认`);
@@ -583,6 +620,55 @@ function validate(text, checklistPath) {
 // 每个变异都是在**真实清单文本**上做最小「洗白形」改写——仿照审查方会用来骗过校验器的
 // 形态（关闭无证据、指向幽灵 id、塞未知字段、重号、旧词复活、空口关闭）。
 // 判据：对应规则码必须出现 = 被捕获；任何一个变异活下来 ⇒ 校验器自身失效 = exit 1。
+// 第八轮日期变体的共用夹具：一条**除日期外全部齐形**的 superseded 条目（id 合法、owner 有主、
+// 继任链到达 done、reason/evidence 都带真实可定位锚、审查者≠owner）。齐形是刻意的——若其余角
+// 有缺口，红就可能是别的规则顺带命中（错误原因通过），日期判据本身根本没被检验。
+// 唯一变量是 supersession_review 里的日期字符串。
+function supersededWithReview(id, iso, reviewer) {
+  return '\n  - id: ' + id + '\n'
+    + '    topic: "变异夹具：supersession_review 日期判据（除日期外全齐形，不落主清单）"\n'
+    + '    owner: "Q40（夹具归属）"\n'
+    + '    status: superseded\n'
+    + '    superseded_by: "G1-DONE-01"\n'
+    + '    supersession_reason: "g1-checklist-validate.mjs:1（夹具锚：演示日期判据专用）"\n'
+    + '    supersession_evidence: "g1-checklist-validate.mjs:1（夹具锚）"\n'
+    + '    supersession_review: "REVIEW: ' + iso + ' ' + reviewer + '"\n';
+}
+
+// 日期族变体的判据（谓词面）：红/绿都不在 violations 里（人工确认门只作用于 --require-clear），
+// 判据 = supersededUnreviewed 计数 + 点名到该条目的细节文本；违规必须仍为 0，否则红是别的规则
+// 顺带挡的、日期判据本身没被检验（错误原因通过）。
+function dateRedCheck(mu) {
+  return (res) => {
+    const detail = (res.unreviewedDetail ?? []).find((d) => d.startsWith(`${mu.id}：`));
+    const hit = res.violations.length === 0 && res.counts !== null
+      && res.counts.supersededUnreviewed > 0 && /真实历法日期/.test(detail ?? '');
+    return {
+      hit,
+      verdict: hit
+        ? `捕获（违规=0 前提下终局门判红：superseded_unreviewed=${res.counts.supersededUnreviewed}｜点名：${detail}）`
+        + `｜不可能日期「${mu.iso}」不得充当签字日期`
+        : `**存活**（期望违规=0 且日期「${mu.iso}」被历法判据点名；实际违规=${res.violations.length} `
+          + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'} 点名=${detail ?? '无'}）`,
+    };
+  };
+}
+// 正向侧（真闰日必须放行）：除这条夹具外主清单没有 superseded ⇒ superseded==1 且未确认计数==0。
+function dateGreenCheck(mu) {
+  return (res) => {
+    const hit = res.violations.length === 0 && res.counts !== null
+      && res.counts.superseded === 1 && res.counts.supersededUnreviewed === 0;
+    const detail = (res.unreviewedDetail ?? []).find((d) => d.startsWith(`${mu.id}：`));
+    return {
+      hit,
+      verdict: hit
+        ? `捕获（真闰日不误伤：违规=0、superseded=1、superseded_unreviewed=0 ⇒「REVIEW: ${mu.iso}」被接受）`
+        : `**存活**（期望真日期「${mu.iso}」放行；实际违规=${res.violations.length} `
+          + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'} 点名=${detail ?? '无'}）`,
+    };
+  };
+}
+
 const MUTANTS = [
   {
     name: 'M1-done-无证据（把 DONE-01 的 evidence 整行摘掉，其余一字不动）',
@@ -865,20 +951,144 @@ const MUTANTS = [
       return t;
     },
   },
+  // ——— 第八轮（验席挖出的两处校验器小口，2026-11-01）：日期真值 + 参数 fail-loud ———
+  // 两侧都留常驻变异：不可能日期必红、闰年真实日期必绿；裸位置参数必非 0、--file 必正常。
+  // 只测反例的判据工具已被打过两次（M20/M21 同族教训），正向侧不是可选项。
+  {
+    name: 'M22-supersession_review 不可能日期「9999-99-99」（REGEX 形合但历法不存在：修前 REVIEW_RE'
+      + ' 命中即算已确认，一条从没存在过的日子就能给替代关系签字；修后历法判据必红，且红因'
+      + '必须是日期而非别的角——夹具除日期外全齐形）',
+    expect: 'REVIEW-DATE-RED',
+    id: 'G1-MUTA-96', iso: '9999-99-99',
+    apply(text) {
+      const out = text + supersededWithReview('G1-MUTA-96', '9999-99-99', 'M22 变异：非owner审查者');
+      if (!out.includes('REVIEW: 9999-99-99')) throw new Error('变异未生效：不可能日期夹具未追加');
+      return out;
+    },
+  },
+  {
+    name: 'M23-supersession_review 历法不存在日期「2026-02-30」（月对日错：2 月没有 30 日，旧实现'
+      + '的 \\d{2} 一视同仁放行——日期真值不是只查月；夹具同 M22 全齐形，红因只许是日期）',
+    expect: 'REVIEW-DATE-RED',
+    id: 'G1-MUTA-95', iso: '2026-02-30',
+    apply(text) {
+      const out = text + supersededWithReview('G1-MUTA-95', '2026-02-30', 'M23 变异：非owner审查者');
+      if (!out.includes('REVIEW: 2026-02-30')) throw new Error('变异未生效：2026-02-30 夹具未追加');
+      return out;
+    },
+  },
+  {
+    name: 'M24-supersession_review 闰年真实日期「2024-02-29」（**正向防误伤**：收紧历法判据若把'
+      + '闰日也判红，第二天就会有人把日期写成 2 月 28 日糊弄过去——真日子必须照常放行；'
+      + '夹具其余角与 M22/M23 逐字同形，唯一差别就是这个日子真存在）',
+    expect: 'REVIEW-DATE-GREEN',
+    id: 'G1-MUTA-94', iso: '2024-02-29',
+    apply(text) {
+      const out = text + supersededWithReview('G1-MUTA-94', '2024-02-29', 'M24 变异：非owner审查者');
+      if (!out.includes('REVIEW: 2024-02-29')) throw new Error('变异未生效：闰日夹具未追加');
+      return out;
+    },
+  },
+  {
+    name: 'M25-裸位置参数被静默忽略（CLI 型：把清单路径当裸位置参数传进去。修前旧实现丢掉它、'
+      + '转去校验**默认主清单**并 exit 0——调用者以为绿的是自己指定的那份，这是「换个对象变绿」'
+      + '不是「少报一个参数」；修后必非 0 且打印一行用法说明）',
+    expect: 'CLI-FAIL-LOUD',
+    run({ target }) {
+      const bad = runSelf([target]);
+      const out = `${bad.stdout ?? ''}${bad.stderr ?? ''}`.trim();
+      const first = out.split('\n')[0] ?? '';
+      const hit = bad.status !== null && bad.status !== 0 && /用法错误/.test(out);
+      return {
+        hit,
+        verdict: hit
+          ? `捕获（裸位置参数 exit=${bad.status}，一行说明：${first}）`
+          : `**存活**（期望非 0 + 一行用法说明；实际 exit=${bad.status} 首行「${first || '无输出'}」——`
+            + '裸路径被静默忽略就是校验对象错位）',
+      };
+    },
+  },
+  {
+    name: 'M26-「--file <路径>」正向防误伤（同一份清单以 --file 传入必须照常校验并 exit 0：'
+      + 'fail-loud 若顺手把合法形态也拦掉，就把门禁换成了死闸，与「谓词永远红」同一种失效）',
+    expect: 'CLI-OK',
+    run({ target }) {
+      const ok = runSelf(['--file', target]);
+      const out = `${ok.stdout ?? ''}${ok.stderr ?? ''}`.trim();
+      const hit = ok.status === 0 && /结论：绿/.test(out);
+      return {
+        hit,
+        verdict: hit
+          ? `捕获（--file 正常工作：exit=0，输出「${out.split('\n').pop()}」）`
+          : `**存活**（期望 --file 正常 exit 0；实际 exit=${ok.status} 输出「${out.split('\n').slice(0, 2).join(' / ') || '无输出'}」）`,
+      };
+    },
+  },
 ];
 
-function main() {
-  const argv = process.argv.slice(2);
-  const selfTest = argv.includes('--self-test');
-  const requireClear = argv.includes('--require-clear');
-  const maxOpenIdx = argv.indexOf('--max-open');
-  const maxOpen = maxOpenIdx >= 0 ? Number(argv[maxOpenIdx + 1]) : null;
-  if (maxOpenIdx >= 0 && (!Number.isInteger(maxOpen) || maxOpen < 0)) {
-    console.log(`--max-open 需要非负整数，收到「${argv[maxOpenIdx + 1]}」`);
-    process.exit(2);
+// ---------- 命令行参数解析（第八轮改为 fail-loud） ----------
+// 旧实现只 `includes`/`indexOf` 自己认得的三个 flag，**其余参数静默忽略**。后果不是「报得难看」
+// 而是**判错对象**：`node g1-checklist-validate.mjs 某清单.yaml` 里的路径被丢掉，脚本转去校验
+// **默认主清单**并 exit 0——调用者以为绿的是自己指定的那份。这类「静默换个对象变绿」比红危险
+// 得多（与本文件「不许把未验证的东西报成绿」同一条底线），故现在：未知参数 / 裸位置参数 /
+// flag 缺值 / flag 重复 ⇒ 打印一行说明 + exit 2（沿用 --max-open 非法值既有的用法错误码）。
+const USAGE = '用法：node g1-checklist-validate.mjs [--file <清单路径>] [--require-clear] [--max-open <N>] [--self-test]';
+function failUsage(why) {
+  console.log(`用法错误：${why}——静默忽略参数会让人以为校验的是自己指定的清单（${USAGE}）`);
+  process.exit(2);
+}
+function parseArgs(argv) {
+  const out = { selfTest: false, requireClear: false, maxOpen: null, file: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    switch (a) {
+      case '--self-test':
+        if (out.selfTest) failUsage('「--self-test」重复给出');
+        out.selfTest = true;
+        break;
+      case '--require-clear':
+        if (out.requireClear) failUsage('「--require-clear」重复给出');
+        out.requireClear = true;
+        break;
+      case '--max-open': {
+        if (out.maxOpen !== null) failUsage('「--max-open」重复给出');
+        const v = argv[i + 1];
+        if (v === undefined || v.startsWith('--')) failUsage('「--max-open」缺少参数值（须为非负整数）');
+        if (!Number.isInteger(Number(v)) || Number(v) < 0) failUsage(`「--max-open」需要非负整数，收到「${v}」`);
+        out.maxOpen = Number(v);
+        i++;
+        break;
+      }
+      case '--file': {
+        if (out.file !== null) failUsage('「--file」重复给出（两份清单要分两次跑，别指望一次验两份）');
+        const v = argv[i + 1];
+        if (v === undefined || v.startsWith('--')) failUsage('「--file」缺少参数值（须为清单路径）');
+        out.file = resolve(v);
+        i++;
+        break;
+      }
+      default:
+        if (a.startsWith('-'))
+          failUsage(`未知参数「${a}」（只认 --file / --require-clear / --max-open / --self-test；新 flag 须先改进本解析器）`);
+        else
+          failUsage(`不接受裸位置参数「${a}」，指定清单请写「--file ${a}」`);
+    }
   }
-  const fileIdx = argv.indexOf('--file');
-  const target = fileIdx >= 0 ? resolve(argv[fileIdx + 1]) : DEFAULT_CHECKLIST;
+  return out;
+}
+
+// CLI 型变体的执行器（M25/M26）：用当前 node 跑**本文件自身**——判据是真实退出码与输出文本，
+// 这正是「校验器作为命令行门禁」的对外契约面，进程内 validate() 摸不到。子进程不带 --self-test
+// ⇒ 不会递归。
+const SELF_PATH = fileURLToPath(import.meta.url);
+function runSelf(args) {
+  return spawnSync(process.execPath, [SELF_PATH, ...args], { encoding: 'utf8', cwd: HERE });
+}
+
+function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  const { selfTest, requireClear, maxOpen } = opts;
+  const target = opts.file ?? DEFAULT_CHECKLIST;
 
   const text = readFileSync(target, 'utf8');
 
@@ -895,10 +1105,23 @@ function main() {
     for (const mu of MUTANTS) {
       let verdict;
       try {
+        // CLI 型变体（M25/M26）判的是进程行为（退出码 + 输出），validate() 摸不到，故由 run()
+        // 自跑子进程自报命中；文本型变体走原路。
+        if (typeof mu.run === 'function') {
+          const r = mu.run({ target, text });
+          if (!r.hit) failed++;
+          console.log(`${mu.name}\n  ⇒ ${r.verdict}`);
+          continue;
+        }
         const mutated = mu.apply(text);
         const res = validate(mutated, target);
         let hit;
-        if (mu.expect === 'CLEAR') {
+        if (mu.expect === 'REVIEW-DATE-RED' || mu.expect === 'REVIEW-DATE-GREEN') {
+          // 第八轮日期族：判据在**谓词面**（人工确认门只作用于 --require-clear），不在 violations 里。
+          const r = (mu.expect === 'REVIEW-DATE-RED' ? dateRedCheck : dateGreenCheck)(mu)(res);
+          hit = r.hit;
+          verdict = r.verdict;
+        } else if (mu.expect === 'CLEAR') {
           // 正向形状：**只有**违规==0 且终局谓词真绿才算捕获——谓词在合法全清形态上必须放行，
           // 否则门禁成死闸（「永远红」与「永远绿」是同一种失效）。
           hit = res.violations.length === 0 && res.counts !== null

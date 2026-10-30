@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { POC_DATA_DIR } from '../src/harness/paths.ts';
 import { openWorld, PRINCIPAL, type World } from '../src/harness/world.ts';
 import { TEST_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
-import { CAP_RECORDS, IntakeService, ValidationService } from '../src/domains/test-records.ts';
+import { CAP_RECORDS, ValidationService } from '../src/domains/test-records.ts';
 import type { ObjectOid } from '../src/contracts/index.ts';
 
 const WRITER = PRINCIPAL('xc28-writer');
@@ -24,7 +24,8 @@ function mk(name: string, withEdges: boolean): { w: World; v: ValidationService;
   const w = openWorld({ file: join(dir, 'space.db'), space: 'SP-X', grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
   const edges = (oid: ObjectOid): readonly string[] =>
     w.raw.all<{ role: string }>(`select role from ref_edge where from_oid=?`, oid).map((r) => r.role);
-  const intake = new IntakeService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(WRITER, fn));
+  // D-19c：接纳编排是 Application Use-case，一律由装配根构造（这里不使用它产出对象）
+  const intake = w.intakeUseCase();
   const v = new ValidationService(
     w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(WRITER, fn),
     (ref) => w.readRevision(ref), withEdges ? edges : undefined,

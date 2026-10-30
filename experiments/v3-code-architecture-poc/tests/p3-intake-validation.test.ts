@@ -11,7 +11,7 @@ import { POC_DATA_DIR } from '../src/harness/paths.ts';
 import { openWorld, PRINCIPAL, type World } from '../src/harness/world.ts';
 import { TEST_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
 import { TEST_VALIDATION, CAP_VALIDATION } from '../src/domains/test-validation.ts';
-import { IntakeService, ValidationService, FactStandingService, SYNTH_NOTE, CAP_RECORDS, TEST_RECORDS } from '../src/domains/test-records.ts';
+import { ValidationService, SYNTH_NOTE, CAP_RECORDS, TEST_RECORDS } from '../src/domains/test-records.ts';
 import type { UnitOfWork } from '../src/kernel/kernel.ts';
 import { Refusal } from '../src/contracts/index.ts';
 
@@ -32,10 +32,13 @@ describe('P3 Raw Intake / Domain Admission / 版本化校验 / 派生业务视�
     const w = openWorld({ file: join(dir, `${name}.db`), space: 'SP-1', grants: GRANTS, plugins: PLUGINS });
     return {
       w,
+      // D-19c：接纳/对象化与采纳声明都是 **Application Use-case**，由**装配根**构造（`w.intakeUseCase()`）：
+      // 跨归属协调权只有一个来源，用例只拿到「对象拥有者的作用域端口」，拿不到通用写面。
+      // 业务判据（能不能接纳、声明是否已获授权）仍在领域策略里，用例无权改写（F-23 同族）。
+      intake: w.intakeUseCase(),
       // 事务执行器由装配根提供：主体在宿主侧核验后交出，领域拿不到"给自己发身份"的能力（F-23）。
-      intake: new IntakeService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(PRINCIPAL('synth-runner'), fn)),
       validation: new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(PRINCIPAL('synth-runner'), fn), (ref) => w.kernel.readRevision(ref)),
-      standing: new FactStandingService(w.kernel.faceFor(CAP_RECORDS), w.authority),
+      standing: w.standingUseCase(),
     };
   };
 

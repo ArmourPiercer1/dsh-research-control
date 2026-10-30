@@ -334,3 +334,20 @@ Draft 的批评（"机制有了但没人被迫用它"）由此从推测升级为
 生成基线时留下、迟迟未清理的 `.scratch/wt-g0base` 里的 e2e spec。
 一条为改善纪律而写的规则，因为没配套收集面，反而把污染面铺到了根测试——
 教训是**纪律落地必须连收集面一起验**，而不是"我的那个 runner 没事"。
+
+## D-19c 收口（作者 + 席位 `09b4d667`，2026-10-30）
+
+**独立复跑（作者，不引用席位的 PASS）**：`tsc` exit 0；`tests/` **18 文件 / 118 例全绿**（原 16/101，+17）；
+`g0-gate` exit 0（作者流 `skip=0`、审查方基线 **32 条已知红无增无减**）；
+`git diff --numstat src/kernel src/contracts` = **0 行** ⇒ 面哈希 `e2ebba74` **不漂移、不重算**。
+
+四条变异验证（全部按确切路径还原并 `sha256` 校验，席位在会话内贴出实际输出）：
+
+| 变异 | 结果 |
+| --- | --- |
+| M1 领域文件插 `tx.revise(...)` | `× src/domains/** 零通用写面` + `["src/domains/test-facet.ts → revise"]`，1 红 8 绿 |
+| M2 `#assertScope` 首行 `return;` | **9 红**：两条归属负例 + 墙 3 条 + 用例侧 3 条 + `arch-independence` **面哈希当场红**（`cdade72d ≠ e2ebba74`，顺带实证哈希门是活的） |
+| M3 用例层插 `tx.createObject(` | 白名单判据红：`src/app/intake-use-case.ts → createObject` |
+| M4 下标写法 `tx['appendLedger']` 再接调用括号 | 计数判据红：`出现 2 次 / 被标记 1 次`（行级标记看不见的形态） |
+
+**新增未修项 D-20 / D-21 / D-22** 见 `READINESS.md`，均为本次收口过程中发现，不粉饰为已闭合。

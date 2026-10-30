@@ -320,4 +320,13 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
 - `writer → 宿主事务` 的映射放模块级 `WeakMap`，不放实例字段：后者等于把句柄重新交回插件
   （`.constructor` 逃逸的同族教训）。
 - 拒绝必须发生在写入之前；测试须验证"目标修订未被改动"，不接受"写了再报错"。
+- **Application Use-case 层的写权限形态（D-19c 收口）**：用例层**不得**直接持有或使用通用对象写面
+  （`createObject/revise/linkRef`）；它只能经 `UseCaseDelegation.writerOwningKind(kind, tx)` 取得
+  **对象拥有者的作用域端口**，在调用方交来的**同一条事务**内完成跨归属写（因此 Q40 不破，且
+  委派交出的仍是 `NamespaceWriter`——能力上界与领域自有端口相同，**不存在第二个权威**）。
+  机制级台账写入（`appendLedger`）在本层按 `D-19c-ALLOWED` 行标记 + **出现次数 == 签字次数**
+  双判据逐条签字：行标记会被下标写法（`tx['appendLedger']`）绕过，计数判据补这个洞。
+- 判据强度次序（写进契约，防止日后被倒置）：**运行时作用域上界是墙，源码扫描是防遗忘的网**。
+  墙失效才算洞；网失效只是退化。网明确不拦拼接成员名与反射取成员——该边界由
+  `tests/domain-write-face.test.ts` 的"断言扫不到"负空间测试钉住，并同处证明同一形态运行时被墙拦下。
 - 负例/正例见 `tests/capability-scope.test.ts`（装配根可跨 ⇒ Q40 不破；领域不可跨 ⇒ Q12 成立）。

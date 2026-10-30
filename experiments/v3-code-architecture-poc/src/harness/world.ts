@@ -3,9 +3,18 @@
  * （#44 §7），因此跨空间隔离在物理上就是两个不同的 DB，不存在共享连接池。
  */
 import { SqlitePort } from '../storage-sqlite/sqlite-port.ts';
-import { Kernel, type Authorizer, type ObjectSnapshot, type UnitOfWork } from '../kernel/kernel.ts';
+import {
+  Kernel, type Authorizer, type NamespaceWriter, type ObjectSnapshot, type UnitOfWork,
+} from '../kernel/kernel.ts';
 import { TEST_OBJECT_MODEL } from '../domains/test-object-model.ts';
-import { asSpaceId, type ObjectOid, type PluginManifest, type VerifiedPrincipal } from '../contracts/index.ts';
+import { CAP_RECORDS, FactStandingPolicy, IntakePolicy } from '../domains/test-records.ts';
+import { IntakeUseCase } from '../app/intake-use-case.ts';
+import { StandingUseCase } from '../app/standing-use-case.ts';
+import type { UseCaseDelegation } from '../app/delegation.ts';
+import {
+  Refusal, asSpaceId, type CapabilityId, type ObjectKindLabel, type ObjectOid,
+  type PluginManifest, type VerifiedPrincipal,
+} from '../contracts/index.ts';
 
 export interface WorldOptions {
   readonly file: string;
@@ -65,6 +74,49 @@ export class World {
   revoke(actor: string, resource: string): void { this.grants.get(actor)?.delete(resource); }
 
   uow<T>(principal: VerifiedPrincipal, fn: (tx: UnitOfWork) => T): T { return this.kernel.uow(principal, fn); }
+  /** 领域侧取一条**作用域收窄到本能力**的事务（与 `kernel.uowFor` 同一入口，装配根才有权调）。 */
+  uowFor<T>(capability: CapabilityId, principal: VerifiedPrincipal, fn: (tx: UnitOfWork) => T): T {
+    return this.kernel.uowFor(capability, principal, fn);
+  }
+
+  // ── D-19c：装配根 → Application Use-case 的委派与装配点 ────────────────────────
+  //
+  // 为什么放在装配根：跨能力协调权的**唯一**来源必须是装配根（#44 §4 `product/`）。
+  // 交出去的只是**某个拥有者的作用域端口**（`NamespaceWriter`），不是通用事务句柄：
+  // 用例能写的 kind 与那个领域自己拿到的端口完全相同，多一步都走不了。
+  // 反过来，装配根本人**不**在这里调用通用写面（`createObject/revise/linkRef/appendLedger`
+  // 在 `src/harness/**` 的出现次数由 `tests/domain-write-face.test.ts` 钉为 0）。
+
+  /** 取指定能力的作用域写端口（只能写该能力拥有的对象）。 */
+  writerOf(capability: CapabilityId, tx: UnitOfWork): NamespaceWriter {
+    return this.kernel.namespacedWriter(capability, tx);
+  }
+
+  /**
+   * 取「注册表判定拥有该 kind 的能力」的作用域写端口——**归属是查出来的，不是写死的**，
+   * 所以路由移交后用例自动跟随；无人拥有 ⇒ fail-loud（不得由调用方挑一个归属写下去）。
+   */
+  writerOwningKind(kind: ObjectKindLabel, tx: UnitOfWork): NamespaceWriter {
+    const owner = this.kernel.registry.ownerOfKind(kind);
+    if (!owner) throw new Refusal('CAPABILITY_INACTIVE', { kind, reason: '无能力声明拥有该 kind，不得由调用方自挑归属落笔' });
+    return this.kernel.namespacedWriter(owner.capability, tx);
+  }
+
+  /** 装配根授予用例的委派面（`src/app/**` 唯一的跨能力入口，见 `src/app/delegation.ts`）。 */
+  get useCaseDelegation(): UseCaseDelegation {
+    return {
+      writerOwningKind: (kind, tx) => this.writerOwningKind(kind, tx),
+      writerOf: (capability, tx) => this.writerOf(capability, tx),
+    };
+  }
+
+  /** Raw Intake / Domain Admission 用例的**唯一**构造点（业务判据仍在领域，这里只接线）。 */
+  intakeUseCase(policy = new IntakePolicy()): IntakeUseCase { return new IntakeUseCase(policy, this.useCaseDelegation); }
+  /** 派生业务视图（采纳/撤回）用例的唯一构造点。 */
+  standingUseCase(policy?: FactStandingPolicy): StandingUseCase {
+    return new StandingUseCase(policy ?? new FactStandingPolicy(this.kernel.faceFor(CAP_RECORDS), this.authority));
+  }
+
   get raw() { return this.port.raw; }
   ledgerHead() { return this.kernel.head; }
   readObject(oid: ObjectOid): ObjectSnapshot | undefined { return this.kernel.readSnapshot(oid); }

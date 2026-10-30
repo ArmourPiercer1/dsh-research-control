@@ -5,13 +5,15 @@
 # （不得写"经审查通过"这类无法机验的话）不达标。本文件把它变成机验对象。
 #
 # 放行判据（写进 IMPLEMENTATION-PLAN-DRAFT.md §2 G1）：
-# 【现行机验，外部复审第五轮补，2026-10-31；第六轮修订谓词，2026-10-31】
-#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            ⇒ exit 0（结构/语义校验绿；assigned 允许日常存在）
-#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test ⇒ exit 0（校验器变异自验，架空非删除；13 条形变：M1–M7 原有 + M8–M12 第六轮反例 + P1 正向形状【全清必须判绿，防死闸】；甩锅链完整形态在自验输出里逐字留形）
+# 【现行机验，外部复审第五轮补，2026-10-31；第六轮修订谓词 + 第七轮 superseded 反洗白补门，2026-10-31】
+#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            ⇒ exit 0（结构/语义校验绿；assigned 允许日常存在；superseded 缺人工确认在日常形态**不拦**，见下）
+#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test ⇒ exit 0（校验器变异自验，架空非删除；17 条形变：M1–M7 原有 + M8–M12 第六轮反例 + M14–M17 第七轮 superseded 反洗白【终局洗白最小形 / 带 review 仍形不足 / 旧字段 supersedes 复活 / 旧名切断继任链必双红】+ P1 正向形状【全清必须判绿，防死闸】；甩锅链完整形态在自验输出里逐字留形）
 #   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --require-clear ⇒ exit 0
-#     （**终局放行谓词**，第六轮改写：违规==0 且所有有效工作项均为 done、或为 supersedes 链
-#      最终到达 done 的 superseded——`open`/`assigned` 一律不放行。「已指派」是推进态不是
-#      终局态，旧版只数 open/unassigned 的洞由自验 M8 钉死）
+#     （**终局放行谓词**，第六轮改写、第七轮补门：违规==0 且所有有效工作项均为 done、或为
+#      superseded_by 链最终到达 done、且**带合法 supersession_review（REVIEW: <日期> <审查者>，
+#      审查者≠owner）的 superseded**——`open`/`assigned` 一律不放行，未经人工确认的 superseded
+#      一律不放行。「已指派」是推进态不是终局态（旧洞由 M8 钉死）；「全改 superseded 指向任意
+#      done」的终局洗白由 SUPERSESSION-REASON/EVIDENCE + review 门 + M14/M15 钉死）
 # 【已被取代（旧 grep 判据，第三轮原文保留以示演化；锚定教训仍然有效：任何 grep 都会
 #   被文件头注释里的示例字样自我命中，这正是整体换成「解析式校验器」的理由之一）】
 #   grep -c '^    status: open$'  experiments/v3-code-architecture-poc/G1-RECONCILIATION-CHECKLIST.yaml  ⇒ 0
@@ -37,8 +39,21 @@
 #               （「已修」不许是自我声明——GT 系列教训的迁移）
 #   resolution（done 时**必填**，DONE-RESOLUTION 机验）谁让位、依据什么，内容须为可核对的
 #               裁定/实测出处（Q 编号 / 提交 / 文件行位），不许只写结论词；open 时省略
-#   supersedes （可空）本条取代的旧条目 id，必须存在；status=superseded 时必填，且**继任链
-#               必须最终到达 done**（SUPERSEDED-CHAIN：成环或终点 open/assigned 一律红）
+#   superseded_by（第七轮改名自 supersedes）本条**被**哪条继任条目取代（方向：被取代者→取代者），
+#               必须存在；status=superseded 时必填，且**继任链必须最终到达 done**
+#               （SUPERSEDED-CHAIN：成环或终点 open/assigned 一律红）。
+#               ⚠ 方向警示：`docs/decisions/ADR-0003` 的 `supersedes` 是**取代者→被取代者**，
+#               与本字段方向相反——两个名字不许混用。旧字段名 `supersedes` 在本清单是
+#               **禁止字段**，出现即 UNKNOWN-FIELD 红（自验 M16）；改名理由见校验器头注。
+#   supersession_reason / supersession_evidence（status=superseded 时**必填**，第七轮）
+#               替代理由 + 可定位替代证据；两者都必须含可定位锚点（提交号 / 带扩展名文件路径，
+#               判据与 evidence/DONE-EVIDENCE 同）。空占位或「经审查确认」式结论词 = 红
+#               （SUPERSESSION-REASON / SUPERSESSION-EVIDENCE）——「它被取代了」不许是自我声明。
+#   supersession_review（终局面人工确认，第七轮；日常形态不要求）形如
+#               "REVIEW: <YYYY-MM-DD> <非作者审查者>"。--require-clear 下缺失、形态不符、
+#               或审查者与 owner 同名 ⇒ 终局判红。设计依据（第七轮裁定原话）：
+#               「机器无法自动证明两个复杂契约语义等价 ⇒ 用『结构校验 + 人工确认替代关系』的
+#               门禁，不要继续堆自动推理规则」。
 #   解析纪律（第六轮）：同一条目内同一字段出现两次 ⇒ **PARSE 直接红**（旧实现校验取末次、
 #   统计取首次，「被验证的状态 ≠ 被统计的状态」——自验 M11 钉死）。
 

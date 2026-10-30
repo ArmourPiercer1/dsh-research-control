@@ -286,3 +286,29 @@ done（SUPERSEDED-CHAIN，成环/甩锅 open 红）、同条目重复字段 PARS
 PLAN §16 旧行「13/8」为错数（13+8=21≠19），更正痕迹两头保留；「冲突 0」口径限定与
 #47 全文对账登记为 `G1-RECON-01`（放行前置，对账输入清单在 DESIGN 附二）。
 清单 26→27 条（+RECON-01），open 22→23；上文各行旧计数按各自落盘时点读。
+
+---
+
+**2026-10-31 第七轮收口登记（外部复审第七轮，只追加，不改上文各行）**：
+① **G1 校验器 superseded 终局洗白修复**——反例**实测复现**（`e3be0ce` 原脚本：23 条 open
+全改 `superseded` + 非空 owner + 统一指向 `G1-DONE-01` ⇒ 日常与 `--require-clear` 双双
+exit 0，23 个问题一个没解决而终局判绿）。局部修复：字段改名 **`supersedes` →
+`superseded_by`**（方向辨析：ADR-0003 的 `supersedes` 是「取代者→被取代者」，本清单字段
+是「被取代者→取代者」，同名反向即语义混淆缺陷；旧名列为**禁止字段**，出现即红，自验
+M16）；superseded 自身必须有**含可定位锚点**的 `supersession_reason` 与
+`supersession_evidence`（SUPERSESSION-REASON / SUPERSESSION-EVIDENCE，锚点判据与
+DONE-EVIDENCE 同，结论词无锚即红）；`--require-clear` 新增人工确认门——`supersession_review`
+（`REVIEW: <日期> <非作者审查者>`）**缺失或审查者==owner 终局判红**（日常形态不拦，
+不阻塞推进）。设计依据（第七轮裁定原话）：**「机器无法自动证明两个复杂契约语义等价 ⇒
+用『结构校验 + 人工确认替代关系』的门禁，不要继续堆自动推理规则」**。自验 13→**17 形态**
+（+M14 终局洗白最小形、M15 带 review 但载荷无锚仍红、M16 旧字段复活、M17 旧名切断继任链
+必**双红**（UNKNOWN-FIELD+SUPERSEDED-TARGET——「无继任」不是中性态，旧名不是链的关闭
+开关，父席点名）；17/17 全捕获，
+P1 正向形状「全 done+三件套 ⇒ 绿」继续成立）；主清单默认仍绿、`--require-clear` 仍红
+（open=23）。「齐形可绿」非纸面声明：全形夹具（锚定载荷 + 非owner review）`--require-clear`
+实测**绿**，去 review / 审查者==owner 两种减法实测红。
+② **G0-R 收口记录落地**：`G0-R-CLOSURE.md`（N5 与 D-23 的真实保证范围、提交态
+`docs:check` 双跑与「只在提交态可信」纪律条款、门禁数字逐项标来源、未修残余→去向表）。
+第七轮裁定：**G0-R 限定范围 PASS**——不等于生产级安全或实施基线批准；**G1 冻结 NO-GO、
+G2 NO-GO、PR #48 不合并**。上文第六轮节与 §5 各行按各自落盘时点读；本轮校验器/清单改动
+未提交，`docs:check` 提交态结论以 G0-R-CLOSURE.md §4 双跑记录为准。

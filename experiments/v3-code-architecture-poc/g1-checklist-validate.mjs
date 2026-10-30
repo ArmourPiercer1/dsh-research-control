@@ -26,12 +26,22 @@
  *   - `DONE-RESOLUTION` **done 必须有非空 resolution**（第六轮裁定：关闭态三件套
  *                       = 权威 owner + 可定位 evidence + 明确 resolution，缺一即红。
  *                       owner 的「权威」语义仍是人工判据，见「已知边界」）
- *   - `SUPERSEDES-EXISTS` supersedes 指向的 id 必须存在、不得指向自己
- *   - `SUPERSEDED-TARGET` status=superseded 必须给出 supersedes
+ *   - `SUPERSEDED-BY-EXISTS` superseded_by 指向的 id 必须存在、不得指向自己
+ *                       （规则旧名 `SUPERSEDES-EXISTS`，随字段改名同步，2026-10-31 第七轮）
+ *   - `SUPERSEDED-TARGET` status=superseded 必须给出 superseded_by
  *   - `SUPERSEDED-CHAIN` **superseded 链必须最终到达 done**（第六轮裁定：防「superseded 环」
- *                       与「指向 open 的甩锅链」——链上每步 supersedes 都必须可解析，
+ *                       与「指向 open 的甩锅链」——链上每步 superseded_by 都必须可解析，
  *                       成环或终点非 done ⇒ 红）
- *   - `UNKNOWN-FIELD`   条目字段封闭集之外 = 红（防漂移：新字段先改校验器再进清单）
+ *   - `SUPERSESSION-REASON`   **status=superseded 必须有非空 supersession_reason 且含可定位
+ *                       锚点**（锚点判据与 DONE-EVIDENCE 同：提交号 / 带扩展名文件路径。
+ *                       空占位红；「被裁定取代」式结论词无锚 = 红——替代理由不许是自我声明）
+ *   - `SUPERSESSION-EVIDENCE` **status=superseded 必须有非空 supersession_evidence 且含
+ *                       可定位锚点**（同上判据；缺证据的「已被取代」= 换皮的未完成）
+ *   - `UNKNOWN-FIELD`   条目字段封闭集之外 = 红（防漂移：新字段先改校验器再进清单）。
+ *                       **旧字段名 `supersedes` 是点名禁止字段**：出现即红并给出方向说明
+ *                       （防新旧混用，见下方「字段方向」段；自验 M16 钉死复活、M17 钉死
+ *                       「用旧名切断继任链」的绕过——必须与 SUPERSEDED-TARGET 双红，
+ *                       「无继任」不是中性态）
  *   - `UNKNOWN-TOP`     顶层键封闭集之外 = 红
  *   - `SCHEMA-VERSION`  schema_version 必须是 1
  *   - `PLAN-PATH`       plan 指向的文件必须真实存在（对账对象不许是幽灵路径）
@@ -41,10 +51,32 @@
  *                       可以同时「被验证为 done」而「被统计为 open」。修在解析期是唯一
  *                       不引入「哪个赋值算数」新裁量的位置；自验 M11 钉死该形态）
  *
+ * 字段方向（第七轮改名 `supersedes` → `superseded_by` 的理由，写死）：
+ *   - 现行 `docs/decisions/ADR-0003`（冻结面，只读）规定的 `supersedes` 边由**取代者指向
+ *     被取代者**（取代方的 ADR front-matter 列出它取代了谁）。
+ *   - 本清单的替代关系字段方向**相反**：由 `status: superseded` 的被取代条目指向继任条目，
+ *     故必须叫 `superseded_by`（「被谁取代」）。同名反向 = 语义混淆本身是缺陷——两个方向
+ *     混用一次，继任链判据就会判到反方向上。
+ *   - `supersedes` 因此保留为**禁止字段**：在清单条目里出现即 UNKNOWN-FIELD 红（自验 M16）；
+ *     它同时**不是链的关闭开关**——superseded 条目只写旧名 ⇒ UNKNOWN-FIELD 与
+ *     SUPERSEDED-TARGET 双红（自验 M17），不存在「旧名让链静默断掉」的第三条路。
+ *
+ * 替代关系为什么是「结构校验 + 人工确认」而不是继续加自动推理（第七轮裁定原话，本段改动的
+ * 设计依据）：**「机器无法自动证明两个复杂契约语义等价 ⇒ 用『结构校验 + 人工确认替代关系』
+ * 的门禁，不要继续堆自动推理规则」**。兑现为两层：
+ *   - 结构层（日常判据即红）：superseded 条目自身必须带替代理由 + 可定位证据
+ *     （SUPERSESSION-REASON / SUPERSESSION-EVIDENCE）+ 合法继任链（SUPERSEDED-CHAIN）——
+ *     「指向任意一条 done」不再能洗白整片 open（第七轮点名的终局洗白反例，自验 M14/M15）。
+ *   - 人工确认层（仅 --require-clear 拦，日常不阻塞推进）：每条 superseded 必须有
+ *     `supersession_review: "REVIEW: <YYYY-MM-DD> <非作者审查者>"`，**缺失或审查者==owner
+ *     ⇒ 终局谓词判红**——替代关系等同性由人签字，机器只核对签字存在、形态合法且非本人。
+ *
  * 已知边界（如实，不做超出裁定的事）：
  *   - 「id 不复用」只能靠 git diff 评审（删除条目会显示在 diff 里）；「不重排语义」同理。
  *   - `owner` 必须是「Q 编号 / 裁定提交 / 用户指令」这条仍是**人工判据**（自由文本无法
  *     机验语义），本文书 §2-G1 保留该人工条款；校验器只判非空 / 非 UNASSIGNED。
+ *   - `supersession_review` 的「非作者」同理是人工判据：机器能钉的是**形态合法且审查者
+ *     与 owner 不同名**；「签名的两个人是否真有权威」不在机验面（与 owner 权威性同一边界）。
  *
  * 用法与谓词语义（写死，别让下一个读者猜——父代理 2026-10-31 点名的三态澄清；
  * **第六轮修订**，外部复审点名 G1 门禁 P1：旧 `--require-clear` 数的是 open/unassigned，
@@ -53,11 +85,15 @@
  *       日常机验：违规==0 即绿。**这是常驻门禁跑的形态**（READINESS.md §5）。
  *       `assigned` 在日常形态**允许存在**——它是有主的推进态，不是违规。
  *   node g1-checklist-validate.mjs --require-clear
- *       G1 **终局放行谓词**（第六轮改写）：违规==0 且 **所有有效工作项均为 done，
- *       或为 supersedes 链最终到达 done 的 superseded**。`open` 与 `assigned` 一律不放行
- *       ——「有人认领了」不等于「裁定落地了」；done 的三件套（权威 owner / 可定位
- *       evidence / 明确 resolution）由 DONE-EVIDENCE、DONE-RESOLUTION、OWNER-RULE
- *       三条规则兜住，谓词只判剩余面。
+ *       G1 **终局放行谓词**（第六轮改写；第七轮补 superseded 人工确认门）：违规==0 且
+ *       **所有有效工作项均为 done，或为 superseded_by 链最终到达 done、且带合法
+ *       supersession_review（REVIEW: <日期> <审查者>，审查者≠owner）的 superseded**。
+ *       `open` 与 `assigned` 一律不放行——「有人认领了」不等于「裁定落地了」；
+ *       「被替代了但没人签字确认替代关系」同样不放行——终局面上 superseded 不是免检通道
+ *       （第七轮点名的「23 条 open 全改 superseded 指向任意 done ⇒ 终局 PASS」反例，
+ *       自验 M14/M15 钉死）。done 的三件套（权威 owner / 可定位 evidence / 明确
+ *       resolution）由 DONE-EVIDENCE、DONE-RESOLUTION、OWNER-RULE 三条规则兜住，
+ *       谓词只判剩余面。
  *       G1 未完成阶段它红是**预期状态**（G1 NO-GO），不是判据坏死——所以它进 §2-G1
  *       放行判据，不进日常门。
  *   node g1-checklist-validate.mjs --max-open <N>
@@ -68,9 +104,12 @@
  * 为什么不存在「清单永远不可能 clear」的死判据：**open 不要求 UNASSIGNED**——
  * UNASSIGNED 只是 open 条目**被允许**的取值，任何状态都可以（也应该）指名 owner；而
  * OWNER-RULE 禁止非 open 条目挂 UNASSIGNED。⇒ 放行路径 = assign 之后逐条关闭（done
- * 三件套或合法 superseded 链），推进与放行两个谓词可同时满足。--require-clear 里的
+ * 三件套，或「合法 superseded」= 继任链到达 done + reason/evidence 带锚点 + review 形态
+ * 合法且审查者≠owner），推进与放行两个谓词可同时满足。--require-clear 里的
  * unassigned==0 在所有项关闭时本是 OWNER-RULE 的推论，仍显式保留 = 纵深（规则将来被
- * 放宽时，放行谓词不会静默跟着松）。
+ * 放宽时，放行谓词不会静默跟着松）。superseded 路径「齐形可绿」不是纸面声明：全形夹具
+ * （载荷齐 + review 齐）实测 --require-clear 判绿、去 review / 审查者==owner 两种减法
+ * 实测判红，第七轮实测记录见 READINESS.md 第七轮节与 G0-R-CLOSURE.md。
  * 退出码：0 无违规（且给定谓词满足）；1 任何违规 / 谓词未满足 / 变异未被捕获。
  */
 import { readFileSync, existsSync } from 'node:fs';
@@ -255,9 +294,19 @@ function parseChecklist(text) {
 
 // ---------- 结构与语义校验 ----------
 const TOP_KEYS = new Set(['schema_version', 'plan', 'revision', 'items']);
-const ITEM_KEYS = new Set(['id', 'topic', 'spec', 'sources', 'owner', 'status', 'evidence', 'resolution', 'supersedes']);
+const ITEM_KEYS = new Set([
+  'id', 'topic', 'spec', 'sources', 'owner', 'status', 'evidence', 'resolution',
+  'superseded_by', 'supersession_reason', 'supersession_evidence', 'supersession_review',
+]);
+// 禁止字段（第七轮）：旧字段名不许复活——ADR-0003 的 `supersedes` 方向是取代者→被取代者，
+// 与本清单 `superseded_by`（被取代者→取代者）相反，混用一次判据就判反方向（见头注「字段方向」）。
+const BANNED_KEYS = new Map([
+  ['supersedes', '禁止字段「supersedes」：该名字按 ADR-0003 是「取代者→被取代者」，与本清单继任链方向相反；本清单字段为「superseded_by」（被取代者→取代者），不许新旧混用（见文件头「字段方向」段）'],
+]);
 const STATUSES = new Set(['open', 'assigned', 'done', 'superseded']);
 const ID_RE = /^G1-[A-Z][A-Z0-9]*-\d{2}$/;
+// 人工确认替代关系的形态（第七轮，仅 --require-clear 拦）：REVIEW: <YYYY-MM-DD> <审查者>
+const REVIEW_RE = /^REVIEW:\s*(\d{4}-\d{2}-\d{2})\s+(\S.*?)\s*$/;
 // 可定位锚点：git 提交号（7–40 位十六进制）或带扩展名的文件路径（可带 :行号）。
 const COMMIT_RE = /\b[0-9a-f]{7,40}\b/;
 const FILE_RE = /[\w./-]+\.(?:md|ts|tsx|mjs|cjs|json|ya?ml|sql|db|jsonl)\b/i;
@@ -287,7 +336,8 @@ function validate(text, checklistPath) {
     const f = {};
     for (const fl of it.__fields) {
       f[fl.key] = fl;
-      if (!ITEM_KEYS.has(fl.key)) V('UNKNOWN-FIELD', String(f.id?.value ?? '-'), fl.line, `未知字段「${fl.key}」——新字段须先进校验器封闭集再进清单`);
+      if (BANNED_KEYS.has(fl.key)) V('UNKNOWN-FIELD', String(f.id?.value ?? '-'), fl.line, BANNED_KEYS.get(fl.key));
+      else if (!ITEM_KEYS.has(fl.key)) V('UNKNOWN-FIELD', String(f.id?.value ?? '-'), fl.line, `未知字段「${fl.key}」——新字段须先进校验器封闭集再进清单`);
     }
     const id = f.id ? (typeof f.id.value === 'string' ? f.id.value : '-') : '-';
     const line = f.id ? f.id.line : it.__line;
@@ -344,17 +394,33 @@ function validate(text, checklistPath) {
         V('DONE-RESOLUTION', id, f.resolution.line, 'resolution 是空占位');
     }
 
-    const supRaw = f.supersedes ? f.supersedes.value : null;
+    const supRaw = f.superseded_by ? f.superseded_by.value : null;
     const supTargets = supRaw === null ? [] : Array.isArray(supRaw) ? supRaw : [supRaw];
     if (supTargets.length > 0) {
       const allIds = new Set(items.map((o) => { const v = o.__fields.find((x) => x.key === 'id')?.value; return typeof v === 'string' ? v : '-'; }));
       for (const sup of supTargets) {
-        if (sup === id) V('SUPERSEDES-EXISTS', id, f.supersedes.line, 'supersedes 指向自己');
-        else if (!allIds.has(sup)) V('SUPERSEDES-EXISTS', id, f.supersedes.line, `supersedes 指向不存在的 id「${sup}」`);
+        if (sup === id) V('SUPERSEDED-BY-EXISTS', id, f.superseded_by.line, 'superseded_by 指向自己');
+        else if (!allIds.has(sup)) V('SUPERSEDED-BY-EXISTS', id, f.superseded_by.line, `superseded_by 指向不存在的 id「${sup}」`);
       }
     }
     if (status === 'superseded' && supTargets.length === 0)
-      V('SUPERSEDED-TARGET', id, line, 'status=superseded 必须给出 supersedes（指向取代它的条目）');
+      V('SUPERSEDED-TARGET', id, line, 'status=superseded 必须给出 superseded_by（指向取代它的条目；方向=被取代者→取代者，见文件头）');
+    // —— superseded 自身的替代载荷（第七轮，反「指向任意 done 即整片洗白」反例的结构层）：——
+    // 理由与证据都必须带可定位锚点（锚点判据复用 DONE-EVIDENCE 一条：提交号 / 带扩展名
+    // 文件路径）。空占位红；「被裁定取代」「经审查确认」式结论词无锚 = 红——替代理由与
+    // 替代证据都不许是自我声明。这是裁定「结构校验」层的兑现；「人工确认」层在谓词面，见头注。
+    if (status === 'superseded') {
+      for (const [key, rule, whyMissing] of [
+        ['supersession_reason', 'SUPERSESSION-REASON', 'status=superseded 但没有 supersession_reason——替代理由不在载荷里，「它被取代了」不含「为什么两条问题等价/让位」'],
+        ['supersession_evidence', 'SUPERSESSION-EVIDENCE', 'status=superseded 但没有 supersession_evidence——替代关系没有可定位依据，「已被取代」不许是自我声明'],
+      ]) {
+        const v = f[key] ? (typeof f[key].value === 'string' ? f[key].value.trim() : '') : null;
+        if (!f[key]) V(rule, id, line, whyMissing);
+        else if (v === '') V(rule, id, f[key].line, `${key} 是空占位`);
+        else if (!COMMIT_RE.test(v) && !FILE_RE.test(v))
+          V(rule, id, f[key].line, `${key} 缺可定位锚点（提交号 / 带扩展名的文件路径〔可带 :行号〕）——结论词不能充当替代理由/证据（锚点判据与 DONE-EVIDENCE 同）`);
+      }
+    }
   });
 
   // —— superseded 链闭合判据（第六轮）：每条 superseded 的继任链必须最终到达 done。——
@@ -372,26 +438,26 @@ function validate(text, checklistPath) {
     const st = typeof fieldOf(it, 'status')?.value === 'string' ? fieldOf(it, 'status').value : null;
     if (st !== 'superseded') continue;
     const id = typeof fieldOf(it, 'id')?.value === 'string' ? fieldOf(it, 'id').value : '-';
-    const line = fieldOf(it, 'supersedes')?.line ?? it.__line;
+    const line = fieldOf(it, 'superseded_by')?.line ?? it.__line;
     const seen = new Set([id]);
     let cur = it;
     let curId = id;
     for (;;) {
-      const sup = cur.__fields.find((x) => x.key === 'supersedes')?.value;
-      // 缺 supersedes / 指自己 / 指向不存在 id：SUPERSEDED-TARGET / SUPERSEDES-EXISTS 已各自红，链判据不重复记。
+      const sup = cur.__fields.find((x) => x.key === 'superseded_by')?.value;
+      // 缺 superseded_by / 指自己 / 指向不存在 id：SUPERSEDED-TARGET / SUPERSEDED-BY-EXISTS 已各自红，链判据不重复记。
       if (typeof sup !== 'string' || sup === '' || sup === curId) break;
       if (seen.has(sup)) {
-        V('SUPERSEDED-CHAIN', id, line, `supersedes 链回到「${sup}」成环——继任链不许闭合，环里没有任何裁定落地`);
+        V('SUPERSEDED-CHAIN', id, line, `superseded_by 链回到「${sup}」成环——继任链不许闭合，环里没有任何裁定落地`);
         break;
       }
       seen.add(sup);
       const nxt = byId.get(sup);
-      if (!nxt) break; // 指向不存在 id：SUPERSEDES-EXISTS 已红
+      if (!nxt) break; // 指向不存在 id：SUPERSEDED-BY-EXISTS 已红
       const nst = fieldOf(nxt, 'status')?.value;
       if (nst === 'done') break;              // 到达已完成 ⇒ 链合法
       if (nst === 'superseded') { cur = nxt; curId = sup; continue; }
       V('SUPERSEDED-CHAIN', id, line,
-        `supersedes 链终点「${sup}」status=「${typeof nst === 'string' ? nst : '缺失/非法'}」≠ done——superseded 必须由最终完成的条目继任（禁止指向 open/assigned 的甩锅链）`);
+        `superseded_by 链终点「${sup}」status=「${typeof nst === 'string' ? nst : '缺失/非法'}」≠ done——superseded 必须由最终完成的条目继任（禁止指向 open/assigned 的甩锅链）`);
       break;
     }
   }
@@ -401,16 +467,37 @@ function validate(text, checklistPath) {
   let assigned = 0;
   let done = 0;
   let superseded = 0;
+  // 人工确认门（第七轮，裁定：「机器无法自动证明两个复杂契约语义等价 ⇒ 结构校验 + 人工
+  // 确认替代关系」）：每条 superseded 需合法 supersession_review 且审查者≠owner。
+  // **日常判据不拦**（缺 review 不记违规，不阻塞推进）；只在此计数，供 --require-clear 拦。
+  let supersededUnreviewed = 0;
+  const unreviewedDetail = [];
   for (const it of items) {
     const g = (k) => it.__fields.find((x) => x.key === k)?.value;
     const st = typeof g('status') === 'string' ? g('status') : '';
     if (st === 'open') open++;
     else if (st === 'assigned') assigned++;
     else if (st === 'done') done++;
-    else if (st === 'superseded') superseded++;
+    else if (st === 'superseded') {
+      superseded++;
+      const idOf = typeof g('id') === 'string' ? g('id') : '-';
+      const rv = typeof g('supersession_review') === 'string' ? g('supersession_review') : null;
+      const m = rv === null ? null : REVIEW_RE.exec(rv);
+      const ownerOf = typeof g('owner') === 'string' ? g('owner').trim() : '';
+      if (rv === null) {
+        supersededUnreviewed++;
+        unreviewedDetail.push(`${idOf}：缺 supersession_review（终局面须人工确认替代关系，形如 "REVIEW: <YYYY-MM-DD> <非作者审查者>"）`);
+      } else if (!m) {
+        supersededUnreviewed++;
+        unreviewedDetail.push(`${idOf}：supersession_review 形态不合法「${rv.slice(0, 60)}」（须为 REVIEW: <YYYY-MM-DD> <审查者>）`);
+      } else if (m[2].trim() === ownerOf) {
+        supersededUnreviewed++;
+        unreviewedDetail.push(`${idOf}：supersession_review 审查者与 owner 同名「${m[2].trim()}」——自己确认自己的替代关系不算确认`);
+      }
+    }
     if (typeof g('owner') === 'string' && g('owner').trim() === 'UNASSIGNED') unassigned++;
   }
-  return { violations, counts: { items: items.length, open, assigned, done, superseded, unassigned }, parsed };
+  return { violations, counts: { items: items.length, open, assigned, done, superseded, unassigned, supersededUnreviewed }, unreviewedDetail, parsed };
 }
 
 // ---------- 变异自验（架空，不是删除） ----------
@@ -431,8 +518,8 @@ const MUTANTS = [
     },
   },
   {
-    name: 'M2-supersedes 指向不存在 id（新增一条形状完全合法的 superseded 条目）',
-    expect: 'SUPERSEDES-EXISTS',
+    name: 'M2-superseded_by 指向不存在 id（新增一条形状完全合法的 superseded 条目；字段名随第七轮改名同步——若用旧名会被禁止字段先拦，成错误原因通过）',
+    expect: 'SUPERSEDED-BY-EXISTS',
     apply(text) {
       return (
         text +
@@ -441,7 +528,7 @@ const MUTANTS = [
         '    owner: "Q40"\n' +
         '    status: superseded\n' +
         '    evidence: "g1-checklist-validate.mjs"\n' +
-        '    supersedes: "G1-NOPE-99"\n'
+        '    superseded_by: "G1-NOPE-99"\n'
       );
     },
   },
@@ -526,9 +613,9 @@ const MUTANTS = [
     apply(text) {
       return text +
         '\n  - id: G1-MUTA-90\n    topic: "变异夹具：superseded 环 A 侧"\n    owner: "Q40"\n' +
-        '    status: superseded\n    supersedes: "G1-MUTA-91"\n' +
+        '    status: superseded\n    superseded_by: "G1-MUTA-91"\n' +
         '  - id: G1-MUTA-91\n    topic: "变异夹具：superseded 环 B 侧"\n    owner: "Q40"\n' +
-        '    status: superseded\n    supersedes: "G1-MUTA-90"\n';
+        '    status: superseded\n    superseded_by: "G1-MUTA-90"\n';
     },
   },
   {
@@ -564,7 +651,7 @@ const MUTANTS = [
     },
   },
   {
-    name: 'M12-superseded 甩锅链（除 TIME-01 外全部 open→superseded 并统一 supersedes 指向'
+    name: 'M12-superseded 甩锅链（除 TIME-01 外全部 open→superseded 并统一 superseded_by 指向'
       + '仍 open 的 TIME-01：每一跳单看都指向存在 id，整条链没有任何裁定落地——'
       + '父席要求把这条的完整形态留在自验输出里，不只报条数）',
     expect: 'SUPERSEDED-CHAIN',
@@ -575,11 +662,70 @@ const MUTANTS = [
         if (!/^    status: open$/m.test(c) || /^  - id: G1-TIME-01$/m.test(c)) return c;
         n++;
         return c
-          .replace(/^    status: open$/m, '    status: superseded\n    supersedes: "G1-TIME-01"')
+          .replace(/^    status: open$/m, '    status: superseded\n    superseded_by: "G1-TIME-01"')
           .replace(/^    owner: "UNASSIGNED"$/m, '    owner: "M12 变异：甩锅给 open 项"');
       }).join('');
       if (n === 0) throw new Error('变异未生效：清单里没有可甩的 open 条目');
       return out;
+    },
+  },
+  // —— 第七轮新增（裁定点名的「superseded 终局洗白」反例：全部 open 改 superseded +
+  //    非空 owner + 全部指向任意既有 done ⇒ 旧校验器终局 PASS，而 23 个问题一个没解决）。——
+  {
+    name: 'M14-终局洗白最小形（全部 open→superseded + 有主 owner + 统一 superseded_by 指向'
+      + '既有 done G1-DONE-01，不带 reason/evidence/review——链终点确为 done、每步 id 都存在，'
+      + '旧校验器 --require-clear 实测判绿（第七轮反例）；修后必须红在替代载荷缺失上）',
+    expect: 'SUPERSESSION-REASON',
+    apply(text) {
+      const out = text
+        .replace(/^    owner: "UNASSIGNED"$/gm, '    owner: "M14 变异：伪装权威归属"')
+        .replace(/^    status: open$/gm, '    status: superseded\n    superseded_by: "G1-DONE-01"');
+      if (out === text) throw new Error('变异未生效：清单里找不到 status: open / owner=UNASSIGNED 面');
+      return out;
+    },
+  },
+  {
+    name: 'M15-同形但带人工确认（M14 全形 + 补齐 reason/evidence 但两者均为无锚结论词 + '
+      + '合法形态 supersession_review 且审查者≠owner）⇒ **仍红**：无锚的「经审查确认」式'
+      + '载荷形态不足，签字不能把自我声明变成证据——可绿的充分形态见头注（锚点齐 + 审查合法）',
+    expect: 'SUPERSESSION-EVIDENCE',
+    apply(text) {
+      const out = text
+        .replace(/^    owner: "UNASSIGNED"$/gm, '    owner: "M15 变异：伪装权威归属"')
+        .replace(/^    status: open$/gm, '    status: superseded\n    superseded_by: "G1-DONE-01"'
+          + '\n    supersession_reason: "经审查确认，原问题已被取代"'
+          + '\n    supersession_evidence: "裁定已另行给出，无需再证"'
+          + '\n    supersession_review: "REVIEW: 2026-11-01 M15 变异：非owner审查者"');
+      if (out === text) throw new Error('变异未生效：清单里找不到 status: open / owner=UNASSIGNED 面');
+      return out;
+    },
+  },
+  {
+    name: 'M16-旧字段复活（给 G1-TIME-01 追加 supersedes 字段：ADR-0003 方向与本清单相反，'
+      + '新旧混用即禁止字段红，即便指向存在 id 且形状合法）',
+    expect: 'UNKNOWN-FIELD',
+    apply(text) {
+      const marker = '- id: G1-TIME-01';
+      const i = text.indexOf(marker);
+      if (i < 0) throw new Error('变异夹具失配：找不到 G1-TIME-01');
+      return text.slice(0, i) + marker + '\n    supersedes: "G1-DONE-01"' + text.slice(i + marker.length);
+    },
+  },
+  {
+    name: 'M17-旧字段切断链尝试（新 superseded 条目只写旧名 supersedes 指向存在的 done：'
+      + '链遍历已不读旧名，若无兜底这会被「静默当成无继任」放成链终点缺失——必须双红：'
+      + 'UNKNOWN-FIELD（禁止字段）+ SUPERSEDED-TARGET（缺 superseded_by 本身就是红，'
+      + '「无继任」不是中性态）。父席 2026-10-31 点名的绕过形态，单靠 M16 钉不住这条链'
+      + '（M16 的旧名挂在 open 条目上，不在链判据路径））',
+    expect: ['UNKNOWN-FIELD', 'SUPERSEDED-TARGET'],
+    apply(text) {
+      // 载荷其余字段（reason/evidence 含锚）刻意给齐：让违规面**恰好只剩**禁止字段+缺继任
+      // 两条——若把其余角也摘掉，双红可能只是别的原因顺带命中（错误原因通过）。
+      return text +
+        '\n  - id: G1-MUTA-97\n    topic: "变异夹具：旧字段切断链尝试（只写旧名指向存在 done）"\n' +
+        '    owner: "Q40"\n    status: superseded\n    supersedes: "G1-DONE-01"\n' +
+        '    supersession_reason: "g1-checklist-validate.mjs（夹具锚：演示形态不落主清单）"\n' +
+        '    supersession_evidence: "g1-checklist-validate.mjs:1（夹具锚）"\n';
     },
   },
 ];
@@ -619,7 +765,8 @@ function main() {
           // 正向形状：**只有**违规==0 且终局谓词真绿才算捕获——谓词在合法全清形态上必须放行，
           // 否则门禁成死闸（「永远红」与「永远绿」是同一种失效）。
           hit = res.violations.length === 0 && res.counts !== null
-            && res.counts.open === 0 && res.counts.assigned === 0 && res.counts.unassigned === 0;
+            && res.counts.open === 0 && res.counts.assigned === 0 && res.counts.unassigned === 0
+            && res.counts.supersededUnreviewed === 0;
           verdict = hit
             ? `捕获（全清形态下 --require-clear 判绿：items=${res.counts.items} done=${res.counts.done} 违规=0）`
             : `**存活**（期望全清判绿；实际违规=${res.violations.length} `
@@ -629,19 +776,25 @@ function main() {
           // 谓词型变异：**只有**在「日常判据无违规」前提下 --require-clear 仍红才算捕获。
           // 若它同时制造了违规，红就是违规挡的，谓词有没有洞根本没被检验——错误原因通过。
           hit = res.violations.length === 0 && res.counts !== null
-            && (res.counts.open !== 0 || res.counts.assigned !== 0 || res.counts.unassigned !== 0);
+            && (res.counts.open !== 0 || res.counts.assigned !== 0 || res.counts.unassigned !== 0
+              || res.counts.supersededUnreviewed !== 0);
           verdict = hit
-            ? `捕获（违规=0 前提下 --require-clear 判红：open=${res.counts.open} assigned=${res.counts.assigned} unassigned=${res.counts.unassigned}）`
+            ? `捕获（违规=0 前提下 --require-clear 判红：open=${res.counts.open} assigned=${res.counts.assigned} unassigned=${res.counts.unassigned} superseded_unreviewed=${res.counts.supersededUnreviewed}）`
             : `**存活**（期望违规=0 且谓词红；实际违规=${res.violations.length} `
               + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'}）`;
         } else {
-          const hits = res.violations.filter((v) => v.rule === mu.expect);
-          hit = hits.length > 0;
+          // expect 允许单规则或规则数组（数组=每条都必须命中——M17 的「禁止字段+缺继任」双红，
+          // 只命中其一都是错误原因通过）。
+          const rules = Array.isArray(mu.expect) ? mu.expect : [mu.expect];
+          const hits = rules.map((r) => res.violations.filter((v) => v.rule === r));
+          hit = hits.every((h) => h.length > 0);
           // 具体形态必须随条数一并入输出（父席指令：别只报条数）——首条命中逐字打出来。
+          const shape = rules.map((r, i) => `${r} ×${hits[i].length}`).join(' + ');
           verdict = hit
-            ? `捕获（${mu.expect} ×${hits.length}）｜首条：[${hits[0].id}] 行${hits[0].line} ${hits[0].why}`
-              + (hits.length > 1 ? `｜末条：[${hits[hits.length - 1].id}] 行${hits[hits.length - 1].line}` : '')
-            : `**存活**（期望 ${mu.expect}，实际规则=${[...new Set(res.violations.map((v) => v.rule))].join(',') || '无违规'}）`;
+            ? `捕获（${shape}）｜首条：[${hits[0][0].id}] 行${hits[0][0].line} ${hits[0][0].why}`
+              + (hits[0].length > 1 ? `｜末条：[${hits[0][hits[0].length - 1].id}] 行${hits[0][hits[0].length - 1].line}` : '')
+            : `**存活**（期望 ${rules.join('+')}，缺=[${rules.filter((r, i) => hits[i].length === 0).join(',')}] `
+              + `实际规则=${[...new Set(res.violations.map((v) => v.rule))].join(',') || '无违规'}）`;
         }
         if (!hit) failed++;
       } catch (e) {
@@ -654,24 +807,31 @@ function main() {
     process.exit(failed === 0 ? 0 : 1);
   }
 
-  const { violations, counts } = validate(text, target);
+  const { violations, counts, unreviewedDetail } = validate(text, target);
   if (violations.length > 0) {
     for (const v of violations) console.log(`违规 [${v.rule}] id=${v.id} 行${v.line}: ${v.why}`);
   }
   if (counts) {
     console.log(`计数 items=${counts.items} open=${counts.open} assigned=${counts.assigned} `
-      + `done=${counts.done} superseded=${counts.superseded} unassigned=${counts.unassigned} 违规=${violations.length}`);
+      + `done=${counts.done} superseded=${counts.superseded} unassigned=${counts.unassigned} `
+      + `superseded_unreviewed=${counts.supersededUnreviewed} 违规=${violations.length}`);
   }
-  // 终局放行谓词（第六轮改写，G1 门禁 P1 的修复点）：open/assigned 都算「未了结」。
-  // superseded 不在此重复走链——SUPERSEDED-CHAIN 违规已在上方把「环 / 终点非 done」判红，
-  // 谓词只在 违规==0 的前提下数剩余面，链的合法性是它的已知前提。
+  // 终局放行谓词（第六轮改写，G1 门禁 P1 的修复点；第七轮补 superseded 人工确认门）：
+  // open/assigned 都算「未了结」；superseded 未经人工确认（缺/畸形 supersession_review，
+  // 或审查者==owner）同样不放行。链合法性与替代载荷由 SUPERSEDED-CHAIN /
+  // SUPERSESSION-REASON / SUPERSESSION-EVIDENCE 违规在上方判红，谓词只在 违规==0 的
+  // 前提下数剩余面。
   if (requireClear && counts
-    && (violations.length !== 0 || counts.open !== 0 || counts.assigned !== 0 || counts.unassigned !== 0)) {
+    && (violations.length !== 0 || counts.open !== 0 || counts.assigned !== 0 || counts.unassigned !== 0
+      || counts.supersededUnreviewed !== 0)) {
     console.log('G1 终局放行谓词未满足（NO-GO 阶段的预期红，见头注语义说明）：'
       + `未了结工作项 open=${counts.open}、assigned=${counts.assigned}（期望均为 0——assigned 是推进态不是终局态，`
       + '「有人认领」不放行）；owner=UNASSIGNED '
-      + `${counts.unassigned}（期望 0）；违规=${violations.length} 条（期望 0——含 DONE-RESOLUTION/SUPERSEDED-CHAIN，`
-      + 'done 三件套与继任链闭合都在此闸）');
+      + `${counts.unassigned}（期望 0）；superseded 未经人工确认 ${counts.supersededUnreviewed} 条`
+      + `（期望 0——终局面上 superseded 需合法 supersession_review 且审查者≠owner，「被替代」不是免检通道）；`
+      + `违规=${violations.length} 条（期望 0——含 DONE-RESOLUTION/SUPERSEDED-CHAIN/SUPERSESSION-REASON/SUPERSESSION-EVIDENCE，`
+      + 'done 三件套、继任链闭合与替代载荷都在此闸）');
+    for (const d of unreviewedDetail) console.log(`  未经确认的 superseded：${d}`);
     process.exit(1);
   }
   if (maxOpen !== null && counts && counts.open > maxOpen) {

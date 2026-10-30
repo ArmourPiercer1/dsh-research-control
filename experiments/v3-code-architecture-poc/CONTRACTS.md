@@ -327,6 +327,12 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
   机制级台账写入（`appendLedger`）在本层按 `D-19c-ALLOWED` 行标记 + **出现次数 == 签字次数**
   双判据逐条签字：行标记会被下标写法（`tx['appendLedger']`）绕过，计数判据补这个洞。
 - 判据强度次序（写进契约，防止日后被倒置）：**运行时作用域上界是墙，源码扫描是防遗忘的网**。
-  墙失效才算洞；网失效只是退化。网明确不拦拼接成员名与反射取成员——该边界由
+  墙失效才算洞；网失效只是退化。**墙的适用边界（席位 G1-A 实测后收窄，三处声明一律以本条为准：本文件、
+`src/app/delegation.ts` 头、`tests/domain-write-face.test.ts` 头）**：`#assertScope` 只对**经
+`Kernel.uowFor(cap, …)` 取得的事务**生效。凡装配根把 `Kernel.uow()`（`scope='assembly'`）交进
+领域对象（现状：`ValidationService.runIn`、任何以 `UnitOfWork` 为形参的领域服务），该路径
+**没有归属检查执行点，只有那张已知可绕的词法网**。故**"D-19c 已收口"仅在"经 `uowFor` 的领域
+事务路径"内成立**（D-22）。另：席位实测墙在该路径上确实守得住拼接成员名、`getPrototypeOf`
+取方法、`Reflect.get/apply`、端口-kind 错配、移交后复用旧端口。网明确不拦拼接成员名与反射取成员——该边界由
   `tests/domain-write-face.test.ts` 的"断言扫不到"负空间测试钉住，并同处证明同一形态运行时被墙拦下。
 - 负例/正例见 `tests/capability-scope.test.ts`（装配根可跨 ⇒ Q40 不破；领域不可跨 ⇒ Q12 成立）。

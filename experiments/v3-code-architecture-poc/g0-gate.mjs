@@ -19,9 +19,10 @@
  * 用法：node experiments/v3-code-architecture-poc/g0-gate.mjs [--baseline <path>]
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const REPO = join(ROOT, '..', '..');
@@ -31,17 +32,47 @@ const baselinePath = argv.includes('--baseline')
   ? argv[argv.indexOf('--baseline') + 1]
   : join(ROOT, 'attacks', 'BASELINE.json');
 
-// GT-4（外部复审第四轮，席位 G2-A/G3-A 两次实测放大）：原先这里是魔数下限 90，而实际例数
-// 一路涨到 167 ⇒ **可静默消失的窗口 = 167 − 90 = 77 例 ≈ 46%**：整删 4 个测试文件（47 例）后
-// 门禁仍打印「OK —— 90 例全绿」PASS。魔数下限本身不可信（注释还停在「当前 95 例」），
-// 故换成与审查方流**同构的显式锚**：`AUTHOR_ANCHOR.json` 记录 passed / files / 生成提交，
-// 判据是**逐等**而非 ≥ —— 变多变少都必须显式 `--reanchor` 承认。
-// 理由：覆盖面缩水与覆盖面静默增长是同一类失真，后者让「全绿」这句话的含义随时间悄悄漂移。
+// GT-4（外部复审第四轮起源，包 5 升级为**身份锚**；本注释先前版本有错，一并修正）。
+// 演化三代：
+// ① 魔数下限 90：实际例数涨到 167 ⇒ 可静默消失窗口 = 77 例 ≈ 46%，整删 4 个测试文件后
+//    门禁仍打印「OK —— 90 例全绿」PASS。
+// ② 计数锚（包 4 前后）：`AUTHOR_ANCHOR.json` 实现里实际记录的是 generated_from_commit /
+//    passed / total / note，**判据只比 passed**（total 记了但从未参判）。本注释先前版本宣称
+//    锚记「passed / files / 生成提交」——**没有 files 这个键**：注释与实现不符，是作者自己
+//    承认的第二处错误文档（READINESS.md GT-4 行），本次先把注释改对。
+// ③ 计数锚的真实缺口（席位 G4-A 实测，旧门禁 PASS 放过）：**等数替换**——删 K 条真用例、
+//    补 K 条 `expect(1).toBe(1)`，passed/total 一字不变 ⇒ 「全绿」的含义已换而门禁无感。
+//    计数钉不住覆盖面的**身份**。
+// 现升级为身份锚，`AUTHOR_ANCHOR.json` 记录：generated_from_commit + passed + total +
+// passed_sha256 + files_sha256 + note。判据**全部逐等**：
+//   · passed / total——降级为可读冗余，但**仍参与判定**（不符即红，可读数字不得与摘要脱钩）；
+//   · passed_sha256——排序后「文件相对路径 > 用例全名」集合的摘要（与审查方 BASELINE 的名集
+//     判据同构）：用例增、删、改名、skip 一律变摘要；
+//   · files_sha256——`tests/**` 全部文件「相对路径 + 内容 sha256」清单的摘要：删文件、加文件、
+//     断言体乃至注释改一个字节都变摘要；
+//   · generated_from_commit 必须是 HEAD 祖先（与审查方流同一条戳判据）。
+// 拒写条款一字不动：当前有红 / 有 skip / 非零退出 / success=false ⇒ 拒绝 `--reanchor`，
+// 且锚文件一字节都不动（锚只能记真实通过数——GT-3 的教训，实测钉在变异验收里）。
+// **收不住的形态（如实登记）**：「改断言体**并且**重锚」——重锚是本机制要求的显式承认流程，
+// 人一边改语义一边重新承认锚，任何摘要都拦不住；锚拦的是**静默**变更，含义漂移的防线是
+// 变异抽检纪律（纪律，非机制）。此边界同步写进 READINESS.md GT-4 行。
 const anchorPath = argv.includes('--anchor')
   ? argv[argv.indexOf('--anchor') + 1]
   : join(ROOT, 'AUTHOR_ANCHOR.json');
 const fail = [];
 const note = (s) => console.log(s);
+
+// —— GT-4 身份锚摘要（三代演化与如实边界见上方长注）——
+const sha256hex = (buf) => createHash('sha256').update(buf).digest('hex');
+/** 通过项身份摘要：`文件相对路径 > 用例全名` 排序集合。用例增/删/改名/skip 一律变摘要。 */
+const passDigest = (names) => sha256hex([...names].sort().join('\n'));
+/** tests/** 文件清单摘要：`相对路径\0内容sha256` 逐行清单再取摘要。改一个字节都变摘要。 */
+function testsDigest() {
+  const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]);
+  const files = walk(join(ROOT, 'tests')).sort();
+  return sha256hex(files.map((f) => `${relative(ROOT, f)}\0${sha256hex(readFileSync(f))}`).join('\n'));
+}
 
 /** 跑一次 vitest，返回 { failed: Set<string>, passed: number, raw }。 */
 function runVitest(paths) {
@@ -106,10 +137,16 @@ if (argv.includes('--reanchor')) {
       generated_from_commit: head,
       passed: a.passed,
       total: a.total,
-      note: '作者侧覆盖面锚（GT-4）。判据是逐等而非 ≥：实测通过数与本文件 passed 不等即红，'
-        + '变少=测试被删/被排除/被 skip，变多=「全绿」的含义已漂移；两者都必须显式 --reanchor 承认。',
+      passed_sha256: passDigest(a.passNames),
+      files_sha256: testsDigest(),
+      note: '作者侧覆盖面**身份锚**（GT-4 包 5 升级，三代演化见 g0-gate.mjs 头注）。判据全部逐等：'
+        + 'passed/total 是可读冗余但参判（不符即红）；passed_sha256 钉通过项身份（用例增/删/改名/skip 变摘要）；'
+        + 'files_sha256 钉 tests/** 路径+内容（断言体乃至注释改一个字节变摘要）。'
+        + '等数替换（删 K 真例补 K 假例）从计数锚的漏网形态变为双摘要齐红。'
+        + '收不住：改断言体**并且**重锚——那是显式承认流程本身，防线是变异抽检纪律（纪律非机制）。',
     }, null, 2) + '\n');
-    note(`  已重锚 ${anchorPath}：passed=${a.passed} total=${a.total} @ ${head.slice(0, 7)}`);
+    note(`  已重锚 ${anchorPath}：passed=${a.passed} total=${a.total} `
+      + `passed_sha=${passDigest(a.passNames).slice(0, 12)}… files_sha=${testsDigest().slice(0, 12)}… @ ${head.slice(0, 7)}`);
   }
 }
 let anchor = null;
@@ -134,12 +171,27 @@ else if (!/^[0-9a-f]{7,40}$/.test(anchor.generated_from_commit ?? '')) {
 } else if (spawnSync('git', ['merge-base', '--is-ancestor', anchor.generated_from_commit, 'HEAD'],
   { cwd: REPO, encoding: 'utf-8' }).status !== 0) {
   fail.push(`作者锚的 ${anchor.generated_from_commit} 不是 HEAD 的祖先：来自分叉或已 rebase，须重锚`);
-} else if (a.passed !== anchor.passed) {
-  fail.push(`作者覆盖面漂移：实测 ${a.passed} 例 ≠ 锚 ${anchor.passed} 例`
+} else if (a.passed !== anchor.passed || a.total !== anchor.total) {
+  // passed/total 降级为可读冗余，但**仍参与判定**：可读数字不得与摘要脱钩（不符即红）。
+  fail.push(`作者覆盖面计数漂移：实测 ${a.passed} 绿 / ${a.total} 总 ≠ 锚 ${anchor.passed} / ${anchor.total}`
     + `（锚建于 ${String(anchor.generated_from_commit).slice(0, 7)}）。`
     + `变少 ⇒ 测试被删 / 被排除 / 被 skip；变多 ⇒ 「全绿」这句话的含义已经漂移。`
     + `两个方向都必须核对差异后显式 \`node g0-gate.mjs --reanchor\` 承认。`);
-} else note(`  OK —— ${a.passed} 例全绿，与覆盖面锚逐等（skip=0，exit=0，success=true）`);
+} else if (typeof anchor.passed_sha256 !== 'string' || typeof anchor.files_sha256 !== 'string') {
+  fail.push('作者锚缺 passed_sha256 / files_sha256（包 5 前的计数锚）：计数钉不住覆盖面**身份**'
+    + '——等数替换（删 K 真例补 K 假例）计数一字不变而含义全换（席位 G4-A 实测 PASS 放过）。'
+    + '身份锚升级须显式 \`node g0-gate.mjs --reanchor\` 完成。');
+} else if (passDigest(a.passNames) !== anchor.passed_sha256) {
+  fail.push(`作者通过集**身份**漂移：计数逐等（${a.passed}）但通过项名集摘要不等`
+    + `（实测 ${passDigest(a.passNames).slice(0, 12)}… ≠ 锚 ${String(anchor.passed_sha256).slice(0, 12)}…）。`
+    + `计数相等而名集不等 ⇒ 用例被改名 / 被换掉 / 被等数替换——「全绿」的两字中间换了货。`
+    + `必须核对差异后显式 --reanchor。`);
+} else if (testsDigest() !== anchor.files_sha256) {
+  fail.push(`作者 tests/** 文件清单摘要不等（实测 ${testsDigest().slice(0, 12)}… ≠ 锚 `
+    + `${String(anchor.files_sha256).slice(0, 12)}…）：名集与计数都没变而文件内容/路径变过`
+    + `——断言体（乃至一个注释字节）与锚不一致。测试怎么写的也在锚定范围内，须核对后显式 --reanchor。`);
+} else note(`  OK —— ${a.passed} 例全绿，与身份锚四项逐等（passed/total/passed_sha/files_sha；`
+  + `skip=0，exit=0，success=true）`);
 
 note('[3/3] 审查方基线门（attacks/**：多一条要查，少一条也要查）');
 const b = JSON.parse(readFileSync(baselinePath, 'utf-8'));

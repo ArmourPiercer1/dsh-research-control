@@ -467,6 +467,76 @@ PoC 测试世界全部新建库、无迁移债；实施期若要读旧库，迁�
 （`guard()`）把 `insert or replace` / `replace into` 形态一并登记为被禁写法（纵深：守卫此前只禁
 DDL/PRAGMA/ATTACH 头，不禁这类 DML 形态）。回归锚：`tests/n9-replace-append-only.test.ts`。
 
+**包 5 存储纪律（D-27 / D-28 / D-29 / D-30，席位 G4-A G4A-N9c/d/e 实测，2026-10-30）**：
+包 4 的 `recursive_triggers=ON` 只保护**已带 DELETE 触发器的表**——保护面恰为触发器表集，
+`object_directory` / `capability_route` / `meta` 不在其内（D-27/D-28/D-29 三条新洞都由裸面
+REPLACE 在这三表上整行改写合法达成）；守卫归一化只剥**前导**注释 ⇒ 中置注释与 upsert
+`DO UPDATE` 四式穿过锚定正则（D-30）。本包修法分两层：
+
+*层一：存储层触发器（fail-loud。abort 消息词 `ROUTE_FROZEN` / `ROUTE_SHAPE_FROZEN` /
+`ROUTE_AUDIT_REQUIRED` / `ROUTE_CHANGED_SEQ_MONOTONICITY` / `META_COUNTER_MONOTONICITY` 与既有
+`HISTORY_IMMUTABLE` / `DIRECTORY_IDENTITY_FROZEN` 同构，是**存储层信号文本，不是 `RefusalCode`
+封闭集成员**——封闭集不因此扩张，登记于此以免误读）：
+
+- `capability_route`（D-27/P1：绕开的是 `capability-admin` 轴的持久化，被绕的是「停用」这一安全
+  决策）⇒ 启停**只能**经 `setRouteEnabled`、移交**只能**经 `transferRoute`，且任何路由变更必须
+  随审计落账：`route_no_delete`（DELETE 含 REPLACE 隐式删除 ⇒ `ROUTE_FROZEN`）；
+  `route_change_guarded`（UPDATE：`changed_seq` 严格单调递增，`ROUTE_CHANGED_SEQ_MONOTONICITY`——
+  机制判据钉死的是「戳只能前进」，不是「戳有意义」；且 `ledger` 必须已存在 `seq = new.changed_seq`、
+  事件类型合 `{capability-enabled, capability-disabled, capability-transferred}`、payload.capability
+  字面相符的行 ⇒ `ROUTE_AUDIT_REQUIRED`）；`route_insert_guarded`（INSERT 只接受初始登记形
+  `enabled=1 且 changed_seq 为 NULL` ⇒ `ROUTE_SHAPE_FROZEN`——INSERT 伪造不出「已审计」）。
+  三个正当写方的写序随之改为**先写 ledger 审计、后改路由**（BEFORE 触发器逐语句判，账必须在先）。
+  **审计先行必须与变更同事务原子（外部复审点名：否则「先审计」反而制造幽灵审计——假凭据比零审计更糟）**：
+  同事务的保证是**唯一一条边界**——`Kernel.uow` 的 `return this.#port.tx((raw) => { … fn(tx) … })`
+  把回调体整个装进 `SqlitePort.tx` 的 `begin immediate → fn → commit / catch → rollback`；审计 insert
+  与路由 update 拿的是同一条句柄（`RAW_OF_UOW.get(tx)` 即 `port.tx` 交进来的 `raw`）。**机制内不存在
+  第二个事务边界**：不经 `tx()` 回调的写只有 `port.raw`（同一连接的 autocommit），那条面本来就是
+  已登记的运维后门——是明示的界外，不是隐蔽的第二边界。界外的幽灵形状被钉成显式断言（拆两条
+  autocommit「审计先落、变更被拒」⇒ H 留下从未生效的审计行，且 `ledger_no_delete` 连幽灵一起钉死、
+  抹不掉）：机制内三形态（提交期注入失败 / 事务中途触发器 abort / scope-escape 先于任何写）实测
+  **零残留、序号也不留 ghost**（`tests/d27-route-audit-gate.test.ts` D27-5），并把该原子性**架空**
+  一次（审计挪到事务外）证明测试确实抓得住幽灵（红后还原，kernel.ts sha256 核验等值）。
+  **诚实边界**：裸面持有者可先向 H 写一条形态齐全的审计行再过闸——伪造从「零审计」变成
+  「先落账进 append-only H 才可改写」，痕删不掉、处置归运维/审计（与 v2 存量伪造行同处置面，
+  G1 余项）；触发器钉死的是**无痕变更**，不是裸面持有者的一切变更。
+- `object_directory`（D-28/P2：RD-01 注释宣称「创建即固定」，修前只固定了 UPDATE 一形）⇒
+  **身份行不可改、不可删**：`directory_no_delete`（DELETE 含 REPLACE 隐式删除 ⇒ 复用
+  `DIRECTORY_IDENTITY_FROZEN`）；`directory_birth_audited`（INSERT：**账本非空**的空间里新身份行
+  必须带 `seq = created_seq`、`event_type='object-registered'`、`object_id` 相符的 ledger 行 ⇒
+  同码；`createObject` 写序改为 ledger 先行）。账本为空的空间不参判据 = 迁移器/存量库夹具形状
+  （old-schema 攻击资产所赖），如实登记。**裁定：owner 一经登记不可变更**——PoC 内无任何正当的
+  owner 变更路径，`object_directory.owner_capability` 无合法写者，留可变列而无正当写者正是本洞
+  根因，故列语义钉死为常量。`transferRoute` 语义据此对齐：移交改的是「能力 → 实现插件/ns/契约版」
+  的**路由行**（`capability_route`），**不触碰也不得触碰**目录行——对象归属没有机制移交通道，
+  旧契约「路由表可变」一句仅指路由三元组。
+- `meta`（D-29/P3：H 序号单调是全套打开判据的地基）⇒ `meta_counter_monotonic`（UPDATE：任何键
+  `new.value < old.value` 一律 `META_COUNTER_MONOTONICITY`——`ledger_seq`/`id_counter`/
+  `schema_version` 同受护，版本号下调也是「打开路径地基被动过」）；`meta_ledger_seq_no_delete`
+  （DELETE `ledger_seq` 键同码——堵住 REPLACE 的隐式删除形，REPLACE=归零两式之二连 UPDATE 形
+  `ON CONFLICT DO UPDATE SET value=0` 一并拒）。**边界如实**：`id_counter` 键的 DELETE 仍可行
+  （该形态打开期即 `SCHEMA_UPGRADE_REQUIRED` fail-loud，old-schema 轴既有绿条钉着——已治理的
+  打开期形态，不在运行时拒是刻意的）；**前跳（ghost seq）与合法发号在触发器层不可分辨**，与
+  journal 幽灵行同族，属裸句柄运维界残余。
+- **触发器保护面声明（必须与任何绿灯并列引用）**：以上触发器对**经 `SqlitePort` 建立的连接**
+  生效（含未守卫的 `port.raw`——连接层带 `recursive_triggers=ON`）；手工 `new DatabaseSync`
+  不带该 PRAGMA 时 REPLACE 的隐式删除**不触发** DELETE 触发器 = 裸文件全权界，登记不入承诺；
+  `journal` / `projection_state` / `projection_cursor` **仍无不可变性触发器**（派生/压实面，
+  设计允许），其被禁形态由层二守卫兜。`PRAGMA writable_schema` / `ATTACH` 只在守卫层被禁
+  （头位词表），未守卫面可直接执行——同属裸面残余。
+*层二：守卫归一化（D-30/P3，纵深）*：`normalizeSql` 剥**全部**注释（块/行、任意位置）后做
+**子串**匹配——被禁 REPLACE 形态**放弃 `^` 锚**（中置注释四式证明锚本来就是错的），名单补
+`on conflict … do update`（upsert 整行改写与被禁 REPLACE 同族）；`on conflict … do nothing`
+保持合法（投影登记的唯一合法 upsert 形，机制自己在用）。**误杀方向**：字符串字面量内的
+`--` / 块注释符 / 被禁词会被误剥误杀——误杀方向安全（拒而不放行），如实登记；`normalizeSql`
+是**词法**手段，更深的形态（字面量内伪关键词的绕行、未来新语法形）仍可能绕，主修始终是层一。
+**SCHEMA_VERSION 5→6（登记；非冻结面）**：DDL 增上述 7 触发器并全部纳入 `REQUIRED_TRIGGERS`
+打开校验；存量 v5 库按既有纪律打开期 `SCHEMA_UPGRADE_REQUIRED` fail-loud（detail 同时给版本
+不符与 `missingTriggers` 归因），PoC 测试世界每次新建库、不承担 v5→v6 迁移债（同包 3
+`authority_basis` 先例）。回归锚：`tests/d27-route-audit-gate.test.ts`、
+`tests/d28-directory-identity.test.ts`、`tests/d29-meta-counters.test.ts`、
+`tests/d30-guard-forms.test.ts`（各例均含「修前成功形态」的反向对照钉）。
+
 **唯一入口的机制执行（不是约定）**：
 
 - `appendLedger`（以及经它的 `declareRecord`）在**一切事务作用域——包括 `assembly`**——拒绝写已登记的

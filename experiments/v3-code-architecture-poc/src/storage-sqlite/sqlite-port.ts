@@ -15,6 +15,18 @@ import { assertInsidePocData } from '../harness/paths.ts';
 const SCHEMA = `
 create table if not exists meta(key text primary key, value integer not null);
 insert or ignore into meta(key, value) values('id_counter', 0), ('ledger_seq', 0);
+-- D-29（包 5，席位 G4-A G4A-N9d）：计数面只增不减。ledger_seq 是 H 单调序号的水位、
+-- id_counter 是 OID 分配器、schema_version 是打开路径判据的地基——三者被「归零/下调」
+-- 都会让打开校验建立在动过的地基上。归零两式（REPLACE 的隐式删除形、ON CONFLICT DO UPDATE
+-- 的 UPDATE 形）分别撞下面的 DELETE/UPDATE 触发器。边界如实：前跳（ghost seq）与合法发号
+-- 在触发器层不可分辨（登记于 CONTRACTS.md §16.2 包 5 存储纪律）；id_counter 键的 DELETE
+-- 不拦——该形态打开期即 SCHEMA_UPGRADE_REQUIRED，属已治理的打开期形态。
+create trigger if not exists meta_counter_monotonic before update on meta
+for each row when new.value < old.value
+begin select raise(abort, 'META_COUNTER_MONOTONICITY'); end;
+create trigger if not exists meta_ledger_seq_no_delete before delete on meta
+for each row when old.key = 'ledger_seq'
+begin select raise(abort, 'META_COUNTER_MONOTONICITY'); end;
 
 create table if not exists ledger(
   seq           integer primary key,
@@ -43,15 +55,80 @@ create table if not exists object_directory(
   oid text primary key, space text not null, kind text not null,
   owner_capability text not null, ns text not null, created_seq integer not null
 );
+-- D-28（包 5，席位 G4-A G4A-N9b）：RD-01 宣称「创建即固定」，修前只固定了 UPDATE 一形——
+-- DELETE 抹身份行、REPLACE 整行替换（改 created_seq/owner/ns）都合法；换假 owner 后所有读
+-- 路径当场 CAPABILITY_INACTIVE 且无救济。现钉死为「身份行不可改、不可删、新身份必须随账出生」。
+-- **owner 一经登记不可变更**（CONTRACTS.md §16.2 包 5 存储纪律的裁定）：没有任何正当的 owner
+-- 变更路径，可变列而无正当写者正是本洞根因。
 create trigger if not exists directory_no_update before update on object_directory
+begin select raise(abort, 'DIRECTORY_IDENTITY_FROZEN'); end;
+create trigger if not exists directory_no_delete before delete on object_directory
+begin select raise(abort, 'DIRECTORY_IDENTITY_FROZEN'); end;
+-- 出生审计（D-28）：账本非空的空间里，新身份行必须带 seq=created_seq、object_id 相符的
+-- object-registered ledger 行（kernel 对象登记的写序已改为账本先行）。
+-- **账本为空的空间不参判据**：迁移器/存量库夹具形状（old-schema 攻击资产所赖），如实登记。
+create trigger if not exists directory_birth_audited before insert on object_directory
+for each row
+when exists (select 1 from ledger)
+ and not exists (
+   select 1 from ledger l
+    where l.seq = new.created_seq
+      and l.event_type = 'object-registered'
+      and l.object_id = new.oid)
 begin select raise(abort, 'DIRECTORY_IDENTITY_FROZEN'); end;
 
 -- Capability→实现映射与启用状态**必须持久**：内存路由无法回答"提交后崩溃/重启后谁是所有者"，
 -- 也就谈不上 #44 §11 要求的"原子切换"。身份表禁改，路由表可改——这条区分是刻意的。
+-- 包 5（D-27，席位 G4-A G4A-N9c）把「可改」收紧为「只能经审计通道改」：启停只经
+-- setRouteEnabled、移交只经 transferRoute，且变更必须随审计落账。修前裸面一条
+-- replace into capability_route(... enabled=1 ...) 即**零审计**复活被停用的能力。
 create table if not exists capability_route(
   capability text primary key, plugin_id text not null, ns text not null,
   contract_version text not null, enabled integer not null default 1, changed_seq integer
 );
+-- REPLACE 在路由表全灭：隐式删除（recursive_triggers=ON，包 4）撞本触发器。
+create trigger if not exists route_no_delete before delete on capability_route
+begin select raise(abort, 'ROUTE_FROZEN'); end;
+-- 初始登记形态钉死：INSERT 只接受 activate() 的登记形（enabled=1、无变更戳）——
+-- INSERT 伪造不出「已审计」，启停/移交只能经 UPDATE 走审计面。
+create trigger if not exists route_insert_guarded before insert on capability_route
+for each row when new.enabled <> 1 or new.changed_seq is not null
+begin select raise(abort, 'ROUTE_SHAPE_FROZEN'); end;
+-- 变更三判据（机制判据，不是运维约定）：
+-- ① changed_seq 严格单调递增——钉死的是「戳只能前进」，不是「戳有意义」（ghost 戳见残余登记）；
+-- ② 审计随附：ledger 必须已存在 seq=new.changed_seq、事件类型合名单、payload.capability
+--    字面相符的行（kernel 三个写方已改为先写 ledger 后改路由；BEFORE 触发器逐语句判，账必须在先）。
+--    json_valid 先行是防御：payload 不是合法 JSON 的行不得让判据整体炸成不透明错误；
+-- ③ 方向一致：翻 enabled 必须配 capability-enabled/disabled 的对应方向事件，改路由三元组
+--    必须配 capability-transferred。
+-- 诚实边界：裸面可先向 append-only 的 H 写一条形态齐全的审计行再过闸——触发器钉死的是
+-- **无痕变更**；伪造从此必留痕、删不掉，处置归运维/审计（CONTRACTS.md §16.2 包 5 存储纪律）。
+create trigger if not exists route_change_guarded before update on capability_route
+begin
+  select case when old.changed_seq is not null
+               and (new.changed_seq is null or new.changed_seq <= old.changed_seq)
+          then raise(abort, 'ROUTE_CHANGED_SEQ_MONOTONICITY') end;
+  select case when not exists (
+      select 1 from ledger l
+       where l.seq = new.changed_seq
+         and l.event_type in ('capability-enabled','capability-disabled','capability-transferred')
+         and json_valid(l.payload_json)
+         and json_extract(l.payload_json, '$.capability') = new.capability)
+          then raise(abort, 'ROUTE_AUDIT_REQUIRED') end;
+  select case
+    when new.enabled <> old.enabled and not exists (
+      select 1 from ledger l
+       where l.seq = new.changed_seq
+         and l.event_type = case new.enabled when 1 then 'capability-enabled' else 'capability-disabled' end)
+      then raise(abort, 'ROUTE_AUDIT_REQUIRED')
+    when new.enabled = old.enabled
+     and (new.plugin_id <> old.plugin_id or new.ns <> old.ns or new.contract_version <> old.contract_version)
+     and not exists (
+      select 1 from ledger l
+       where l.seq = new.changed_seq and l.event_type = 'capability-transferred')
+      then raise(abort, 'ROUTE_AUDIT_REQUIRED')
+  end;
+end;
 
 create table if not exists domain_state(
   ns text not null, oid text not null, revision integer not null,
@@ -184,10 +261,14 @@ class Adapter implements RawTx {
  */
 /**
  * v4→v5（包 3，N1）：`ledger` 新增可空列 `authority_basis`（机制授权见证）。
- * 打开路径纪律不变：既有 v4 库一律 `SCHEMA_UPGRADE_REQUIRED` fail-loud，不隐式迁移
- * （PoC 测试世界全部新建库，无迁移债；实施期旧库迁移器需显式补写并登记）。
+ * v5→v6（包 5，D-27/D-28/D-29，席位 G4-A）：新增 7 条触发器（`route_no_delete`、
+ * `route_insert_guarded`、`route_change_guarded`、`directory_no_delete`、
+ * `directory_birth_audited`、`meta_counter_monotonic`、`meta_ledger_seq_no_delete`）并全部
+ * 纳入 `REQUIRED_TRIGGERS`——摘掉任何一条就不算同一套模式。
+ * 打开路径纪律不变：既有旧库一律 `SCHEMA_UPGRADE_REQUIRED` fail-loud，不隐式迁移
+ * （PoC 测试世界每次新建库、不承担 v5→v6 迁移债，同包 3 先例；实施期旧库迁移器需显式补写并登记）。
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 const REQUIRED_TABLES = [
   'meta', 'ledger', 'records', 'check_report', 'object_directory', 'domain_state',
   'journal', 'capability_route', 'projection_state', 'ref_edge',
@@ -198,6 +279,10 @@ const REQUIRED_TRIGGERS = [
   // S-0：追加式三张表也进必备集，缺一个就不算同一套模式
   'domain_state_no_update', 'domain_state_no_delete', 'ref_edge_no_update', 'ref_edge_no_delete',
   'records_no_update', 'records_no_delete',
+  // 包 5（D-27/D-28/D-29）：路由/身份/计数三面的新触发器同进必备集
+  'route_no_delete', 'route_insert_guarded', 'route_change_guarded',
+  'directory_no_delete', 'directory_birth_audited',
+  'meta_counter_monotonic', 'meta_ledger_seq_no_delete',
 ] as const;
 
 export interface SqlitePortOptions {
@@ -359,21 +444,31 @@ const FORBIDDEN_KEYWORD = /^(drop|alter|create|attach|detach|pragma|vacuum|reind
  * **纵深防御的第二道**：机制句柄本就不该出现 REPLACE 语义——Kernel 的正常写全是 append `insert into`，
  * 一条 REPLACE 出现在机制句柄上即属越界形态，先于触发器直接拒。只禁 REPLACE 两形态，不禁普通
  * `insert into`（Kernel 落 ledger/domain_state 靠它）。
+ * D-30（包 5，席位 G4-A G4A-N9e）：**放弃 `^` 锚**。`insert/*c*\/or replace`、`replace/*c*\/into`、
+ * `insert--c␊or replace` 三式都让锚定式失配而放行（中置注释实测穿透）——被禁形态与位置无关，
+ * 归一化（剥全部注释）之后按**子串**匹配。
  */
-const FORBIDDEN_REPLACE_FORM = /^(insert\s+or\s+replace|replace\s+into)\b/i;
+const FORBIDDEN_REPLACE_FORM = /\b(insert\s+or\s+replace|replace\s+into)\b/i;
 /**
- * 归一化后再判定：前导注释、块注释、行注释、空白与多余分号都能让锚定式正则形同虚设
- * （独立复审实测 `/* x *\/ drop trigger …` 绕过）。归一化后还要拒绝多语句，
- * 否则 `select 1; drop trigger …` 以合法关键字开头却带着 DDL。
+ * D-30（包 5）：upsert 的 `DO UPDATE` 形是 REPLACE 的同族——冲突时**整行改写**，同样绕 INSERT-only
+ * 通道。`DO NOTHING` 保持合法：它是投影登记的唯一合法 upsert 形（projection.ts 冷启动在用），
+ * 名单只杀改写形。多语句在下方单独拒，`[^;]*` 已把匹配限制在单语句内。
+ */
+const FORBIDDEN_UPSERT_FORM = /\bon\s+conflict\b[^;]*\bdo\s+update\b/i;
+/**
+ * 归一化后再判定。**D-30 重写**：修前只剥**前导**注释（独立复审实测 `/* x *\/ drop trigger …`
+ * 绕过之后，席位 G4-A 又实测中置注释四式绕过锚定形）——现在剥**全部**注释：块注释与行注释、
+ * 任意位置，剥完再做头部关键字、被禁形态（子串）与多语句判定。
+ * **词法手段的如实边界**（CONTRACTS.md §16.2 包 5 存储纪律）：字符串字面量里的 `--`、
+ * 块注释符、被禁词会被误剥误杀——误杀方向安全（拒而不放行）；更深的形态（字面量内伪关键词、
+ * 未来新语法形）仍可能绕，主修始终是触发器层（D-27/D-28/D-29 已把三个可变面逐表钉死）。
  */
 function normalizeSql(sql: string): string {
-  let out = sql;
+  let out = sql
+    .replace(/\/\*[\s\S]*?(?:\*\/|$)/g, ' ')
+    .replace(/--[^\n]*/g, ' ');
   for (;;) {
-    const stripped = out
-      .replace(/^\s+/, '')
-      .replace(/^\/\*[\s\S]*?\*\//, '')
-      .replace(/^--[^\n]*\n?/, '')
-      .replace(/^;+/, '');
+    const stripped = out.replace(/^[\s;]+/, '');
     if (stripped === out) break;
     out = stripped;
   }
@@ -407,6 +502,8 @@ function guard(raw: RawTx): RawTx {
     const reason = FORBIDDEN_KEYWORD.test(head) ? 'DDL/PRAGMA/ATTACH 不得经机制句柄执行'
       // N9：REPLACE 形态绕触发器的写法，机制句柄一律拒（主修 recursive_triggers 已在连接层把门）
       : FORBIDDEN_REPLACE_FORM.test(head) ? 'insert or replace / replace into 属被禁写法（N9：REPLACE 走隐式删除，历史行不可经此改写）'
+      // D-30（包 5）：upsert DO UPDATE 是 REPLACE 同族的整行改写（DO NOTHING 不在此列）
+      : FORBIDDEN_UPSERT_FORM.test(head) ? 'on conflict do update 属被禁写法（D-30：upsert 改写形与 REPLACE 同族）'
       // 多语句：第一条合法不代表整条合法
       : /;\s*\S/.test(head) ? '不得经机制句柄提交多语句'
       : undefined;

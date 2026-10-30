@@ -396,12 +396,15 @@ export class Kernel {
       const tx = held as UnitOfWorkImpl;
       const raw = RAW_OF_UOW.get(tx)!;
       const seq = this.nextLedgerSeq(raw);
-      raw.run(`update capability_route set enabled=?, changed_seq=? where capability=?`, enabled ? 1 : 0, seq, cap);
+      // 包 5（D-27）写序纪律：**先写审计、后改路由**——`route_change_guarded` 是 BEFORE 触发器，
+      // 逐语句核对同事务里已存在的 ledger 审计行（seq=new.changed_seq、类型与方向相符）；
+      // 顺序反过来会让正当启停也撞 `ROUTE_AUDIT_REQUIRED`。审计随附是判据，不是注释（CONTRACTS.md §16.2）。
       raw.run(
         `insert into ledger(seq, space, event_type, actor, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?)`,
         seq, this.space, enabled ? 'capability-enabled' : 'capability-disabled', by.actorId,
         JSON.stringify({ capability: cap }), null, Date.now(),
       );
+      raw.run(`update capability_route set enabled=?, changed_seq=? where capability=?`, enabled ? 1 : 0, seq, cap);
       this.journalEpoch(raw, seq, enabled ? 'capability-enabled' : 'capability-disabled');
     // 装卸同样是运维权威轴（SP-09），不得只凭 space-write。
     }, 'capability-admin');
@@ -1079,6 +1082,14 @@ class UnitOfWorkImpl implements UnitOfWork {
     this.#raw.run(`update meta set value = ? where key='id_counter'`, idn);
     const oid = asOid(`OBJ-${this.#k.space}-${idn}`);
     const seq = this.#k.nextLedgerSeq(this.#raw);
+    // 登记序属机制事实（"何时被系统记录"），不是领域事件解释（#44 §7.1）。
+    // 包 5（D-28）写序纪律：**先写出生账、后落身份行**——`directory_birth_audited` 是 BEFORE
+    // 触发器，在账本非空的空间里核对 seq=created_seq 的 `object-registered` 行必须先于目录插入存在。
+    this.#raw.run(
+      `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
+       values(?,?,?,?,?,?,?,?,?)`,
+      seq, this.#k.space, 'object-registered', this.principal.actorId, oid, 1, '{}', null, Date.now(),
+    );
     this.#raw.run(
       `insert into object_directory(oid, space, kind, owner_capability, ns, created_seq) values(?,?,?,?,?,?)`,
       oid, this.#k.space, a.kind, owner.capability, owner.storageNamespace, seq,
@@ -1086,12 +1097,6 @@ class UnitOfWorkImpl implements UnitOfWork {
     this.#raw.run(
       `insert into domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version) values(?,?,?,?,?,?)`,
       owner.storageNamespace, oid, 1, JSON.stringify(a.payload), seq, owner.contractVersion,
-    );
-    // 登记序属机制事实（"何时被系统记录"），不是领域事件解释（#44 §7.1）。
-    this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
-       values(?,?,?,?,?,?,?,?,?)`,
-      seq, this.#k.space, 'object-registered', this.principal.actorId, oid, 1, '{}', null, Date.now(),
     );
     this.#raw.run(
       `insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, owner.storageNamespace, oid, 'state-upsert',
@@ -1294,14 +1299,16 @@ class UnitOfWorkImpl implements UnitOfWork {
     );
     if (!cur) throw new Refusal('CAPABILITY_INACTIVE', { capability: cap });
     const seq = this.#k.nextLedgerSeq(this.#raw);
-    this.#raw.run(
-      `update capability_route set plugin_id=?, ns=?, contract_version=?, changed_seq=? where capability=?`,
-      toPlugin, ns, contractVersion ?? cur.contract_version, seq, cap,
-    );
+    // 包 5（D-27）写序纪律：先写 `capability-transferred` 审计、后改路由行（同 setRouteEnabled，
+    // `route_change_guarded` 逐语句核对已存在的审计行；三元组变更必须配 transferred 事件）。
     this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?)`,
       seq, this.#k.space, 'capability-transferred', this.principal.actorId,
       JSON.stringify({ capability: cap, from: cur.plugin_id, to: toPlugin, fromNs: cur.ns, toNs: ns }), null, Date.now(),
+    );
+    this.#raw.run(
+      `update capability_route set plugin_id=?, ns=?, contract_version=?, changed_seq=? where capability=?`,
+      toPlugin, ns, contractVersion ?? cur.contract_version, seq, cap,
     );
     this.#k.journalEpoch(this.#raw, seq, 'capability-transferred');
   }

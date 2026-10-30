@@ -6,7 +6,9 @@
   退出码：0 = 契约自洽（结构校验 + 表驱动正反例 + 三条「架空判据必红」自验全部通过）；1 = 有任一项 FAIL；2 = 夹具自身无法运行（缺文件等）。
 
   纪律：
-  - 零依赖（只用 node:fs / node:path / node:crypto），可直接 node 跑；不起数据库、不跑 PoC、不写任何生产代码。
+  - 零依赖（只用 node:fs / node:path / node:crypto / node:child_process），可直接 node 跑；不起数据库、
+    不跑 PoC、不写任何生产代码；child_process 仅用于 git show **只读**抽取 #44 blob 原文做引用逐字
+    保真机验（S3b，复审 P2-3），不做任何写入、网络或子命令。
   - 这里实现的是**契约判据的最小模型**（分类器 / 签发单点 / 预留闸 / 归属账 / 对账器 / 审计持久化），
     不是机制实现；判据语义逐条对应契约正文的 EA-* 小节。
   - 变异纪律：MUT-* 架空判据**常驻本文件不删除**（照仓内「架空不删除」纪律）；
@@ -15,6 +17,7 @@
 */
 
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -42,7 +45,7 @@ function check(name, cond, detail) {
 
 // ============================================================ 判据常量（与契约互认）
 
-// 契约 §2.4 名单块（机器可读锚：BEGIN/END 注释之间）——三方逐等之一
+// 契约 §2.4 名单块（机器可读锚：BEGIN/END 注释之间）——逐等之一方（契约方；第三方位状态见 S 组探针）
 function docMechanismList() {
   const m = doc.match(/<!-- EA-2 MECHANISM-CLOSED-LIST-BEGIN -->([\s\S]*?)<!-- EA-2 MECHANISM-CLOSED-LIST-END -->/);
   if (!m) return null;
@@ -50,7 +53,7 @@ function docMechanismList() {
     .filter(s => /^[a-z][a-z0-9-]*$/.test(s));
 }
 
-// 判据模型里的机制名单——三方逐等之二（本文件是判据的模型实现）
+// 判据模型里的机制名单——两方/三方逐等的「夹具方」（本文件是判据的模型实现；第三方位是否在场由 S1c 判定）
 // 【R-5 裁决 2026-11-01】只列**有批准面**的七名：包 6 既有预留五名（C-19）+ 存量就地升格两名。
 // 本组契约新造、除契约文字外无批准记录的三名（raw-record-declared / integrity-audit-recorded /
 // read-shadow-recorded）**不在运行时名单**——它们是本契约的提案（契约裁定形状与判据，判据≠批准），
@@ -103,7 +106,9 @@ const MECHANISM_AXIS_OF = {
 };
 const registeredMechanismAxis = (eventType) => MECHANISM_AXIS_OF[eventType] ?? null;
 
-// 归属账（EA-3）——「三方逐等」之三：锚文件的最小模型（形状 = 契约 §6.1 entries）
+// 归属账（EA-3）——锚文件的**夹具侧最小模型**（形状 = 契约 §6.1 entries）。P2-1 如实标注：这是夹具自建的
+// 归属账模型，**不是**从锚文件 g1/EVENT-CONTRACT-LEDGER.json 读来的（锚未物化 ⇒ 无源可读）；锚物化后
+// 第三方位改由 S1/S1b 的 anchorMechanismNames 实读，本 Map 退为纯分类器世界输入，不再兼任「第三方位」。
 const OWNERSHIP = new Map([
   ['synth:fact-designation', { eventType: 'synth:fact-designation', ownerCapability: 'cap-records', requiresAuthority: 'domain-admission', truthSource: 'ledger-payload', interpretationRuleSetVersion: 'r1', contractVersion: 'v3' }],
   ['synth:admission-revoked', { eventType: 'synth:admission-revoked', ownerCapability: 'cap-records', requiresAuthority: 'domain-admission', truthSource: 'ledger-payload', interpretationRuleSetVersion: 'r1', contractVersion: 'v3' }],
@@ -399,12 +404,39 @@ function ledgerRewriteAttempt() { return { refusal: 'TRIGGER_UPDATE_REFUSED' }; 
 
 // ============================================================ 结构校验（S 组）：契约正文自身自洽
 
+// —— P2-1（复审 RE-REVIEW-G1-DOMAIN）：逐等第三方位的状态探针 ——
+// 第三方位 = 锚文件 g1/EVENT-CONTRACT-LEDGER.json（EA §6.1 冻结路径；§9.4 U-1 登记实施批首项，
+// 当下不存在）。两态纪律：**锚缺失 ⇒ S 组只执行两方（two-party）逐等并在检查名里如实报两方，
+// 禁止静默当三方绿；锚在位 ⇒ 第三方位实读比对，不一致 = 红**。自述与实际读取源的一致性由 S1c 机验。
+const LEDGER_ANCHOR_PATH = join(HERE, 'EVENT-CONTRACT-LEDGER.json'); // 与 R4 模型的路径常量 LEDGER_FILE 同一文件（两处同指 §6.1 位置）
+function readLedgerAnchor() {
+  try { return JSON.parse(readFileSync(LEDGER_ANCHOR_PATH, 'utf8')); } catch { return null; }
+}
+const LEDGER_ANCHOR = readLedgerAnchor();      // null = 锚文件未物化（当下现实）
+let anchorParticipated = false;                // 仅当三方分支真的执行了比对才置 true（S1c 核对）
+function anchorMechanismNames(planned) {
+  if (!LEDGER_ANCHOR || !Array.isArray(LEDGER_ANCHOR.entries)) return null; // 锚在位但形状不合 §6.1 ⇒ null ⇒ 判红（fail-closed）
+  const names = LEDGER_ANCHOR.entries
+    .filter(e => e && e.class === 'mechanism' && (e.planned === true) === planned)
+    .map(e => e.eventType);
+  anchorParticipated = true;
+  return names;
+}
+const RECON_WORD = LEDGER_ANCHOR ? '三方' : '两方';
+const RECON_TAG = LEDGER_ANCHOR
+  ? '三方：契约 §2.4 ↔ 锚文件 EVENT-CONTRACT-LEDGER.json ↔ 夹具模型（第三方位已实读比对）'
+  : '两方（two-party）：契约 §2.4 ↔ 夹具模型 —— 锚文件 EVENT-CONTRACT-LEDGER.json 未物化，第三方位缺席，禁止自称三方';
+const anchorEq = (names, model) => Array.isArray(names) && names.length === model.length && names.every((n, i) => n === model[i]);
+
 const MECH_LIST = docMechanismList();
-check('S1 机制封闭名单三方逐等（契约 §2.4 已入账块 ↔ 夹具模型，成员逐一含顺序）',
-  Array.isArray(MECH_LIST) && MECH_LIST.length === MODEL_MECHANISM.length && MECH_LIST.every((n, i) => n === MODEL_MECHANISM[i]),
+const anchorListed = LEDGER_ANCHOR ? anchorMechanismNames(false) : null;
+const s1Label = 'S1 机制封闭名单' + RECON_WORD + '逐等（' + RECON_TAG + '，成员逐一含顺序）';
+check(s1Label,
+  Array.isArray(MECH_LIST) && MECH_LIST.length === MODEL_MECHANISM.length && MECH_LIST.every((n, i) => n === MODEL_MECHANISM[i])
+  && (LEDGER_ANCHOR ? anchorEq(anchorListed, MODEL_MECHANISM) : true),
   MECH_LIST ? MECH_LIST.join(',') : '未找到 EA-2 名单块标记');
 
-// R-5：提案未入账块也三方逐等（顺序敏感），且四名一律不入运行时名单
+// R-5：提案未入账块同态逐等（顺序敏感；第三方位状态同 S1），且四名一律不入运行时名单
 function docPendingList() {
   const m = doc.match(/<!-- EA-2 PLANNED-PENDING-LIST-BEGIN -->([\s\S]*?)<!-- EA-2 PLANNED-PENDING-LIST-END -->/);
   if (!m) return null;
@@ -413,9 +445,29 @@ function docPendingList() {
 }
 const PENDING_DOC = docPendingList();
 const PENDING_MODEL = [...MODEL_PENDING_APPROVAL.map(p => p.eventType), ...MODEL_PLANNED.map(p => p.eventType)];
-check('S1b 提案未入账块三方逐等（契约 §2.4 R-5 段 ↔ 夹具 PENDING 模型）',
-  Array.isArray(PENDING_DOC) && PENDING_DOC.length === PENDING_MODEL.length && PENDING_DOC.every((n, i) => n === PENDING_MODEL[i]),
+const anchorPending = LEDGER_ANCHOR ? anchorMechanismNames(true) : null;
+const s1bLabel = 'S1b 提案未入账块' + RECON_WORD + '逐等（' + RECON_TAG + '，契约 §2.4 R-5 段 ↔ 夹具 PENDING 模型）';
+check(s1bLabel,
+  Array.isArray(PENDING_DOC) && PENDING_DOC.length === PENDING_MODEL.length && PENDING_DOC.every((n, i) => n === PENDING_MODEL[i])
+  && (LEDGER_ANCHOR ? anchorEq(anchorPending, PENDING_MODEL) : true),
   PENDING_DOC ? PENDING_DOC.join(',') : '未找到 PLANNED-PENDING 块标记');
+
+// S1c（P2-1 新增机验）：夹具自述与实际读取源一致——独立重探锚文件，与 S1/S1b 实际渲染的标签、
+// 实际发生的比对行为、以及契约 §6.2 更正段的两态句在位性四方对齐；任何一环不一致 = 夹具红。
+const anchorProbeNow = (() => { try { JSON.parse(readFileSync(LEDGER_ANCHOR_PATH, 'utf8')); return true; } catch { return false; } })();
+const docSpaced = doc.replace(/\s+/g, ' ');
+check('S1c S 组自述与实际读取源一致（P2-1：锚缺失 ⇒ 如实报两方/two-party，静默当三方绿即违例；锚在位 ⇒ 第三方位必须实际参与比对；§6.2 两态句与旧句保留一并核对）',
+  anchorProbeNow === (LEDGER_ANCHOR !== null)
+  && (anchorProbeNow
+    ? (RECON_WORD === '三方' && s1Label.includes('三方逐等') && s1bLabel.includes('三方逐等') && anchorParticipated === true)
+    : (RECON_WORD === '两方' && s1Label.includes('两方逐等') && s1bLabel.includes('两方逐等')
+      && !s1Label.includes('三方逐等') && !s1bLabel.includes('三方逐等') && anchorParticipated === false))
+  && docSpaced.includes('夹具 S 组结构校验 就是这三方的当场执行器')   // 旧句保留原位（不静默删）
+  && docSpaced.includes('现在时断言作废')                            // 就地作废标注在位
+  && docSpaced.includes('（two-party）逐等')                         // 两态句的物化前一态成文
+  && docSpaced.includes('锚文件物化后')                              // 两态句的物化后一态成文
+  && doc.includes('S1c'),                                            // 本机验在契约正文有据
+  'mode=' + RECON_WORD + ' probeNow=' + anchorProbeNow + ' anchorParticipated=' + anchorParticipated);
 check('S2 planned/未入账条目不入运行时名单（proposed 阶段仍按 unregistered），且批准落地后可入账',
   [...PENDING_MODEL, 'ns-relocated'].every(n => !MODEL_MECHANISM.includes(n) && classify(n, 'proposed').cls === 'unregistered')
   && classify('ns-relocated').cls === 'mechanism');
@@ -432,6 +484,38 @@ const extSha = s => refLines.filter(l => l.includes('`' + s + '`')).length;
 check('S4 三份外部契约各有实取引用（#44/#42/#47 引用行计数 > 0，无「未取得」）',
   extSha('5ec38974fc') >= 4 && extSha('0369c3196c') >= 3 && extSha('37de107ed5') >= 3 && !doc.includes('未取得：C-'),
   ['#44=' + extSha('5ec38974fc'), '#42=' + extSha('0369c3196c'), '#47=' + extSha('37de107ed5')].join(' '));
+
+// —— S3b（复审 P2-3 新增机验）：带引号的 #44 引句逐字保真——「引用四要素」里的原文短句必须
+// **等于 `git show 5ec38974fc:…` 的 blob 抽取结果**（期望值取自 blob，不手打，非自证）。
+// 做不到的整段（含「……」节略或内层引号改写）如实登记进 VERBATIM_UNCOVERED_44（各带理由）；
+// 自述=实际覆盖：新非逐字片段未登记、或登记的片段已成孤儿 ⇒ 红；blob 取不到 ⇒ 红（fail-closed，
+// 不许按「未验证」绿放行）。最低覆盖义务：被修行（P2-3，§9.3 OA-3 行）与 blob L223 抽取短语逐字相等。
+const BLOB44_SPEC = '5ec38974fc:docs/architecture/V3_CODE_ARCHITECTURE_DRAFT.md';
+let blob44 = null;
+try { blob44 = execFileSync('git', ['show', BLOB44_SPEC], { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 24 }); } catch { blob44 = null; }
+const c44Lines = refLines.filter(l => l.includes('`5ec38974fc`'));
+const c44Frags = c44Lines.flatMap(l => [...l.matchAll(/「([^」]+)」/g)].map(m => m[1]));
+// 诚实未覆盖清单（当下如实两条；相关条文日后逐字改正 ⇒ 删除此处登记，覆盖面只增不减）
+const VERBATIM_UNCOVERED_44 = new Map([
+  ['禁止『领域事件表一份、Ledger 另一份，两者均声明为真实事件历史』',
+    'C-03（EA:40）第二片段：内层嵌套引号写作『』而 blob 原文为弯引号“”，整段非逐字（语义不翻转；逐字化属契约责任席的后续文书动作，不在本轮 P2-3 修行范围）'],
+  ['有空间写权、缺少正式科研接纳授权的主体可保存**未生效声明**……**无空间写权则完全拒绝写入**（RD-27、PR-A1）',
+    'C-05（EA:42）：「……」压缩了 blob L238 中段「但不能使 FactStanding 改变」，整段不等（节略各段各自逐字，整段逐字不可成立 ⇒ 登记未覆盖）'],
+]);
+const l223 = blob44 === null ? '' : (blob44.split('\n')[222] ?? '');
+const m223 = l223.match(/绑定所属存储，([^，|]+?)\s*\|/);          // 短语由 blob 结构锚点抽出（单元格去空白后逐字）
+const blobPhrase223 = m223 ? m223[1].trim() : null;
+const oa3Line = doc.split('\n').find(l => l.includes('OA-3 把')) ?? '';
+const oa3Quote = (oa3Line.match(/「([^」]+)」/) ?? [])[1] ?? null;
+check('S3b 带引号 #44 引句逐字保真（P2-3：C-* 行片段=git blob 抽取结果逐字子串；§9.3 OA-3 行与 blob L223 抽取短语完全相等；未覆盖如实登记、覆盖漂移=红、blob 不可得=红）',
+  blob44 !== null && blobPhrase223 !== null && oa3Quote !== null && oa3Quote === blobPhrase223
+  && c44Frags.length >= 6
+  && c44Frags.every(f => VERBATIM_UNCOVERED_44.has(f) || blob44.includes(f))
+  && [...c44Frags].filter(f => VERBATIM_UNCOVERED_44.has(f)).length === VERBATIM_UNCOVERED_44.size
+  && [...VERBATIM_UNCOVERED_44.values()].every(r => r.length > 10)
+  && c44Frags.some(f => !VERBATIM_UNCOVERED_44.has(f)),
+  'blob获取=' + (blob44 !== null) + ' 片段=' + c44Frags.length + ' 已登记未覆盖=' + VERBATIM_UNCOVERED_44.size
+  + ' OA-3引句=' + JSON.stringify(oa3Quote) + ' L223抽取=' + JSON.stringify(blobPhrase223));
 
 const tokensIn = (text) => new Set((text.match(/`[A-Z][A-Z0-9_]{2,}(?:_[A-Z0-9]+)*`/g) ?? []).map(s => s.slice(1, -1)));
 const CLOSED_CODES = new Set((readFileSync(REFUSAL_CODES_PATH, 'utf8').match(/'([A-Z][A-Z0-9_]{2,})'/g) ?? []).map(s => s.slice(1, -1)));
@@ -467,8 +551,12 @@ check('S9 反自证判据 R3 在正文（对账器不得从写点模块取期望
 const FM_DOC_PATH = join(HERE, 'G1-CONTRACT-FACET.md');
 const FM_FIX_PATH = join(HERE, 'G1-CONTRACT-FACET.fixtures.mjs');
 const RL_DOC_PATH = join(HERE, 'G1-CONTRACT-RELOCATION.md');
+const RECON_DOC_PATH = join(HERE, 'G1-CONTRACT-RECONCILIATION.md');   // R-7 在位性核对（S19）
+const ADJ_DOC_PATH = join(HERE, 'G1-ADJUDICATION-TABLE.md');          // D5-a 行复制扫描（S19，只读）
+const CONTRACTS_DOC_PATH = join(HERE, '..', 'CONTRACTS.md');          // 打开面小节回填形态核对（S19，只读）
 const readOpt = (pth) => { try { return readFileSync(pth, 'utf8'); } catch { return ''; } };
 const fmDoc = readOpt(FM_DOC_PATH), fmFix = readOpt(FM_FIX_PATH), rlDoc = readOpt(RL_DOC_PATH);
+const reconDoc = readOpt(RECON_DOC_PATH), adjDoc = readOpt(ADJ_DOC_PATH), contractsDoc = readOpt(CONTRACTS_DOC_PATH);
 
 check('S15 R-1 留痕：正文含「R-1 更正段」+ 旧句原文保留（不静默覆盖）+ 新形态句「零 hiddenBy* 键」在位',
   [...doc.matchAll(/R-1 更正段/g)].length >= 2
@@ -497,6 +585,40 @@ check('S17b 提案块逐名有 gated_by（四个提案名各有门控锚），�
 check('S18 R-6 收口句在位（EA 侧成文 + RL 侧同半句，两侧各补一次）',
   doc.includes('绝不自动补戳') && doc.includes('呈现档') && doc.includes('改写历史语义')
   && (rlDoc === '' || (rlDoc.includes('绝不自动补戳') && rlDoc.includes('呈现档'))));
+
+// S19（复审 P2-2 / 台账 R-7 的当机护栏）：D5-a「唯一责任者」文书正所 = RL-4，他处只允许指针引用。
+// 全自动判据 J 由 G2 PR-0 承接（R-7 §10-3 待办）；本机验是 R-7 明文指定的当机形态，扫四种形态：
+// ①R-7 裁决不在位/被删；②正所消失（RL-4 不再含十二门本体）；③受检住所长出「复制清单正文」形态
+// （distinct 门名命中 ≥ 10）；④CONTRACTS.md 打开面小节一旦回填却非指针形（无 RL-4 锚，或命中 ≥ 10）。
+// 门名集现场从 RL-4 正文抽取（编号行「N. GATE_NAME …」）——**不在本夹具手打门名清单**
+// （R-7 红线：手打即自证，且扫描器自己成第二正源）。
+const rl4Section = (() => {
+  const i = rlDoc.indexOf('## 4. RL-4');
+  if (i < 0) return '';
+  const j = rlDoc.slice(i + 1).search(/^## /m);
+  return j < 0 ? rlDoc.slice(i) : rlDoc.slice(i, i + 1 + j);
+})();
+const gateNamesFromRl4 = [...new Set([...rl4Section.matchAll(/^\s*「?\s*\d{1,2}\.\s*([A-Z][A-Z_]{3,})\b/gm)].map(m => m[1]))];
+const distinctGateHits = (text) => gateNamesFromRl4.filter(n => new RegExp('\\b' + n + '\\b').test(text)).length;
+// D5-a 行定位用前缀式（行首「| D5-a」）——若判据只认「| D5-a |」整格形，篡改者往格里加内容
+// 反而会让行脱离检测（负例实测过的洞）；复制扫描按 ADJ **全文**做（≥10 命中=复制，指针形天然 ≪10）。
+const d5aRow = (adjDoc.split('\n').find(l => /^\|\s*D5-a\b/.test(l)) ?? null);
+const contractsOpenSec = (() => { // 「打开面」小节：标题行整行起算，取到下一个任意级标题；不存在 ⇒ null（回填是未来动作，不判红）
+  const i = contractsDoc.search(/^#{1,4}[^\n]*打开面/m);
+  if (i < 0) return null;
+  const nl = contractsDoc.indexOf('\n', i);
+  const body = contractsDoc.slice(nl + 1);
+  const j = body.search(/^#{1,4}\s/m);
+  return j < 0 ? contractsDoc.slice(i) : contractsDoc.slice(i, nl + 1 + j);
+})();
+check('S19 R-7 唯一正所护栏（P2-2）：R-7 裁决在位（唯一正所=RL-4 + 只允许指针引用 + PR-0 待办）∧ RL-4 十二门正所存在（门名现场抽取 ≥10）∧ ADJ 全文（含 D5-a 行）无清单复制（门名命中 < 10）∧ CONTRACTS.md 打开面小节若已回填则必须指针形（含 RL-4 锚且命中 < 10）',
+  reconDoc.includes('R-7') && reconDoc.includes('唯一正所') && reconDoc.includes('只允许指针引用')
+  && reconDoc.includes('复制即第二正源') && reconDoc.includes('PR-0')
+  && rl4Section.length > 0 && gateNamesFromRl4.length >= 10
+  && distinctGateHits(adjDoc) < 10
+  && (contractsOpenSec === null || (contractsOpenSec.includes('RL-4') && distinctGateHits(contractsOpenSec) < 10)),
+  '门名集=' + gateNamesFromRl4.length + ' ADJ全文命中=' + distinctGateHits(adjDoc) + ' D5a行在位=' + (d5aRow !== null)
+  + ' 打开面小节=' + (contractsOpenSec === null ? '未回填' : distinctGateHits(contractsOpenSec) + ' 命中/RL-4锚=' + contractsOpenSec.includes('RL-4')));
 
 check('S10 本夹具保留七条架空判据（变异常驻不删除；R-1/R-2/R-5/R-6 各配一条）',
   ['classifyMUT2', 'gateFullShapeMUT1', 'reconcileMUT3', 'gateFullShapeMUT4', 'callerSurfaceFreeOfShadowCountersMUT5',

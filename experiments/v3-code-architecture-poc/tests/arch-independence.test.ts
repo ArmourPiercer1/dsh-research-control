@@ -1,0 +1,289 @@
+/**
+ * 架构独立性硬门（任务硬约束：「必须保证 Kernel 不包含科研语义判定规则」）。
+ *
+ * 每条扫描都配一个"变异锚点"：先在一段已知违规的源码上跑同一个扫描器并确认它报警，
+ * 否则绿色不携带任何信息（扫描器可能只是没在工作）。
+ */
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { KERNEL_PORT } from '../src/kernel/internal.ts';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { POC_DATA_DIR, POC_ROOT } from '../src/harness/paths.ts';
+import { openWorld, PRINCIPAL } from '../src/harness/world.ts';
+import { TEST_OBJECT_MODEL, CAP_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
+import { CAP_RECORDS } from '../src/domains/test-records.ts';
+import type { PluginManifest } from '../src/contracts/index.ts';
+
+const KERNEL_DIRS = ['src/kernel', 'src/contracts'];
+/** 科研语义标识符：出现在 Kernel/契约的**代码**里即为违规。 */
+const FORBIDDEN = [
+  'Proposition', 'Association', 'Argumentation', 'Entity', 'Concept', 'AssertionID',
+  'FactStanding', 'S-L1', 'S-L0', 'R-L1', 'R-L0', 'SL1', 'RL1', 'WITHHELD', 'UNVERIFIABLE',
+  'NOT_ACHIEVED', 'NOT_APPLICABLE', 'AUTHORITY_UNVERIFIED', 'domain-admission',
+  'test.claim', 'test.subject', 'test.relation', 'synth:',
+];
+
+const filesUnder = (rel: string): string[] => {
+  const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)],
+  );
+  return walk(join(POC_ROOT, rel)).filter((f) => f.endsWith('.ts'));
+};
+
+/** 剥掉注释后再扫描：边界说明写在注释里是允许的，写进代码就是违规。 */
+const stripComments = (src: string): string =>
+  src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+
+const scanSemantics = (src: string): string[] => {
+  const code = stripComments(src);
+  return FORBIDDEN.filter((w) => {
+    const esc = w.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+    return new RegExp(`(^|[^A-Za-z0-9_$.])${esc}([^A-Za-z0-9_$]|$)`).test(code);
+  });
+};
+
+const importsOf = (src: string): string[] => [...src.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
+
+let dir: string;
+beforeAll(() => { dir = mkdtempSync(join(POC_DATA_DIR, 'arch-')); });
+afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
+
+describe('架构独立性硬门', () => {
+  test('扫描器本身会报警（变异锚点，否则绿色无意义）', () => {
+    expect(scanSemantics(`if (kind === 'Proposition') return 'NOT_ACHIEVED';`)).toEqual(
+      expect.arrayContaining(['Proposition', 'NOT_ACHIEVED']),
+    );
+    expect(scanSemantics(`// 本文件不得出现 Proposition 之类的词`)).toEqual([]); // 注释不算违规
+  });
+
+  test('Kernel 与契约代码中不含任何科研语义标识符', () => {
+    const dirty = KERNEL_DIRS.flatMap((d) => filesUnder(d).map((f) => {
+      const hits = scanSemantics(readFileSync(f, 'utf-8'));
+      return hits.length > 0 ? { file: f.replace(POC_ROOT + '/', ''), hits } : null;
+    })).filter(Boolean);
+    expect(dirty).toEqual([]);
+  });
+
+  test('依赖方向：Kernel/契约不 import 领域、装配或具体存储驱动', () => {
+    const bad = KERNEL_DIRS.flatMap((d) => filesUnder(d).flatMap((f) =>
+      importsOf(readFileSync(f, 'utf-8'))
+        .filter((s) => /domains|harness|storage-sqlite|product|node:sqlite/.test(s))
+        .map((s) => `${f.replace(POC_ROOT + '/', '')} → ${s}`),
+    ));
+    expect(bad).toEqual([]);
+    // 变异锚点：同样的扫描器能抓到反向依赖
+    expect(importsOf(`import { x } from '../domains/foo.ts';`).filter((s) => /domains/.test(s))).toHaveLength(1);
+  });
+
+  test('领域不反向依赖装配层，也不绕过机制直接写核心表', () => {
+    const offenders = filesUnder('src/domains').flatMap((f) => {
+      const src = readFileSync(f, 'utf-8');
+      const viaImport = importsOf(src).some((s) => /harness/.test(s));
+      const rawWrite = /(insert|update|delete)\s+into\s+(object_directory|domain_state|ledger|ref_edge|check_report)/i
+        .test(stripComments(src));
+      return viaImport || rawWrite ? [f.replace(POC_ROOT + '/', '')] : [];
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  test('领域层与契约层不得 import 机制内部通道 internal.ts（D-7 的可门禁性所在）', () => {
+    // KERNEL_PORT 是 symbol 键：不进 getOwnPropertyNames，但**可被 import、也可被
+    // getOwnPropertySymbols 枚举**。所以"通道不泄露"不靠隐蔽性，靠这条禁令 + 门禁。
+    const offenders: string[] = [];
+    for (const d of ['src/domains', 'src/contracts']) {
+      for (const f of filesUnder(d)) {
+        // 只认单引号会被双引号与动态 import 旁路（席位 A 静态复算）——三类写法一律算违规
+        const src = readFileSync(f, 'utf-8');
+        if (/from\s*["'][^"']*kernel\/internal\.ts["']/.test(src)
+          || /import\(\s*["'][^"']*kernel\/internal\.ts["']\s*\)/.test(src)
+          || /require\(\s*["'][^"']*kernel\/internal\.ts["']\s*\)/.test(src)) offenders.push(f);
+      }
+    }
+    expect(offenders).toEqual([]);
+    // 变异锚点：确认扫描真在起作用（路径写错会得到空 offenders ⇒ 假绿，正是本项目的老毛病）
+    const kernelSrc = readFileSync(join(POC_ROOT, 'src/kernel/kernel.ts'), 'utf-8');
+    expect(/from\s+'\.\/internal\.ts'/.test(kernelSrc)).toBe(true);
+    // 运行时面：symbol 不得以名字出现在任何插件可见对象的属性名里
+    const w = openWorld({ file: join(mkdtempSync(join(POC_DATA_DIR, 'sym-')), 's.db'), space: 'SP-SYM',
+      grants: { a: ['space-write', 'capability-admin'] } });
+    try {
+      const face = w.kernel.faceFor(CAP_RECORDS) as unknown as object;
+      expect(Object.getOwnPropertyNames(face)).not.toContain('port');
+      expect(Object.getOwnPropertyNames(w.kernel)).not.toContain('port');
+    } finally { w.close(); }
+  });
+
+  test('新增第二个领域插件不需要改动 Kernel（面哈希 + 行为同时成立）', () => {
+    const surface = [...KERNEL_DIRS.flatMap((d) => filesUnder(d))].sort();
+    const hash = createHash('sha256');
+    for (const f of surface) hash.update(readFileSync(f));
+    const actual = hash.digest('hex');
+    const baselineFile = join(POC_ROOT, 'KERNEL_SURFACE.sha256');
+    const expected = readFileSync(baselineFile, 'utf-8').trim();
+    expect(actual).toBe(expected);   // 变更 Kernel 面必须显式重生成基线并说明理由
+
+    // 行为面：第二个插件带全新 kind 注册进来，Kernel 一行未改即可路由
+    const SECOND: PluginManifest = {
+      pluginId: 'test.second-model', codeVersion: '0.0.1',
+      provides: [{ capability: 'cap.test.second', contractVersion: 'v1' }], requires: [],
+      storageNamespace: 'dom_test_second', eventAuthority: 'none',
+      ownsKinds: [{ kind: 'test.artifact', capability: 'cap.test.second' }],
+    };
+    const w = openWorld({ file: join(dir, 'two-models.db'), space: 'SP-1', grants: { alice: ['space-write'] }, plugins: [TEST_OBJECT_MODEL, SECOND] });
+    const a = w.uow(PRINCIPAL('alice'), (tx) => tx.createObject({ kind: 'test.claim', payload: {} }));
+    const b = w.uow(PRINCIPAL('alice'), (tx) => tx.createObject({ kind: 'test.artifact', payload: {} }));
+    expect(w.readObject(a)!.kind).toBe('test.claim');
+    expect(w.readObject(b)!.kind).toBe('test.artifact');
+    // 两个 kind 由不同能力拥有：Kernel 只用注册表路由，没有任何 kind 常量
+    expect(w.kernel.registry.ownerOfKind('test.artifact')!.capability).toBe('cap.test.second');
+    expect(w.kernel.registry.ownerOfKind('test.claim')!.capability).toBe(CAP_OBJECT_MODEL);
+    w.close();
+  });
+
+  test('五类 kind 由多个能力分担时仍只靠注册表路由（Kernel 内没有 kind 常量）', () => {
+    // 用五个占位 kind 模拟"多能力分工"，验证机制不关心 kind 的数量与含义。
+    const KINDS = ['test.k1', 'test.k2', 'test.k3', 'test.k4', 'test.k5'] as const;
+    const A: PluginManifest = {
+      pluginId: 'test.kind-split-a', codeVersion: '1', storageNamespace: 'dom_ka', eventAuthority: 'none',
+      provides: [{ capability: 'cap.ka', contractVersion: 'v1' }], requires: [],
+      ownsKinds: [{ kind: KINDS[0], capability: 'cap.ka' }, { kind: KINDS[1], capability: 'cap.ka' }],
+    };
+    const B: PluginManifest = {
+      pluginId: 'test.kind-split-b', codeVersion: '1', storageNamespace: 'dom_kb', eventAuthority: 'none',
+      provides: [{ capability: 'cap.kb', contractVersion: 'v1' }], requires: [{ capability: 'cap.ka', contractVersion: 'v1', required: false }],
+      ownsKinds: [{ kind: KINDS[2], capability: 'cap.kb' }, { kind: KINDS[3], capability: 'cap.kb' }, { kind: KINDS[4], capability: 'cap.kb' }],
+    };
+    const w = openWorld({ file: join(dir, 'five-kinds.db'), space: 'SP-1', grants: { alice: ['space-write'] }, plugins: [A, B] });
+    const created = KINDS.map((k, i) => ({ k, oid: w.uow(PRINCIPAL('alice'), (tx) => tx.createObject({ kind: k, payload: { i } })) }));
+    for (const c of created) {
+      expect(w.readObject(c.oid)!.kind).toBe(c.k);
+      expect(w.kernel.registry.ownerOfKind(c.k)!.capability).toBe(['cap.ka', 'cap.ka', 'cap.kb', 'cap.kb', 'cap.kb'][KINDS.indexOf(c.k as (typeof KINDS)[number])]);
+    }
+    // 两个能力的持久命名空间互不重叠（换包迁移的判据来自这里，不是来自 kind 名）
+    const ns = w.raw.all<{ ns: string }>(`select distinct d.ns from object_directory d`).map((r) => r.ns);
+    expect([...new Set(ns)].sort()).toEqual(['dom_ka', 'dom_kb']);
+    w.close();
+  });
+
+  test('必需代码依赖成环 ⇒ 拒绝装配，而不是半装配运行', () => {
+    const X: PluginManifest = { pluginId: 'x', codeVersion: '1', provides: [{ capability: 'cx', contractVersion: 'v1' }], requires: [{ capability: 'cy', contractVersion: 'v1', required: true }], storageNamespace: 'dx' };
+    const Y: PluginManifest = { pluginId: 'y', codeVersion: '1', provides: [{ capability: 'cy', contractVersion: 'v1' }], requires: [{ capability: 'cx', contractVersion: 'v1', required: true }], storageNamespace: 'dy' };
+    expect(() => openWorld({ file: join(dir, 'cycle.db'), space: 'SP-1', plugins: [X, Y] })).toThrow(/ACTIVATION_IMPOSSIBLE/);
+    // 反差锚点：去掉必需性即可装配 ⇒ 拒绝针对"必需依赖成环"，不是"存在依赖"
+    expect(() => openWorld({
+      file: join(dir, 'cycle-ok.db'), space: 'SP-1',
+      plugins: [X, { ...Y, requires: [{ capability: 'cx', contractVersion: 'v1', required: false }] }],
+    })).not.toThrow();
+  });
+
+  // ── 插件面纪律（F-19/F-23 的门禁化）────────────────────────────────────────
+  test('领域插件不得持有 Kernel，也不得触碰 port / raw / 驱动句柄', () => {
+    // 这一条此前没有门禁，于是"插件只拿窄面"停留在文档里：FacetStore 曾持有 Kernel，
+    // FactStandingService 甚至直接 kernel[KERNEL_PORT].read() 全库扫描——命名空间隔离对它形同虚设。
+    const FORBIDDEN = [
+      // 允许 import type PluginFace/NamespaceWriter/UnitOfWork；禁的是**持有 Kernel 这个值**
+      { re: /:\s*Kernel\b|new Kernel|extends Kernel/, why: '持有 Kernel 即持有运维权威面（transferRoute/activate/setRouteEnabled）' },
+      { re: /\bverified:\s*true\b/, why: '主体必须由宿主核验后交入，领域不得自造已验证身份' },
+      // 复审 R3-D：源码扫描挡不住"宿主把 Kernel 当普通值传进领域"，而那种绕过的必要载体
+      // 是让类型系统闭嘴的透传形态 ⇒ 三条一并禁止（禁 any / 双重断言 / ts-ignore）。
+      { re: /:\s*any\b|as any\b|<any>/, why: '领域不得用 any 接收机制句柄（绕过类型面的唯一通道）' },
+      { re: /as unknown as /, why: '双重断言是类型面的旁路，领域内禁用' },
+      { re: /@ts-(ignore|expect-error|nocheck)/, why: '领域内禁用类型抑制注释掩盖越界' },
+      { re: /\.port\b/, why: 'port 是全库出入口，越过命名空间写入器' },
+      { re: /\.raw\b/, why: 'raw 是事务内裸句柄，只允许机制内部使用' },
+      { re: /node:sqlite/, why: '领域不得自己打开数据库文件' },
+    ];
+    const offenders: string[] = [];
+    for (const f of filesUnder('src/domains')) {
+      const body = stripComments(readFileSync(f, 'utf-8'));
+      for (const { re, why } of FORBIDDEN) if (re.test(body)) offenders.push(`${f}: ${why}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('门禁反差锚点：伪造一个持有 Kernel 的领域文件必须变红', () => {
+    const fake = ['import type { Kernel } from "../kernel/kernel.ts";',      'export class Sneaky {', '  constructor(private k: Kernel) {}',      '  go() { return this.k.port.read((r) => r.all("select 1")); }', '}', ''].join('\n');
+    expect(stripComments(fake)).toContain('Kernel');
+    const hits = [/\bKernel\b/, /\.port\b/].filter((re) => re.test(stripComments(fake)));
+    expect(hits).toHaveLength(2);              // 扫描器对这个形态两条都命中
+    // 再证一次真目录扫描不会因为锚点字符串而误报：当前 src/domains 必须干净
+    expect(filesUnder('src/domains').length).toBeGreaterThan(0);
+  });
+
+  test('UnitOfWork 的运行时面与契约声明的封闭集一致（契约↔实现漂移探测器）', () => {
+    const w = openWorld({ file: join(dir, 'uow-surface.db'), space: 'SP-1', grants: { alice: ['space-write'] } });
+    try {
+      // 方法挂在原型上，Object.keys 只看自有属性 ⇒ 必须沿原型链收集，否则这条门禁是假绿
+      const surface = (x: object): string[] => {
+        const out = new Set<string>();
+        let cur: object | null = x;
+        while (cur && cur !== Object.prototype) {
+          for (const k of Object.getOwnPropertyNames(cur)) out.add(k);
+          cur = Object.getPrototypeOf(cur) as object | null;
+        }
+        return [...out].sort();
+      };
+      const seen = w.uow(PRINCIPAL('alice'), (tx) => surface(tx as object));
+      // CONTRACTS.md §6 承诺给插件的封闭集。
+      // **`k` 与 `raw` 原先被列在这里**——那是错的：它们从来不是承诺给插件的成员
+      // （同一文件下方正是用 @ts-expect-error 判它们不在类型面上）。清单又经过 `.sort()`，
+      // 两个名字排进被检的前 8 项，于是这条门禁反过来**要求漏洞必须存在**。
+      // D-16 修复把它们变成 `#` 私有字段后，本条才第一次暴露出清单自身的错误。
+      // 运行时不得出现 k/raw 由下方 `escapes` 断言专门负责，不混进"承诺清单"这条轴。
+      const DECLARED = [
+        'declareRecord', 'appendLedger', 'linkRef', 'recordReport', 'createObject', 'revise',
+        'readLatest', 'principal', 'checkRequiredRefs', 'reassignRouteInternal',
+      ].sort();
+      // `space` 原先也在清单里，但它既不在 `UnitOfWork` 接口、也不在 CONTRACTS §6——
+      // 这是本清单第三次被写歪（前两次：`k`/`raw` 被当承诺成员；`slice(0,8)` 只查排序后前 8 项）。
+      // 收紧成全量循环后它立刻现形：门禁查的是"清单说该有"，而清单本身没人对着 §6 核过。
+      // 只要求"承诺的方法一个都不能少"——多出来的是机制内部成员，由上一条门禁限制插件可达性
+      // 原为 `DECLARED.slice(0, 8)`：清单有 11 项却只查 8 项，且被查的是**排序后的前 8 项**
+      // ——哪些成员受检取决于字母序，属于门禁自身的隐性覆盖洞（席位 B 观察到）。
+      for (const m of DECLARED) expect(seen, `契约承诺的 ${m} 不在运行时面上`).toContain(m);
+      // 反向：机制内部成员在运行时对象上确实存在（沿原型链可见）……
+      for (const m of ['checkRequiredRefs', 'reassignRouteInternal']) expect(seen, `${m} 应在运行时面上`).toContain(m);
+      // ……但它们**不在插件可见的类型面上**：拿 UnitOfWork 类型去碰 SQL 句柄必须是编译错误。
+      // 用 @ts-expect-error 做机验——若哪天有人把它们加进 interface，这行会因"没有错误"而红。
+      // R3-D 的**运行时**判据：窄面对象本身不得携带任何运维权威成员。
+      // 源码扫描会被"宿主把 Kernel 传进来"绕过，而这条不会——它判的是对象的实际内容。
+      const faceSurface = surface(w.kernel.faceFor(CAP_RECORDS) as object);
+      const AUTHORITY = ['transferRoute', 'setRouteEnabled', 'activate', 'port', 'raw', 'registry', 'uow', 'nextLedgerSeq'];
+      expect(faceSurface.filter((m) => AUTHORITY.includes(m))).toEqual([]);
+
+      // 原断言 `x === undefined || x !== undefined` 是**恒真式**（第 9-12 轮复验席指出，成立）：
+      // 它对任何值都通过，等于没验。改为真判据——窄面对象在运行时不得携带这些成员。
+      // 注意这判的是**对象实际内容**，比 @ts-expect-error 强：类型面藏得住，运行时藏不住。
+      // 判据只带出布尔值、在事务**外**断言：在回调内抛断言会让回滚路径接管，
+      // 真实失败会被 `database is not open` 盖掉（实测踩过）。
+      const escapes = w.uow(PRINCIPAL('alice'), (tx) => {
+        // @ts-expect-error raw 属于机制内部，不承诺给插件
+        const escapeRaw = tx.raw;
+        // @ts-expect-error k 是全量 Kernel 引用，不承诺给插件
+        const escapeKernel = tx.k;
+        // @ts-expect-error port / 驱动句柄同样不在插件可见面上
+        const escapePort = tx.port;
+        return [escapeRaw === undefined, escapeKernel === undefined, escapePort === undefined];
+      });
+      // D-16（已修）：修复前实测为 [false, false, true]——`tx.raw` 与 `tx.k` 运行时可达，
+      // 全靠一条恒真断言把洞盖着。现在两个成员改成 `#` 私有字段，运行时**不存在**该属性。
+      // 本条从"断言漏洞现状"翻正为真判据；若有人退回 TS `private`（只是编译期擦除），
+      // 这里会立刻转红。
+      expect(escapes).toEqual([true, true, true]);
+      w.close();
+    } finally { try { w.close(); } catch { /* 已关 */ } rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('SCR-1：根测试收集面必须排除席位 worktree（外部复审第三轮）', () => {
+  test('`vitest.config.ts` 与 `tsconfig.json` 都排除了 .scratch/**', () => {
+    // SUBAGENT_ROUTING.md 规定席位 worktree 落在仓内 .scratch/ 下，里面有 tests/** 的完整副本。
+    // 根 runner 若不排除，就会被收编成"测试数异常膨胀"（PR #47 实测过；本轮反向对照实测 23 份）。
+    // 这条断言防的是：exclude 在某次重构里被静默删掉——纪律还在，污染回来了。
+    const v = readFileSync(join(POC_ROOT, '..', '..', 'vitest.config.ts'), 'utf-8');
+    const t = readFileSync(join(POC_ROOT, '..', '..', 'tsconfig.json'), 'utf-8');
+    expect(v).toContain("'.scratch/**'");
+    expect(t).toContain('".scratch"');
+  });
+});

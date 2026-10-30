@@ -60,6 +60,11 @@ export default defineConfig({
       'references/**',
       'tests/deepseek-harness/**',
       'tests/dsh-homes/**',
+      // 2026-10-30（外部复审第三轮）：SUBAGENT_ROUTING.md 规定审查席位各用一棵
+      // 仓内 worktree（`.scratch/wt-*`）。那些 worktree 里有 `tests/**` 的完整副本，
+      // 不排除就会被根 runner 收进去 —— 与 PR #47 曾发生的"测试文件数异常膨胀"同一失效模式。
+      // 纪律与收集面必须配套，否则这条纪律本身会污染根测试环境。
+      '.scratch/**',
       // V3 PoC（#10 §2.1 失败隔离）：experiments/ 有自己的 runner（test:poc），
       // 侧车进度永不成为主门禁的依赖或 Gate。
       'experiments/**',

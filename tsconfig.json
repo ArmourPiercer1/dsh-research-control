@@ -20,6 +20,6 @@
     "tests/fixtures",
     "references",
     "tests/deepseek-harness",
-    "tests/dsh-homes"
+    "tests/dsh-homes", ".scratch"
   ]
 }

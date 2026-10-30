@@ -1,0 +1,67 @@
+# V3 代码架构机制 PoC（侧车实验区）
+
+> **状态词汇（不得互推）**：本区能声称的上限是 **POC VERIFIED**（机制假设被真实运行证明或证伪）。
+> 它**不是** ARCHITECTURALLY SOUND 的全部含义、**不是** IMPLEMENTATION READY、
+> 更**不是** PRODUCT READY；后两者不得由前者推出。
+> 本区不改 V1 冻结契约、不改 `src/**` 生产逻辑、不碰生产 DB、不批准实施、不解锁 `LIVE_*`。
+
+## 为什么存在
+
+PR #44（`design/v3-code-architecture-review-20261027`）§13 列出 12 条"架构可执行检验"并明确声明
+**均未作为新架构程序测试执行**；§15.1 收敛出 4 处必须先验证的边界。本区就是把它们变成可执行断言，
+用**真实 SQLite**（`node:sqlite`，SQLite 3.53.4）而不是类型签名来回答"这样设计真的做得到吗"。
+
+## 怎么跑
+
+```bash
+pnpm run test:poc:arch      # 全部跑真实 SQLite 文件；作者侧 12 个测试文件 + 审查方 attacks/**
+npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json     # 本区独立类型门
+#   ↑ include 只有 src 与 tests：**attacks/** 不做类型检查**。
+#     因此"tsc 干净"绝不意味着审查方的攻击文件合法——两者是两个不同的门。
+```
+
+根 `pnpm test` **不收集**本区（`vitest.config.ts` 排除 `experiments/**`）：侧车进度永不成为主门禁的
+依赖。写入红线：只允许 `experiments/v3-code-architecture-poc/.poc-data/**`（`src/harness/paths.ts`
+的 `assertInsidePocData` 强制，越界即抛）。
+
+## 布局
+
+| 路径 | 内容 |
+| --- | --- |
+| `src/contracts/` | 跨域协议：引用、空间、Storage Port、插件清单、拒绝码封闭集（**无校验词汇**，见 CONTRACTS.md §11 F-06） |
+| `src/kernel/` | 业务无知的机制层：注册表、UoW、目录、命名空间写入器、中性呈现、影响候选、双时间读、投影 |
+| `src/storage-sqlite/` | 真实驱动 + 不可变性触发器 + 驱动错误翻译 |
+| `src/domains/` | **测试专用合成策略**（五类对象一律用 `test.*` 占位 kind；文件头声明不得当作科研政策） |
+| `src/harness/` | 装配根：一个 ResearchSpace = 一个 SQLite 文件；授权表默认为空 |
+| `tests/` | P1 存储与事务 / P2 身份与插件演化 / P3 接纳与校验 / P4 读取与隔离 / 架构独立性硬门 |
+| `attacks/<审查轴>/` | 阶段 D 对抗审查员新建的攻击测试（其失败本身就是 finding） |
+| `KERNEL_SURFACE.sha256` | Kernel+契约的**面基线**：加领域插件必须不变；改 Kernel 必须显式重生成并说明理由 |
+| `RECONCILIATION.md` | 阶段 A：Q1–Q45 × PR #42 条文 × 机制的对账（含被证伪的编号清单） |
+| `CONTRACTS.md` | 阶段 C：由实测反推的契约修订（F-01…F-09）+ 已选/已拒 + 替换代价 |
+| `EVIDENCE.md` | 阶段 B/E：命令、SHA、退出码、门禁输出 |
+| `REVIEW.md` | 阶段 D：独立对抗审查与处置 |
+| `ASSESSMENT.md` | 阶段 E：最终评估与就绪结论（§5.1 解除 BLOCKED 的当前条件；§7 未收口项总账） |
+| `READINESS.md` | 实施期就绪清单 D-1…D-13 + 附录 A（`port` 收口配方）+ 附录 B（独立复验新增开放项） |
+
+## 三条不可让步的纪律（由测试把守，不靠自觉）
+
+1. **Kernel 不含科研语义判定规则**——`tests/arch-independence.test.ts` 对 `src/kernel/**` 与
+   `src/contracts/**` 做剥注释后的词汇扫描 + 依赖方向扫描 + 面哈希；每条扫描都配变异锚点。
+2. **权威唯一**——重复能力、重复 kind 拥有者、第二个领域事件权威 ⇒ 装配期拒绝。
+3. **历史真源唯一**——`ledger` 由触发器不可变；`journal` 可压缩，且实测证明单独重放 Journal
+   不足以重建历史（`p4` 的缺口用例：Journal 重放只得 1 条而权威记录有 2 条）。
+
+## 当前结论（第 28 轮）
+
+**BLOCKED**（作为实施依据）／机制假设层面 **POC VERIFIED**。
+
+七件交付物齐备，门禁 `143 passed / 15 failed`——**15 条红全部在审查方的攻击文件里**，一条未删、
+未 `skip`、未放宽，其中多数转红正是"漏洞不再可构造"的证据；唯一例外是 `reduce-coverage` 剩的那条绿，
+它是**过时断言**而非产品通过。作者侧 12 个测试文件 0 红。
+
+停在 BLOCKED 的原因不是还剩多少代码要改，而是**阶段 D 的硬门未满足**：P0/P1 修复必须经独立复验，
+而第 5–12 轮的复验仍未全部落定（本 PoC 迄今唯一的 P0 是独立模型发现的、作者自查未发现——
+所以"作者自测全绿"在这里不构成任何就绪证据）。
+完整条件清单见 `ASSESSMENT.md` §5.1，未收口项按归口的总账见 §7。
+
+**PRODUCT READY 与本区无关**：无生产装配、无真实数据迁移器、无并发容量与故障域实测。

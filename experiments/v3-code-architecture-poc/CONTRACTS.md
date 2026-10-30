@@ -301,3 +301,23 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
    `undefined` 并由消费方产出 `INDETERMINATE` 类负信号，禁止静默跳过（⇒ D-15）。
 4. 验收必须包含**"没接线"这一列**：正例（接对了会成功）与**反例（没接时会显式不可判定）**
    成对出现，只测正例的门禁等于给静默通过发通行证。
+
+## 16. D-19 领域写权威边界（2026-10-30 外部复审提出，作者采纳）
+
+**两层写面，权限不同，且这一差别是契约的一部分**：
+
+| 写面 | 谁持有 | 能改什么 | 依据 |
+| --- | --- | --- | --- |
+| `UnitOfWork.createObject/revise/linkRef`（通用事务面） | 装配根 / Application Use-case | **可跨领域**——跨插件原子提交需要它 | Q40 |
+| `NamespaceWriter.createOwned/reviseOwned/linkOwned`（能力作用域端口） | 领域插件（经 `face.writerFor(tx)`） | **仅本能力拥有的对象**；归属不符 ⇒ `CAPABILITY_SCOPE_ESCAPE` | Q12 |
+
+要点：
+
+- 判据只用机制事实（`object_directory.owner_capability`、`registry.ownerOfKind`），Kernel 内**不含科研语义判定**。
+- **插件面上不得出现通用事务句柄**：`PluginFace` 曾一度加入 `uow(...)`，被本 PoC 自己的门禁
+  （插件面成员不得出现在 `AUTHORITY` 禁用名单上）当场拦下并撤回——**给领域递通用事务句柄
+  正是本条要堵的入口**，门禁的判断优于作者的初版设计。
+- `writer → 宿主事务` 的映射放模块级 `WeakMap`，不放实例字段：后者等于把句柄重新交回插件
+  （`.constructor` 逃逸的同族教训）。
+- 拒绝必须发生在写入之前；测试须验证"目标修订未被改动"，不接受"写了再报错"。
+- 负例/正例见 `tests/capability-scope.test.ts`（装配根可跨 ⇒ Q40 不破；领域不可跨 ⇒ Q12 成立）。

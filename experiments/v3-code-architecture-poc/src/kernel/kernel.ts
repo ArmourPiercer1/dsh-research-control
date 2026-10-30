@@ -475,7 +475,11 @@ export class Kernel {
   }
 
   namespacedWriter(capability: CapabilityId, tx: UnitOfWork): NamespaceWriter {
-    return new NamespaceWriterImpl(this, capability, RAW_OF_UOW.get(tx as UnitOfWorkImpl)!);
+    const w = new NamespaceWriterImpl(this, capability, RAW_OF_UOW.get(tx as UnitOfWorkImpl)!);
+    // D-19：写侧端口要复用 UnitOfWork 的同一套登记/台账逻辑，但必须钉住本能力作用域。
+    // 映射放**模块级 WeakMap**——存成实例字段等于把通用事务句柄重新交给插件（`.constructor` 的教训）。
+    WRITER_UOW.set(w, tx as UnitOfWorkImpl);
+    return w;
   }
 
   /** 机制内部的只读命名空间读取（不经插件句柄）。 */
@@ -503,7 +507,20 @@ export class Kernel {
    * `requires` 让不同业务动作各自声明授权轴——路由移交用 `capability-admin` 而不是
    * 蹭 `space-write`（PR #42 SP-09：空间写权与业务授权是两件事）。
    */
-  uow<T>(principal: VerifiedPrincipal, fn: (tx: UnitOfWork) => T, requires: AuthorityResource = 'space-write'): T {
+  /** 领域侧取一条**能力作用域内**的事务：与 uow() 同权限，但写面收窄到本能力拥有的对象。 */
+  uowFor<T>(capability: CapabilityId, principal: VerifiedPrincipal, fn: (tx: UnitOfWork) => T,
+            requires: AuthorityResource = 'space-write'): T {
+    return this.uow(principal, fn, requires, capability);
+  }
+
+  /**
+   * D-19（外部复审，2026-10-30）：`scope` 决定这条事务能否触碰**其它能力拥有**的对象。
+   * - `'assembly'`（缺省）：装配根 / Application Use-case 层，可协调跨领域事务（Q40 的原子提交要靠它）。
+   * - `CapabilityId`：领域插件路径，**只能**改本能力拥有的对象；越界即 `CAPABILITY_SCOPE_ESCAPE`。
+   * 缺省仍是 assembly 是有意的：把"跨领域"留给装配根显式选择，而不是让领域侧默认拿到全权事务。
+   */
+  uow<T>(principal: VerifiedPrincipal, fn: (tx: UnitOfWork) => T, requires: AuthorityResource = 'space-write',
+         scope: CapabilityId | 'assembly' = 'assembly'): T {
     if (!this.activated) throw new Refusal('CAPABILITY_INACTIVE', { stage: 'activate' });
     if (!this.auth.can(principal.actorId, requires, this.space)) {
       throw new Refusal(requires === 'space-write' ? 'NO_SPACE_WRITE' : 'AUTHORITY_REQUIRED', {
@@ -511,7 +528,7 @@ export class Kernel {
       });
     }
     return this.#port.tx((raw) => {
-      const tx = new UnitOfWorkImpl(this, principal, raw);
+      const tx = new UnitOfWorkImpl(this, principal, raw, scope);
       const out = fn(tx);
       tx.checkRequiredRefs();
       return out;
@@ -545,6 +562,15 @@ export interface NamespaceWriter {
   readonly ns: string;
   write(a: { readonly ns: string; readonly oid: ObjectOid; readonly revision: number; readonly payload: unknown; readonly eventType: string }): void;
   readLatest(oid: ObjectOid): { readonly revision: number; readonly payload: Record<string, unknown> } | undefined;
+  /**
+   * D-19（外部复审，2026-10-30）：领域侧的**权威数据写入口**。与 `UnitOfWork.createObject/revise/linkRef`
+   * 的区别只有一个但很关键——这三个方法带调用方能力，归属不符即 `CAPABILITY_SCOPE_ESCAPE`；
+   * 通用事务面属装配根 / Application Use-case 层（跨领域原子提交要用它，Q40）。
+   * 没有它们，"领域数据只能经所属领域权威接口修改"（Q12）就只是文档上的话。
+   */
+  createOwned(a: { readonly kind: ObjectKindLabel; readonly payload: unknown }): ObjectOid;
+  reviseOwned(oid: ObjectOid, a: { readonly payload: unknown; readonly expectedRevision?: number }): number;
+  linkOwned(a: { readonly from: RevisionRef; readonly to: AnyRef; readonly role: string; readonly required?: boolean }): void;
 }
 /** 插件可见的窄面（装配根用 Kernel.faceFor 造；类型面即边界，`src/domains/**` 不得出现 Kernel）。 */
 export interface PluginFace {
@@ -608,6 +634,23 @@ class NamespaceWriterImpl implements NamespaceWriter {
     return { cap, version: this.#k.registry.capability(cap)?.contractVersion ?? '' };
   }
 
+  /** D-19：归属受检的权威写入口。实现复用 UnitOfWork 的同一套登记/台账逻辑，
+   *  只是把作用域钉成本能力的 `#cap`——**不另写一份**，否则就成了第二个权威。 */
+  createOwned(a: { kind: ObjectKindLabel; payload: unknown }): ObjectOid {
+    return this.#scoped().createObject(a);
+  }
+  reviseOwned(oid: ObjectOid, a: { payload: unknown; expectedRevision?: number }): number {
+    return this.#scoped().revise(oid, a);
+  }
+  linkOwned(a: { from: RevisionRef; to: AnyRef; role: string; required?: boolean }): void {
+    this.#scoped().linkRef(a);
+  }
+  #scoped(): UnitOfWork {
+    const outer = WRITER_UOW.get(this);
+    if (!outer) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.#cap });
+    return new UnitOfWorkImpl(this.#k, outer.principal, RAW_OF_UOW.get(outer)!, this.#cap);
+  }
+
   readLatest(oid: ObjectOid) {
     const row = this.#raw.get<{ revision: number; payload_json: string; contract_version: string }>(
       `select revision, payload_json, contract_version from domain_state where ns=? and oid=? order by revision desc limit 1`,
@@ -631,6 +674,8 @@ class NamespaceWriterImpl implements NamespaceWriter {
  * 也不是类的静态成员：**对象图上不存在任何名字能指向它**，只有本模块内的这个闭包能取到。
  */
 const RAW_OF_UOW = new WeakMap<UnitOfWorkImpl, RawTx>();
+/** D-19：writer → 其宿主事务。模块级同 RAW_OF_UOW 的理由——句柄不进插件可见对象的对象图。 */
+const WRITER_UOW = new WeakMap<NamespaceWriterImpl, UnitOfWorkImpl>();
 
 class UnitOfWorkImpl implements UnitOfWork {
   // D-16：同 NamespaceWriterImpl。`readonly raw` 连 TS 层面的 private 都不是，
@@ -638,15 +683,28 @@ class UnitOfWorkImpl implements UnitOfWork {
   readonly #k: Kernel;
   readonly #raw: RawTx;
   readonly principal: VerifiedPrincipal;
-  constructor(k: Kernel, principal: VerifiedPrincipal, raw: RawTx) {
-    this.#k = k; this.principal = principal; this.#raw = raw;
+  readonly #scope: CapabilityId | 'assembly';
+  constructor(k: Kernel, principal: VerifiedPrincipal, raw: RawTx, scope: CapabilityId | 'assembly' = 'assembly') {
+    this.#k = k; this.principal = principal; this.#raw = raw; this.#scope = scope;
     RAW_OF_UOW.set(this, raw);
+  }
+
+  /**
+   * D-19 的运行时执行点。缺了它，`UnitOfWork` 的通用写面（createObject/revise/linkRef）
+   * 就是**绕过领域权威的入口**：任何拿到全权事务的代码都能改任意领域对象，违背 Q12。
+   * 判据只用机制事实（object_directory.owner_capability / registry.ownerOfKind），
+   * 不引入任何科研语义。
+   */
+  #assertScope(owner: CapabilityId, what: string, oid?: ObjectOid): void {
+    if (this.#scope === 'assembly' || owner === this.#scope) return;
+    throw new Refusal('CAPABILITY_SCOPE_ESCAPE', { action: what, scope: this.#scope, owner, oid });
   }
 
 
   createObject(a: { kind: ObjectKindLabel; payload: unknown }): ObjectOid {
     const owner = this.#k.registry.ownerOfKind(a.kind);
     if (!owner) throw new Refusal('CAPABILITY_INACTIVE', { kind: a.kind });
+    this.#assertScope(owner.capability, 'createObject');
     const idn = this.#raw.get<{ value: number }>(`select value from meta where key='id_counter'`)!.value + 1;
     this.#raw.run(`update meta set value = ? where key='id_counter'`, idn);
     const oid = asOid(`OBJ-${this.#k.space}-${idn}`);
@@ -677,6 +735,7 @@ class UnitOfWorkImpl implements UnitOfWork {
     );
     if (!dir) throw new Refusal('NOT_FOUND_IN_SPACE', { oid });
     const ns = routeNs(this.#k.registry, dir);
+    this.#assertScope(dir.owner_capability as CapabilityId, 'revise', oid);
     const cur = this.#raw.get<{ m: number | null }>(
       `select max(revision) m from domain_state where ns=? and oid=?`, ns, oid,
     )!.m ?? 0;
@@ -740,6 +799,12 @@ class UnitOfWorkImpl implements UnitOfWork {
   }
 
   linkRef(a: { from: RevisionRef; to: AnyRef; role: string; required?: boolean }): void {
+    // D-19：引用发起方必须在本作用域内。`from.oid` 可能是记录/非目录实体，
+    // 不在 object_directory 里就没有归属可判——那种情形交由领域自己的必填引用完整性把关
+    // （checkRequiredRefs），此处不臆造归属。（评审要求：负例测试见 tests/capability-scope.test.ts）
+    const src = this.#raw.get<{ owner_capability: string }>(
+      `select owner_capability from object_directory where oid=?`, a.from.oid);
+    if (src) this.#assertScope(src.owner_capability as CapabilityId, 'linkRef', a.from.oid);
     this.#raw.run(
       `insert into ref_edge(from_oid, from_rev, to_oid, to_rev, to_record, role, required) values(?,?,?,?,?,?,?)`,
       a.from.oid, a.from.revision,

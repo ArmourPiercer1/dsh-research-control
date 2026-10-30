@@ -98,6 +98,7 @@ export type RefusalCode =
   | 'READ_CUTOFF_UNSAFE'      // 读取截点无法满足一致性要求
   | 'AUTHORITY_REQUIRED'       // 缺该业务动作所需的授权轴（与写权分轴，SP-09）
   | 'NAMESPACE_ESCAPE'        // 插件写非自己的持久命名空间（#44 §4.2、§6.2 禁止复制核心权威）
+  | 'CAPABILITY_SCOPE_ESCAPE' // D-19：能力作用域事务试图改/引用其它能力拥有的对象（Q12 领域权威边界）
   | 'PROJECTION_UNAVAILABLE'; // 投影落后/缺口且调用方要求一致完整
 
 /** 领域扩展拒绝码：强制前缀，避免与 Kernel 封闭集混淆或被误当成机制语义。 */

@@ -7,7 +7,8 @@
 > （§16 先例）；**生产 DDL 不在本文**——表/索引的设计判据与迁移协议属契约，写在本文，落码归实施批。
 > 夹具（与本合同同批、互相对账）：
 > 「node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.fixtures.mjs
-> 退出码 0 = 契约结构自洽 + 正反例全命中 + 五条「架空判据必红」变异自验全部捕获；1 = 有 FAIL；
+> 退出码 0 = 契约结构自洽 + 正反例全命中 + 十一条「架空判据必红」变异自验全部捕获（旧句「五条」为
+> R 轮前基线，MUT-6…10 随 R-1/R-2/R-5/R-3/R-6 入列、MUT-11 随 R-8 入列）；1 = 有 FAIL；
 > 2 = 夹具无法运行。」
 > 平面声明：本合同只裁 **V3 机制侧车（本 PoC）** 的物理 ns 重定位面。V1 冻结面与 #47 HSR 层各有其文；
 > 按 DESIGN 附三教训（「跨草案的归属必须引用条文原文，不能引用我的预期」），凡本文写「归 X 裁定」
@@ -68,7 +69,7 @@
 | P-04 | `CONTRACTS.md` §16.3 D-27 真修（L641-663） | 五机制名预留 + 路由守闸核机制落账见证（`actor is not null` + `axis='capability-admin'` + `authorized=1`）；「只做 ① 不做 ②……仍过闸」半形点名 |
 | P-05 | `CONTRACTS.md` §16.3 D-31（L665-676） | 「`reassignRouteInternal` **删除 ns 参数**」「ns 迁移另立显式迁移通道（机制没有，也不拿移交面凑数）」；`TRANSFER_NS_DRIFT` detail 只回显调用方输入 |
 | P-06 | `src/kernel/kernel.ts`（L267-275） | `routeNs(registry, dir)` 现判据：`cap.storageNamespace !== dir.ns` ⇒ `SCHEMA_INCOMPATIBLE`（读写共用单点） |
-| P-07 | `src/storage-sqlite/sqlite-port.ts`（L53-58, L86-141, L150-157） | `object_directory.ns`（出生 ns）、`capability_route.ns`、`route_change_guarded` 子句③「三元组（含 ns）变化必配 `capability-transferred`」、`domain_state` PK=(ns,oid,revision) 且**无不可变性触发器** |
+| P-07 | `src/storage-sqlite/sqlite-port.ts`（L53-58, L86-141, L150-157） | `object_directory.ns`（出生 ns）、`capability_route.ns`、`route_change_guarded` 子句③「三元组（含 ns）变化必配 `capability-transferred`」、`domain_state` PK=(ns,oid,revision) 且~~**无不可变性触发器**~~。**【R-8 更正段｜2026-11-01；工程审查 P1-1；台账 `G1-CONTRACT-RECONCILIATION.md` R-8；旧句保留于上、以本段为准】** 该半句在锚点自称的基准提交 `d2f19cc` 上**即为假**：`git show d2f19cc:…/sqlite-port.ts` 的 L202/L204 **就有** `domain_state_no_update`/`domain_state_no_delete`（`raise(abort, 'DOMAIN_STATE_APPEND_ONLY')`，复刻实跑 exit 3），且两触发器同在 `REQUIRED_TRIGGERS` 必备集（同文件实测；包 6 起还比对体摘要）——锚点连自己的基准提交都没对上。更正后事实：`domain_state` PK=(ns,oid,revision) 且**有不可变性触发器**（UPDATE/DELETE 全禁）⇒ RL-5.1 步 3「UPDATE 位置键」在现 schema 上被**当场拒绝**，相容修法由 **RL-5.2 第三处不相容**裁定（R-8：窄化触发器体），本行旧句作为「锚点失真」的取证痕迹保留、不静默覆盖。 |
 | P-08 | `READINESS.md`（L247） | F-G6A-4：「v6 漂移库……**是被版本墙顺住，不是被检出**……救济无门」「打开期 `dir.ns` vs `route.ns` 全表比对，不一致 ⇒ 拒开并点名；受审计的 ns 迁移通道与 `dir.ns` 冻结**冲突** ⇒ **G1 设计题**」 |
 | P-09 | `G1-CONTRACT-DESIGNS.md` B.2-B1 / B.4 / B.7（L174, L195-201, L231-260） | B1 案形状；「互斥的真正化解点：……B1 把迁移改为『route 改写 + append-only 账』，互斥消失」；B.7 五项技术不变量 + backfill 三句写死 |
 | P-10 | `G1-CONTRACT-DESIGNS.md` 附三 F-1（L463-467） | 「**`SF §8` 全节对『打开期检出 ns 漂移』零要求、零承接 ⇒ D-31 历史面（F-G6A-4）的检测责任只能本 PoC 侧自立**」 |
@@ -374,7 +375,10 @@ RL-8.4/RL-8.5 与 §10.2 F-13 的 `failedGate='REPAIR_PROVENANCE'`（汇编注�
    1. 复核 gate 1/2/5/7/10（RL-4.3）
    2. 重算 contentDigest，与 precheck 值逐字等（不等 ⇒ 回滚）
    3. 物理重映射：对每个 RELOCATABLE_NS_KEYS 表，ns=fromNs 的行位置键改为 toNs
-      （UPDATE 位置键列；身份/内容/时刻/版本列零触碰；RL-6.1/6.2）
+      （UPDATE 位置键列；身份/内容/时刻/版本列零触碰；RL-6.1/6.2）——该 UPDATE 只在
+      **RL-5.2 第 3 处（R-8）窄化后的** `domain_state_no_update` 体下放行；现体（全禁 UPDATE）
+      在实施批改造三件套落地前照炸（`rl51.mjs` 复跑 exit 3 为凭），「三件套未落地 ⇒ 切换事务
+      拒签回滚、零半成品」是实施批进入门禁，不是可选优化
    4. 落审计：INSERT ns-relocated 事件行（机制内部直写，全形信封 RL-5.4；seq = 新 changed_seq）
    5. UPDATE capability_route SET ns=toNs, changed_seq=第 4 步 seq WHERE capability=…
       ——enabled/plugin_id/contract_version 一字不动（RL-5.2 拆单判据）
@@ -387,9 +391,18 @@ RL-8.4/RL-8.5 与 §10.2 F-13 的 `failedGate='REPAIR_PROVENANCE'`（汇编注�
 - 回滚（含提交期失败）⇒ 全态回切换前，**序号也不留 ghost**（P-01 D27-5 同判据：`meta.ledger_seq`
   与 ns_epoch 都不前进）。
 
-### 5.2 `route_change_guarded` / `ROUTE_AUDIT_REQUIRED` 相容改造（P-01/P-07 现文的两处不相容点名 + 修法）
+### 5.2 `route_change_guarded` / `ROUTE_AUDIT_REQUIRED` / `domain_state_no_update` 相容改造（P-01/P-07 现文的三处不相容点名 + 修法；R-8 扩点，2026-11-01）
 
-现触发器与重定位**不可同真**的两点，本契约逐点裁定（触发器体改造落实施批，随 `SCHEMA_VERSION`
+> **【R-8 更正段｜标题与「两处」旧句保留于上、以本段为准】** 本节旧版自称「现文的**两处**不相容」
+> （只点名 `route_change_guarded` 子句②/③）——该穷尽性陈述不成立：同文件对清单内唯一表
+> `domain_state` 的 `domain_state_no_update`（全禁 UPDATE，且在 `REQUIRED_TRIGGERS` 内）与 RL-5.1 步 3
+> 「UPDATE 位置键列」**不可同真**，是第三处（工程审查 P1-1 实测 `rl51.mjs` exit 3 =
+> `DOMAIN_STATE_APPEND_ONLY`）。讽刺点在案：RL-6.4 反向扫描判据自己的理由（「本就禁 UPDATE，真跑必炸」）
+> 逐字适用于 `domain_state`，同一把尺此前没量自己。本段起「两处」作废、按**三处**逐点裁定；旧句留在
+> 原位作取证痕迹，不静默覆盖。
+
+现触发器与重定位**不可同真**的三处（「两处」旧计数句作废于上方 R-8 更正段），本契约逐点裁定
+（触发器体改造落实施批，随 `SCHEMA_VERSION`
 推进 + `REQUIRED_TRIGGERS` 摘要重登 + 打开判据同批，P-17 外置锚纪律随批适用）：
 
 1. **子句②事件名白名单**（现文 `in ('capability-enabled','capability-disabled','capability-transferred')`）
@@ -404,10 +417,55 @@ RL-8.4/RL-8.5 与 §10.2 F-13 的 `failedGate='REPAIR_PROVENANCE'`（汇编注�
      abort 信号文本 `ROUTE_RELOC_SPLIT_REQUIRED`（存储层信号文本，**不入** `RefusalCode`
      封闭集——P-03 的区分原样沿用）。
 
+3. **`domain_state_no_update` 全禁 UPDATE vs RL-5.1 步 3**（R-8，2026-11-01；工程审查 P1-1）⇒
+   **窄化触发器体**：体从「任何 UPDATE 即 abort」改为「**仅当 UPDATE 未只改 `ns` 位置列时 abort**」——
+   非位置列中的**任一**列变化仍被拒，信号文本 `DOMAIN_STATE_APPEND_ONLY` **逐字不变**（既有错误分类
+   断言不因改名搬家）。规范体形（实施批 DDL 照此逐字落，`for each row` 为 SQLite 默认省略）：
+   「create trigger if not exists domain_state_no_update before update on domain_state
+     when not (new.oid is old.oid and new.revision is old.revision
+               and new.payload_json is old.payload_json
+               and new.recorded_seq is old.recorded_seq
+               and new.contract_version is old.contract_version)
+     begin select raise(abort, 'DOMAIN_STATE_APPEND_ONLY'); end;」
+   WHEN 等式清单 = RL-6.1 列语义表的（身份, 内容, 时刻, 版本）四类列的**全列逐等**：五列全等即
+   「除 `ns` 外任何列未动」——`ns` 本身**不要求变**（no-op UPDATE 是无害退化形，不为其加判据）。
+   等式清单与 RL-6.1 表、夹具 `DOMAIN_STATE_IMMUTABLE_COLS` 构成**三方逐等**（夹具 S16），未来给
+   `domain_state` 加列必须同批改三处，漏一处 = 夹具红（新列若默认不进等式清单，等于悄悄放宽窄面）。
+   - **修法择一的裁定（R-8）**：备选的「不 UPDATE、改 append 形态——同事务追加新位置行 + 把旧行
+     标记为已迁出，历史读取按重定位链解析到有效行」被**否决**，理由三条写实：①「标记旧行已迁出」
+     本身需要 UPDATE，除非加「迁出标记列」——那是改表形，RL-6.1 列语义表与 `SCHEMA_VERSION` 全部
+     重开，比窄化触发器体**更重**而非更轻；②「同一 (oid, revision) 全库**恰一**条有效行」成为新的
+     全局不变量，需要专属触发器 + 打开期扫描双保卫，而双活行窗口正是 RL-3.4 明文禁止的「半旧半新
+     每次读选边」形态——用新风险换旧风险；③ RL-6.1「同一物理行只换位置键」、RL-6.3 零科研事实差分
+     （T-P6 逐字节等式）与 contentDigest 度量整套要重定义。窄化形则完全复用本节先例（体改造 +
+     摘要重登 + 同批三件套），负例面「非位置列改写仍被拒」判据强度不降。**判据**：窄化后的触发器
+     必须同时满足「纯 `ns` 改写放行」与「`oid`/`revision`/`payload_json`/`recorded_seq`/
+     `contract_version` 任一列改写（无论是否连带 `ns`）仍拒」——只验前者是半截判据，夹具 T-N22
+     验两侧。
+   - **`REQUIRED_TRIGGERS` 摘要重锚义务（三件套逐件点名）**：① 触发器**名保留、体摘要重登**——
+     包 6 F5c 的「名字 + SQL 体摘要」判据下，新体字节须登记为打开期期望摘要；旧摘要仍在位 = 打开红，
+     体改了摘要没登 = 打开红，「把定义删掉」形态 = 摘要缺项照红（P-17 外置锚纪律随批适用，
+     「从代码里删定义」不算处置）；② `SCHEMA_VERSION` 推进一档（现值 7，落地时取当时实测值 +1，
+     本契约不钉死数字）；③ 打开判据步 2 的期望集与①同批更新。
+     **`domain_state_no_delete` 一字不动**：重定位不是删行通道，其体摘要也不得顺手变更。
+   - **边界如实（不新造豁免窗）**：INSERT OR REPLACE **不是**重定位旁路——D-30 起端口
+     PRAGMA recursive_triggers=ON 在位，REPLACE 的隐式删除撞 `domain_state_no_delete` 照拒；
+     窄化放行的「只改 `ns` 的 UPDATE」不是新的裸面授权——插件可见面零 DML（平面声明句原样），
+     该写点在 RL-5.1 事务体内部才可达；绕过切换事务裸改状态行 `ns` 的，路由行仍在旧 ns、读归属
+     （RL-6.5）解析不到、`route_change_guarded`（子句③）也拦着路由侧配合改写，只会造出
+     「数据搬家路由没搬」的不可见漂移——它被 §8.1 巡检与 RL-8.2 四方对账点名并计入 drift 计数，
+     与「登记边界不承诺检出裸面伪造」的既有边界同条（RL-6.5a），本窄化不扩大也不缩小那条边界。
+   - 负例与架空（常驻夹具）：**T-N22**（现体下纯 `ns` UPDATE 被拒 = P1-1 反例复钉；窄化体下纯 `ns`
+     过、五个非位置列逐个改写必拒、摘要未重登打开红、REPLACE 照拒）+ **MUT-11**（把窄化写成
+     「全量放行 UPDATE」= 删 WHEN 等式核对 ⇒ 必须放过「内容列改写」同一负例——真实窄化体拦得住、
+     架空体放过，缺一边即该负例对架空无判别力）。
+
 **变异验收（父席 2026-11-01 通信裁定，按其要求记入；任何新/改判据都要有「架空它必红」的实证）**：
-本节改造的三条判据各配一条**常驻夹具架空形**（不是删除）——子句②名单/事件名判据 ↔ `routeGuardMUT2`
-（去掉事件名核对，任意在册结构齐全的审计行即过）；fromNs/toNs 字面相符判据 ↔ `routeGuardMUT4`
-（保留事件名、去掉 payload 位置字面核对）；拆单判据 ↔ `routeGuardMUT5`（去掉混合语句拒绝）。
+本节改造的四处触发器判据（子句②名单、fromNs/toNs 字面相符、拆单、R-8 窄化体）各配一条**常驻夹具
+架空形**（不是删除）——子句②名单/事件名判据 ↔ `routeGuardMUT2`（去掉事件名核对，任意在册结构齐全的审计行即过）；fromNs/toNs 字面相符判据 ↔ `routeGuardMUT4`
+（保留事件名、去掉 payload 位置字面核对）；拆单判据 ↔ `routeGuardMUT5`（去掉混合语句拒绝）；
+R-8 窄化体 ↔ `domainStateUpdateMUT11`（删 WHEN 等式核对 = 「窄化」退化为全量放行 UPDATE，必须放过
+「内容列改写」负例；见 T-N22 与夹具末段架空配对断言）。
 每条自验断言的方向固定：**真实判据必须拦住对应负例，架空判据必须放过同一负例**（否则正反例表
 对「架空」没有判别力，见夹具 T-M2/T-M4/T-M5）。**还原方式如实写明**：MUT 函数从不替换真实函数——
 真实判据 `routeGuard` 恒为 `run_*` 主路径唯一调用者，MUT 仅在自验断言分支中旁路调用、结果只进
@@ -445,7 +503,7 @@ RL-8.4/RL-8.5 与 §10.2 F-13 的 `failedGate='REPAIR_PROVENANCE'`（汇编注�
 
 | 列类 | 列 | 重定位时的处理 |
 | --- | --- | --- |
-| **物理位置键** | `ns` | 唯一被改写的列（fromNs→toNs）——它就是「物理位置」本身 |
+| **物理位置键** | `ns` | 唯一被改写的列（fromNs→toNs）——它就是「物理位置」本身；其改写形态 = RL-5.2 第 3 处（R-8）窄化后的 `domain_state_no_update`（WHEN 等式清单即本表其余四类列的全列逐等） |
 | 身份列 | `oid`, `revision` | 逐字节不变（修订身份不因搬家而变，B.7-2/P-09） |
 | 内容列 | `payload_json` | 逐字节不变（内容 digest 进事件载荷与账，前后两算必等） |
 | 时刻列 | `recorded_seq` | 逐字节不变（登记时刻是历史事实，不是位置属性） |
@@ -822,6 +880,7 @@ RELOCATION_PRECONDITION + 账零污染；回退（proposeRollback）不新增状
 | T-N19 | 负 | **R-1 呈现面**：调用方拒答体带旧形态 `echo.hiddenByContractSkew`（RL-INFO 旧构造器形态） | 判红——三处 fail-loud 的调用方体必须零 `hiddenBy*` 键；计数仍在运维/审计面（`opsDetail` 里点名 oid 集与两维计数） | 「callerSurfaceFreeOfShadowCounters(新体)=true ∧ callerSurfaceFreeOfShadowCounters(旧体)=false ∧ opsDetail 含计数 ∧ MUT-8 放过旧体」 | run_T_N19 |
 | T-N20 | 负 | **R-5 无批准标记**：`ns-relocated` 的 `Approved-By` 未落地期间跑完整合法重定位（提案→批准→precheck 全过）再 execute | 前三步照跑照记账；execute 在落 `ns-relocated` 那一步**拒签**（`ACTIVATION_IMPOSSIBLE` 族）⇒ **整笔回滚**：路由 ns、状态行位置键、`ns_epoch` 全部回到切换前，零半成品切换；标记落地后同一调用成功 | 「precheck ok ∧ execute 拒签 ∧ dir/route/domain_state/ledger/meta 与切换前逐字节等 ∧ 落地后 committed ∧ MUT-6（契约自称批准即过）放过同一未批准态」 | run_T_N20 |
 | T-N21 | 负 | **R-6 自动补戳禁令**：重定位/打开期扫描顺带给 `contract_version=''` 的历史行盖章（迁移器顺带盖章形态） | 判红——重定位不是盖章通道：切换后无戳行仍无戳（呈现档仍「切换前」），读者面 `assertContractVersion` 继续拒读；要改呈现档只能走 RL-3⑦ 显式修补通道（追加行、可回看） | 「execute 后 exists(contract_version='') 不变 ∧ 真判据 stamped=0 ∧ MUT-10 同批盖章（=违例形态被复现）」 | run_T_N21 |
+| T-N22 | 负 | **R-8 触发器窄化两侧判据（工程审查 P1-1）**：(a) 现体（全禁 UPDATE）下纯 `ns` 改写（rl51.mjs 反例复钉）；(b) 窄化体下纯 `ns` 改写；(c) 窄化体下 `oid`/`revision`/`payload_json`/`recorded_seq`/`contract_version` 任一改写（每个非位置列各测「单独改」与「连带 `ns` 一起改」两形）；(d) 体已改但 `REQUIRED_TRIGGERS` 期望体摘要未重登；(e) `INSERT OR REPLACE` 伪装改写 | (a) 拒 `DOMAIN_STATE_APPEND_ONLY`（P1-1 当场性在夹具留常驻复跑，不再只活在线索注释里）；(b) 过且其余四+一列零触碰；(c) 十拒全中、同一信号文本逐字不变；(d) 打开判据红（摘要未登），重登后绿，体再漂移又红；(e) 照拒（`domain_state_no_delete` 一字未动 + `recursive_triggers` 在位） | 「现体拒纯ns ∧ 窄化体放行纯ns ∧ 五个非位置列×两形全拒 ∧ 摘要未登打开红→重登绿→漂移红 ∧ REPLACE 拒 ∧ `domainStateUpdateMUT11`（删 WHEN 等式 = 全量放行）放过 (c) 的同一负例」 | run_T_N22 |
 
 ---
 
@@ -844,7 +903,9 @@ RELOCATION_PRECONDITION + 账零污染；回退（proposeRollback）不新增状
    主动失效机制仍属 G1 余项（D-25/EVT §9.2-⑤ 同项不重复立项）。
 5. **重定位事件名**：`ns-relocated`（RL-2.2 自裁；EA-2.4 六步 + R4 异提交纪律；不复用
    `capability-transferred`，否定理由 RL-5.2）。
-6. **`SCHEMA_VERSION` 推进与打开判据新增项**：RL-5.2 触发器改造 + `namespace_relocation` 表在位性
+6. **`SCHEMA_VERSION` 推进与打开判据新增项**：RL-5.2 触发器改造（**含 R-8 `domain_state_no_update`
+   体窄化的「名保留 + 体摘要重登」三件套**，`domain_state_no_delete` 与 `domain_state_no_update`
+   旧体摘要的更替逐名点名）+ `namespace_relocation` 表在位性
    + `ns-relocation` 名进机制名单 + §8.1 步 4，同批随 `SCHEMA_VERSION` 推进与
    `REQUIRED_TRIGGERS` 摘要重登；G1-STORAGE-02 的「期望摘要外置」纪律逐字适用（P-17），防
    「只护新库」与「删定义洗白」两形态。
@@ -894,12 +955,17 @@ RELOCATION_PRECONDITION + 账零污染；回退（proposeRollback）不新增状
 本文件与 `G1-CONTRACT-RELOCATION.fixtures.mjs` 互认的机验面（S 编号 = 夹具实际检查行）：
 引用表四要素逐行核（S1）、三份上层实取引用下限（S2）、错误码 token 封闭性 + 新增恰一枚（S3/S3b）、
 正反例 id 双向逐等（S4）、故障矩阵双向逐等（S5）、门清单封闭集三方逐等（S6）、五要素与 B.7 映射 +
-「只改 `route.ns`」禁止句（S7）、冻结关键句在位（S8）、**五条**变异常驻不删除（S9）、6.5a 界内/界外
+「只改 `route.ns`」禁止句（S7）、冻结关键句在位（S8）、**十一条**变异常驻不删除（S9）、6.5a 界内/界外
 分层与 RL-INFO 单一判据在位且未把检测写成防御（S10）、不写「属 #47 决策面」+ EVT 锚文 planned/gated_by
-承袭（S11）。
+承袭（S11）、R-3 双向扫描判据两侧在位（S12）、R-6 版本归属句在位（S13）、R-5 批准主体句在位（S14）、
+R-1 出口更正句在位（S15）、**R-8 窄化等式清单三方逐等 + P-07 锚点更正就地留痕 + `no_delete` 零改句
+（S16）**。
 判据模型拦截力自验（每条：真实判据拦下负例 ∧ 架空判据放过同一负例，缺一即该负例对「架空」无
 判别力）——**MUT-1** `chainCheckMUT1`（链前缀完备架空：起点不符也放行）、**MUT-2**
 `routeGuardMUT2`（触发器事件名核对架空：任意审计行即过）、**MUT-3** `repairMUT3`（修复证据互检
 架空：observedDriftDigest 不符仍入账）、**MUT-4** `routeGuardMUT4`（fromNs/toNs 字面相符架空：
 名对但位置不符仍过）、**MUT-5** `routeGuardMUT5`（拆单判据架空：ns+enabled 混合语句仍过）。
-MUT-2/4/5 即 RL-5.2 三条触发器改造的架空形。退出码 0 = 全部通过。
+MUT-2/4/5 即 RL-5.2 该批三条触发器改造的架空形（旧句「三条」是该批计数，R-8 后本节共四处）；
+**MUT-6…MUT-10** 分属 R-1/R-2/R-5/R-3/R-6 的架空形（见各更正段）；**MUT-11**
+`domainStateUpdateMUT11`（R-8 窄化体架空：删 WHEN 等式核对 = 「窄化」退化为「全量放行 UPDATE」，
+必须放过「非位置列改写」同一负例，配对断言在夹具末段、负例本体在 T-N22）。退出码 0 = 全部通过。

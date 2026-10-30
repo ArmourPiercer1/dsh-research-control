@@ -23,6 +23,12 @@
  *   - `DONE-EVIDENCE`   **done 必须有非空 evidence 且含可定位锚点**（提交号 / 带扩展名的
  *                       文件路径〔可带 :行号〕）。这是 GT 系列教训的直接迁移：
  *                       「已修」不许是自我声明——没有锚 = 红。
+ *                       **锚点真值（P1-2 修复，2026-11-01，RE-REVIEW-G1-ENG §E4）**：形态合规
+ *                       不再是终点——锚里的提交号必须 `git cat-file -e <sha>^{commit}` 通过、
+ *                       路径必须存在（提交判据照 g0-gate 基线 `generated_from_commit` 的祖先判据
+ *                       先例，路径判据照本文件 PLAN-PATH「对账对象不许是幽灵路径」先例）；
+ *                       假提交号 / 幽灵路径 ⇒ 本规则红。边界如实：机器证的是「锚点存在」，
+ *                       **不证**「锚点内容支持该条结论」——后者仍是人工审查（见「已知边界」）。
  *   - `DONE-RESOLUTION` **done 必须有非空 resolution**（第六轮裁定：关闭态三件套
  *                       = 权威 owner + 可定位 evidence + 明确 resolution，缺一即红。
  *                       owner 的「权威」语义仍是人工判据，见「已知边界」）
@@ -33,10 +39,13 @@
  *                       与「指向 open 的甩锅链」——链上每步 superseded_by 都必须可解析，
  *                       成环或终点非 done ⇒ 红）
  *   - `SUPERSESSION-REASON`   **status=superseded 必须有非空 supersession_reason 且含可定位
- *                       锚点**（锚点判据与 DONE-EVIDENCE 同：提交号 / 带扩展名文件路径。
- *                       空占位红；「被裁定取代」式结论词无锚 = 红——替代理由不许是自我声明）
+ *                       锚点**（锚点判据与 DONE-EVIDENCE 同**形态段**：提交号 / 带扩展名文件路径。
+ *                       空占位红；「被裁定取代」式结论词无锚 = 红——替代理由不许是自我声明。
+ *                       **真值段只判 supersession_evidence**：reason 是叙事文本，证据锚的真值
+ *                       由 SUPERSESSION-EVIDENCE 把门，分工写死在代码注释）
  *   - `SUPERSESSION-EVIDENCE` **status=superseded 必须有非空 supersession_evidence 且含
- *                       可定位锚点**（同上判据；缺证据的「已被取代」= 换皮的未完成）
+ *                       可定位锚点**（同上判据，**含锚点真值**——假提交号/幽灵路径 = 红；
+ *                       缺证据的「已被取代」= 换皮的未完成）
  *   - `UNKNOWN-FIELD`   条目字段封闭集之外 = 红（防漂移：新字段先改校验器再进清单）。
  *                       **旧字段名 `supersedes` 是点名禁止字段**：出现即红并给出方向说明
  *                       （防新旧混用，见下方「字段方向」段；自验 M16 钉死复活、M17 钉死
@@ -77,6 +86,11 @@
  *     机验语义），本文书 §2-G1 保留该人工条款；校验器只判非空 / 非 UNASSIGNED。
  *   - `supersession_review` 的「非作者」同理是人工判据：机器能钉的是**形态合法且审查者
  *     与 owner 不同名**；「签名的两个人是否真有权威」不在机验面（与 owner 权威性同一边界）。
+ *   - **锚点真值的边界（P1-2，2026-11-01 补）**：机器能证「锚点存在」——提交号在 git 仓里
+ *     解析为 commit、路径能落到真实文件；机器**不能**证「锚点内容支持该条结论」——真提交可以
+ *     不相关、真文件可以没讲这件事、「锚点空转」仍是人工审查面（与「批准者是否真读了 diff」
+ *     同一人认边界）。自验 M18/M19/M21 把「假锚」钉死为红，钉不住「真锚空转」，不许把
+ *     M20 判绿误读成「内容过审」。
  *
  * 用法与谓词语义（写死，别让下一个读者猜——父代理 2026-10-31 点名的三态澄清；
  * **第六轮修订**，外部复审点名 G1 门禁 P1：旧 `--require-clear` 数的是 open/unassigned，
@@ -98,7 +112,9 @@
  *       放行判据，不进日常门。
  *   node g1-checklist-validate.mjs --max-open <N>
  *       进度护栏：违规==0 且 open<=N。评审期可断言「open 面不扩大」，不要求清零。
- *   node g1-checklist-validate.mjs --self-test      # 变异自验（架空而非删除，见 MUTANTS）
+ *   node g1-checklist-validate.mjs --self-test      # 变异自验（架空而非删除，见 MUTANTS；
+ *       锚点真值族 M18（假提交号红）/M19（幽灵路径红）/M20（真锚绿，防空转）/M21（§E4 终局洗白
+ *       全形常驻回归）为 P1-2 修复的复现-修复证据，条数以本行运行输出为准）
  *   node g1-checklist-validate.mjs --file <path>    # 指定清单路径（自验与排查用）
  *
  * 为什么不存在「清单永远不可能 clear」的死判据：**open 不要求 UNASSIGNED**——
@@ -113,6 +129,7 @@
  * 退出码：0 无违规（且给定谓词满足）；1 任何违规 / 谓词未满足 / 变异未被捕获。
  */
 import { readFileSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -311,9 +328,63 @@ const REVIEW_RE = /^REVIEW:\s*(\d{4}-\d{2}-\d{2})\s+(\S.*?)\s*$/;
 const COMMIT_RE = /\b[0-9a-f]{7,40}\b/;
 const FILE_RE = /[\w./-]+\.(?:md|ts|tsx|mjs|cjs|json|ya?ml|sql|db|jsonl)\b/i;
 
+// ---------- 锚点真值（P1-2 修复，2026-11-01；RE-REVIEW-G1-ENG §E4） ----------
+// 旧 DONE-EVIDENCE / SUPERSESSION-* 只判**形态**：形态合规的假锚（不存在的提交号 + 不存在的
+// 路径）把 27 条全 done 的伪造清单洗成 `--require-clear` exit 0（审查席实测；本仓复现同形，
+// 复现即自验 M21 常驻）。补**存在性**半边，两条判据都走同仓既有先例、零新依赖：
+//   - 提交号：`git cat-file -e <sha>^{commit}` 必须通过（g0-gate 基线 generated_from_commit
+//     用 `git merge-base --is-ancestor` 判真祖先，同一「git 即锚点仓库」先例）；
+//   - 路径：existsSync——先按「清单目录 / 仓根」两候选根，都落空再退到 `git ls-files *basename`
+//     后缀匹配（现存合法形态：G1-DONE-04 的 evidence 以裸 basename 引用 tests/ 下的夹具；
+//     幽灵 basename 在 git 索引里也是空集 ⇒ 照红）。PLAN-PATH「对账对象不许是幽灵路径」同族。
+// 边界（写进头注「已知边界」）：机器证的是**锚点存在**，不证**锚点内容支持该条结论**——
+// 「真锚点 + 空转结论」仍是人工审查面。git 不可用 / 清单在 git 树外 ⇒ fail-closed：
+// 提交锚一律点名（本门禁是仓门禁，不是通用 YAML 工具，宁可红不可盲）。
+const COMMIT_RE_G = /\b[0-9a-f]{7,40}\b/g;
+const FILE_RE_G = /[\w./-]+\.(?:md|ts|tsx|mjs|cjs|json|ya?ml|sql|db|jsonl)\b/gi;
+function makeAnchorChecker(checklistPath) {
+  const baseDir = checklistPath ? dirname(checklistPath) : HERE;
+  const top = spawnSync('git', ['-C', baseDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  const repoRoot = top.status === 0 && top.stdout.trim() ? top.stdout.trim() : null;
+  const bases = repoRoot ? [baseDir, repoRoot] : [baseDir];
+  const commitCache = new Map();
+  const pathCache = new Map();
+  const commitOk = (sha) => {
+    if (!commitCache.has(sha)) {
+      let ok = false;
+      if (repoRoot) ok = spawnSync('git', ['-C', repoRoot, 'cat-file', '-e', `${sha}^{commit}`], { stdio: 'ignore' }).status === 0;
+      commitCache.set(sha, ok);
+    }
+    return commitCache.get(sha);
+  };
+  const pathOk = (raw) => {
+    if (!pathCache.has(raw)) {
+      const p = raw.replace(/:\d+(?:-\d+)?$/, '');
+      let ok = p.startsWith('/') ? existsSync(p) : bases.some((b) => existsSync(join(b, p)));
+      if (!ok && repoRoot) {
+        const base = p.split('/').pop();
+        const r = spawnSync('git', ['-C', repoRoot, 'ls-files', '--', `*${base}`], { encoding: 'utf8' });
+        ok = r.status === 0 && r.stdout.split('\n').some((rel) => rel.trim() !== '' && existsSync(join(repoRoot, rel.trim())));
+      }
+      pathCache.set(raw, ok);
+    }
+    return pathCache.get(raw);
+  };
+  const problemsOf = (text) => {
+    const out = [];
+    for (const m of String(text).matchAll(COMMIT_RE_G))
+      if (!commitOk(m[0])) out.push(`锚点提交号「${m[0]}」在 git 仓库不存在（git cat-file -e ${m[0]}^{commit} 未通过）——形态合规的假提交号`);
+    for (const m of String(text).matchAll(FILE_RE_G))
+      if (!pathOk(m[0])) out.push(`锚点路径「${m[0]}」不存在（清单目录/仓根两候选根未命中，git ls-files 后缀匹配亦空）——幽灵路径`);
+    return out;
+  };
+  return { problemsOf, repoRoot };
+}
+
 function validate(text, checklistPath) {
   const violations = [];
   const V = (rule, id, line, why) => violations.push({ rule, id, line, why });
+  const anchor = makeAnchorChecker(checklistPath);   // P1-2：锚点真值（存在性），形态合规之后的第二道
   let parsed;
   try {
     parsed = parseChecklist(text);
@@ -384,6 +455,9 @@ function validate(text, checklistPath) {
       if (ev === null) V('DONE-EVIDENCE', id, line, 'status=done 但没有 evidence——「已修」不许是自我声明');
       else if (!COMMIT_RE.test(ev) && !FILE_RE.test(ev))
         V('DONE-EVIDENCE', id, f.evidence.line, 'evidence 缺可定位锚点（提交号 / 带扩展名的文件路径〔可带 :行号〕）——只写「经审查确认」不算证据');
+      // P1-2 真值段：形态过了不等于锚存在。假提交号 / 幽灵路径逐锚点名（判据与先例见工厂注释）。
+      else for (const bad of anchor.problemsOf(ev))
+        V('DONE-EVIDENCE', id, f.evidence.line, `锚点真值未过：${bad}（「形态合规≠锚存在」由 RE-REVIEW-G1-ENG P1-2 定案；自验 M18/M19/M21 钉死，正向 M20 防空转）`);
       // 第六轮裁定：done 三件套 = 权威 owner（OWNER-RULE 判非空/非 UNASSIGNED，权威性仍人工）
       // + 可定位 evidence（DONE-EVIDENCE）+ 明确 resolution（本条）。「已解决」不含
       // 「谁让位、依据什么」= 结论词自我声明，GT 系列的同款教训。
@@ -419,6 +493,11 @@ function validate(text, checklistPath) {
         else if (v === '') V(rule, id, f[key].line, `${key} 是空占位`);
         else if (!COMMIT_RE.test(v) && !FILE_RE.test(v))
           V(rule, id, f[key].line, `${key} 缺可定位锚点（提交号 / 带扩展名的文件路径〔可带 :行号〕）——结论词不能充当替代理由/证据（锚点判据与 DONE-EVIDENCE 同）`);
+        // P1-2 真值段：只判 supersession_evidence（替代关系的**证据**锚）——reason 是叙事文本，
+        // 其锚点只判形态（判据分工写进头注），证据锚造假已由本规则码点名。
+        else if (key === 'supersession_evidence')
+          for (const bad of anchor.problemsOf(v))
+            V(rule, id, f[key].line, `锚点真值未过：${bad}（与 DONE-EVIDENCE 真值段同判据；自验 M18/M19/M21 同族）`);
       }
     }
   });
@@ -728,6 +807,64 @@ const MUTANTS = [
         '    supersession_evidence: "g1-checklist-validate.mjs:1（夹具锚）"\n';
     },
   },
+  // ——— P1-2（RE-REVIEW-G1-ENG §E4，2026-11-01）：锚点真值的四条形变 ———
+  // 先复现后修的复现记录：修**前**（只判形态）用同一构造跑 `--file fake.yaml --require-clear`
+  // 实测 **exit 0**（27/27 done、违规=0；`git cat-file -t abcdef0` = 128、幽灵路径 ls = 2，
+  // 两个锚都不存在却被判绿）。修**后** M18/M19/M21 全红、M20 保持绿——四侧钉死，
+  // 「假锚洗白终局放行谓词」这条路从此常驻有守门员。
+  {
+    name: 'M18-done+假提交号（把 DONE-01 的 evidence 换成「abcdef0 见 真实文件」：abcdef0 形态合规'
+      + '（COMMIT_RE 命中）但 git cat-file 无此提交——修前该形态判绿（§E4 反例的 done 侧），修后必红'
+      + '（真值段的提交半边））',
+    expect: 'DONE-EVIDENCE',
+    apply(text) {
+      const m = text.match(/^ {4}evidence: "CONTRACTS\.md:277-288[^"]*"$/m);
+      if (!m) throw new Error('变异夹具失配：找不到 DONE-01 的 evidence 行');
+      return text.replace(m[0], '    evidence: "abcdef0 见 g1-checklist-validate.mjs:1"');
+    },
+  },
+  {
+    name: 'M19-done+不存在路径（evidence 换成 ghost-evidence-does-not-exist.md：FILE_RE 形态命中、'
+      + '两候选根 existsSync 与 git ls-files 后缀匹配三面全空——真值段的路径半边必红）',
+    expect: 'DONE-EVIDENCE',
+    apply(text) {
+      const m = text.match(/^ {4}evidence: "CONTRACTS\.md:277-288[^"]*"$/m);
+      if (!m) throw new Error('变异夹具失配：找不到 DONE-01 的 evidence 行');
+      return text.replace(m[0], '    evidence: "ghost-evidence-does-not-exist.md"');
+    },
+  },
+  {
+    name: 'M20-done+真提交+真路径（正向防空转：HEAD 实测提交号 + 本校验器路径，形态与真值两面'
+      + '全过 ⇒ 必须判绿——真值校验若把真锚也判红就是误伤闸，第二天就会被绕过）',
+    expect: 'CLEAN',
+    apply(text) {
+      const head = spawnSync('git', ['-C', HERE, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+      if (!/^[0-9a-f]{7,40}$/.test(head)) throw new Error('变异构造失败：取不到 HEAD 提交号');
+      const m = text.match(/^ {4}evidence: "CONTRACTS\.md:277-288[^"]*"$/m);
+      if (!m) throw new Error('变异夹具失配：找不到 DONE-01 的 evidence 行');
+      return text.replace(m[0], `    evidence: "${head} 见 g1-checklist-validate.mjs:1"`);
+    },
+  },
+  {
+    name: 'M21-终局洗白全形常驻回归（RE-REVIEW-G1-ENG §E4 的**原反例**：27 条全改 done + owner 伪造'
+      + '归属 + 每条 evidence 同一条假锚「abcdef0 见 ghost-evidence-does-not-exist.md」+ resolution'
+      + ' 形合文本——修前该文本 --require-clear exit 0（今天实测的绿，登记为常驻回归）；修后 DONE-EVIDENCE'
+      + ' 逐条点名真值违规，放行谓词必红）',
+    expect: 'DONE-EVIDENCE',
+    apply(text) {
+      let t = text
+        .replace(/^    status: open$/gm, '    status: done\n    resolution: "形合文本：经审查已解决（伪造）"')
+        .replace(/^    owner: "UNASSIGNED"$/gm, '    owner: "Q40（伪造归属）"')
+        .replace(/^    evidence: ".*"$/gm, '    evidence: "abcdef0 见 ghost-evidence-does-not-exist.md"');
+      // 原本没有 evidence 行的条目补假锚行——洗白场景不限于「已有锚」的条目（照 §E4 复现脚本同构）
+      t = t.split(/(?=^  - id: )/m).map((c) =>
+        (/^    status: done$/m.test(c) && !/^    evidence: /m.test(c)
+          ? c.replace(/^  - id: (G1-[A-Z0-9-]+)\n/, '  - id: $1\n    evidence: "abcdef0 见 ghost-evidence-does-not-exist.md"\n')
+          : c)).join('');
+      if (!/^    owner: "Q40（伪造归属）"/m.test(t)) throw new Error('变异未生效：洗白形未构造成功');
+      return t;
+    },
+  },
 ];
 
 function main() {
@@ -782,6 +919,13 @@ function main() {
             ? `捕获（违规=0 前提下 --require-clear 判红：open=${res.counts.open} assigned=${res.counts.assigned} unassigned=${res.counts.unassigned} superseded_unreviewed=${res.counts.supersededUnreviewed}）`
             : `**存活**（期望违规=0 且谓词红；实际违规=${res.violations.length} `
               + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'}）`;
+        } else if (mu.expect === 'CLEAN') {
+          // 真值正向型（M20）：done + **真提交 + 真路径**必须判绿——真值校验不得变成只会被动的
+          // 误伤闸；「假锚红、真锚绿」两侧都有常驻变异，判据才不是单向的。
+          hit = res.violations.length === 0;
+          verdict = hit
+            ? '捕获（真提交+真路径判绿：违规=0，真值段不误伤）'
+            : `**存活**（期望违规=0；实际违规=${res.violations.length} 首条=[${res.violations[0].id}] ${res.violations[0].why}）`;
         } else {
           // expect 允许单规则或规则数组（数组=每条都必须命中——M17 的「禁止字段+缺继任」双红，
           // 只命中其一都是错误原因通过）。

@@ -394,3 +394,128 @@ RL **T-N21**（重定位后无戳行仍无戳、呈现档仍 `pre-cutover-defaul
 
 **仍开放**：J 的全自动实现（待 PR-0）。**本节不是绿着的空文**——S19 今天就扫「R-7 不在位 / 正所
 消失 / 两处住所长出复制体 / 未来小节非指针形」四种形态，任一即 EA 夹具红。
+
+---
+
+## 11. R-8（工程审查 P1-1）—— `domain_state_no_update` 触发器与 RL UPDATE 的硬冲突：窄化触发体裁决
+
+**来源**：`attacks/review/RE-REVIEW-G1-ENG.md` P1-1（2026-11-01 复审）。冲突实体：RL-5.1 步 3 要求
+迁移切换时对 `domain_state` 行做**纯 ns 改写**（UPDATE），而 `src/storage-sqlite/sqlite-port.ts` 的
+`domain_state_no_update` 触发器（实测 d2f19cc 与 HEAD 均在 :202-205，`before update … raise(abort,
+'DOMAIN_STATE_APPEND_ONLY')`，全禁一切 UPDATE）**在 `REQUIRED_TRIGGERS`（:297-301）内**——RL-5.1 落地
+当天 `g0-gate` 必红。复钉：`.scratch/rl51.mjs`（node:sqlite 真库，复刻现体 + 纯 ns UPDATE）
+⇒ **RL51_EXIT=3、错误文本 `DOMAIN_STATE_APPEND_ONLY`**（本席 2026-11-01 实测）。
+**零触碰授权面外**：未动 `sqlite-port.ts`、未动 `REQUIRED_TRIGGERS` 成员集、未删触发器。
+
+**裁决（修法二择一，取 b）**：
+- (a) 追加-搬移形（append 新位置行 + 标记旧行移出）——**否决**，三条理由入 RL-5.2 第 3 处正文：
+  ①「标记旧行移出」本身还是一次 UPDATE，触发器冲突原地复活；② 需要新增全局「有效行恰一」不变量，
+  双活行窗口 = RL-3.4 禁止形态；③ 会推翻 RL-6.1/RL-6.3/T-P6 的逐字节等式族，代价大于收益。
+- (b) **显式窄化触发体**（采纳）：WHEN 等式清单**只放行**「非位置列全部 `new.X is old.X`」的改写，
+  即**唯一可变列 = `ns` 位置列**；其余五列（`oid/revision/payload_json/recorded_seq/contract_version`）
+  任一变化照旧 `raise(abort,'DOMAIN_STATE_APPEND_ONLY')`，**信号文本逐字不变**。规范 SQL 全文写在
+  RL-5.2 第 3 处；等式清单 ↔ RL-6.1 列语义表 ↔ 夹具 `DOMAIN_STATE_IMMUTABLE_COLS` **三方逐等**
+  （机验 RL-§15 S16）。
+- **三件套重锚义务**（漏一步 = 旧库静默过闸，P-17 违例形态）：① 触发器**名保留、体摘要重登**
+  （`REQUIRED_TRIGGERS` 的体摘要必须换成新体摘要——「名在位」不再是充分判据）；② `SCHEMA_VERSION`
+  7→+1，**落地时实测推进，本契约不钉死数字**；③ 打开判据（期望摘要外置，G1-STORAGE-02/P-17）**同批**。
+  `domain_state_no_delete` **一字不动**；REPLACE 无旁路（recursive_triggers=ON 的隐式删除撞 no_delete，
+  D-30 机制在位）。
+- **锚点更正（更正纪律）**：P-07 原句「按 d2f19cc 实测=无不可变性触发器」是**错锚**——该行
+  `~~**无不可变性触发器**~~` 划线保留于原位 + 就地更正段（实测 :202/:204 两触发器俱在、俱在
+  REQUIRED_TRIGGERS、rl51.mjs exit 3）。同纪律同步 RL-5.2 标题与正文：「不相容恰两处」**作废**，
+  更正为**三处**（P-01 route 审计 / P-07 域状态改写 / 混合语句），反证扫描句同步。
+
+**本轮实际改了什么**：`G1-CONTRACT-RELOCATION.md`（P-07 行更正段 / RL-5.1 步 3 注 / RL-5.2 重命名 +
+更正块 + 新第 3 处规范体与三件套 / RL-6.1 ns 行互指 / RL-13 新 T-N22 行 / §14.1-6 / §15 S9–S16）+
+夹具（`domainStateUpdatePreNarrow/domainStateUpdate/domainStateUpdateMUT11` 触发体模型、
+`run_T_N22`、摘要注册表判据、S16、S4 32、S9 十一条、MUT-11 终检）+ `G2-DEV-PLAN.md`（PR-8 范围行
+四处改造、§4.1 计数 11、§2 夹具计数 60）。
+
+**夹具证据（负例在夹具面常驻）**：T-N22 六面——(a) **现体连纯 ns 都拒**（P1-1 反例的常驻复跑，
+从此不再只活在一次性脚本里）；(b) 窄化体放行纯 ns 且零碰其余列；(c) 五个非位置列 ×{单改, 连带 ns}
+**十形全拒**（「非位置列改写仍被拒」的负例面）；(d) 摘要未登/漂移/删除（ABSENT）三形态打开红、
+重登后绿；(e) REPLACE/DELETE 面照拒；(f) MUT-11（把「窄化」写成全量放行 UPDATE 的架空体）放过
+同一负例 ⇒ 判别力配对断言。
+
+**实测（真实退出码，2026-11-01 本席落地后复跑）**：RL 夹具 **60 PASS / 0 FAIL，exit 0**（57→60：
++T-N22、+S16、+MUT-11 终检）；EA 51 exit 0、FM 35 exit 0 零漂移（R-8 不触彼面）。
+
+**需回填**：PR-8 承接触发体改造 + `SCHEMA_VERSION` 推进 + 期望摘要外置同批（已写入 `G2-DEV-PLAN.md`
+PR-8 范围行与进入门禁）；矩阵 RL/MUT 构成长句与 §2 夹具计数由矩阵席按「RL 60 / T-N1..N22 / MUT 11」重锚
+（矩阵是本席禁改面）。**仍开放**：真库对应物（真触发器 SQL 的 T-N22 化）在 PR-8 落地前只是模型形；
+期望摘要的**外置正源文件**尚未立（G1-STORAGE-02 的范围，本席只钉义务不代做）。
+
+## 12. R-9（工程审查 P1-2 + P1-3）—— DONE 锚点真值校验 + `synth:raw-intake` 登记提前
+
+**P1-2 裁决**：`g1-checklist-validate.mjs` 的 DONE-EVIDENCE / SUPERSESSION-EVIDENCE 补**真值段**——
+形态合规之后，锚里的提交号必须 `git cat-file -e <sha>^{commit}` 通过（先例：g0-gate 基线
+`generated_from_commit` 的祖先判据，同一「git 即锚点仓库」）；路径必须存在（先例：本文件 PLAN-PATH
+「对账对象不许是幽灵路径」；两候选根 existsSync + `git ls-files *basename` 后缀兜底——现存合法形态
+G1-DONE-04 的裸 basename 引用靠它转绿）；git 不可用/清单在树外 ⇒ fail-closed 全点名。
+supersession_reason 的锚**只判形态**（理由为叙事文本，证据面真值由 SUPERSESSION-EVIDENCE 把门），
+分工写死在校验器注释与头注。**边界如实**：机器证「锚点存在」，**不证**「锚点内容支持该结论」——
+真锚空转仍是人工审查面（头注「已知边界」新条）。
+
+**先复现后修（证据链）**：修**前**，审查席与本席各自构造「27 条全 done + 假提交号 `abcdef0` +
+幽灵路径 `ghost-evidence-does-not-exist.md`」洗白形，跑 `--file fake.yaml --require-clear` ⇒
+**FAKE_CLEAR_EXIT=0、违规=0**（同日旁证：`git cat-file -t abcdef0` ⇒ exit 128「not a commit」；
+`ls ghost-evidence-does-not-exist.md` ⇒ exit 2）——「今天的绿」坐实。修**后**同一文本 ⇒
+**exit 1、DONE-EVIDENCE ×54 逐条点名**（`.scratch/fakerun.log`）。该反例以 **M21** 常驻自验。
+
+**变异常驻（先证伪再修绿，四侧钉死）**：M18 done+假提交号 ⇒ 红；M19 done+不存在路径 ⇒ 红；
+M20 done+HEAD 实测提交号+真实文件 ⇒ **必须绿**（新增 expect 类型 `CLEAN`——真值校验不得成误伤闸）；
+M21 §E4 终局洗白全形 ⇒ 红。`--self-test` **21/21 全部捕获，exit 0**。
+
+**P1-3 裁决**：`synth:raw-intake` 的「登记进 `ownsEventTypes` + 命令 Port 改道」义务**从 PR-10 提前
+进 PR-2**（消费批次）。理由：PR-2 正是把通用 `appendLedger` 收敛为机制内部原语（deny-by-default
+翻转）的 PR，而 `IntakeUseCase.intake()` 今天就走通用通道且作者套件钉着「ledger 写入成功」——
+翻转与消费同批 ⇒ 登记必须同批，否则 225 例当场红。不放 PR-1（其明文「任何域名不得进账」，登记先于
+消费只造空转窗）。姊妹先例 = `synth:fact-designation`（D-20：登记 + 命令 Port 同批收口，实测在案）。
+`G2-DEV-PLAN.md` 同步：PR-2 范围/退出门禁 + PR-10 基数收缩注记 + **§2 通用退出门禁铁律**——任一 PR
+退出 = 落地后 `g0-gate` 仍 exit 0 ∧ 作者套件无新红（225/225 锚定 + passed_sha256/files_sha256 逐等，
+「0 红是硬条件」；计数随 §4.2 重锚，不变式不变）；**禁止「改测试让它接受拒写」消缝**（违 Q37/B-1
+Raw Intake 容错，把违例从代码面搬进测试面）。
+
+**本轮实际改了什么**：`g1-checklist-validate.mjs`（头注两规则 + 已知边界 + 用法注；
+`makeAnchorChecker` 工厂接进 done/supersession_evidence 两处；M18–M21 + `CLEAN` 期望型）+
+`G2-DEV-PLAN.md`（铁律 / PR-2 / PR-10 / PR-0 自验计数）。**零碰** `G1-RECONCILIATION-CHECKLIST.yaml`
+（数据文件禁改——G1-DONE-04 的裸 basename 锚靠 ls-files 兜底转绿，不需要动它）。
+
+**实测（2026-11-01）**：`--self-test` **21/21 exit 0**；主清单日常门 exit 0（真锚零误伤）；
+`--require-clear` 主清单 exit 1（预期红，NO-GO 阶段）；洗白形 exit 1（修前 0）。
+
+**需回填**：`G1-RECONCILIATION-CHECKLIST.yaml` 头注第 10 行「17 条形变：…M14–M17…」已过期（现 21 条：
+M1–M17 + M18–M21，且名册本来就漏数 M13——复核：原文 M8–M12 后直接跳 M14，名册与计数本就不一致）——
+该文件是本席禁改面，由数据文件责任席重锚；矩阵 §4 放行表与 READINESS 若引用「17/17」同步改 21/21
+（矩阵席）。**仍开放**：真锚空转（内容不支撑结论）无机验——登记为人工审查面，不许被 M20 判绿误读。
+
+## 13. R-10（工程审查 P2×3）—— PR-9 补 `snapshot:update` / §3.1 并行带自相矛盾串行化 / 行号漂移重锚
+
+- **P2-1**：`G2-DEV-PLAN.md` W9 行与 PR-9 冻结面行补「**同一提交并跑 `pnpm run snapshot:update`**」
+  （工具名正源 `ARCHITECTURE.md` §7.2 在哈希冻结面内；PR-2/5/7/8 都有此条、PR-9 漏写；兜底
+  `check:freshness` 在，但排期面不依赖兜底）。
+- **P2-2**：`W3 ∥ W4` 并行带**作废**。旧声明与三处自证矛盾：§1 表 W4 依赖列自写「W2、W3（游标要
+  冻结的可见性谓词）」、PR-4 进入门禁「PR-3 exit 0」、依赖前序「PR-2、PR-3」。修法：§1 一行读法改
+  `W1 → W2 → W3 → W4 → W5 → {W6 ∥ W7} → W8 → W9 → W10`（旧句保留 + 作废注记 + 理由）；§3.1 删该行
+  （原位留删除注记）；§3.2 新增「PR-3 → PR-4」串行行——「正交谓词面 ≠ 非消费关系」，分页游标消费的
+  正是 PR-3 要裁的呈现形态，按旧并行行排期会把「把 oracle 形态编进工具面」（`E-01`/`D6-b` ②）变成现实。
+- **P2-3**：行号漂移重锚。§5-2 两处 EA 引用改「文件 + 小节名 + 判据文字」形（「不留豁免窗」句旧标
+  `:577-578`→现文 §9.2 条 2「所有权账范围」；「夹具世界迁移登记」旧标 `:613`→§9.4 条目），旧行号在
+  更正句里留名不作数；PR-0 进入门禁「17/17」→ 21/21（作废注记同批）；计划头注新增「**锚点纪律 /
+  行号漂移限定**」免责段（形照矩阵头注先例，判据文字优先于行号，新写引用一律不带裸行号）。
+  **审查点名的第三处（「17 条形变 M1–M14」名册）实体在 YAML 头注**——禁改面，登记于 R-9 需回填。
+
+**实测（真实退出码，R-8+R-9+R-10 全部落地后本席最后一次全量跑，2026-11-01）**
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `node g1/G1-CONTRACT-EVENT-AUTHORITY.fixtures.mjs` | **0** | 51 PASS / 0 FAIL（领域席 S19 轮值，零漂移） |
+| `node g1/G1-CONTRACT-FACET.fixtures.mjs` | **0** | 35 PASS / 0 FAIL（零漂移） |
+| `node g1/G1-CONTRACT-RELOCATION.fixtures.mjs` | **0** | **60** PASS / 0 FAIL（57→60：+T-N22 +S16 +MUT-11） |
+| `node g1-checklist-validate.mjs` | **0** | items=27 open=23 done=4 违规=0（真锚零误伤） |
+| `node g1-checklist-validate.mjs --self-test` | **0** | **21/21** 全部捕获 |
+| `node g1-checklist-validate.mjs --require-clear` | **1**（**预期红**） | NO-GO 阶段放行谓词未满足；违规=0 |
+| 洗白形 `--file .scratch/fakeroot/…/fake.yaml --require-clear` | 修前 **0** ⇒ 修后 **1** | P1-2 修复方向性证据（M21 常驻） |
+| `node g0-gate.mjs` | **0** | 三条流逐等：225 例全绿 + 身份锚四项逐等 + skip=0；审查方 33 条已知红逐等 |
+| `npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json` | **0** | 零诊断 |

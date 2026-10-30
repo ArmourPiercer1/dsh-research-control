@@ -3,7 +3,7 @@
   G1-CONTRACT-RELOCATION.fixtures.mjs —— 与 G1-CONTRACT-RELOCATION.md 互相对账的夹具。
 
   用法：node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.fixtures.mjs
-  退出码：0 = 契约结构自洽 + 正反例全命中 + 五条「架空判据必红」变异自验全部捕获；
+  退出码：0 = 契约结构自洽 + 正反例全命中 + 十一条「架空判据必红」变异自验全部捕获；
           1 = 有任一项 FAIL；2 = 夹具自身无法运行（缺文件等）。
 
   纪律：
@@ -318,6 +318,28 @@ function autoStampScan(w) { void w; return { stamped: 0, verdict: 'NO_AUTO_STAMP
 // 架空 MUT-10（常驻不删）：重定位顺带给无戳行盖章（gate 6「不越权代迁移器盖章」的违例形态）
 function autoStampScanMUT10(w) { let n = 0; for (const r of w.domain_state) if (r.contract_version === '' || r.contract_version == null) { r.contract_version = 'v3'; n += 1; } return { stamped: n, verdict: 'AUTO_STAMPED' }; }
 
+// ===== R-8（2026-11-01，工程审查 P1-1）：domain_state_no_update 窄化触发体（RL-5.2 第 3 处） =====
+// 现体（改造前，全禁 UPDATE）：RL-5.1 步 3 的纯 ns 改写在它下面当场被拒——rl51.mjs 的夹具化复钉。
+function domainStateUpdatePreNarrow(row, patch) { void row; void patch; throw new Refusal('DOMAIN_STATE_APPEND_ONLY'); } // domain_state_no_update（现体）
+// 窄化体（规范形，RL-5.2 第 3 处）：WHEN 等式清单 = 非位置列全列逐等；任一非位置列变化 ⇒ abort，
+// 信号文本逐字不变。opts.skipWhenClause = 架空 MUT-11（「窄化」写成全量放行 UPDATE）。
+const DOMAIN_STATE_POSITION_COL = 'ns';
+const DOMAIN_STATE_IMMUTABLE_COLS = ['oid', 'revision', 'payload_json', 'recorded_seq', 'contract_version']; // 与 RL-6.1 列语义表、契约 WHEN 清单三方逐等（S16）
+function domainStateUpdate(row, patch, opts = {}) {
+  if (opts.skipWhenClause) return { ...row, ...patch };                 // MUT-11：删 WHEN 等式核对 = 全量放行
+  const dirty = Object.keys(patch).some(c => c !== DOMAIN_STATE_POSITION_COL && patch[c] !== row[c]);
+  if (dirty) throw new Refusal('DOMAIN_STATE_APPEND_ONLY');             // 非位置列变化：窄化后仍拒
+  return { ...row, ...patch };
+}
+const domainStateUpdateMUT11 = (row, patch) => domainStateUpdate(row, patch, { skipWhenClause: true });
+// no_delete 面零改：DELETE 与 INSERT OR REPLACE（recursive_triggers=ON 的隐式删除）照拒——重定位不是删行通道
+function domainStateDelete() { throw new Refusal('DOMAIN_STATE_APPEND_ONLY'); } // domain_state_no_delete（一字未动）
+// REQUIRED_TRIGGERS 体摘要重锚（三件套①的可执行形态；打开判据 = 名在位 ∧ 体摘要与期望逐等，P-17 外置锚）
+const triggerBodyDigests = new Map(); // 期望摘要表（外置正源形）：name → 'sha256:<hex>'
+const triggerBodyRed = (name, liveBody) => !liveBody ? 'ABSENT'
+  : !triggerBodyDigests.has(name) ? 'UNREGISTERED'
+  : triggerBodyDigests.get(name) !== sha256(liveBody) ? 'DIGEST_MISMATCH' : null;
+
 function executeRelocation(w, id, by) {
   assertAdmin(by);
   const p = w.proposals.get(id); if (!p) throw new Refusal('RELOCATION_PRECONDITION', { failedGate: 'APPROVAL' });
@@ -410,7 +432,11 @@ const DECLARED = new Set(['RELOCATION_PRECONDITION', 'ROUTE_AUDIT_REQUIRED', 'RO
   // RL-4 封闭集的**门名**（detail.failedGate 取值，不是 RefusalCode 成员）+ 引用到的他契约存储层信号
   'FAILED_GATES', 'APPROVAL', 'REPAIR_PROVENANCE', 'AUTHORITY', 'ROUTE_STATE', 'NS_SHAPE', 'TARGET_UNCLAIMED',
   'TARGET_EMPTY', 'SOURCE_PARSEABLE', 'CONTENT_DIGEST', 'NO_INFLIGHT', 'CHAIN_INTACT', 'EPOCH_STABLE',
-  'MOUNT_ROW_FROZEN']);
+  'MOUNT_ROW_FROZEN',
+  // R-8（2026-11-01，工程审查 P1-1）：DOMAIN_STATE_APPEND_ONLY 是**既有存储层信号文本**
+  // （sqlite-port.ts 触发器 raise(abort) 原文，非新拒绝码——RefusalCode 封闭集零扩员）；
+  // DOMAIN_STATE_IMMUTABLE_COLS 是窄化等式清单的夹具常量名（RL-5.2 第 3 处三方逐等之夹具侧）。
+  'DOMAIN_STATE_APPEND_ONLY', 'DOMAIN_STATE_IMMUTABLE_COLS']);
 check('S3 契约内 backtick 全大写码全落「封闭拒绝码集 ∪ 新增声明码 ∪ 声明的存储/构建/状态信号」',
   [...tokensIn(doc)].every(t => CLOSED.has(t) || DECLARED.has(t)), [...tokensIn(doc)].filter(t => !CLOSED.has(t) && !DECLARED.has(t)).join(','));
 check('S3b 新增拒绝码恰一枚 = RELOCATION_PRECONDITION（其余全在现状封闭集 ∪ 声明的门名/信号文本）',
@@ -421,8 +447,8 @@ check('S3b 新增拒绝码恰一枚 = RELOCATION_PRECONDITION（其余全在现�
 
 const casesInDoc = [...doc.matchAll(/\|\s*(T-[PN]\d{1,2})\s*\|/g)].map(m => m[1]);
 const caseIds = [...SELF_SRC.matchAll(/^function run_T_([PN]\d{1,2})\(/gm)].map(m => 'T-' + m[1]);
-check('S4 正反例表与夹具双向一致（表内每 id 都有 run_*，无孤儿实现，计数相等=31）',
-  new Set(casesInDoc).size === caseIds.length && [...new Set(casesInDoc)].every(id => caseIds.includes(id)) && caseIds.length === 31,
+check('S4 正反例表与夹具双向一致（表内每 id 都有 run_*，无孤儿实现，计数相等=32）',
+  new Set(casesInDoc).size === caseIds.length && [...new Set(casesInDoc)].every(id => caseIds.includes(id)) && caseIds.length === 32,
   'doc=' + new Set(casesInDoc).size + ' fn=' + caseIds.length);
 
 const faultsInDoc = [...doc.matchAll(/\|\s*(F-\d\d)\s*\|/g)].map(m => m[1]);
@@ -451,9 +477,10 @@ check('S8 冻结关键句在位（自立/C6 撤销/不产生新科研事实/back
   && doc.includes('隔离并明确报告') && doc.includes('不得自动改写旧结论')
   && doc.includes('C6 撤销') && doc.includes('永久保留「事后修复」与「当时发生的合法迁移」之别'));
 
-check('S9 十条变异常驻本夹具（MUT-1..5 原有 + MUT-6 批准门 / MUT-7 封闭集护栏 / MUT-8 呈现面 / MUT-9 反向扫描 / MUT-10 自动补戳，R-1/R-3/R-4/R-5/R-6 各配一条）',
+check('S9 十一条变异常驻本夹具（MUT-1..5 原有 + MUT-6 批准门 / MUT-7 封闭集护栏 / MUT-8 呈现面 / MUT-9 反向扫描 / MUT-10 自动补戳，R-1/R-3/R-4/R-5/R-6 各配一条 + MUT-11 R-8 窄化体架空）',
   ['chainCheckMUT1', 'routeGuardMUT2', 'repairMUT3', 'routeGuardMUT4', 'routeGuardMUT5', 'mechanismNameGateMUT6',
-    'gateValueOkMUT7', 'callerSurfaceFreeOfShadowCountersMUT8', 'scanNsKeyedKeysMUT9', 'autoStampScanMUT10']
+    'gateValueOkMUT7', 'callerSurfaceFreeOfShadowCountersMUT8', 'scanNsKeyedKeysMUT9', 'autoStampScanMUT10',
+    'domainStateUpdateMUT11']
     .every(fn => new RegExp('(?:function|const) ' + fn + '\\b').test(SELF_SRC)));
 
 // —— 2026-11-01 跨契约对账留痕（R-1/R-3/R-5/R-6）：两侧条文互指，任一侧单独回滚即红 ——
@@ -477,6 +504,26 @@ check('S15 R-1 出口更正在本契约在位（「扫描面照旧 ≠ 调用方
   doc.includes('扫描面照旧 ≠ 调用方面照旧') && doc.includes('调用方可见响应体零')
   && doc.includes('hiddenBy*') && doc.includes('只进这一面')
   && eaDocX.includes('R-1 更正段') && eaDocX.includes('改的是出口'));
+
+// S16（R-8，工程审查 P1-1）：窄化触发体判据**三方逐等**——契约 WHEN 等式清单 ↔ RL-6.1 列语义表
+// （本夹具以常量列形）↔ 夹具 DOMAIN_STATE_IMMUTABLE_COLS；P-07 锚点错句按更正纪律**保留在位**
+// （划线不删除），三处不相容点名、no_delete 零改句、摘要重锚三件套句全部成文。
+check('S16 R-8 窄化等式清单三方逐等 + P-07 错锚更正就地留痕 + 三处不相容点名 + no_delete 零改 + 摘要重锚三件套在位',
+  (() => {
+    const whenBlock = (doc.match(/when not \(([\s\S]*?)\)\s*begin/) ?? [])[1] ?? '';
+    const cols = [...whenBlock.matchAll(/new\.(\w+) is old\.\1/g)].map(m => m[1]);
+    const whenEq = new Set(cols).size === cols.length && new Set(cols).size === DOMAIN_STATE_IMMUTABLE_COLS.length
+      && DOMAIN_STATE_IMMUTABLE_COLS.every(c => cols.includes(c));
+    const tableEq = TABLE_SCHEMA.domain_state.filter(c => c !== DOMAIN_STATE_POSITION_COL)
+      .every(c => DOMAIN_STATE_IMMUTABLE_COLS.includes(c))
+      && DOMAIN_STATE_IMMUTABLE_COLS.every(c => TABLE_SCHEMA.domain_state.includes(c));
+    return whenEq && tableEq
+      && doc.includes('三处不相容') && doc.includes('R-8')
+      && doc.includes('无不可变性触发器') && doc.includes('~~**无不可变性触发器**~~')   // 旧错句保留（划线更正，非静默覆盖）
+      && doc.includes('domain_state_no_delete') && doc.includes('一字不动')
+      && doc.includes('名保留、体摘要重登') && doc.includes('本契约不钉死数字');
+  })(),
+  'WHEN 清单与常量集不等或更正句缺位');
 
 check('S10 链诚实分层（6.5a 界内防御 vs 界外登记边界）与 RL-INFO 单一判据在位，且未把检测写成防御',
   doc.includes('6.5a 链的诚实分层') && doc.includes('relocationGapCount') && doc.includes('是检测，不是防御')
@@ -749,17 +796,51 @@ function run_T_N21() { // R-6 负例：重定位不是盖章通道；MUT-10（�
   return true;
 }
 
+// T-N22（R-8，工程审查 P1-1）：窄化触发体的**两侧**判据 + 摘要重锚义务 + REPLACE 旁路封堵。
+// (a) 现体连纯 ns 都拒（P1-1 反例的常驻复跑，不再只活在 /tmp 一次性脚本里）；(b) 窄化体放行纯 ns；
+// (c) 五个非位置列 × {单改, 连带 ns 一起改} 十形全拒；(d) 体改了摘要没登 ⇒ 打开红，重登后绿，
+// 体再漂移又红（「删定义」= ABSENT 照红）；(e) REPLACE/DELETE 面一字未动照拒；(f) MUT-11 判别力。
+function run_T_N22() {
+  const row = { ns: 'ns-1', oid: 'O1', revision: 1, payload_json: '{"v":1}', recorded_seq: 7, contract_version: 'v3' };
+  let preBlocked = null; try { domainStateUpdatePreNarrow(row, { ns: 'ns-2' }); } catch (e) { preBlocked = e.code; }
+  if (preBlocked !== 'DOMAIN_STATE_APPEND_ONLY') return '现体未拒纯 ns UPDATE（反例复钉失败）：' + preBlocked;
+  const moved = domainStateUpdate(row, { ns: 'ns-2' });
+  if (moved.ns !== 'ns-2' || DOMAIN_STATE_IMMUTABLE_COLS.some(c => moved[c] !== row[c])) return '纯 ns 改写应过且零碰其余列';
+  const noop = domainStateUpdate(row, { ns: 'ns-1' }); // no-op 是无害退化形（契约明写不加判据）
+  if (JSON.stringify(noop) !== JSON.stringify(row)) return 'no-op UPDATE 不该产生任何字节变化';
+  for (const col of DOMAIN_STATE_IMMUTABLE_COLS) {
+    for (const patch of [{ [col]: col + '#tampered' }, { ns: 'ns-3', [col]: col + '#tampered' }]) {
+      let blocked = null; try { domainStateUpdate(row, patch); } catch (e) { blocked = e.code; }
+      if (blocked !== 'DOMAIN_STATE_APPEND_ONLY') return `非位置列 ${col}（${'ns' in patch ? '连带ns' : '单改'}）未被拒`;
+    }
+  }
+  const oldBody = 'BEGIN RAISE(abort, DOMAIN_STATE_APPEND_ONLY) FOR-ALL-UPDATE END';
+  const newBody = 'WHEN NOT (new.oid is old.oid AND ...5-cols...) BEGIN RAISE(abort, DOMAIN_STATE_APPEND_ONLY) END';
+  if (triggerBodyRed('domain_state_no_update', newBody) !== 'UNREGISTERED') return '体改了摘要未登应红（未登记形态漏网）';
+  triggerBodyDigests.set('domain_state_no_update', sha256(oldBody));
+  if (triggerBodyRed('domain_state_no_update', newBody) !== 'DIGEST_MISMATCH') return '旧摘要在场、体已换应红';
+  triggerBodyDigests.set('domain_state_no_update', sha256(newBody));
+  if (triggerBodyRed('domain_state_no_update', newBody) !== null) return '重登后仍红（重登应放行）';
+  if (triggerBodyRed('domain_state_no_update', newBody + '#drift') !== 'DIGEST_MISMATCH') return '体再漂移未被抓';
+  if (triggerBodyRed('domain_state_no_update', '') !== 'ABSENT') return '「删定义」形态未被拦（P-17 违例）';
+  let delBlocked = null; try { domainStateDelete(); } catch (e) { delBlocked = e.code; }
+  if (delBlocked !== 'DOMAIN_STATE_APPEND_ONLY') return 'no_delete 面被改动（重定位不是删行通道）';
+  let mutPassed = false; try { mutPassed = domainStateUpdateMUT11(row, { payload_json: '#tampered' }).payload_json === '#tampered'; } catch { mutPassed = false; }
+  if (!mutPassed) return 'MUT-11 架空体没放过改写——窄化判据对架空失去判别力';
+  return true;
+}
+
 const CASE_RUNNERS = { run_T_P1, run_T_P2, run_T_P3, run_T_P4, run_T_P5, run_T_P6, run_T_P7, run_T_P8, run_T_P9,
   run_T_N1, run_T_N2, run_T_N3, run_T_N4, run_T_N5, run_T_N6, run_T_N7, run_T_N8, run_T_N9, run_T_N10,
   run_T_N11, run_T_N12, run_T_N13, run_T_N14, run_T_N15, run_T_N16,
-  run_T_P10, run_T_N17, run_T_N18, run_T_N19, run_T_N20, run_T_N21 };
+  run_T_P10, run_T_N17, run_T_N18, run_T_N19, run_T_N20, run_T_N21, run_T_N22 };
 for (const id of caseIds) {
   const fn = CASE_RUNNERS['run_' + id.replace('-', '_')];
   let out; try { out = fn(); } catch (e) { out = '抛异常：' + e.message; }
   check('CASE ' + id, out === true, typeof out === 'string' ? out : '');
 }
 
-// ============================================================ 架空判据必红（五条自验，变异常驻）
+// ============================================================ 架空判据必红（十一条自验，变异常驻）
 
 // 共用负例世界：cap-a 出生 nsA、路由 nsA，待切到 nsB
 function mutWorld(auditRow) { const w = worldTwo(); w.meta.ledger_seq = 200; if (auditRow) { auditRow.seq = ++w.meta.ledger_seq; w.ledger.push(auditRow); } return { w, seq: w.meta.ledger_seq }; }
@@ -796,6 +877,11 @@ check('MUT-10 架空「重定位顺带盖章」被 T-N21 判据区分（真判�
   (() => { const w = mkWorld(); addState(w, 'ns-1', 'OZ', 1, { v: 1 }, 1, ''); const before = JSON.stringify(w.domain_state);
     return autoStampScan(w).stamped === 0 && JSON.stringify(w.domain_state) === before
       && autoStampScanMUT10(w).stamped === 1 && JSON.stringify(w.domain_state) !== before; })());
+check('MUT-11 架空「窄化=全量放行 UPDATE」被 T-N22 判据区分（真窄化体拒非位置列改写、架空的放过同一负例）',
+  (() => { const row = { ns: 'ns-1', oid: 'O1', revision: 1, payload_json: '{"v":1}', recorded_seq: 7, contract_version: 'v3' };
+    let realBlocked = false; try { domainStateUpdate(row, { payload_json: '#tampered' }); } catch (e) { realBlocked = e.code === 'DOMAIN_STATE_APPEND_ONLY'; }
+    let mutPassed = false; try { mutPassed = domainStateUpdateMUT11(row, { payload_json: '#tampered' }).payload_json === '#tampered'; } catch { mutPassed = false; }
+    return realBlocked && mutPassed; })());
 
 process.stdout.write('\n合计：' + pass + ' PASS / ' + fail + ' FAIL\n');
 if (fail > 0) { process.stdout.write('未通过项：\n  ' + fails.join('\n  ') + '\n'); process.exitCode = 1; }

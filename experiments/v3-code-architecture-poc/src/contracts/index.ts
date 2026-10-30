@@ -139,6 +139,20 @@ export type RefusalCode =
   // 签发者）。与 AUTHORITY_REQUIRED（缺授权轴）、CAPABILITY_SCOPE_ESCAPE（改他人对象）分属三回事。
   // 语义与适用面全文见 CONTRACTS.md §16.2——插件可见面变化（拒绝码会到达插件代码）。
   | 'EVENT_AUTHORITY_REQUIRED'
+  // D-31（外部复审第五席 G5-A，包 6，CONTRACTS.md §16.3）：移交通道**不携 ns**——移交的原语义
+  // 只是改 Capability→Plugin 映射，携 ns 会永久毒化既有对象的全部读面（一次合法 capability-admin
+  // 操作 = 全库双时间读面死亡）。入口判据：清单声明的 storageNamespace 与当前生效路由 ns 不同
+  // 即拒，判据在开事务/落账/改路由之前，零半成品。ns 迁移另立显式通道（机制没有，不拿移交凑数）。
+  | 'TRANSFER_NS_DRIFT'
+  // D-21（G5-A，包 6，CONTRACTS.md §16.3）：保留前缀 id 收归机制计数器——`RPT-` 是机制报告
+  // 身份 namespace，任何显式声明通道携带保留前缀即拒（引用已存在的 RPT-* 不受影响）。
+  // 否则任何 space-write 主体可滚动预占 ⇒ 合法报告提交持续撞 RECORD_ALREADY_DECLARED。
+  | 'RECORD_ID_RESERVED'
+  // N9 残余（G5-A，包 6，CONTRACTS.md §16.3）：`meta.ledger_seq` 水位落后于 ledger 历史时，
+  // 下一次机制发号撞 `UNIQUE constraint failed: ledger.seq`。此前该**裸驱动文本**越过 Storage
+  // Port 边界（违例已登记）；现由 translate() 包装为本码——需修复、不可重试，驱动文本仅存
+  // detail 作证据。打开路径另有 `max(ledger.seq) ≤ 水位` 判据；本码覆盖会话内落后的窗口。
+  | 'LEDGER_SEQ_CONFLICT'
   | 'PROJECTION_UNAVAILABLE'; // 投影落后/缺口且调用方要求一致完整
 
 /** 领域扩展拒绝码：强制前缀，避免与 Kernel 封闭集混淆或被误当成机制语义。 */

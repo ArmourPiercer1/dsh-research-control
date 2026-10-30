@@ -8,6 +8,7 @@
  *  - `journal` 允许删除与压缩 ⇒ 它不是 H（#44 §7.4），缺口由 Kernel 的游标校验暴露。
  */
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { Refusal } from '../contracts/index.ts';
 import type { RawTx, StoragePort } from '../contracts/index.ts';
 import { assertInsidePocData } from '../harness/paths.ts';
@@ -97,12 +98,21 @@ begin select raise(abort, 'ROUTE_SHAPE_FROZEN'); end;
 -- 变更三判据（机制判据，不是运维约定）：
 -- ① changed_seq 严格单调递增——钉死的是「戳只能前进」，不是「戳有意义」（ghost 戳见残余登记）；
 -- ② 审计随附：ledger 必须已存在 seq=new.changed_seq、事件类型合名单、payload.capability
---    字面相符的行（kernel 三个写方已改为先写 ledger 后改路由；BEFORE 触发器逐语句判，账必须在先）。
---    json_valid 先行是防御：payload 不是合法 JSON 的行不得让判据整体炸成不透明错误；
+--    字面相符、actor 非空且 authority_basis 携带 N1 同信封的机制见证（axis=capability-admin、
+--    capability 字面相符、authorized=1）的行（kernel 三个写方已改为先写 ledger 后改路由；
+--    BEFORE 触发器逐语句判，账必须在先）。json_valid 先行是防御：非法 JSON 的行不得让判据
+--    整体炸成不透明错误。
+--    **D-27 真修（G5-A 包 6，CONTRACTS.md §16.3）追加「机制落账」判据**：审计行必须
+--    actor 非空且 authority_basis 携带 N1 同信封的机制见证（axis=capability-admin、
+--    authorized=1）——只查形状 = 把谎言写进删不掉的表：G5-A 实测任何 space-write 主体
+--    经通用台账通道 mint 的行与机制真账逐列同形（actor 本就是主体自报值），**只做名字
+--    预留不核见证，攻击者用真实 actor mint 仍过闸**（席位 ③ 判据，专用用例+变异钉住）。
 -- ③ 方向一致：翻 enabled 必须配 capability-enabled/disabled 的对应方向事件，改路由三元组
 --    必须配 capability-transferred。
--- 诚实边界：裸面可先向 append-only 的 H 写一条形态齐全的审计行再过闸——触发器钉死的是
--- **无痕变更**；伪造从此必留痕、删不掉，处置归运维/审计（CONTRACTS.md §16.2 包 5 存储纪律）。
+-- 诚实边界（D-27 真修后收窄但**未归零**）：kernel 两条通用台账通道已被机制审计名预留封死；
+-- 裸面（port.raw DML / 裸文件）仍可向 append-only 的 H 写一条**连见证列一起伪造**
+-- 的行再过闸——见证把伪造成本从「随便一行」抬到「必须在见证列撒谎」，痕迹不可删，
+-- 处置归运维/审计（CONTRACTS.md §16.2 包 5 存储纪律 + §16.3 边界登记）。
 create trigger if not exists route_change_guarded before update on capability_route
 begin
   select case when old.changed_seq is not null
@@ -112,8 +122,15 @@ begin
       select 1 from ledger l
        where l.seq = new.changed_seq
          and l.event_type in ('capability-enabled','capability-disabled','capability-transferred')
+         and l.actor is not null
          and json_valid(l.payload_json)
-         and json_extract(l.payload_json, '$.capability') = new.capability)
+         and json_extract(l.payload_json, '$.capability') = new.capability
+         -- D-27 真修（G5-A 包 6）：机制落账见证（N1 同信封）——无见证 / 见证不成立 = 审计行不是机制写的。
+         and l.authority_basis is not null
+         and json_valid(l.authority_basis)
+         and json_extract(l.authority_basis, '$.axis') = 'capability-admin'
+         and json_extract(l.authority_basis, '$.capability') = new.capability
+         and json_extract(l.authority_basis, '$.authorized') = 1)
           then raise(abort, 'ROUTE_AUDIT_REQUIRED') end;
   select case
     when new.enabled <> old.enabled and not exists (
@@ -267,8 +284,12 @@ class Adapter implements RawTx {
  * 纳入 `REQUIRED_TRIGGERS`——摘掉任何一条就不算同一套模式。
  * 打开路径纪律不变：既有旧库一律 `SCHEMA_UPGRADE_REQUIRED` fail-loud，不隐式迁移
  * （PoC 测试世界每次新建库、不承担 v5→v6 迁移债，同包 3 先例；实施期旧库迁移器需显式补写并登记）。
+ * v6→v7（包 6，G5-A）：`route_change_guarded` 的审计存在性判据追加「机制落账」见证核
+ * （actor 非空 + authority_basis 的 capability-admin 信封，D-27 真修）。触发器体变了 ⇒
+ * 与 v6 库**不算同一套模式**（打开路径按名比对之外现在还核 SQL 体摘要，见 REQUIRED_TRIGGERS 后）；
+ * 既有旧库照旧 fail-loud，不隐式迁移。
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 const REQUIRED_TABLES = [
   'meta', 'ledger', 'records', 'check_report', 'object_directory', 'domain_state',
   'journal', 'capability_route', 'projection_state', 'ref_edge',
@@ -284,6 +305,31 @@ const REQUIRED_TRIGGERS = [
   'directory_no_delete', 'directory_birth_audited',
   'meta_counter_monotonic', 'meta_ledger_seq_no_delete',
 ] as const;
+
+/**
+ * F5c（G5-A 包 6，CONTRACTS.md §16.3）：必备触发器从**名字比对**升级为**名字 + SQL 体摘要**。
+ * 席位实测：摘掉触发器再建**同名空壳**，名字判据重开全绿、保护全灭——名字集合对
+ * 「体被掏空」失明。期望摘要在模块加载时于**内存基准库**上 `exec(SCHEMA)` 后读回
+ * `sqlite_master` 计算——**不手工维护摘要表**：SCHEMA 是唯一正源，改 SCHEMA 期望自动跟着变
+ * （手写摘要 = 判据自身的腐烂面）。归一化只做排版（折叠空白、`if not exists` 差异——
+ * sqlite_master 存文本会剥去它并把头部大写），不改语义字符；同体异形（重排空白）不报警，
+ * 同名异体（空壳、改逻辑）必报警。
+ * 残余登记：字节级同体重建（原样抄回）仍在承诺盲区——那要求持有裸面且伪造结果 = 保持
+ * 不变量成立；真正的防线仍是触发器把守数据面，摘要判据钉的是「打开时声明的保护就是这套」。
+ */
+const normalizeTriggerSql = (sql: string): string =>
+  sql.trim().replace(/\s+/g, ' ').replace(/^create trigger if not exists /i, 'create trigger ');
+const expectedTriggerDigests: ReadonlyMap<string, string> = (() => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec(SCHEMA);
+    const rows = db.prepare(`select name, sql from sqlite_master where type='trigger'`).all() as
+      { name: string; sql: string | null }[];
+    return new Map(rows
+      .filter((r) => r.sql !== null)
+      .map((r) => [r.name, createHash('sha256').update(normalizeTriggerSql(r.sql as string)).digest('hex')]));
+  } finally { db.close(); }
+})();
 
 export interface SqlitePortOptions {
   readonly file: string;
@@ -359,12 +405,42 @@ export class SqlitePort implements StoragePort {
         idCounter: counter, maxExistingOidSuffix: maxOid, expectedVersion: SCHEMA_VERSION,
       });
     }
+    // F5b（G5-A 包 6，CONTRACTS.md §16.3）：**水位判据**——`max(ledger.seq) ≤ meta.ledger_seq`。
+    // 与上一条同族（「计数器落后于账本」在打开期必须可判定）：席位实测归零水位后重开全绿、
+    // 首次机制提交以裸驱动主键冲突越界。合法形态恒满足 `≤`（发号先行、行可回滚缺席）；
+    // 违例（归零/倒退/ghost 号前占）一律拒绝打开，修复交显式运维路径。
+    const ledgerMaxSeq = (this.db.prepare(`select coalesce(max(seq), 0) m from ledger`).get() as { m: number }).m;
+    const watermark = (this.db.prepare(`select value from meta where key='ledger_seq'`).get() as { value: number } | undefined)?.value ?? 0;
+    if (ledgerMaxSeq > watermark) {
+      throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
+        file: this.file, reason: 'ledger_seq 水位落后于台账历史（归零/倒退/ghost 号），下一次发号必撞既有 seq',
+        ledgerMaxSeq, ledgerSeqWatermark: watermark, expectedVersion: SCHEMA_VERSION,
+      });
+    }
 
     if (missingTables.length > 0 || missingTriggers.length > 0) {
       // 版本对得上但表/触发器缺失：不可变性可能已被拆除，静默补齐等于假装它一直在
       throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
         file: this.file, reason: '版本一致但表集/触发器集不完整', missingTables, missingTriggers,
         expectedVersion: SCHEMA_VERSION,
+      });
+    }
+    // F5c（G5-A 包 6，CONTRACTS.md §16.3）：名字齐了还要核**体**——同名空壳摘保护在名字
+    // 判据下隐形。摘要期望由模块加载时的 SCHEMA 基准库算得（唯一正源，见 expectedTriggerDigests）。
+    const alteredTriggers: string[] = [];
+    {
+      const stmt = this.db.prepare(`select sql from sqlite_master where type='trigger' and name=?`);
+      for (const name of REQUIRED_TRIGGERS) {
+        const stored = stmt.get(name) as { sql: string | null } | undefined;
+        const expected = expectedTriggerDigests.get(name);
+        if (stored === undefined || stored.sql === null || expected === undefined) continue; // 缺名/缺基准走既有判据
+        if (createHash('sha256').update(normalizeTriggerSql(stored.sql)).digest('hex') !== expected) alteredTriggers.push(name);
+      }
+    }
+    if (alteredTriggers.length > 0) {
+      throw new Refusal('SCHEMA_UPGRADE_REQUIRED', {
+        file: this.file, reason: '必备触发器名字在位但 SQL 体与本实现不符（同名空壳/改体——保护可能已被同名替换掏空）',
+        alteredTriggers, expectedVersion: SCHEMA_VERSION,
       });
     }
     // 模式新但历史旧：records 表出现之前合法声明过的记录只活在 ledger.record_id 里。
@@ -411,7 +487,18 @@ export class SqlitePort implements StoragePort {
 
   close(): void { this.db.close(); }
 
-  get raw(): RawTx { return this.adapter; }
+  /**
+   * `port.raw`（装配根/运维/测试界外面）——**包 6 二选一裁决：取守卫**（CONTRACTS.md §16.3）。
+   * 拒绝 **PRAGMA 赋值形** / DDL / ATTACH 与多语句：`recursive_triggers` 连接态从此**经本 Port
+   * 交出的任何句柄都关不掉**（G5-A 新洞2：此前 raw 一条 `pragma recursive_triggers=off` 即拆掉
+   * 全部 REPLACE 系触发器防线，且关闸写入重开不可检出）。PRAGMA 裸读形（`pragma <name>`）
+   * 与 DML 放行——前者只读连接态，后者是界外面的本职（运维修复、审计夹具、攻击锚点）：
+   * REPLACE/upsert 仍**放行到触发器**受拒，「触发器不豁免写形」的既有锚不得被守卫截胡。
+   * **如实边界（不写过头话）**：手工 `new DatabaseSync` / 裸文件不在任何承诺内（默认
+   * `recursive_triggers=OFF`），关闸写入的数据重开不可检出；`raw` 的 DML 仍可伪造数据行
+   * （含伪造审计行与见证列）。"存储不变量对持有裸文件者不设防"为真，登记为运维界。
+   */
+  get raw(): RawTx { return guardRawBoundary(this.adapter); }
 
   get file(): string { return this.opts.file; }
 }
@@ -425,6 +512,18 @@ function translate(e: unknown): unknown {
   if (err?.errcode === 5 || err?.errcode === 6) {   // SQLITE_BUSY / SQLITE_LOCKED
     return new Refusal('TX_CONTENTION', {
       retryable: true, driverErrcode: err.errcode, driverMessage: String(err.message ?? '').slice(0, 120),
+    });
+  }
+  // N9 残余（G5-A 包 6，CONTRACTS.md §16.3）：`UNIQUE constraint failed: ledger.seq` 此前以
+  // **裸驱动文本**越过「驱动词汇不得越过 Storage Port 边界」的既有纪律——违例已登记 READINESS。
+  // 现包装为机制码：水位落后于台账（归零/倒退在会话中发生），发号撞既有 seq。
+  // **不可重试**：重试只会再撞同一号——修复是运维/迁移动作，不是调用方动作。
+  // 驱动文本只留在 detail 作证据（TX_CONTENTION 同法）。
+  if (err?.errcode !== undefined && (err.errcode & 0xff) === 19 && /ledger\.seq/.test(String(err.message ?? ''))) {
+    return new Refusal('LEDGER_SEQ_CONFLICT', {
+      retryable: false,
+      reason: 'meta.ledger_seq 水位落后于台账历史（会话内被归零/倒退），下一次发号必撞既有 seq；需显式修复或恢复',
+      driverErrcode: err.errcode, driverMessage: String(err.message ?? '').slice(0, 120),
     });
   }
   return e;
@@ -488,6 +587,35 @@ function guardRead(raw: RawTx): RawTx {
       throw new Refusal('RAW_SQL_REFUSED', { reason: '只读句柄只允许 SELECT/WITH', sql: sql.slice(0, 60) });
     }
     if (/;\s*\S/.test(head)) throw new Refusal('RAW_SQL_REFUSED', { reason: '不得经机制句柄提交多语句', sql: sql.slice(0, 60) });
+  };
+  return {
+    run: (sql, ...p) => { check(sql); return raw.run(sql, ...p); },
+    all: (sql, ...p) => { check(sql); return raw.all(sql, ...p); },
+    get: (sql, ...p) => { check(sql); return raw.get(sql, ...p); },
+  };
+}
+
+/**
+ * `port.raw` 的边界守卫（包 6，G5-A 新洞2 修法「二选一取守卫」，CONTRACTS.md §16.3）。
+ * 拒绝：**全部 DDL**（`FORBIDDEN_KEYWORD` 头部词表，与机制写句柄同源 + `normalizeSql` 剥注释）、
+ * **PRAGMA 赋值形**（`pragma x = off` / `pragma x(v)`——关不变量的正是赋值）、多语句。
+ * 放行：DML（REPLACE/upsert 仍**到触发器**受拒，「触发器不豁免写形」的锚不得被这层截胡）
+ * 与 **PRAGMA 裸读形**（`pragma <name>`，无赋值无参数——既有绿锚 n9 正是用它核对连接态；
+ * 读不改状态，写才改）。误杀方向安全（拒而不放行）；词法边界与 D-30 登记同族。
+ */
+const BARE_PRAGMA_READ = /^pragma\s+[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?\s*$/i;
+function guardRawBoundary(raw: RawTx): RawTx {
+  const check = (sql: string): void => {
+    const head = normalizeSql(sql);
+    if (FORBIDDEN_KEYWORD.test(head) && !BARE_PRAGMA_READ.test(head)) {
+      throw new Refusal('RAW_SQL_REFUSED', {
+        reason: 'DDL / PRAGMA 赋值形 / ATTACH 不得经 port.raw 执行（包 6：经 Port 交出的句柄关不掉连接态不变量；裸读形放行）',
+        sql: sql.slice(0, 60),
+      });
+    }
+    if (/;\s*\S/.test(head)) {
+      throw new Refusal('RAW_SQL_REFUSED', { reason: '不得经 port.raw 提交多语句', sql: sql.slice(0, 60) });
+    }
   };
   return {
     run: (sql, ...p) => { check(sql); return raw.run(sql, ...p); },

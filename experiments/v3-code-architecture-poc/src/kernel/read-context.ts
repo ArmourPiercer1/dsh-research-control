@@ -33,7 +33,13 @@ export interface ReadResult {
      * 且只看形状不解释含义 ⇒ 仍是机制判定，不是科研语义。
      */
     readonly timeFieldMissing: boolean;
-    /** 第三种空：行由不同契约版本写入，形状不由当前读者保证 ⇒ 剔除并计数（同上，只给数量）。 */
+    /**
+     * 第三种空：行的**写入方不被当前读者保证** ⇒ 剔除并计数（同上，只给数量不给身份）。
+     * D-24 读侧（G5-A 包 6，CONTRACTS.md §16.3）语义加宽，三种成因归同一计数器：
+     * 契约版本偏差（F-27）/ 路由 ns 漂移（F-03 形状）/ 归属不符——他 ns 的行以他人 oid
+     * 出现（快照面按属主 ns 判定本就看不到，扫描面对齐）。同一信息面、同一处置面，
+     * echo 键集保持不变（冻结裁决附件钉着它）。
+     */
     readonly hiddenByContractSkew: number;
   };
 }
@@ -62,37 +68,46 @@ export function readAsOf(k: Kernel, spec: ReadContextSpec, page?: { readonly lim
     // 而此前只有快照面真的在用它）。两种分歧在这里的形态不同，且都必须与快照面同形：
     //  · 能力未启用/未装配 ⇒ 快照面报 CAPABILITY_INACTIVE；扫描面没有"这个对象"可报，
     //    于是把该行剔除——留着就是"禁用期双时间面还在端出对象"（F-24）。
-    //  · 命名空间漂移 ⇒ 快照面报 SCHEMA_INCOMPATIBLE；这里同样抛出，不把旧实现形状的
-    //    payload 交给当前读者（F-03 泄漏面）。
+    // D-24 读侧（G5-A 包 6，CONTRACTS.md §16.3）补两条：
+    //  · **归属判定共用**：扫描查询带上行 `ns`，行 ns 必须等于该对象的有效归属 ns
+    //    （= `routeNs` 的返回值，与快照面 `where ns=?` 用的是同一个函数的同一个输出）。
+    //    他人 ns 冒名行、合法 Facet 挂载行在快照面本就不可见，扫描面从此对齐——
+    //    「同一对象同一时刻两个答案」终结。归属不符 ⇒ 剔除并计数。
+    //  · 命名空间漂移（dir.ns ≠ 生效路由 ns）⇒ 快照面对该对象报 SCHEMA_INCOMPATIBLE；
+    //    扫描面**计数不上抛**（旧行为整页炸死：一个漂移对象毒掉每一个历史截点页，
+    //    §14.5 扫描面分界原则——空页正是最禁止被误读成「没有」的形态）。
+    // 计数归 `hiddenByContractSkew`：其语义加宽为「写入方不被当前读者保证」（版本偏差 /
+    // 路由 ns 漂移 / 归属不符），同一信息面（知数量不给身份）、同一处置面，echo 键集不动。
     const dirs = new Map(raw.all<{ oid: string; owner_capability: string; ns: string }>(
       `select oid, owner_capability, ns from object_directory`,
     ).map((d) => [d.oid, d] as const));
     let hiddenByInactive = 0;
     let hiddenBySkew = 0;
-    const serveable = (oid: string): boolean => {
-      const dir = dirs.get(oid);
-      if (!dir) throw new Refusal('CONTEXT_INCOMPLETE', { oid, reason: 'domain_state 有行但 Directory 无登记' });
-      try { routeNs(k.registry, dir); return true; }
+    const serveable = (r: { oid: string; ns: string }): boolean => {
+      const dir = dirs.get(r.oid);
+      if (!dir) throw new Refusal('CONTEXT_INCOMPLETE', { oid: r.oid, reason: 'domain_state 有行但 Directory 无登记' });
+      let ns: string;
+      try { ns = routeNs(k.registry, dir); }
       catch (e) {
         if (e instanceof Refusal && e.code === 'CAPABILITY_INACTIVE') { hiddenByInactive += 1; return false; }
+        if (e instanceof Refusal && e.code === 'SCHEMA_INCOMPATIBLE') { hiddenBySkew += 1; return false; }
         throw e;
       }
+      if (r.ns !== ns) { hiddenBySkew += 1; return false; }
+      return true;
     };
     // 第一步：可见性（知识截点）。这一层永远先跑，且与对象时间无关。
-    const visible = raw.all<{ oid: string; revision: number; payload_json: string; recorded_seq: number; contract_version: string }>(
-      `select oid, revision, payload_json, recorded_seq, contract_version from domain_state where recorded_seq <= ? order by recorded_seq, oid`,
+    const visible = raw.all<{ oid: string; ns: string; revision: number; payload_json: string; recorded_seq: number; contract_version: string }>(
+      `select oid, ns, revision, payload_json, recorded_seq, contract_version from domain_state where recorded_seq <= ? order by recorded_seq, oid`,
       cutoff,
-    ).filter((r) => serveable(r.oid));
+    ).filter(serveable);
     // F-EV-R2：双时间读面也过行级版本判据（与 readRevision 同一个函数）。
-    // 失败形态取 fail-loud，与 ns 漂移同形：把旧形状交给当前读者比拒读更糟，因为它伪装成答案。
-    // 判据同一条，**失败形态按读面性质分**（沿用已被独立复验接受的 F-24 先例）：
-    //  · 单对象面（readRevision / readObject）：拒读——只有一个对象，拒掉不损失任何东西；
-    //  · 扫描面：剔除 + 计入回显——否则一行旧形状会让整页读不出来，而"整页为空"
-    //    正是本项目最禁止被误读成"没有"的形态。剔除必须可归因，不得静默。
+    // 失败形态按读面性质分（§14.5）：扫描面剔除 + 计入回显，剔除必须可归因，不得静默。
     const keep: typeof visible = [];
     for (const r of visible) {
-      const dir = dirs.get(r.oid)!;
-      const cap = capabilityOfNs(k.registry, routeNs(k.registry, dir));
+      // 归属已由上面**同一条** routeNs 判据确立（r.ns === 有效归属 ns）；这里沿用该结论，
+      // 不再第二次调用 routeNs——共用一条判据的含义包括「只判一次」。
+      const cap = capabilityOfNs(k.registry, r.ns);
       if (!cap) { keep.push(r); continue; }
       try {
         assertContractVersion(cap, k.registry.capability(cap)?.contractVersion ?? '', r.contract_version);

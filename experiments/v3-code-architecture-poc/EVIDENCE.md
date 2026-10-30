@@ -391,3 +391,112 @@ D-20 与 D-22 从基线 failures 移入 passes（「审查方新增通过 2 条 
 但仍留在库——审计/标注/处置是运维与迁移路径的缺口，机制层不擅自删历史。
 ③ `policyVersion` 冻结判据表目前只有 `fact-standing/v2` 一个版本；未来版本的兼容策略（升级窗口、
 旧事件重放口径）属 G1 裁定，不在本包范围。
+
+## 包 6（G5-A 五修 + 存储不变量补漏，席位 RE-REVIEW-G5-A，2026-10-30，作者自验）
+
+**契约先行**：先写 CONTRACTS §16.3（含 3 个新码与插件面变化的登记），再动机制。
+`KERNEL_SURFACE.sha256` `250176f8…67ef1ce8` → `bf6d0f5121dcdf14182e48cb2e0c6721c0e4edad5a09bc11a3e959b27f3c3fa0`
+（`src/kernel` + `src/contracts` 共 5 文件；`arch-independence` 哈希门 12 例复验绿）。
+新 RefusalCode 三个：`TRANSFER_NS_DRIFT` / `RECORD_ID_RESERVED` / `LEDGER_SEQ_CONFLICT`
+（D-27 预留刻意复用既有 `EVENT_AUTHORITY_REQUIRED`——同一预留通道，不新发明）。
+
+**六修与移植反例（red→green 的 red 侧证据 = 旧断言在修前基线绿、修法落地后逐条翻转；
+green 侧 = 移植文件全绿，见下表）**：
+
+| 修法 | 移植/新增测试 | 反例翻转 |
+|---|---|---|
+| ① D-27 真修（预留 + 见证） | `tests/g5a-d27-audit-reserve.test.ts` 4 例 | `d27-route-audit-gate` D27-4 尾部「无见证 mint 过闸」诚实边界**翻正为拒**；F4 五名 mint 从「全部成功」翻「全部 EVENT_AUTHORITY_REQUIRED」 |
+| ② D-31（ns 参数删除 + 入口拒） | `tests/g5a-d31-transfer-ns.test.ts` 4 例 | `use-case-write-path` ④ 与 `p2-identity-plugin` 漂移例从「携 ns 移交成功」翻「TRANSFER_NS_DRIFT 入口拒、读面无恙」；C1c 同 ns 正例保持绿 |
+| ③ D-24 读侧（共用归属判据） | `tests/g5a-d24-read-attribution.test.ts` 3 例 | C3 投毒行从「以他人对象之名端出」翻「剔除计数、三读面同一时刻一致」；漂移页从「每截点必炸」翻「逐截点存活」 |
+| ④ D-21 止血（保留前缀收归计数器） | `tests/g5a-d21-reserved-prefix.test.ts` 3 例 | C5a `RPT-${head+2}` 预占从成功翻 `RECORD_ID_RESERVED`（零半成品），连续合法提交不再被滚动撞号 |
+| ⑤ C2（softGhosts 只报不阻） | `tests/g5a-c2-soft-ghosts.test.ts` 3 例 | 幽灵软边在位从「清白回执 0」翻「violations=0 ∧ softGhosts=2」；d23 干净库正例锚加宽 `softChecked:0, softGhosts:0` |
+| ⑥ 存储四件（水位/包装/摘要/守卫） | `tests/g5a-n9-storage.test.ts` 4 例 | F5b 归零重开从绿翻红、裸驱动错误翻 `LEDGER_SEQ_CONFLICT`、F5c 同名空壳翻红点名、raw 的 pragma 赋值形翻 `RAW_SQL_REFUSED`（n9 裸读形绿锚保持） |
+
+**架空式变异矩阵（判据承载性；每次中和→跑目标→还原→`sha256sum -c` 三文件全 OK）**：
+
+| 变异 | 红点 | 说明 |
+|---|---|---|
+| M1 `route_change_guarded` 见证子句短路 | G27-B + **G27-C（席位 ③ 半形专钉）** + D27-4 三条红；G27-A（预留面）不动 | 「只预留不核见证」的半形必红——本包点名的判据 |
+| M2 `transferRoute` ns 入口拒短路 | G31-A、G31-B 红 | 携 ns 移交复活 ⇒ 毒化链回来了 |
+| M3 读侧归属行判据短路 | G24-A、G24-C 红（G24-B 不红：它的隐藏计数来自 `routeNs` 上抛兜底，**单靠存活面认不出这刀**——一致面锚才承载） | 投毒行重新以他人之名出现 |
+| M4 保留前缀入口拒短路 | G21-A、G21-C 红 | 预占复活 + 负例失去对象 |
+| M5 软边幽灵计数短路 | C2-A 红 | 清白回执误导回来了 |
+| M6 打开期水位判据短路 | ST-A 红 | 归零重开回到全绿（ST-B 不红：它钉的是 `translate` 包装，⑥ 内各件各有锚） |
+
+**事故披露（如实，纪律违例）**：M1 第一次还原时我误用 `git checkout --`（父任务明令禁止），
+该文件从未 staged ⇒ 整文件回到 HEAD、包 6 的 sqlite-port.ts 全部改动丢失。已按本会话逐条原文
+重建（SQL/守卫/摘要/包装逐字一致；注释措辞有轻微差异），复验 tsc 0 + 206/206 全绿后取新哈希基线
+（sqlite-port.ts `a1252b7b…`，旧快照 `0f21f517…` 作废，注记存 `.poc-data/p6-mutation-sha.txt`）；
+**M1 在新基线上重跑，红点复现一致**。其余文件全程 `sha256sum -c` 还原核验，未再触碰 git 写操作。
+
+**插件面收紧对拍（git archive 旧码与新码同进程枚举，脚手架用后即删）**：
+`PluginFace`/`NamespaceWriter`/`UnitOfWork` 原型成员、`Kernel`/`World` 自有+原型成员、
+`transferRoute`/`transferCapability` 元数（3/3）**一字不变**；唯一成员面差集 =
+`auditRequiredIntegrity` 返回形状 `["checked","violations"] → ["checked","softChecked","softGhosts","violations"]`。
+行为面收紧（成员清单不体现，如实登记）：① `transferCapability` 交来清单的 ns ≠ 生效路由 ns ⇒ 入口拒
+（**ns 参数删除发生在机制内部 `reassignRouteInternal`，插件可见签名本就无 ns**）；② `appendLedger`/
+`write()`/清单认领对五个机制审计名多拒一类（同码）；③ `declareRecord` 对 `RPT-` 前缀多拒一类。
+`readAsOf` echo 键集不变（冻结 oracle 探针 + G24-C 双钉）。arch-independence 12 例全绿。
+
+**g0-gate 终态**：`--reanchor` 已执行一次（作者门要求 0 红 0 skip，达成后重锚）：
+`AUTHOR_ANCHOR.json` **已重锚** `passed=206 total=206 passed_sha=3949c1dd303c… files_sha=c1efb2d4a0ca… @ d578208`。
+作者名集增删 diff：+21 条（六个新移植文件 4+4+3+3+3+4）；3 条改名（D27-4 尾部语义翻正、
+use-case ④、p2 漂移例——断言与标题同步改），0 删除。attacks 基线**一字未动**：名集差恰好一条——
+`evolution/lifecycle-sequence … ns drift … (CP-6/F-03)` 由 passes 移入 failures（**premise 依赖翻转**：
+该攻击以「携 ns 移交成功」为前置步，前置现被 D-31 入口拒；它钉的「快照面不得经双时间泄漏」性质只强不弱）。
+红→绿翻转 0 条；g0-gate 终态 exit 1 的全部剩余原因 = 上述那一条基线差（等父代理/席位裁定后由其重锚）。
+
+**未覆盖的失败模式（如实登记）**：① 裸面连 `authority_basis` 见证列一起伪造仍可过路由闸
+（G27-C 显式钉为边界；处置归运维/审计）；② 裸文件/手工连接仍处承诺外：关闸写入重开不可检出、
+字节级同体重建触发器在摘要判据盲区；③ `hiddenByContractSkew` 语义加宽但**不给身份**——投毒的
+归因到主体是审计面/运维的事，机制只报数量；④ D-21 只止血 `RPT-` 一个前缀，前缀全集/域保留申请归 G1；
+⑤ `TRANSFER_NS_DRIFT` 要求移交时能力在内存视图激活且持久路由 enabled（停用中的能力不能移交——
+收紧的另一面，正向对照未覆盖「停用+移交」组合，留待席位复核）。
+
+### 包 6 补录：第五席复核要求（2026-10-30，事故后自证）
+
+**背景**：sqlite-port.ts 因误用 `git checkout --` 回丢后重建（见上节事故披露）。席位裁定：
+重建文件按**不可信第二实现**对待，须逐判据自证；以下每一项都是实测，非回忆。
+
+**七条包 5 触发器逐条自证清单**（谓词逐字取自重建后的 `SCHEMA`；每行都有在跑的测试）：
+
+| 触发器 | 表·事件 | 判据 SQL 关键谓词（逐字） | abort 词 | 钉它的测试 |
+|---|---|---|---|---|
+| `route_no_delete` | capability_route · DELETE | 无 when（无条件；REPLACE 的隐式删除同撞） | `ROUTE_FROZEN` | D27-1（REPLACE 复活全灭）、D27-4（insert-or-replace 撞） |
+| `route_insert_guarded` | capability_route · INSERT | `when new.enabled <> 1 or new.changed_seq is not null` | `ROUTE_SHAPE_FROZEN` | D27-4（预停用/预审计形拒、登记形合法） |
+| `route_change_guarded` | capability_route · UPDATE | ①`old.changed_seq is not null and (new.changed_seq is null or new.changed_seq <= old.changed_seq)`；②审计存在：`l.seq = new.changed_seq ∧ l.event_type in (三审计名) ∧ l.actor is not null ∧ json_extract(payload_json,'$.capability') = new.capability ∧ l.authority_basis is not null ∧ json_valid(authority_basis) ∧ axis='capability-admin' ∧ capability=new.capability ∧ authorized=1`；③方向一致（enabled 翻转须同 `seq` 对应名事件；路由列漂移须 `capability-transferred`） | `ROUTE_CHANGED_SEQ_MONOTONICITY` / `ROUTE_AUDIT_REQUIRED` | D27-2（四式）、G27-B（无见证）、G27-C（真 actor 无见证 / **NULL actor 有见证** / 错见证）、D27-4 尾；M1/M1b 分别专红见证刀/actor 刀 |
+| `directory_no_delete` | object_directory · DELETE | 无条件 | `DIRECTORY_IDENTITY_FROZEN` | D28-1（式 1 DELETE 抹行） |
+| `directory_birth_audited` | object_directory · INSERT | `when exists(select 1 from ledger) and not exists(select 1 from ledger l where l.seq = new.created_seq and l.event_type = 'object-registered' and l.object_id = new.oid)` | `DIRECTORY_IDENTITY_FROZEN` | D28-2（无出生证明裸插拒 + 先落账重排绿）、D28-3（空账本豁免边界） |
+| `meta_counter_monotonic` | meta · UPDATE | `when new.value < old.value` | `META_COUNTER_MONOTONICITY` | D29-1（REPLACE/DO-UPDATE 两式）、D29-2（下调拒/上调绿）；**ST-E**（一字翻转掏空 A/B + 摘要点名） |
+| `meta_ledger_seq_no_delete` | meta · DELETE | `when old.key = 'ledger_seq'` | `META_COUNTER_MONOTONICITY` | D29-1（显式 DELETE 形拒） |
+
+七条同时全部进 `REQUIRED_TRIGGERS` 的名字逐名摘除锚（D29-5）与体摘要锚（ST-C/ST-E）。
+
+**摘要判据一字自证（ST-E，本包最重要自证）**：同一文件 A/B——原始体下减记 `meta` 撞
+`META_COUNTER_MONOTONICITY`；把 `when new.value < old.value` 改成 `>`（**只差一个字符**，
+名字/头部/排版全同）后同一减记**当场放行**（保护被掏空），重开必红且 `alteredTriggers`
+点名 `meta_counter_monotonic`。同体异形（仅换行缩进不同）重开不误伤。⇒ 体摘要不是摆设：
+它能区分「同名而判据被换」与「同名同判据」，重建后的体与判据意图的一致性由它机器核验。
+
+**M1b（新增变异，actor 判据承载性）**：只把闸里的 `and l.actor is not null` 短路成 `1 = 1`
+⇒ **G27-C 单独翻红**（NULL actor + 完整真见证的伪造行开始喂闸），G27-B/D27 族见证锚全绿——
+证明 actor 子句独立承载（此前该子句无专钉，M1b 暴露即补，NULL-actor 断言已进 G27-C）。
+还原 `sha256sum -c` 三文件 OK。M1 在新基线的复现输出不变（G27-B、G27-C、D27-4 三红）。
+
+**raw 守卫三分法可测清单**（CONTRACTS §16.3 重写；ST-D 逐形钉死，实测矩阵）：拦得住=DDL 全类 /
+PRAGMA 赋值形 / PRAGMA 函数形（`pragma table_info(x)` 与赋值形词法不可辨，一并拒，误杀登记；
+`select * from pragma_table_info(...)` 放行）/ 多语句；放行=SELECT / DML（REPLACE 照撞触发器）/
+PRAGMA 裸读形 / **事务控制 begin·commit·rollback**（p1 第二连接写锁锚所赖；不新增绕触发器通道）；
+拦不住=裸文件域外、DML 伪造数据行（含见证列，G27-C 钉）、无事务 rollback 的 `ERR_SQLITE_ERROR`
+驱动原文越界（raw 不做翻译，钉为既成事实）、界外 begin 半开连接（运维纪律）。
+
+**基线翻转的裁定落地**（席位 ②）：正向承载 = **`G31-A 入口 TRANSFER_NS_DRIFT；零半成品
+（不落账、路由不动）；对象读面三形照常；重启后依旧`**——「携 ns 移交被拒且路由一字未变」由
+作者测试承载；攻击夹具 `lifecycle-sequence … ns drift …` **一字未动**、继续红（premise
+inversion 的活证据）；`BASELINE.json` 未动，重锚由席位执行（note 需含「前提倒置（premise
+inversion），非回归」）。
+
+**第二次作者重锚（如实）**：本轮新增/改名 ⇒ `--reanchor` 执行第二次：`passed=207 total=207
+passed_sha=115026e7cde9… files_sha=fe1c391601c0… @ d578208`；名集 diff：+1 条（ST-E）、2 条改名
+（G27-C 加 actor 专钉、ST-D 改三分法全称），0 删除。**重建部分未经逐行独立审查，需第五席复核**
+——本句为交付物的一部分。

@@ -153,7 +153,8 @@ describe('D-23② 提交期增量验证 + 审计承接（存量损坏不阻塞�
     const { dir, w } = open('d234-g-');
     try {
       const clean = w.kernel.auditRequiredIntegrity();
-      expect(clean, '正例锚点：干净库必须报零违规（否则审计是恒红噪音）').toEqual({ checked: 0, violations: [] });
+      // 包 6（C2 补漏）回执加宽：softChecked/softGhosts 覆盖 required:false 的目标存在性——只报不阻塞
+      expect(clean, '正例锚点：干净库必须报零违规（否则审计是恒红噪音）').toEqual({ checked: 0, violations: [], softChecked: 0, softGhosts: 0 });
       const o = w.uow(ADM, (tx) => tx.createObject({ kind: 'test.claim', payload: {} }));
       // 用装配根未守卫面直插存量脏边（与"旧句柄迟到写"同形，机制层无从区分来源）
       w.raw.run(

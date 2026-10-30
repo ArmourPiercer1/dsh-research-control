@@ -9,17 +9,20 @@
  * 修法（CONTRACTS.md §16.2 包 5 存储纪律）：`capability_route` 三条触发器——
  * ① `route_no_delete`：DELETE（含 REPLACE 隐式删除）abort `ROUTE_FROZEN`；
  * ② `route_change_guarded`（UPDATE）：`changed_seq` 严格单调递增（`ROUTE_CHANGED_SEQ_MONOTONICITY`）
- *    + 变更必须随审计落账（`ledger` 里必须已有 `seq = new.changed_seq`、事件类型合名单、
- *    payload.capability 字面相符的行 ⇒ 否则 `ROUTE_AUDIT_REQUIRED`）；
+ *    + 变更必须随**机制落账**（`ledger` 里必须已有 `seq = new.changed_seq`、事件类型合名单、
+ *    payload.capability 字面相符、`actor` 非空且 `authority_basis` 携带 capability-admin 机制见证
+ *    ⇒ 否则 `ROUTE_AUDIT_REQUIRED`；见证判据是包 6 D-27 真修追加，见下）；
  * ③ `route_insert_guarded`（INSERT）：初始登记形态钉死 `enabled=1 且 changed_seq 为 NULL`
  *    （`ROUTE_SHAPE_FROZEN`）——启停/移交只能经 UPDATE 走审计面。
  * REPLACE 被拒于哪一闸取决于载荷形状：BEFORE INSERT 先于冲突消解执行 ⇒ 带伪造戳的席位原形
  * 撞 ③；「登记形 REPLACE」穿过 ③ 后被隐式删除的 ① 拒。两条都有用例钉住（D27-1 / D27-4）。
  *
- * **诚实边界（触发器拒的是「无痕变更」，不是「裸面持有者的一切变更」）**：裸面要过 ②，必须先
- * 往 append-only 的 H 里写一条形态齐全的 `capability-enabled` 审计行——伪造从「零审计」变成
- * 「落账可审计」，处置归运维/审计（与 v2 存量伪造行同处置面，G1 余项）。本文件把这条边界
- * 也钉成显式用例（D27-4），它**不是**修复失败，而是本修法声明能做到的上限。
+ * **诚实边界（包 6 D-27 真修后收窄但未归零，CONTRACTS.md §16.3）**：G5-A 实测「只查形状」的
+ * ②可被 `appendLedger` mint 出的真形审计行过闸 ⇒ 真修 = 通用通道预留五审计名（插件侧 mint
+ * 归零）+ ②核 N1 同信封的机制见证。残余：裸面（`port.raw` DML / 裸文件）连**见证列**一起
+ * 伪造仍能过闸——伪造从「零审计」「随手一行」抬到「必须在见证列撒谎且落账不可删」，
+ * 处置归运维/审计。收窄后的边界钉在 tests/g5a-d27-audit-reserve.test.ts G27-C；
+ * D27-4 现钉的是「无见证 mint 过不了闸」这半形必红的判据本身。
  */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -202,7 +205,7 @@ describe('D-27 路由持久面：启停只能经 setRouteEnabled，变更必须�
     } finally { w.close(); }
   });
 
-  test('D27-4 登记形态钉死 + 声明的上限：insert 伪造停用/预审计形被拒，insert or replace 撞 DELETE 触发器，登记形照旧合法；伪造必须先向 H 落账（零审计变无）', () => {
+  test('D27-4 登记形态钉死 + 声明的上限：insert 伪造停用/预审计形被拒，insert or replace 撞 DELETE 触发器，登记形照旧合法；伪造必须落账且带机制见证（零审计与无见证都过不了闸）', () => {
     const w = open('d27-4');
     try {
       w.unloadCapability(CAP_RECORDS, ADM);
@@ -220,8 +223,9 @@ describe('D-27 路由持久面：启停只能经 setRouteEnabled，变更必须�
       expect(outcome(() => w.raw.run(
         `insert into capability_route(capability, plugin_id, ns, contract_version) values('cap.d27.new','p','ns_new','v1')`,
       ))).toBe('NO_REFUSAL');
-      // 诚实边界钉：裸面先写一条形态齐全的审计行、再以该行为戳改路由 ⇒ 能过闸。
-      // 这不是修复失败——伪造从「零审计」变成「先落账进 append-only H 才可改写」，处置归审计。
+      // 包 6 翻转钉：裸面写一条**形状齐全但无机制见证**的审计行、再以该行为戳改路由 ⇒ 拒。
+      // （修前这里是 NO_REFUSAL——「形态齐全」即过闸；D-27 真修后 ②核 actor+authority_basis
+      //  见证，见证只能由机制写通道盖（G5-A 半形判据的正身，配套红测在 g5a-d27 G27-C）。）
       const forgedStamp = routeRow(w).changed_seq! + 7;
       w.raw.run(
         `insert into ledger(seq, space, event_type, actor, payload_json, recorded_at)
@@ -230,7 +234,8 @@ describe('D-27 路由持久面：启停只能经 setRouteEnabled，变更必须�
       );
       expect(outcome(() => w.raw.run(
         `update capability_route set enabled=1, changed_seq=? where capability=?`, forgedStamp, CAP_RECORDS,
-      ))).toBe('NO_REFUSAL');
+      ))).toContain('ROUTE_AUDIT_REQUIRED');
+      expect(routeRow(w).enabled).toBe(0); // 停用决策保持——伪造不再能复活被停用的能力
       expect(w.raw.get<{ c: number }>(`select count(*) c from ledger where seq=?`, forgedStamp)!.c).toBe(1); // 痕在，删不掉
     } finally { w.close(); }
   });

@@ -620,3 +620,113 @@ Port，**不再收任意回调形态的全权事务执行器**；Application 层
 （运行时面与结果面双重实测：`attacks/review/g1a-regression.test.ts` D-22 条）；一般形态的约束继续
 有效——任何新的领域对象都不得持有通用事务执行器，接线一律用**有具体用途的 Port**。
 
+### 16.3 包 6：机制审计名预留、移交不携 ns、读面归属、保留前缀、巡检覆盖与打开判据补漏（席位 G5-A @03d74a0 反审，2026-10-31）
+
+本节按「先契约后机制」撰写：下列每一条先落在本文，机制实现随后；`KERNEL_SURFACE.sha256` 于实现完成后统一重生成。
+
+**D-27 真修（P1 完整性）：五个机制审计名进预留 + 路由守闸核机制落账见证。**
+G5-A 纠正了前席与作者的共同误判：D-27 的可达面不是「装配裸面/运维」——`appendLedger` 与
+`write()` 对五个机制审计事件名（`capability-enabled` / `capability-disabled` /
+`capability-transferred` / `object-registered` / `check-report-recorded`）**零预留**，任何只有
+`space-write` 的主体都能落与 `setRouteEnabled` 真账逐列同形的行（含自定 `actor`、同为 NULL 的
+`authority_basis`），全链到「新进程签发恢复」。两段修法：
+① **预留五名**：复用正式事件名已有的预留通道与同一拒绝码，不新发明、不引入新中心耦合——
+`CapabilityRegistry` 增设机制审计名集合（机制的自我陈述，与 `MECHANISM_RESOURCES` 同族），
+`appendLedger` / `write()` 命中等同 formal-event 预留 ⇒ `EVENT_AUTHORITY_REQUIRED`（通道判据）；
+`register()` 拒绝清单 `ownsEventTypes` 认领五名 ⇒ `AMBIGUOUS_AUTHORITY`（与双认领同码同族，
+否则「窄面正式通道」成为预留的第二 breach）。机制自身的五个写点
+（`setRouteEnabled` / `reassignRouteInternal` / `createObject` / `recordReport`）走实现内部直写、
+不经通用通道 ⇒ 预留不误伤机制。
+② **路由守闸核见证**：`route_change_guarded` 的审计存在性判据补 `l.actor is not null` +
+`json_valid(l.authority_basis)` + `json_extract($.axis)='capability-admin'` +
+`json_extract($.authorized)=1`——只查形状 = 把谎言写进删不掉的表。机制路由审计行
+（enabled/disabled/transferred 三事件）从此写 `authority_basis` 见证
+`{axis:'capability-admin', capability:<被路由能力>, authorized:<入口权威核对结论>}`，
+与 N1 正式事件见证同信封。判据半形已被席位点名：**只做 ① 不做 ②，攻击者持真实 actor mint 仍过闸**
+⇒ 专用用例钉住（半形变异下必红，见 EVIDENCE 变异实验）。
+**诚实边界（登记）**：裸面（`port.raw` DML / 裸文件）仍可连见证列一起伪造过闸——预留使插件可达
+mint 归零，裸面伪造从「随便一行即过」升级为「必须在见证列撒谎」，痕迹不可删、处置归运维/审计。
+触发器体变更 ⇒ `SCHEMA_VERSION` 6→7，旧库重开 `SCHEMA_UPGRADE_REQUIRED`（不携迁移债，包 3/5 先例）。
+
+**D-31（P1 可用性）：移交通道不携 ns；ns 漂移入口即拒。**
+包 5 裁定「owner 一经登记不可变更」与 `transferRoute` 携 ns 互斥，其并存产物是一次完全合法的
+`capability-admin` 操作永久毒化全库双时间读面。签名判定采纳席位：**ns 参数根本不该存在**——
+移交的原语义只是改 Capability→Plugin 映射。机制面：`reassignRouteInternal` **删除 ns 参数**，
+路由 ns 恒取当前持久行 ⇒ 机制面不存在任何改 ns 的通道；`transferRoute(cap, to, by)` 的 `to`
+仍是 `PluginManifest`（清单类型无 ns 参数可删），其 `storageNamespace` 从**写入输入**降为
+**校验输入**：声明与当前生效路由 ns 不同 ⇒ 入口即以新码 `TRANSFER_NS_DRIFT` 拒——判据在开事务、
+落账、改路由**之前**，零半成品。ns 迁移另立显式迁移通道（机制没有，也不拿移交面凑数）。
+正向对照：同 ns 换包（pluginId/contractVersion 变）行为不变。读侧的 `SCHEMA_INCOMPATIBLE`
+兜底保留（界外篡改后的库形状仍须 fail-loud），但可用性责任在入口，不在读侧。
+`TRANSFER_NS_DRIFT` detail 只回显调用方自己的输入（capability/currentNs/declaredNs）；
+空空间同形负例钉「不得泄漏跨空间存在性」。
+
+**D-24 读侧（P1）：扫描面与快照面共用同一条 `dir.ns` 归属判据。**
+`readAsOf` 扫描查询带上行 `ns`，每行过**与 `readSnapshot`/`readLatest` 同一条**
+`routeNs(registry, dir)` 判据（不是复制逻辑，是同一个函数）：有效归属 ns ≠ 行 `ns` ⇒ 该行不是
+此对象的属主状态，剔除并计数；`serveable()` 捕获 `SCHEMA_INCOMPATIBLE`（路由 ns 漂移）计入遮蔽
+而非上抛——一行归属不符不得炸整页（扫描面失败形态分界原则 §14.5）。**echo 形状不加字段**：
+三种隐藏成因归入 `hiddenByContractSkew`，其语义从「契约版本偏差」加宽为
+**「写入方不被当前读者保证」**（版本偏差 / 路由 ns 漂移 / 归属不符他人行）——同一信息面
+（知数量、不给身份）、同一处置面，且冻结裁决附件钉着 echo 键集，加字段=动已冻结面。
+**后果登记**：合法 Facet 挂载行（oid∈dir、行落扩展者自己的 ns）在快照面本就不可见，扫描面现在
+对齐——双时间扫描的可见面收窄为对象属主状态；「同一对象同一时刻两个答案」由此终结。
+
+**D-21 最小止血（P1 可用性）：保留前缀 id 收归机制计数器。**
+`RPT-` 前缀是机制报告身份 namespace（`recordReport` 按 ledger 计数器发 `RPT-<seq>`）。
+显式声明携带保留前缀（`declareRecord` / `appendLedger` 的 declaring 形态）⇒ 新码
+`RECORD_ID_RESERVED` 拒，判据在落 `records` 行与 ledger 行之前。引用形态不受影响：
+`linkRef` 的 record-ref 指向已存在 `RPT-*` 仍合法（S-3 报告引用语义不变）。**保留前缀的完整
+语义（前缀全集、域保留申请、发号区间 namespace 化）归 G1**；本止血只承诺：声明通道不能预占
+保留前缀 ⇒ 合法报告提交不再被滚动撞号。
+
+**C2（P2）：巡检覆盖 `required:false` 的目标存在性（`softGhosts` 只报不阻）。**
+`auditRequiredIntegrity()` 返回新增 `softChecked` / `softGhosts`：`required=0` 的边逐条查目标
+**存在性**（object-ref 查目录、record-ref 查 records 表；**不做 revision 级判定**——
+`required:false` 语义内含允许悬空修订，计入幽灵的只有身份级悬空）。计数只进回执：不改
+`violations`、不阻塞任何提交。「0 违规」与「无幽灵」从此脱钩——清白回执说出它看见了什么。
+
+**存储不变量补漏（P2/P3：新洞2 / F5b / F5c / N9 残余）：**
+- 打开路径判据补 `max(ledger.seq) ≤ meta.ledger_seq`：水位归零/倒退重开即
+  `SCHEMA_UPGRADE_REQUIRED`（detail 给两数）；ghost-seq 前占形的重开可检性一并覆盖。
+- **裸驱动错误包装**：`UNIQUE constraint failed: ledger.seq`（会话内水位落后、下一次发号撞
+  历史）由 `translate()` 包装为新码 `LEDGER_SEQ_CONFLICT`——需修复、不可重试，驱动文本仅存
+  `detail.driverMessage` 作证据。**如实登记**：包装前该文本越过了「驱动词汇不得越过 Storage
+  Port 边界」的既有纪律，违例入 READINESS N9 残余行。
+- **触发器体摘要进打开判据**：`REQUIRED_TRIGGERS` 从名字比对升级为名字 + SQL 体摘要；期望摘要
+  在模块加载时于**内存基准库**上执行 `SCHEMA` 后从 `sqlite_master` 读回、归一（折叠空白、
+  `if not exists` 头部差异）计算，**不手工维护摘要表**（改了 SCHEMA 忘改摘要 = 判据自己腐烂）。
+  同名空壳/改体 ⇒ `SCHEMA_UPGRADE_REQUIRED`（detail `alteredTriggers` 列名）；缺名仍走
+  `missingTriggers`（缺失优先于改体判定）。**一字自证**：`when new.value < old.value` 改成
+  `>`（名字/排版全同、保护当场失效）重开必红点名；同体异形（仅换行缩进）不误伤
+  （ST-E 把这两条都钉成测试）。
+ - **`port.raw` 二选一：取守卫**。机制三面（tx / read / raw）一律拒多语句与注释伪装（剥注释归一同前）。
+   `raw` 的拦截面按**可测三分法**钉死（逐形对应 `tests/g5a-n9-storage.test.ts` ST-D，不得含糊成「已守卫」）：
+   ① **拦得住 ⇒ `RAW_SQL_REFUSED`**：DDL 全类（`drop/alter/create/attach/detach/vacuum/reindex/analyze`
+   头部词表，与机制写句柄同源）、**PRAGMA 赋值形**（`pragma x = off`；`pragma x(v)` 调用形一并拒——
+   赋值与读在词法上不可分辨，宁可误杀，纯读可改写 `select * from pragma_table_info(...)` 走 SELECT
+   放行）、**多语句**（`;` 后有实体即拒；尾分号放行）。由此承诺成立：**经 SqlitePort 交出的任何句柄
+   都无法关闭 `recursive_triggers` 连接态，也无法经 raw 执行 DDL**。
+   ② **放行（有意为之，各有锚）**：SELECT/WITH；DML 全类——REPLACE/upsert 放行**到触发器**受拒，
+   不拆「触发器不豁免写形」的既有锚；**PRAGMA 裸读形**（`pragma <name>` 无赋值无参数，n9 绿锚核对
+   连接态所赖）；**事务控制 `begin/commit/rollback`**（`tests/p1-storage-tx.test.ts` 第二连接写锁锚
+   所赖：界外面在自己的连接上开合事务不新增绕触发器通道——事务内触发器照火，且 DML 本就放行）。
+   ③ **拦不住（残余，登记不承诺）**：手工 `new DatabaseSync` / 裸文件域外（默认 `recursive_triggers=OFF`，
+   关闸写入重开不可检出）；`raw` 的 DML 伪造数据行含伪造审计行与 `authority_basis` 见证列（G27-C 钉死，
+   与 D-27 裸面边界同条）；**raw 是唯一不做驱动词汇翻译的面**——无事务时 `rollback` 之类以
+   `ERR_SQLITE_ERROR` 原样越界（ST-D 钉为既成事实）；界外面 `begin` 不开对导致连接半开属运维纪律，
+   机制不管。**撤销与实现不符的旧口径**：「经 SqlitePort 建立的连接（含 `port.raw`）全部受护」不再
+   成立为文——守卫管住的是**经 Port 交出的句柄上的状态类与结构类语句**，不是持有裸文件者。
+
+**拒绝码封闭集新增（3 枚，按 §14.2 同规）：`TRANSFER_NS_DRIFT`、`RECORD_ID_RESERVED`、
+`LEDGER_SEQ_CONFLICT`。** 三码 detail 均只回显调用方自己的输入或机制本地可判计数，不含任何
+他空间存在性判定；每码在 `tests/**` 钉「不得泄漏跨空间存在性」负例（空空间与有对象空间同形）。
+
+**插件可见面变化（对拍口径，重锚前登记）**：① `transferRoute` 输入面**收紧**——携带不同 ns 的
+移交从「写成功」变为 `TRANSFER_NS_DRIFT` 拒（这是收紧不是放宽，如实标注：依赖旧语义的装配方
+会看到新拒绝）；② `readAsOf` 结果集可收窄（归属不符行被遮蔽、计入既有计数器），echo 键集不变；
+③ 三枚新拒绝码到达调用方分支面；`appendLedger`/`write()` 对五审计名的拒绝复用既有码
+`EVENT_AUTHORITY_REQUIRED`（不新增码）。插件可见成员名集（face/tx/writer 运行时面）零增删，
+由 `arch-independence.test.ts` 运行时面锚对拍；`reassignRouteInternal` 仍在 `UnitOfWorkImpl`
+原型上（N4 登记面），仅参数表收缩。
+

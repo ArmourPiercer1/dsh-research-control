@@ -139,21 +139,25 @@ describe('D-19c 用例侧：跨归属写经拥有者的端口，且仍是一条�
     } finally { w.close(); }
   });
 
-  test('④ 归属是查出来的：能力移交到新命名空间后，用例与 writerOwningKind 一起跟随', () => {
+  test('④ 归属是查出来的：能力移交到新包后，用例与 writerOwningKind 一起跟随（命名空间不随移交迁移，D-31 包 6）', () => {
     const OM_MOVED: PluginManifest = {
       ...TEST_OBJECT_MODEL, pluginId: 'test.object-model.b', codeVersion: '0.0.2',
-      storageNamespace: 'dom_test_om_b',   // 换包同时迁移了命名空间
+      // 包 6（G5-A D-31）：移交**不携带** ns 变更——ns 是冻结归属的一部分（D-28「owner 一经
+      // 登记不可变更」的推论）；换包同时想迁 ns ⇒ 入口 TRANSFER_NS_DRIFT（见下与 g5a-d31 全套）。
     };
     const w = world('follow-route');
     try {
       expect(w.uow(ADMIN, (tx) => w.writerOwningKind('test.claim', tx).ns)).toBe('dom_test_om');
       w.transferCapability(CAP_OBJECT_MODEL, OM_MOVED, ADMIN);
-      expect(w.uow(ADMIN, (tx) => w.writerOwningKind('test.claim', tx).ns)).toBe('dom_test_om_b');
+      expect(w.uow(ADMIN, (tx) => w.writerOwningKind('test.claim', tx).ns)).toBe('dom_test_om');
+      // 携新 ns 的移交在入口即拒（曾经：成功后全库既有对象读面永久毒化）
+      expect(refusalCode(() => w.transferCapability(CAP_OBJECT_MODEL,
+        { ...OM_MOVED, storageNamespace: 'dom_test_om_b' }, ADMIN))).toBe('TRANSFER_NS_DRIFT');
       const oid = w.uow(ADMIN, (tx) => w.intakeUseCase().admit(tx, { recordId: 'RAW-C', kind: 'test.claim', text: 'ok' }));
-      // 落笔落在**新路由**的命名空间；用例一行未改（它内部没有任何 capability 常量）
+      // 落笔落在**路由声明**的命名空间；用例一行未改（它内部没有任何 capability 常量）
       expect(w.raw.get<{ ns: string; owner_capability: string }>(
         `select ns, owner_capability from object_directory where oid=?`, oid))
-        .toEqual({ ns: 'dom_test_om_b', owner_capability: CAP_OBJECT_MODEL });
+        .toEqual({ ns: 'dom_test_om', owner_capability: CAP_OBJECT_MODEL });
       // 非拥有者照样写不动：墙不因移交而变软
       expect(refusalCode(() => w.uowFor(CAP_SECOND, ADMIN, (tx) => tx.createObject({ kind: 'test.claim', payload: {} }))))
         .toBe('CAPABILITY_SCOPE_ESCAPE');

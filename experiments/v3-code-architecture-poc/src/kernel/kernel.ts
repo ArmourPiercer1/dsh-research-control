@@ -41,6 +41,33 @@ export interface Authorizer {
 }
 
 /**
+ * D-27 真修（G5-A 包 6，CONTRACTS.md §16.3）：**机制审计名预留**。
+ * 这五个事件名是机制自身的落账词汇（路由启停 / 移交 / 对象出生 / 报告登记）——G5-A 实测
+ * 它们此前对通用通道**零预留**：任何 space-write 主体经 `appendLedger` 即可 mint 与机制真账
+ * 逐列同形的审计行（自定 actor、NULL 见证），「静默改写」升级成「可伪造改写 + 伪证借
+ * `ledger_no_delete` 不可篡改」。预留复用正式事件名已有的通道判据与同一拒绝码
+ * （`EVENT_AUTHORITY_REQUIRED`）——同一条预留通道，不新发明、不引入新中心耦合。
+ * 与 `MECHANISM_RESOURCES` 同族：这是机制的**自我陈述**（机制词汇表，不含任何科研语义），
+ * 判据只做排除，不解释名字含义。机制自身的写点走实现内部直写（不经 `appendLedger`），
+ * 预留不误伤机制。
+ */
+export const MECHANISM_AUDIT_EVENT_TYPES = [
+  'capability-enabled', 'capability-disabled', 'capability-transferred',
+  'object-registered', 'check-report-recorded',
+] as const;
+
+/**
+ * D-21 最小止血（G5-A 包 6，CONTRACTS.md §16.3）：**保留前缀的记录身份收归机制计数器**。
+ * `RPT-` 是机制报告的身份 namespace（`recordReport` 按 ledger 计数器发 `RPT-<seq>`）——
+ * G5-A 实测此前任何 space-write 主体可 `declareRecord('RPT-'+(head+2))` **滚动预占**，
+ * 合法验证提交持续撞 `RECORD_ALREADY_DECLARED`，报告落账面被 DoS。声明通道显式携带保留
+ * 前缀即拒（`RECORD_ID_RESERVED`）；**引用**已存在的 `RPT-*`（linkRef 的 record-ref、
+ * 读面）不受影响。**前缀全集/域保留申请/发号区间语义归 G1**——这里只是自我陈述：
+ * 这些前缀由机制计数器专属发号，声明通道既不能预占也不能仿冒。
+ */
+export const RESERVED_RECORD_ID_PREFIXES = ['RPT-'] as const;
+
+/**
  * 单空间的激活视图：同一时刻同一 Capability 只有一个权威写入者（#44 §6.1 / Q44），
  * 领域事件权威至多一个（#44 §7.1「历史双写」）。
  */
@@ -97,6 +124,15 @@ export class CapabilityRegistry {
     // **缺授权轴 ⇒ ACTIVATION_IMPOSSIBLE**——没有授权轴的正式事件永远产生不了授权证据，
     // 宁可装配不成立，也不留一个"写得进、证不了"的通道（fail-closed，勿"优化"成默认放行）。
     for (const e of m.ownsEventTypes ?? []) {
+      // D-27 真修（G5-A 包 6）：机制审计名不是清单可认领面——否则「窄面正式通道」成为
+      // appendLedger 预留之后的第二个 breach（归属能力的命令 Port 能 mint 机制审计）。
+      // 与双认领同码同族（AMBIGUOUS_AUTHORITY：同一权威出现两个声明者，机制声明即冲突）。
+      if ((MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(e.eventType)) {
+        throw new Refusal('AMBIGUOUS_AUTHORITY', {
+          axis: 'event-type', eventType: e.eventType, plugin: m.pluginId,
+          reason: '机制审计名为机制落账预留，唯一写点是机制实现内部；清单不得认领（CONTRACTS.md §16.3）',
+        });
+      }
       if (this.formalEvents.has(e.eventType)) {
         throw new Refusal('AMBIGUOUS_AUTHORITY', { axis: 'event-type', eventType: e.eventType, plugin: m.pluginId });
       }
@@ -167,6 +203,15 @@ export class CapabilityRegistry {
   }
   /** D-20（包 2）：正式事件类型的归属能力；未登记返回 undefined（= 普通事件，走通用台账通道）。 */
   formalEventOwner(eventType: string): CapabilityId | undefined { return this.formalEvents.get(eventType)?.capability; }
+  /**
+   * D-27 真修（G5-A 包 6，CONTRACTS.md §16.3）：统一预留判据——正式事件类型与机制审计名走
+   * **同一条预留通道**（同一判据点、同一拒绝码 `EVENT_AUTHORITY_REQUIRED`、同一「通道判据」
+   * 语义）：通用台账通道（`appendLedger` / `write()`）都不是这两类名字的写入者。
+   */
+  isReservedEventType(eventType: string): boolean {
+    return this.formalEvents.has(eventType)
+      || (MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(eventType);
+  }
   /**
    * D-20（包 3，N1，CONTRACTS.md §16.2 判据 ③）：正式事件类型登记的**授权轴**（不透明字符串）。
    * 权威入口用它对已验证主体取证；注册期已拒绝缺轴登记，运行期取不到 = 账本被机制外手段变更，
@@ -378,17 +423,41 @@ export class Kernel {
     });
   }
 
-  /** 所有权移交 / 能力停用：数据库内原子改路由 + 留审计登记；**提交成功后**才改内存视图。 */
+  /**
+   * 所有权移交 / 能力停用：数据库内原子改路由 + 留审计登记；**提交成功后**才改内存视图。
+   *
+   * D-31（G5-A 包 6，CONTRACTS.md §16.3）：**移交通道不携 ns**——移交的原语义只是改
+   * Capability→Plugin 映射；携 ns 移交会让既有对象永久读不出（`dir.ns` 是冻结身份、状态行
+   * 全在旧 ns，快照面按属主 ns 判定），一次完全合法的 `capability-admin` 操作 = 全库双时间
+   * 读面永久毒化。机制内部通道（`reassignRouteInternal`）已**删除 ns 参数**，路由 ns 恒取
+   * 当前持久行；清单的 `storageNamespace` 从写入输入降为**校验输入**：声明与当前生效路由 ns
+   * 不同 ⇒ 入口即拒 `TRANSFER_NS_DRIFT`（判据在开事务、落账、改路由之前，零半成品）。
+   * ns 迁移需另立显式迁移通道——机制没有，不拿移交面凑数。正向对照：同 ns 换包行为不变。
+   */
   transferRoute(cap: CapabilityId, to: PluginManifest, by: VerifiedPrincipal): void {
     const target = to.provides.find((p) => p.capability === cap);
     if (!target) throw new Refusal('ACTIVATION_IMPOSSIBLE', { capability: cap, targetPlugin: to.pluginId });
+    const cur = this.registry.capability(cap);
+    if (!cur) throw new Refusal('CAPABILITY_INACTIVE', { capability: cap });
+    if (to.storageNamespace !== cur.storageNamespace) {
+      // detail 只回显调用方自己的输入与当前路由归属——不含任何跨空间/对象存在性判定。
+      throw new Refusal('TRANSFER_NS_DRIFT', {
+        capability: cap, currentNs: cur.storageNamespace, declaredNs: to.storageNamespace,
+        reason: '移交不携带 ns 变更（D-31）：dir.ns 是冻结身份，携 ns 移交会让既有对象永久读不出；'
+          + 'ns 迁移另立显式迁移通道，不拿移交面凑数',
+      });
+    }
     this.uow(by, (tx) => {
-      (tx as UnitOfWorkImpl).reassignRouteInternal(cap, to.pluginId, to.storageNamespace, target.contractVersion);
+      (tx as UnitOfWorkImpl).reassignRouteInternal(cap, to.pluginId, target.contractVersion);
     // 移交是运维权威轴，不是空间写权：只凭 space-write 就能把能力路由改到攻击者命名空间。
     }, 'capability-admin');
+    // 提交后视图重建以**持久行为准**（与 setRouteEnabled 再启用同法）：数据是真相，清单只是声明。
+    const row = this.#port.read((raw) => raw.get<{ plugin_id: string; ns: string; contract_version: string }>(
+      `select plugin_id, ns, contract_version from capability_route where capability=? and enabled=1`, cap,
+    ));
+    if (!row) throw new Refusal('ACTIVATION_IMPOSSIBLE', { capability: cap, reason: '持久路由缺失或仍未启用' });
     this.registry.setRoute(cap, {
-      capability: cap, pluginId: to.pluginId, storageNamespace: to.storageNamespace,
-      contractVersion: target.contractVersion,
+      capability: cap, pluginId: row.plugin_id, contractVersion: row.contract_version, storageNamespace: row.ns,
     });
   }
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {
@@ -399,9 +468,13 @@ export class Kernel {
       // 包 5（D-27）写序纪律：**先写审计、后改路由**——`route_change_guarded` 是 BEFORE 触发器，
       // 逐语句核对同事务里已存在的 ledger 审计行（seq=new.changed_seq、类型与方向相符）；
       // 顺序反过来会让正当启停也撞 `ROUTE_AUDIT_REQUIRED`。审计随附是判据，不是注释（CONTRACTS.md §16.2）。
+      // D-27 真修（G5-A 包 6）：审计行落**机制见证**（N1 同一信封）——守闸从此核「机制落账」
+      // 而非核形状：只查形状 = 把谎言写进删不掉的表（G5-A ③判据，半形变异必红）。
+      // `authorized` 取入口权威核对结论（principalCan 与 uow 的 requires 核对同一本账）。
       raw.run(
-        `insert into ledger(seq, space, event_type, actor, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?)`,
+        `insert into ledger(seq, space, event_type, actor, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?)`,
         seq, this.space, enabled ? 'capability-enabled' : 'capability-disabled', by.actorId,
+        JSON.stringify({ axis: 'capability-admin', capability: cap, authorized: this.principalCan(by, 'capability-admin') } satisfies AuthorityEvidence),
         JSON.stringify({ capability: cap }), null, Date.now(),
       );
       raw.run(`update capability_route set enabled=?, changed_seq=? where capability=?`, enabled ? 1 : 0, seq, cap);
@@ -604,6 +677,16 @@ export class Kernel {
   auditRequiredIntegrity(): {
     readonly checked: number;
     readonly violations: readonly RequiredEdgeViolation[];
+    /** C2（G5-A 包 6）：`required:false` 边逐条查目标存在性的巡检计数（只报不阻）。 */
+    readonly softChecked: number;
+    /**
+     * C2（G5-A 包 6，CONTRACTS.md §16.3）：**幽灵软边计数**。此前巡检只巡 `required=1`，
+     * `required:false` 的目标不存在（身份级悬空：oid 不在目录 / record 未声明）时它照样
+     * 打印「0 违规」——清白回执本身成为误导。软边只查**存在性**，不查 revision 级：
+     * `required:false` 的语义内含「允许悬空修订」，计入幽灵的只有目标身份整体不存在。
+     * 计数**只进回执**：不改 violations、不阻塞任何提交——软边的业务后果归领域自己。
+     */
+    readonly softGhosts: number;
   } {
     return this.#port.read((raw) => {
       const rows = raw.all<{
@@ -620,7 +703,18 @@ export class Kernel {
         });
         if (bad) violations.push(bad);
       }
-      return { checked: rows.length, violations };
+      // C2 覆盖段（同上注释）：软边的存在性巡检。
+      const soft = raw.all<{ to_oid: string | null; to_record: string | null }>(
+        `select to_oid, to_record from ref_edge where required=0`,
+      );
+      let softGhosts = 0;
+      for (const r of soft) {
+        const present = r.to_record !== null
+          ? raw.get(`select 1 as x from records where record_id=?`, r.to_record) !== undefined
+          : r.to_oid !== null && raw.get(`select 1 as x from object_directory where oid=?`, r.to_oid) !== undefined;
+        if (!present) softGhosts += 1;
+      }
+      return { checked: rows.length, violations, softChecked: soft.length, softGhosts };
     });
   }
 
@@ -777,11 +871,13 @@ class NamespaceWriterImpl implements NamespaceWriter {
     }
     // D-20 ①（包 2，CONTRACTS.md §16.2）：`write()` 顺手登记的台账行不得冒充正式事件类型——
     // 扩展状态行的登记事件与领域正式声明在 H 里必须是不同通道，否则本入口就是 appendLedger
-    // 拒绝后的第二条后门。
-    if (this.#k.registry.formalEventOwner(a.eventType) !== undefined) {
+    // 拒绝后的第二条后门。D-27 真修（G5-A 包 6）：机制审计名同样走这条预留通道
+    // （同一判据点、同一码）——两个通用入口都必须对预留词表封闭。
+    if (this.#k.registry.isReservedEventType(a.eventType)) {
       throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
         eventType: a.eventType, capability: this.#cap, channel: 'NamespaceWriter.write',
-        reason: 'write() 的登记式台账行不是正式事件的写入通道；请经本能力命令 Port 的 appendAuthoritativeEvent',
+        reason: 'write() 的登记式台账行不是预留事件类型（正式事件 / 机制审计名）的写入通道；'
+          + '正式事件请经本能力命令 Port 的 appendAuthoritativeEvent，机制审计名只能由机制实现内部落账',
       });
     }
     // D-24 ①（外部复审第四轮，席位 G1-A A-1/A-3）：状态行必须挂在**存在**的对象上。
@@ -1147,11 +1243,14 @@ class UnitOfWorkImpl implements UnitOfWork {
     // 不得经通用台账写入——**一切作用域，含 assembly**。唯一入口是归属能力窄面的
     // `appendAuthoritativeEvent`（= 所属领域的授权命令 Port 背后的机制通道）。
     // 这是机制拒绝，不是约定：判据在实现的最内层写点，词法扫描网再严也不在这里做豁免。
-    if (this.#k.registry.formalEventOwner(a.eventType) !== undefined) {
+    // D-27 真修（G5-A 包 6，CONTRACTS.md §16.3）：**五个机制审计名走同一条预留通道**——
+    // G5-A 实测此处曾对它们零预留，space-write 主体即可 mint 与机制真账逐列同形的审计行。
+    if (this.#k.registry.isReservedEventType(a.eventType)) {
       throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
         eventType: a.eventType, scope: this.#scope, channel: 'appendLedger',
-        reason: '该事件类型已登记为正式事件：通用 appendLedger 不是它的写入通道，'
-          + '必须经归属能力的授权命令 Port（机制面 = NamespaceWriter.appendAuthoritativeEvent）',
+        reason: '该事件类型已被预留（正式事件 / 机制审计名）：通用 appendLedger 不是它的写入通道；'
+          + '正式事件必须经归属能力的授权命令 Port（= NamespaceWriter.appendAuthoritativeEvent），'
+          + '机制审计名只能由机制实现内部落账（CONTRACTS.md §16.3）',
       });
     }
     if (a.objectId !== undefined) {
@@ -1169,6 +1268,18 @@ class UnitOfWorkImpl implements UnitOfWork {
       // 会把精确记录引用变成歧义引用（读哪一条？），也让不可变声明可以被静默改写。
       const declaring = a.declaresRecord ?? true;
       if (declaring) {
+        // D-21 最小止血（G5-A 包 6，CONTRACTS.md §16.3）：保留前缀 id 由机制计数器专属发号，
+        // 声明通道显式携带即拒——判据在落 records 行与 ledger 行**之前**（零半成品）。
+        // 这是身份 namespace 判据，不是存在性判据：空空间与已占用空间同码同拒，
+        // 不给出「该 id 是否已存在」的额外判别（不得泄漏跨空间存在性纪律同族）。
+        const reserved = RESERVED_RECORD_ID_PREFIXES.find((p) => a.recordId!.startsWith(p));
+        if (reserved !== undefined) {
+          throw new Refusal('RECORD_ID_RESERVED', {
+            recordId: a.recordId, prefix: reserved,
+            reason: '保留前缀的记录身份收归机制计数器发号，声明通道不能预占也不能仿冒；'
+              + '引用已存在的该前缀记录不受影响（CONTRACTS.md §16.3，前缀全集语义归 G1）',
+          });
+        }
         try {
           this.#raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
             a.recordId, seq, JSON.stringify(a.payload));
@@ -1289,8 +1400,12 @@ class UnitOfWorkImpl implements UnitOfWork {
     };
   }
 
-  /** 仅机制内部可达（接口上没有此方法）；权威校验在 Kernel.transferRoute。 */
-  reassignRouteInternal(cap: CapabilityId, toPlugin: string, ns: string, contractVersion?: string): void {
+  /**
+   * 仅机制内部可达（接口上没有此方法）；权威校验在 Kernel.transferRoute 与本方法二次核对。
+   * D-31（G5-A 包 6）：**ns 参数已删除**——移交不改 ns，路由 ns 恒取当前持久行；机制面从此
+   * 不存在任何改路由 ns 的通道（界外篡改另按裸面边界登记）。
+   */
+  reassignRouteInternal(cap: CapabilityId, toPlugin: string, contractVersion?: string): void {
     this.#assertLive();
     // 二次核对（SP-09）：即使有人绕过 Kernel.transferRoute 直接触达本方法，没有 capability-admin 也写不动路由。
     this.#k.assertAuthority(this.principal, 'capability-admin');
@@ -1301,14 +1416,16 @@ class UnitOfWorkImpl implements UnitOfWork {
     const seq = this.#k.nextLedgerSeq(this.#raw);
     // 包 5（D-27）写序纪律：先写 `capability-transferred` 审计、后改路由行（同 setRouteEnabled，
     // `route_change_guarded` 逐语句核对已存在的审计行；三元组变更必须配 transferred 事件）。
+    // D-27 真修：审计行落机制见证（同 setRouteEnabled 的 N1 信封）。
     this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?)`,
+      `insert into ledger(seq, space, event_type, actor, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?)`,
       seq, this.#k.space, 'capability-transferred', this.principal.actorId,
-      JSON.stringify({ capability: cap, from: cur.plugin_id, to: toPlugin, fromNs: cur.ns, toNs: ns }), null, Date.now(),
+      JSON.stringify({ axis: 'capability-admin', capability: cap, authorized: this.#k.principalCan(this.principal, 'capability-admin') } satisfies AuthorityEvidence),
+      JSON.stringify({ capability: cap, from: cur.plugin_id, to: toPlugin, ns: cur.ns }), null, Date.now(),
     );
     this.#raw.run(
       `update capability_route set plugin_id=?, ns=?, contract_version=?, changed_seq=? where capability=?`,
-      toPlugin, ns, contractVersion ?? cur.contract_version, seq, cap,
+      toPlugin, cur.ns, contractVersion ?? cur.contract_version, seq, cap,
     );
     this.#k.journalEpoch(this.#raw, seq, 'capability-transferred');
   }

@@ -136,11 +136,18 @@ describe('P2 身份 / 引用 / 插件演化', () => {
     w2.close();
   });
 
-  test('换包但未迁移命名空间 ⇒ 读路径 fail-loud，绝不静默返回空（#44 §11）', () => {
+  test('路由 ns 与冻结归属漂移 ⇒ 读路径 fail-loud，绝不静默返回空（#44 §11；漂移形状包 6 起只能界外构造，D-31）', () => {
     const w = world('p2-drift');
     const oid = w.uow(ALICE, (tx) => tx.createObject({ kind: 'test.claim', payload: { v: 1 } }));
     const RENAMED = { ...TEST_OBJECT_MODEL_SPLIT, storageNamespace: 'dom_test_om_v2' };
-    w.transferCapability(CAP_OBJECT_MODEL, RENAMED, ALICE);
+    // 包 6（G5-A D-31）翻转：携 ns 的移交在**入口**就被拒——漂移不再能从合法通道构造出来
+    expect(() => w.transferCapability(CAP_OBJECT_MODEL, RENAMED, ALICE)).toThrow(/TRANSFER_NS_DRIFT/);
+    // #44 §11 的 fail-loud 判据仍然要钉：漂移形状改由界外构造（装配视图被改成与 dir.ns 不符，
+    // 等价于裸面改 ns 后重开）——读面对界外漂移依旧拒绝服务，不静默返回空。
+    w.kernel.registry.setRoute(CAP_OBJECT_MODEL, {
+      capability: CAP_OBJECT_MODEL, pluginId: 'test.object-model.split',
+      storageNamespace: 'dom_test_om_v2', contractVersion: 'v1',
+    });
     expect(() => w.readObject(oid)).toThrow(/SCHEMA_INCOMPATIBLE/);
     expect(() => w.uow(ALICE, (tx) => tx.revise(oid, { payload: { v: 2 } }))).toThrow(/SCHEMA_INCOMPATIBLE/);
     w.close();

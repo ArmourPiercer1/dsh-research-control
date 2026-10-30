@@ -231,3 +231,28 @@ Port 自己的句柄上读回，读到 OFF 也无处强制恢复成原子动作�
 "改回 ON 再动手"的时序；守卫直接在入口拒赋值形，无窗口可乘。水位判据（N9 残余(2)）同包落地。
 **GT-2 比此前登记更宽**：`attacks/**` 无任何内容摘要 ⇒ 红条掏成 `expect(1).toBe(2)` 仍 PASS。
 GT-3 / N5 / E-01 / N3 / N4 状态维持（G5-A 各一次最小复现，N3 静态核对不回归）。
+### G6-A（第六席 @398df30）追加：包 6 复核 —— 五 P1 修法成立，但三个结构性面必须进 G1
+
+**总裁定**：D-27 / D-31 / D-24 读侧 / D-21 / C2 **五条 P1 修法全部成立、无虚报**；33 条已知红逐等，
+0 新增红、0 红条消失、0 skip、0 loadErrors。**重建文件 `sqlite-port.ts` 判「有条件可信」**
+（19 hunk = 15✅ / 3⚠️ / 1❌），**❌/⚠️ 处置前不得当作已终审资产引用**——这是它自己的措辞，我保留。
+
+| 编号 | 级别 | 事实（G6-A 实测） | 修法 |
+| --- | --- | --- | --- |
+| **F-G6A-1** | **P2 — 未修（文档与边界双失实，我写的）** | 类目名 `BARE_PRAGMA_READ`（"裸读形"）**名不符实**：`pragma optimize`（跑 VACUUM）与 `pragma wal_checkpoint`（返回 busy/log/checkpoint）**是有写副作用的操作却被放行**。对照诚实：一切能伤 durability 的开关（`journal_mode`/`synchronous`/`locking_mode`/`query_only`/`writable_schema`/`foreign_keys`）的**赋值全形**（含空格形/等号形/`main.` 前缀形）实测全拦，裸词形实测纯读 ⇒ 无 durability 实伤 | 更名 `PRAGMA_FUNCTIONLESS_PASSTHROUGH` 并在契约明写"按**词法形状**放行、不按语义"；白名单只豁免返回单行的查询形，`wal_checkpoint`/`optimize`/`foreign_keys` 函数形一律拒（草案见报告 §C.2） |
+| **F-G6A-2** | **P4 — 未修（单列，我包 6 修法的真实上限）** | 路由闸对 `actor` **只核非空**：`actor=任意他人主体` 照过，只有 NULL 被挡 ⇒ 正确表述是**「核的是『有一个 actor』，不是『这个 actor 有权』」** | 闸追加信封一致性 `l.actor = json_extract(l.authority_basis,'$.actor')`，机制侧信封增写 `actor`（取证同源） |
+| **F-G6A-3** | **P3 — 未修（界内新形态，标注「我上席写的方向判据自身有洞」）** | **停用复活·PK 改名链**：3 步（任意名伪造审计 + `UPDATE` 改 `capability` 主键 + `INSERT` 新生登记行）⇒ 复活启用、`changed_seq=NULL`、**全程零启用审计**；唯一痕迹是一枚**不在任何机制扫描面上的墓碑行**（`route_no_delete` 让它删不掉）。插件可达面先撞 `EVENT_AUTHORITY_REQUIRED`（mint 已死），故界内 | `route_insert_guarded` 对**新生行也要求随附审计**（首登记 bootstrap 另立界）+ 墓碑行纳入巡检。方向判据③的三元组名单漏了"capability 主键出现/消失"这一维 |
+| **F-G6A-4** | **P2（升级注记：真实产品 P1 运维洞）— 未修** | **D-31 只修了入口，历史面敞开**：v6 漂移库（按包 5 **合法通道**造）在 `398df30` 打开撞 `SCHEMA_UPGRADE_REQUIRED`——**是被版本墙顺住，不是被检出**（版本对齐后即零声纳）；v7 库内同形漂移**重开照常开**，快照面 fail-loud / 扫描面计数存活，`auditRequiredIntegrity` 对漂移**零声纳**，救济无门（`dir.ns` 被 `directory_no_update` 冻死，`route.ns` 改回也要再伪造） | 打开期 `dir.ns` vs `route.ns` 全表比对，不一致 ⇒ 拒开并点名；受审计的 ns 迁移通道与 `dir.ns` 冻结**冲突** ⇒ **G1 设计题** |
+| **F-G6A-5** | **P4 — 未修（"只报不阻"计数器的共同缺陷）** | `softGhosts` / `hiddenByContractSkew` 等计数**合法流量可淹没**（1 投毒 + 5 合法 = 同一个 6）且**不落任何持久工件** ⇒ 可见性是每次读的一过性回声，**没人盯回声就没有发现** | 统一建议：这类计数随每次审计运行落一条**机制事件**，成为可回看的记录（比逐个补测试有用） |
+
+**给 G1 的三句裁决位（报告原文，不改写）**：
+① **「当前默认策略 = 名单外事件名默认可写（deny-by-exception）」**——机制审计名是**白名单枚举制**，
+`object-revised`/`record-backfilled` 与任意未来名照常可 mint，**今天没洞只因触发器恰好不依赖它们**；
+② 历史面：**顺墙撞上 ≠ 检出**；打开期扫描 + 迁移通道 与 `dir.ns` 冻结互斥，须一并裁；
+③ **从 SCHEMA 源里删触发器定义，只被 `tests/**` + 重锚挡住**（`expectedTriggerDigests` 与 SCHEMA 同源
+⇒ 摘要判据设计上只覆盖"改体/同名空壳"，不覆盖"删定义"）。
+**门禁面维持**：GT-2（已登记红的断言掏成 `expect(1).toBe(1)` ⇒ 门禁 PASS，`attacks/**` 内容零校验）、
+GT-3（重算基线 ⇒ PASS）、N5（登记红吸收 `afterAll` 崩溃）、GT-4 唯一洗白链（改断言体 + 重锚）
+全部最小复现成功；**新增一条未登记细节：`attacks` 基线没有 `--reanchor` 通道，重算 JSON 无"当前不干净拒写"护栏 ⇒ 比作者锚更隐蔽**。
+E-01 / N3 / N4 状态不变。
+

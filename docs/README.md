@@ -117,6 +117,8 @@
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R9-R12.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-ADJUDICATION-TABLE.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md` | Unranked |
+| `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET.md` | Unranked |
+| `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.md` | Unranked |
 | `experiments/v3-semantic-poc/NOTES.md` | Unranked |
 | `experiments/v3-semantic-poc/README.md` | Unranked |
 | `experiments/v3-semantic-poc/REPORT-P4.md` | Unranked |

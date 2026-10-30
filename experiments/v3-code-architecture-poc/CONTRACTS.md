@@ -336,3 +336,37 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
 取方法、`Reflect.get/apply`、端口-kind 错配、移交后复用旧端口。网明确不拦拼接成员名与反射取成员——该边界由
   `tests/domain-write-face.test.ts` 的"断言扫不到"负空间测试钉住，并同处证明同一形态运行时被墙拦下。
 - 负例/正例见 `tests/capability-scope.test.ts`（装配根可跨 ⇒ Q40 不破；领域不可跨 ⇒ Q12 成立）。
+
+### 16.1 事务生命周期、提交期判据与 `write()` 的无歧义面（D-23 / D-24，外部复审第四轮，2026-10-30）
+
+**新增拒绝码 `TX_CLOSED`（插件可见面变化，先于代码声明）**：`src/contracts/index.ts` 的
+`RefusalCode` 封闭集新增 `TX_CLOSED`。语义：**该句柄所属的底层事务已终结（提交、回滚，或
+提交期抛错——三者同形）**，凡由该事务句柄派生的读写一律拒绝。适用面：`UnitOfWork` 的
+`createObject/revise/linkRef/appendLedger/declareRecord/recordReport` 与 `NamespaceWriter` 的
+`write/createOwned/reviseOwned/linkOwned`（含只读面 `readLatest`），以及**在已终结句柄上事后
+调用 `PluginFace.writerFor(旧句柄)` / `Kernel.namespacedWriter(cap, 旧句柄)`**——后者直接以
+`TX_CLOSED` 拒绝建端口。它是可重试的吗：不是——调用方必须另起事务重做，不得复用旧句柄。
+
+- **生命周期下沉到事务本体，而不是实例**：终结记账的键是 `StoragePort.tx` 交出的 `RawTx`
+  （模块级 `WeakSet`，见 `kernel.ts` 的 `CLOSED_TX`）。`Kernel.uow/uowFor` 回调一离开即记账。
+  为何不能只给 `UnitOfWork` 加 `closed` 实例位：`NamespaceWriter` 保留**同一个**底层句柄
+  （`writerFor`/`#scoped` 都经模块级 `WeakMap` 取它），实例级失效只封得住半个入口（D-23 原文）。
+  记账同样不用实例上的 TS `private`/参数属性（D-17/P2-2：运行时可枚举）。
+- **提交期判据改为增量**：`checkRequiredRefs` 只验证**本事务**新增的 required 边（按底层句柄
+  归账，`writer.linkOwned` 经瞬时实例写入的边同样入账）。**禁止**改回提交前全表重扫：一条存量
+  损坏边会永久拒绝此后任何主体的任何提交，而 `ref_edge` 是 append-only（触发器删不掉）、重开库
+  仍阻塞 = 空间级不可自愈写阻塞（席位 G1-A A-12/B-⑦）。
+- **存量完整性走独立的审计路径**：`Kernel.auditRequiredIntegrity()`——打开期/迁移/审计用的显式
+  方法，全表巡检 required 边、**返回违规清单而非抛首错**。它是**装配根/运维面**：`PluginFace`
+  不引用它，Kernel 也不交给插件；插件可见面（§16 的窄面）不包含任何存量巡检能力。后果锁见
+  `attacks/review/g1a-regression.test.ts`（存量脏边不得阻塞无关主体的合法提交）。
+- **`NamespaceWriter.write()` 的两个无歧义面（D-24）**：① 目标 `oid` 必须存在于
+  `object_directory`——幽灵 oid 的状态行以 `NOT_FOUND_IN_SPACE` 拒绝，先于任何写、零残留；
+  合法 Facet 挂载（oid 在目录、行落自己 ns）**不受影响**（Q45/#44 §6.2）。② 修订级存在判据
+  （required 边的源端与目标端）必须 **join `object_directory` 按归属 ns 归因**——"该对象在其
+  归属命名空间里确有该修订"才算成立（RD-05）；在他能力 ns 里伪造的行不再冒充修订存在。
+- **已知缺口（登记为 G1 存储契约，本 PoC 不修）**：机制层没有"扩展挂载登记"，合法挂载与
+  伪造他人对象的状态行在 `write()` 入口是**同一行形态**，无歧义面无法区分二者——因此明确
+  **不采用**"oid 主能力 == 写入能力"的一刀切（那会打断 Q45 正例，护栏测试持续阻止该回头路）。
+  完整修法需要一个显式的挂载声明/登记机制；在它出现前，`write()` 对"他人核心对象"的合法
+  挂载仍按行形态放行，这是被记录的边界，不是被忽略的洞。

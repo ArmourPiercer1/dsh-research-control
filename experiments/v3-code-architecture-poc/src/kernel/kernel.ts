@@ -475,10 +475,18 @@ export class Kernel {
   }
 
   namespacedWriter(capability: CapabilityId, tx: UnitOfWork): NamespaceWriter {
-    const w = new NamespaceWriterImpl(this, capability, RAW_OF_UOW.get(tx as UnitOfWorkImpl)!);
+    const impl = tx as UnitOfWorkImpl;
+    const raw = RAW_OF_UOW.get(impl);
+    // D-23 ①（迟到写形态）：`writerFor(旧句柄)` 也必须被拒——窄端口一旦允许在已终结的
+    // 事务上**事后建立**，写入口的失效检查就会晚一步；在这里判，端口根本造不出来。
+    if (!raw) throw new Refusal('CAPABILITY_INACTIVE', { capability, reason: 'tx 不是本 Kernel 交出的事务句柄' });
+    if (CLOSED_TX.has(raw)) {
+      throw new Refusal('TX_CLOSED', { capability, reason: '事务已终结（提交或回滚），不得在其上建立写端口' });
+    }
+    const w = new NamespaceWriterImpl(this, capability, raw);
     // D-19：写侧端口要复用 UnitOfWork 的同一套登记/台账逻辑，但必须钉住本能力作用域。
     // 映射放**模块级 WeakMap**——存成实例字段等于把通用事务句柄重新交给插件（`.constructor` 的教训）。
-    WRITER_UOW.set(w, tx as UnitOfWorkImpl);
+    WRITER_UOW.set(w, impl);
     return w;
   }
 
@@ -500,6 +508,39 @@ export class Kernel {
 
   get head(): CommitSequence {
     return this.#port.read((r) => r.get<{ value: number }>(`select value from meta where key='ledger_seq'`)!.value) as CommitSequence;
+  }
+
+  /**
+   * 存量 required 边的完整性巡检（D-23 ②，CONTRACTS.md §16.1）——**打开期 / 迁移 / 审计路径**。
+   *
+   * 提交期判据已改为只验本事务新增边（增量，见 `UnitOfWorkImpl.checkRequiredRefs`），
+   * 存量损坏项由本方法承接：全表巡检、**返回清单而非抛首错**，交运维逐条处置。
+   * 适用面：装配根 / 运维（打开时、迁移前后、或按需调用）。它**不在插件可见面**——
+   * `PluginFace` 不引用它，Kernel 本身也不交给插件；插件能触达的只有窄面。
+   * 它不做的事：不改数据、不阻塞任何事务——一条存量损坏边不得永久阻塞整个空间
+   * （席位 G1-A 的 A-12/B-⑦：全表重扫 = append-only 删不掉的空间级写阻塞）。
+   */
+  auditRequiredIntegrity(): {
+    readonly checked: number;
+    readonly violations: readonly RequiredEdgeViolation[];
+  } {
+    return this.#port.read((raw) => {
+      const rows = raw.all<{
+        from_oid: string; from_rev: number; role: string;
+        to_oid: string | null; to_rev: number | null; to_record: string | null;
+      }>(
+        `select from_oid, from_rev, role, to_oid, to_rev, to_record from ref_edge where required=1`,
+      );
+      const violations: RequiredEdgeViolation[] = [];
+      for (const r of rows) {
+        const bad = evaluateRequiredEdge(raw, {
+          from: r.from_oid as ObjectOid, fromRev: r.from_rev, role: r.role,
+          toOid: r.to_oid as ObjectOid | null, toRev: r.to_rev, toRecord: r.to_record,
+        });
+        if (bad) violations.push(bad);
+      }
+      return { checked: rows.length, violations };
+    });
   }
 
   /**
@@ -529,9 +570,18 @@ export class Kernel {
     }
     return this.#port.tx((raw) => {
       const tx = new UnitOfWorkImpl(this, principal, raw, scope);
-      const out = fn(tx);
-      tx.checkRequiredRefs();
-      return out;
+      // D-23 ①：回调一离开（无论正常返回还是抛出）就把**底层句柄**记入终结账。
+      // 提交失败（如 SQLITE_BUSY）与回滚同形：句柄死亡，被扣住的任何派生写入口不得
+      // 再以 autocommit 落库。放在 finally 而不是提交成功之后，是为了连"提交期抛错"
+      // 也覆盖——那条路径上事务同样已终结。
+      try {
+        const out = fn(tx);
+        tx.checkRequiredRefs();
+        return out;
+      } finally {
+        CLOSED_TX.add(raw);
+        TX_REQUIRED_EDGES.delete(raw);
+      }
     });
   }
 
@@ -610,9 +660,31 @@ class NamespaceWriterImpl implements NamespaceWriter {
     if (!c) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.#cap });
     return c.storageNamespace;
   }
+  /** D-23 ① 入口守卫：底层事务已终结 ⇒ 本端口的所有读写一律 `TX_CLOSED`，且拒绝先于任何写。 */
+  #assertLive(): void {
+    if (CLOSED_TX.has(this.#raw)) {
+      throw new Refusal('TX_CLOSED', {
+        capability: this.#cap, space: this.#k.space,
+        reason: '句柄所属事务已提交或回滚——迟到的写入不得经 SQLite autocommit 直接落库',
+      });
+    }
+  }
   write(a: { ns: string; oid: ObjectOid; revision: number; payload: unknown; eventType: string }): void {
+    this.#assertLive();
     if (a.ns !== this.ns) {
       throw new Refusal('NAMESPACE_ESCAPE', { attempted: a.ns, own: this.ns, capability: this.#cap, oid: a.oid });
+    }
+    // D-24 ①（外部复审第四轮，席位 G1-A A-1/A-3）：状态行必须挂在**存在**的对象上。
+    // 不在 `object_directory` 的 oid 是幽灵对象——没有任何对象拥有它，也没有任何合法的
+    // 扩展挂载能指向它，照落即成"无主状态行 + 注入他人事件流的素材"。
+    // 合法 Facet 挂载（oid 在目录、行落自己 ns）**不受影响**（Q45 正例护栏钉住）。
+    // 注意本条只封"无歧义的一半"：区分"合法挂载"与"伪造他人对象状态行"需要扩展挂载登记，
+    // PoC 机制层没有该机制——完整修法属 G1 存储契约，不得用"oid 主能力==写入能力"一刀切代替。
+    if (!this.#raw.get(`select oid from object_directory where oid=?`, a.oid)) {
+      throw new Refusal('NOT_FOUND_IN_SPACE', {
+        oid: a.oid, ns: a.ns,
+        reason: 'oid 不在 object_directory——幽灵对象不得有状态行，也不得有派生 ledger/journal 痕迹',
+      });
     }
     const seq = this.#k.nextLedgerSeq(this.#raw);
     this.#raw.run(
@@ -648,10 +720,17 @@ class NamespaceWriterImpl implements NamespaceWriter {
   #scoped(): UnitOfWork {
     const outer = WRITER_UOW.get(this);
     if (!outer) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.#cap });
+    // **必须复用外层事务的同一个 RawTx**（而不是"优化"成独立句柄或按实例记账），两个理由：
+    //  ① D-23 ①：终结账 `CLOSED_TX` 按事务本体判——瞬时实例必须与外层同生同死，
+    //     否则"提交后 writer 上再建一个 scoped 实例"就是新的迟到写入口；
+    //  ② D-23 ②：`linkOwned` 走的正是这条路径——它新增的 required 边经 `linkRef` 按
+    //     **底层句柄**（外层事务）归账。若瞬时实例自带句柄或按实例记账，这些边会从
+    //     提交期增量验证里静默漏掉（最容易漏的旁路，勿"重构"掉）。
     return new UnitOfWorkImpl(this.#k, outer.principal, RAW_OF_UOW.get(outer)!, this.#cap);
   }
 
   readLatest(oid: ObjectOid) {
+    this.#assertLive();
     const row = this.#raw.get<{ revision: number; payload_json: string; contract_version: string }>(
       `select revision, payload_json, contract_version from domain_state where ns=? and oid=? order by revision desc limit 1`,
       this.ns, oid,
@@ -677,6 +756,89 @@ const RAW_OF_UOW = new WeakMap<UnitOfWorkImpl, RawTx>();
 /** D-19：writer → 其宿主事务。模块级同 RAW_OF_UOW 的理由——句柄不进插件可见对象的对象图。 */
 const WRITER_UOW = new WeakMap<NamespaceWriterImpl, UnitOfWorkImpl>();
 
+/**
+ * D-23 ①（外部复审第四轮，2026-10-30）：**事务终结记账**（CONTRACTS.md §16.1）。
+ *
+ * 记账的键是 `StoragePort.tx` 交出的 `RawTx` 句柄——即**事务本体**，不是任何包装实例。
+ * 这是"下沉"的落点所在：`UnitOfWorkImpl` 与 `NamespaceWriterImpl` 共享同一个底层句柄
+ * （`writerFor`/`#scoped` 都从 `RAW_OF_UOW` 取），所以失效位若放在任何一个实例上，
+ * 另一个写入口就照样能写（席位 G1-A 的原始反对）。`Kernel.uow` 的回调返回（无论提交
+ * 还是回滚）即把该句柄记入本 `WeakSet`；此后**所有**由它派生的写入口一律 `TX_CLOSED`，
+ * 包括事后用旧句柄 `writerFor` 新造的端口。
+ * D-17/P2-2 的同一条教训：不用实例上的 TS `private`/参数属性——运行时可枚举，等于没藏。
+ * 模块级 `WeakSet` 不在任何对象的对象图上，且随句柄回收自动失效。
+ */
+const CLOSED_TX = new WeakSet<RawTx>();
+
+/** 本事务经 `linkRef` 新增的一条 required 边（D-23 ② 提交期增量验证的输入）。 */
+interface RequiredEdgeRow {
+  readonly from: ObjectOid; readonly fromRev: number; readonly role: string;
+  readonly toOid: ObjectOid | null; readonly toRev: number | null; readonly toRecord: string | null;
+}
+/**
+ * 本事务新增的 required 边，按**底层句柄**归账：同一事务上可能有多个包装实例
+ * （外层 `UnitOfWorkImpl` + `#scoped()` 造的瞬时 scoped 实例 + writer 派生实例），
+ * 增量判据必须看到它们全部——这也是不能按实例记账的第二个理由。
+ */
+const TX_REQUIRED_EDGES = new WeakMap<RawTx, RequiredEdgeRow[]>();
+
+/** 单条 required 边的完整性判定结果（提交期增量验证与存量审计共用，**不另写第二套判据**）。 */
+type RequiredEdgeViolation = { readonly code: 'REQUIRED_REF_MISSING' | 'HARD_REF_NOT_PINNED'; readonly detail: Record<string, unknown> };
+
+/**
+ * 修订级存在判据（D-24 ②）：必须按**归属命名空间**归因——join `object_directory` 后，
+ * "目标对象在其归属 ns 里确有该修订"才算成立（RD-05 的精确性语义）。不带归属判据时，
+ * 任何能力在自己 ns 里伪造一行 `oid@revN` 就能冒充"该对象存在第 N 修订"（席位 G1-A A-2）。
+ */
+function revisionExistsInOwnerNs(raw: RawTx, oid: ObjectOid, revision: number): boolean {
+  return raw.get(
+    `select 1 as x from domain_state ds
+       join object_directory d on d.oid = ds.oid and d.ns = ds.ns
+      where ds.oid=? and ds.revision=?`, oid, revision,
+  ) !== undefined;
+}
+
+/**
+ * 逐条判定一个 required 边（判据与旧 `checkRequiredRefs` 逐句一致：源端修订存在 →
+ * 目标 oid 在目录 → 硬引用必须钉死修订/记录 → 修订级存在）。变化只有两处：
+ * 输入从"全表扫描"变为调用方给出的边集（D-23 ②），修订判据按归属 ns 归因（D-24 ②）。
+ * 返回 `undefined` = 该边成立；否则返回应当抛出的拒绝（形态保持不变）。
+ */
+function evaluateRequiredEdge(raw: RawTx, r: RequiredEdgeRow): RequiredEdgeViolation | undefined {
+  // 源端同样要成立：一条 from 修订不存在的必需边，本身就是不存在的历史在主张约束力。
+  if (!revisionExistsInOwnerNs(raw, r.from, r.fromRev)) {
+    return { code: 'REQUIRED_REF_MISSING', detail: { from: r.from, revision: r.fromRev, level: 'source' } };
+  }
+  if (r.toOid !== null) {
+    if (!raw.get(`select oid from object_directory where oid=?`, r.toOid)) {
+      return { code: 'REQUIRED_REF_MISSING', detail: { from: r.from, role: r.role, to: r.toOid } };
+    }
+    // S-4：硬引用不得指向**浮动目标**。object-ref 不带修订 ⇒ to_rev 为 NULL ⇒
+    // 目标一被修订，这条边就静默改指新修订：无重校验、无事件，而"事务内确实存在"这一
+    // 提交期判据本身会随时间改变。硬引用必须钉死到 revision-ref / record-ref。
+    //
+    // 位置刻意：放在"目标 oid 是否存在"**之后**，既有判据与错误码一律不变
+    // （幽灵 object-ref 仍先报 REQUIRED_REF_MISSING），新码只覆盖此前无人拦截的那一种形状。
+    if (r.toRev === null) {
+      return { code: 'HARD_REF_NOT_PINNED', detail: {
+        from: r.from, role: r.role, to: r.toOid,
+        reason: 'required 引用必须钉死到 revision-ref 或 record-ref；object-ref 目标会随修订漂移',
+      } };
+    }
+    // 精确引用要验到修订级：只验 oid 会让"指向不存在的修订"静默提交（RD-05 的精确性在此）。
+    if (!revisionExistsInOwnerNs(raw, r.toOid, r.toRev)) {
+      return { code: 'REQUIRED_REF_MISSING', detail: {
+        from: r.from, role: r.role, to: r.toOid, revision: r.toRev, level: 'revision',
+      } };
+    }
+  } else if (r.toRecord !== null) {
+    if (!raw.get(`select record_id from records where record_id=?`, r.toRecord)) {
+      return { code: 'REQUIRED_REF_MISSING', detail: { from: r.from, role: r.role, to: r.toRecord } };
+    }
+  }
+  return undefined;
+}
+
 class UnitOfWorkImpl implements UnitOfWork {
   // D-16：同 NamespaceWriterImpl。`readonly raw` 连 TS 层面的 private 都不是，
   // 却靠接口不声明来"隐藏"——类型面藏得住，运行时藏不住。
@@ -700,8 +862,22 @@ class UnitOfWorkImpl implements UnitOfWork {
     throw new Refusal('CAPABILITY_SCOPE_ESCAPE', { action: what, scope: this.#scope, owner, oid });
   }
 
+  /**
+   * D-23 ① 入口守卫：本句柄的底层事务已终结 ⇒ 一律 `TX_CLOSED`，拒绝先于任何读写。
+   * 判据读模块级 `CLOSED_TX`（键 = 事务本体），不读本实例——同一事务上的**所有**包装
+   * 实例（含事后 `writerFor` 造出的端口、`#scoped()` 造的瞬时实例）必须同生同死。
+   */
+  #assertLive(): void {
+    if (CLOSED_TX.has(this.#raw)) {
+      throw new Refusal('TX_CLOSED', {
+        scope: this.#scope, space: this.#k.space, actor: this.principal.actorId,
+        reason: '句柄所属事务已提交或回滚——迟到的写入不得经 SQLite autocommit 直接落库',
+      });
+    }
+  }
 
   createObject(a: { kind: ObjectKindLabel; payload: unknown }): ObjectOid {
+    this.#assertLive();
     const owner = this.#k.registry.ownerOfKind(a.kind);
     if (!owner) throw new Refusal('CAPABILITY_INACTIVE', { kind: a.kind });
     this.#assertScope(owner.capability, 'createObject');
@@ -730,6 +906,7 @@ class UnitOfWorkImpl implements UnitOfWork {
   }
 
   revise(oid: ObjectOid, a: { payload: unknown; expectedRevision?: number }): number {
+    this.#assertLive();
     const dir = this.#raw.get<{ kind: string; owner_capability: string; ns: string }>(
       `select kind, owner_capability, ns from object_directory where oid=?`, oid,
     );
@@ -766,6 +943,7 @@ class UnitOfWorkImpl implements UnitOfWork {
     eventType: string; payload: unknown; objectId?: ObjectOid; revision?: number;
     recordId?: string; describedAt?: number; declaresRecord?: boolean;
   }): CommitSequence {
+    this.#assertLive();
     if (a.objectId !== undefined && !this.#raw.get(`select oid from object_directory where oid=?`, a.objectId)) {
       throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
     }
@@ -799,6 +977,7 @@ class UnitOfWorkImpl implements UnitOfWork {
   }
 
   linkRef(a: { from: RevisionRef; to: AnyRef; role: string; required?: boolean }): void {
+    this.#assertLive();
     // D-19：引用发起方必须在本作用域内。`from.oid` 可能是记录/非目录实体，
     // 不在 object_directory 里就没有归属可判——那种情形交由领域自己的必填引用完整性把关
     // （checkRequiredRefs），此处不臆造归属。（评审要求：负例测试见 tests/capability-scope.test.ts）
@@ -813,9 +992,23 @@ class UnitOfWorkImpl implements UnitOfWork {
       a.to.kind === 'record-ref' ? a.to.recordId : null,
       a.role, a.required ? 1 : 0,
     );
+    // D-23 ②：本事务新增的 required 边**按底层句柄归账**，提交期只验这份清单。
+    // 记在 WeakMap（而非实例数组）上，是因为同一事务上经 `writer.linkOwned` 的边由
+    // `#scoped()` 的瞬时实例写入——按实例记账会漏掉它们（这正是"两个写入口"的教训）。
+    if (a.required) {
+      const row: RequiredEdgeRow = {
+        from: a.from.oid, fromRev: a.from.revision, role: a.role,
+        toOid: a.to.kind === 'record-ref' ? null : a.to.oid,
+        toRev: a.to.kind === 'revision-ref' ? a.to.revision : null,
+        toRecord: a.to.kind === 'record-ref' ? a.to.recordId : null,
+      };
+      const own = TX_REQUIRED_EDGES.get(this.#raw);
+      if (own) own.push(row); else TX_REQUIRED_EDGES.set(this.#raw, [row]);
+    }
   }
 
   recordReport(a: Omit<CheckReportRecord, 'reportId' | 'recordedAt'>): { reportId: string; recordedAt: CommitSequence; seq: CommitSequence } {
+    this.#assertLive();
     const seq = this.#k.nextLedgerSeq(this.#raw);
     // 报告本身就是历史事件：与 check_report 同一事务写 ledger 行 + journal epoch。
     // 缺了它 ⇒ (a) 历史真源分裂成"报告表 + 登记表"两处，recorded_as_of 截点看不见报告；
@@ -858,6 +1051,7 @@ class UnitOfWorkImpl implements UnitOfWork {
   }
 
   readLatest(oid: ObjectOid): ObjectSnapshot | undefined {
+    this.#assertLive();
     const dir = this.#raw.get<{ kind: string; owner_capability: string; ns: string }>(
       `select kind, owner_capability, ns from object_directory where oid=?`, oid,
     );
@@ -881,6 +1075,7 @@ class UnitOfWorkImpl implements UnitOfWork {
 
   /** 仅机制内部可达（接口上没有此方法）；权威校验在 Kernel.transferRoute。 */
   reassignRouteInternal(cap: CapabilityId, toPlugin: string, ns: string, contractVersion?: string): void {
+    this.#assertLive();
     // 二次核对（SP-09）：即使有人绕过 Kernel.transferRoute 直接触达本方法，没有 capability-admin 也写不动路由。
     this.#k.assertAuthority(this.principal, 'capability-admin');
     const cur = this.#raw.get<{ plugin_id: string; ns: string; contract_version: string }>(
@@ -900,47 +1095,21 @@ class UnitOfWorkImpl implements UnitOfWork {
     this.#k.journalEpoch(this.#raw, seq, 'capability-transferred');
   }
 
-  /** 硬业务完整性引用：事务内确实存在，否则整体回滚（#44 §7.3 / RF-02）。 */
+  /**
+   * 硬业务完整性引用：事务内确实存在，否则整体回滚（#44 §7.3 / RF-02）。
+   *
+   * D-23 ②（外部复审第四轮）：**只验本事务新增的 required 边**——"事务内确实存在"从定义上
+   * 只对事务自己的写入成立。旧实现在提交前对**全表** `required=1` 重扫，后果是一条存量损坏边
+   * （旧句柄迟到写、历史缺陷、迁移残留都算）永久拒绝此后**任何人**的**任何**提交；
+   * `ref_edge` 是 append-only（触发器删不掉），重开库仍阻塞 ⇒ 空间级不可自愈写阻塞
+   * （席位 G1-A A-12/B-⑦）。存量完整性改由 `Kernel.auditRequiredIntegrity()` 承接
+   * （打开期/迁移/审计路径，装配根/运维面，见 CONTRACTS.md §16.1）。
+   * 逐条判据本身不变（含 S-4 钉死与 D-24 ② 的归属 ns 归因），见 `evaluateRequiredEdge`。
+   */
   checkRequiredRefs(): void {
-    const rows = this.#raw.all<{
-      from_oid: string; from_rev: number; role: string;
-      to_oid: string | null; to_rev: number | null; to_record: string | null;
-    }>(
-      `select from_oid, from_rev, role, to_oid, to_rev, to_record from ref_edge where required=1`,
-    );
-    for (const r of rows) {
-      // 源端同样要成立：一条 from 修订不存在的必需边，本身就是不存在的历史在主张约束力。
-      if (!this.#raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.from_oid, r.from_rev)) {
-        throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, revision: r.from_rev, level: 'source' });
-      }
-      if (r.to_oid !== null) {
-        if (!this.#raw.get(`select oid from object_directory where oid=?`, r.to_oid)) {
-          throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, role: r.role, to: r.to_oid });
-        }
-        // S-4：硬引用不得指向**浮动目标**。object-ref 不带修订 ⇒ to_rev 为 NULL ⇒
-        // 目标一被修订，这条边就静默改指新修订：无重校验、无事件，而"事务内确实存在"这一
-        // 提交期判据本身会随时间改变。硬引用必须钉死到 revision-ref / record-ref。
-        //
-        // 位置刻意：放在"目标 oid 是否存在"**之后**，既有判据与错误码一律不变
-        // （幽灵 object-ref 仍先报 REQUIRED_REF_MISSING），新码只覆盖此前无人拦截的那一种形状。
-        if (r.to_rev === null) {
-          throw new Refusal('HARD_REF_NOT_PINNED', {
-            from: r.from_oid, role: r.role, to: r.to_oid,
-            reason: 'required 引用必须钉死到 revision-ref 或 record-ref；object-ref 目标会随修订漂移',
-          });
-        }
-        // 精确引用要验到修订级：只验 oid 会让"指向不存在的修订"静默提交（RD-05 的精确性在此）。
-        if (r.to_rev !== null
-          && !this.#raw.get(`select 1 as x from domain_state where oid=? and revision=?`, r.to_oid, r.to_rev)) {
-          throw new Refusal('REQUIRED_REF_MISSING', {
-            from: r.from_oid, role: r.role, to: r.to_oid, revision: r.to_rev, level: 'revision',
-          });
-        }
-      } else if (r.to_record !== null) {
-        if (!this.#raw.get(`select record_id from records where record_id=?`, r.to_record)) {
-          throw new Refusal('REQUIRED_REF_MISSING', { from: r.from_oid, role: r.role, to: r.to_record });
-        }
-      }
+    for (const e of TX_REQUIRED_EDGES.get(this.#raw) ?? []) {
+      const bad = evaluateRequiredEdge(this.#raw, e);
+      if (bad) throw new Refusal(bad.code, bad.detail);
     }
   }
 }

@@ -93,6 +93,13 @@ export type RefusalCode =
   | 'RECORD_UNDECLARED'       // 引用了从未声明的记录标识
   | 'RAW_SQL_REFUSED'        // 领域句柄试图执行 DDL/PRAGMA/ATTACH
   | 'TX_CONTENTION'           // 写锁竞争（可重试）；驱动错误码只保留在 detail 里作证据
+  // D-23（外部复审第四轮，2026-10-30）：**终结判据是底层事务本体**（`StoragePort.tx` 交出的句柄），
+  // 不是任何包装实例——`Kernel.uow/uowFor` 回调一离开（提交、回滚、提交期抛错三形同判终结）即终结。
+  // 终结后凡由该句柄派生的**读写一律拒绝**（`UnitOfWork` 与 `NamespaceWriter` 的全部读写方法，
+  // 含只读 `readLatest`，也含事后经 `writerFor(旧句柄)` 构造的端口——后者直接拒绝建端口）。
+  // 不可重试：调用方必须另起事务重做。语义与适用面全文见 CONTRACTS.md §16.1——
+  // 这是插件可见面变化（`Refusal.code` 会到达插件代码）。
+  | 'TX_CLOSED'
   | 'FULL_REBUILD_REQUIRED'   // Journal 缺口越过后不得增量续跑（#44 §7.4）
   | 'ACTIVATION_IMPOSSIBLE'   // 必需能力缺席或必需代码依赖成环，无法装配（#44 §6.3）
   | 'READ_CUTOFF_UNSAFE'      // 读取截点无法满足一致性要求

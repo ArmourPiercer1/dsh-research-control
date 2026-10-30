@@ -90,6 +90,7 @@
 | `experiments/v3-code-architecture-poc/ASSESSMENT.md` | Unranked |
 | `experiments/v3-code-architecture-poc/CONTRACTS.md` | Unranked |
 | `experiments/v3-code-architecture-poc/EVIDENCE.md` | Unranked |
+| `experiments/v3-code-architecture-poc/IMPLEMENTATION-PLAN-DRAFT.md` | Unranked |
 | `experiments/v3-code-architecture-poc/READINESS.md` | Unranked |
 | `experiments/v3-code-architecture-poc/README.md` | Unranked |
 | `experiments/v3-code-architecture-poc/RECONCILIATION.md` | Unranked |

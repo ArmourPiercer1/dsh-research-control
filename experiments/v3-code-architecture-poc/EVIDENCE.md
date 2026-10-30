@@ -293,3 +293,30 @@ expect(R.enumWriter.ownNames).toContain('cap'); // TS private 的 cap 仍是自�
 `checkreport-raw-read`（顺 `kernel.port` 取读句柄）同族——三例都是审查方夹具依赖被审的洞。
 处置不变：**作者不修改审查方文件**；基线在干净 worktree 上重生成并在此定性，
 若席位回归应自行把该断言翻正。
+
+## D-19c 的尝试结果：领域写面扫描尚未落地，但**先抓出了活案例**
+
+按外部复审发现 A 的修法，作者把 `src/domains/test-records.ts:52-64` 的
+`tx.createObject/tx.linkRef` 迁到能力作用域端口 `createOwned/linkOwned`，作者测试 **12 例转红**，
+全部同一成因：
+
+```
+Refusal: CAPABILITY_SCOPE_ESCAPE  at UnitOfWorkImpl.#assertScope (kernel.ts:700)
+```
+
+根因不是端口写错，而是**记录域按自身 manifest 并不拥有它一直在创建的对象**：
+`test-records.ts` 的 `ownsKinds` 声明 `test.subject / test.claim / test.relation`
+归 `CAP_OBJECT_MODEL`，而记录域的 `admit()` / `objectify()` 直接创建这些 kind。
+即：**PoC 自身的领域代码长期在跨归属写权威数据**，此前靠通用事务面不被检查而静默通过。
+
+**因此作者回退了这次迁移**（`git checkout -- src/domains/test-records.ts`，单文件、作者自己的文件）。
+把它"修绿"有两条路，都不许现在偷偷做：
+
+1. 把 `test.claim` 等 kind 改由记录域拥有 ⇒ 改变领域权威划分，属**语义裁决**（涉 PR #42 已裁定语义），须你裁定；
+2. 把 Intake 归位为 **Application Use-case**：跨能力协调由装配根显式授予跨能力委托
+   （`kernel.namespacedWriter(CAP_OBJECT_MODEL, tx)` 之类），领域插件本身仍只用自有端口。
+   这条与外部复审者的两层写面一致，**是推荐方向**，但要改装配与夹具，属 G0-R 交付 D-19c。
+
+**这条记录的意义**：D-19 在修之前不是"理论上可越权"，而是**本仓自己的领域代码每天都在越权**。
+`tests/capability-scope.test.ts` 的 5 例只证明了机制会拒绝，没有证明现有代码遵守——
+Draft 的批评（"机制有了但没人被迫用它"）由此从推测升级为实测。

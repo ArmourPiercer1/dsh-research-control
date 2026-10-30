@@ -105,6 +105,8 @@
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G0-A.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G0-B.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G1-A.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G1-DOMAIN.md` | Unranked |
+| `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G1-ENG.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G2-A.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G3-A.md` | Unranked |
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G4-A.md` | Unranked |

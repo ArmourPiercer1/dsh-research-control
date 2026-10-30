@@ -58,8 +58,13 @@ function runVitest(paths) {
     for (const f of j.testResults ?? []) {
       // 外部复审第三轮：审查方流**允许**已知断言失败，但不允许"文件根本没跑起来"混在里面。
       // 收集期/解析期崩溃的文件有 status=failed 却没有 assertionResults ⇒ 单独收集。
-      if ((f.assertionResults ?? []).length === 0 && (f.status === 'failed' || f.message)) {
-        loadErrors.push(`${String(f.name ?? '?').replace(REPO + '/', '')}：${String(f.message ?? 'no assertions collected').split('\n')[0].slice(0, 160)}`);
+      const reds = (f.assertionResults ?? []).filter((a) => a.status === 'failed').length;
+      // GT-1（席位 G1-A 实测）：原判据要求「该文件 0 条断言」，于是「断言全通过 + afterAll 抛错」
+      // 这类**清理期崩溃**被读成正常（vitest exit=1 / success=false，门禁仍 PASS）。
+      // 新判据：文件级失败但**没有任何一条已登记断言失败**能解释它 ⇒ 判收集/解析/清理期失败。
+      // 席位在现有 attacks 上实测零误报（命中其夹具 1 份，11 份已知红文件不误报）。
+      if ((f.status === 'failed' && reds === 0) || ((f.assertionResults ?? []).length === 0 && f.message)) {
+        loadErrors.push(`${String(f.name ?? '?').replace(REPO + '/', '')}：${String(f.message ?? '文件级失败但无一条断言失败可解释（清理/收集期崩溃）').split('\n')[0].slice(0, 160)}`);
       }
       for (const a of f.assertionResults ?? []) {
         if (a.status === 'failed') failed.add(`${f.name.replace(REPO + '/', '')} > ${a.fullName}`);

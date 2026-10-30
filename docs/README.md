@@ -91,6 +91,7 @@
 | `experiments/v3-code-architecture-poc/CONTRACTS.md` | Unranked |
 | `experiments/v3-code-architecture-poc/EVIDENCE.md` | Unranked |
 | `experiments/v3-code-architecture-poc/G1-CONTRACT-DESIGNS.md` | Unranked |
+| `experiments/v3-code-architecture-poc/G1-RECON-PR47.md` | Unranked |
 | `experiments/v3-code-architecture-poc/IMPLEMENTATION-PLAN-DRAFT.md` | Unranked |
 | `experiments/v3-code-architecture-poc/READINESS.md` | Unranked |
 | `experiments/v3-code-architecture-poc/README.md` | Unranked |

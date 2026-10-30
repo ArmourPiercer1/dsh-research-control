@@ -382,8 +382,8 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
 形状与 `ownsKinds` 同族：`readonly { eventType: string; capability: CapabilityId }[]`。
 登记判据也与 `ownsKinds` 同族：同一事件类型被两个能力登记 ⇒ `AMBIGUOUS_AUTHORITY`；
 指向未激活能力 ⇒ `CAPABILITY_INACTIVE`。Kernel 把 eventType 当**不透明字符串**，不解释任何业务语义
-（业务无知扫描继续覆盖本面）。归属账本按能力 id 记，**不随路由停用而消失**：拥有者被停用时，
-正式事件在两个通道上都写不动——那正是语义，不是可用性缺陷。
+（业务无知扫描继续覆盖本面）。归属账本按能力 id 记，**不随路由停用而消失**。
+**（2026-10-30 席位 G2-A 实测纠正，此前本行把期望写成了事实）** 拥有者 Capability 被停用时：通用通道 `appendLedger` 拒绝（未激活 ⇒ `CAPABILITY_INACTIVE`），但 `appendAuthoritativeEvent` **当前并不核对激活状态，仍会写入**（`kernel.ts:502-518/792-830` 零激活核对 ⇒ 停用能力仍能签发正式事件，登记为 **D-25**）。**以机制行为为准**；「停用即写不动」是**待实现的目标语义**，不是现状。
 
 **新增拒绝码 `EVENT_AUTHORITY_REQUIRED`**：语义 =「**本通道没有资格写这个事件类型**」，与
 「缺授权轴」的 `AUTHORITY_REQUIRED` 是两回事，与「改了他人的对象」的 `CAPABILITY_SCOPE_ESCAPE`

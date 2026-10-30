@@ -275,3 +275,15 @@ describe('架构独立性硬门', () => {
     } finally { try { w.close(); } catch { /* 已关 */ } rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+describe('SCR-1：根测试收集面必须排除席位 worktree（外部复审第三轮）', () => {
+  test('`vitest.config.ts` 与 `tsconfig.json` 都排除了 .scratch/**', () => {
+    // SUBAGENT_ROUTING.md 规定席位 worktree 落在仓内 .scratch/ 下，里面有 tests/** 的完整副本。
+    // 根 runner 若不排除，就会被收编成"测试数异常膨胀"（PR #47 实测过；本轮反向对照实测 23 份）。
+    // 这条断言防的是：exclude 在某次重构里被静默删掉——纪律还在，污染回来了。
+    const v = readFileSync(join(POC_ROOT, '..', '..', 'vitest.config.ts'), 'utf-8');
+    const t = readFileSync(join(POC_ROOT, '..', '..', 'tsconfig.json'), 'utf-8');
+    expect(v).toContain("'.scratch/**'");
+    expect(t).toContain('".scratch"');
+  });
+});

@@ -1,0 +1,182 @@
+# G1 契约会合 —— 逐条对账清单（可 diff、可机验）
+#
+# 为什么存在：外部复审第三轮（2026-10-30，裁定 CONDITIONAL PASS·需修订）指出本计划的
+# G1 放行判据"冲突清单每条都有权威指向"仍是**人工核对**，按本文自己的标准
+# （不得写"经审查通过"这类无法机验的话）不达标。本文件把它变成机验对象。
+#
+# 放行判据（写进 IMPLEMENTATION-PLAN-DRAFT.md §2 G1）：
+#   grep -c '^    status: open$'  experiments/v3-code-architecture-poc/G1-RECONCILIATION-CHECKLIST.yaml  ⇒ 0
+#   grep -c '^    owner: "UNASSIGNED"$'  同一文件  ⇒ 0   # 每条都必须有权威归属，不许留空
+# # 关闭任一条必须在 evidence 字段里给出**可定位**依据（Q 编号 / 裁定提交号 / 用户指令原文位置），
+# 并在 resolution 字段写清"谁让位、依据什么"。**不许为了过计数把条目删除**——删除会让 diff 显示条目减少，
+# 评审时按"逃逸"处理。
+#
+# 字段语义：
+#   id        稳定标识，不随文档重排改变
+#   topic     冲突/接口项一句话
+#   sources   三份契约（PR #42 语义 / PR #44 机制 / PR #47 Schema）及仓内文档的具体位置
+#   owner     权威归属：最终由哪份契约 + 哪个 Q 编号/裁定说了算；未指派 ⇒ UNASSIGNED（放行前必须为 0）
+#   status    open | resolved
+#   evidence  判定所依据的实测/文档位置（含行号或提交号）
+#   resolution（resolved 时填）谁让位、依据什么；open 时省略
+
+schema_version: 1
+plan: "experiments/v3-code-architecture-poc/IMPLEMENTATION-PLAN-DRAFT.md"
+revision: "2026-10-30（外部复审第三轮驱动新建）"
+
+items:
+  # ---------- 时间语义（复审者判 P1）----------
+  - id: G1-TIME-01
+    topic: "`described_at` 与 `recorded_at` 与 `CommitSequence` 是三件事，不得互相转换"
+    sources:
+      - "PR #47: T-GAP-13（同一毫秒可有多个提交 ⇒ 时间戳不能充当事务快照边界）"
+      - "READINESS.md:34（D-5：PoC 把 recordedAt 与 seq 当同一数值的两个名字）"
+      - "experiments/v3-code-architecture-poc/CONTRACTS.md（appendLedger 的 described_at/recorded_at 字段语义）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "IMPLEMENTATION-PLAN-DRAFT.md §2-G1 ③ 已把三层分开定义；正式契约文本未定"
+
+  - id: G1-TIME-02
+    topic: "外部 `recorded_as_of`（墙钟）→ `CommitSequence` 的确定性映射，含「同一毫秒多次提交」与「该时刻无提交」两个分支"
+    sources:
+      - "PR #47: T-GAP-13"
+      - "READINESS.md:106（截点前缀差分可枚举被剔除行的精确 recorded_seq ⇒ 映射不确定性会同时放大 D-12）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "两分支的确定取值未定义 ⇒ 同一查询两次结果可能不同，属正确性而非风格问题"
+
+  # ---------- 写权限与领域权威 ----------
+  - id: G1-OWN-01
+    topic: "领域数据只能经所属领域的命令端口修改（Q12），且 Application Use-case 也不得绕过拥有者端口"
+    sources:
+      - "PR #42: 五类对象所有权与领域权威语义"
+      - "PR #44: UnitOfWork / NamespaceWriter 机制面"
+      - "experiments/v3-code-architecture-poc/CONTRACTS.md:312（createOwned/reviseOwned/linkOwned，依 Q12）"
+    owner: "Q12（+ Q40 约束跨插件原子提交不得被修法打断）"
+    status: open
+    evidence: "端口侧已提交 7fef5a9；强制门未落地；迁移尝试致作者测试 12 例 CAPABILITY_SCOPE_ESCAPE（EVIDENCE.md），证明本仓领域代码长期跨归属写。判据形态见 PLAN §4.1′"
+
+  - id: G1-OWN-02
+    topic: "跨领域协调是否可继续持有通用 `UnitOfWork` 写面（复审者建议：Application 只持协调权，写经命令端口）"
+    sources:
+      - "PR #44 §6 UnitOfWork 成员封闭集"
+      - "PLAN §4.1 作者原建议（摘掉写方法，未采纳）与 §4.1′（采纳端口+两侧堵）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "两种形状的机验代价不同；本文判据已按 D-19c′ 静态集合相等核对改写，但契约文本未冻结"
+
+  - id: G1-OWN-03
+    topic: "`eventsOf()` 跨能力读授权（默认拒读，装配根显式 grant）是否即为正式形态"
+    sources:
+      - "PR #44 §4.2/§6.2（命名空间隔离）"
+      - "experiments/v3-code-architecture-poc/tests/events-of-scope.test.ts（当前取舍被钉住）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "机制已实现且 READINESS.md:120 记为 E-00「已修，未经同等范围独立复验」——两席位均声明不在其范围"
+
+  # ---------- 可信绑定与视图完整性 ----------
+  - id: G1-BIND-01
+    topic: "`hostSnapshot` / `registeredEdges` 等装配 resolver 的**绑定约束**（PoC 只有形状，没有绑定）"
+    sources:
+      - "READINESS.md:62（D-9）"
+      - "PR #44（装配根注入契约）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "无绑定 ⇒ 装配根可交出形状正确但内容虚假的输入，机制无从分辨"
+
+  - id: G1-BIND-02
+    topic: "装配根交**恒空**视图 ⇒ 报告仍 ACHIEVED + COMPLETE（N-1，与 BIND-01 同批裁）"
+    sources:
+      - "READINESS.md / ASSESSMENT.md 的 N-1 行"
+      - "experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G0-B.md（席位 B 的 N-1 攻击）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "受信任输入边界，与 hostSnapshot 同类；作者测试 bless 的「交而空 ⇒ ACHIEVED」有条件且条件机制内不可验证"
+
+  - id: G1-BIND-03
+    topic: "视图抛异常 ⇒ run() 直接抛、不落报告、无 INDETERMINATE 降级（N-3，与 CHECKER_UNAVAILABLE 降级哲学不一致）"
+    sources:
+      - "experiments/v3-code-architecture-poc/src/domains/test-validation.ts（SYNTH_EDGES_UNAVAILABLE 路径）"
+      - "RE-REVIEW-G0-B.md 的 N-3"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "方向安全（无假通过），但降级哲学不一致"
+
+  - id: G1-BIND-04
+    topic: "「双正源违规可检测」的解除限定交付：角色名入库规范化 / 别名字面量表 / payload 形状校验"
+    sources:
+      - "CONTRACTS.md 的「可检测的准确边界」段（N-2 后收窄）"
+      - "kernel.ts 的 linkRef 原样入库（无规范化，席位 B 引 fa9c2d0:702）"
+    owner: "G3 交付责任（限定期限本身已 resolved：无限定『可检测』被禁）"
+    status: resolved
+    resolution: "主张按实现收窄（`used_in`/`Used_In`/`\" USED_IN\"` 与 operatingContext/嵌套别名不在检测面内）；无限定用词被明文禁止。解除限定的三项交付另计 G3 工作量"
+    evidence: "CONTRACTS.md 限定段 + RE-REVIEW-G0-B.md 的 N-2 攻击矩阵"
+
+  # ---------- 读面信息与存在性 oracle ----------
+  - id: G1-READ-01
+    topic: "对象 ID 可枚举/可预测（`OBJ-<space>-<n>` 单调）+ 过滤后计数可差分 ⇒ 反推被剔除行"
+    sources:
+      - "READINESS.md:106（D-12，席位实测 C(X)-C(X-1) 前缀差分）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "推翻作者旧说法：『只给数量不给 oid』不抗探测。对外读接口开放前必须裁"
+
+  - id: G1-READ-02
+    topic: "`NAMESPACE_ESCAPE` 的拒绝本身声明「该 oid 存在且属他人」⇒ 与 D-12 叠加成存在性 oracle；refuse vs withhold"
+    sources:
+      - "kernel.ts 的 eventsOf 闭包（E-01 注释：拒绝码与写侧越界同名）"
+      - "tests/events-of-scope.test.ts（当前选择=显式拒读，已钉住）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "静默返空会把『没权限』读成『没有历史』，属被禁止的『缺失读成空』家族 ⇒ 需正面裁定而非默认"
+
+  # ---------- 版本、迁移与过渡期历史权威 ----------
+  - id: G1-VER-01
+    topic: "`ledger` 无 `contract_version`，`eventsOf` 把 `payload_json` 原样交进插件面 ⇒ v2 实现可静默误读 v1 载荷"
+    sources:
+      - "READINESS.md:105（D-11，席位原话：不做必须写成显式裁定，不能让它以『不算漏网』的名义消失）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "正式建库前必须定版本记录方式；会连带 D-6 的同款回填器债务"
+
+  - id: G1-VER-02
+    topic: "同一空间内 v2/v3 事件混存时谁是历史正源（V1/V3 过渡期）"
+    sources:
+      - "PR #42（历史语义）× PR #47（Schema 版本）× PR #44（Ledger 机制）三者交叠处"
+      - "GIT_INTEGRATION.md / HISTORY_EVENT_CATALOG.md（V1 冻结面，过渡期须兼容的既有形态）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "三份契约各自合理但不互斥 ⇒ 正是本轮对账要产出唯一权威的地方"
+
+  - id: G1-VER-03
+    topic: "契约版本只有写入侧与读侧判定，无 v2→v3 回填迁移器（D-6）"
+    sources:
+      - "READINESS.md:30-35"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "与 VER-01 同批裁，避免两处各写一套版本推进规则"
+
+  # ---------- 已由 Q 号裁定、不再列为待议（复审者点名）----------
+  - id: G1-DONE-01
+    topic: "空间粒度（D-1）"
+    sources: ["READINESS.md:30-35", "ASSESSMENT.md §8.1"]
+    owner: "Q24"
+    status: resolved
+    resolution: "一空间独立库；『选单库多空间 ⇒ P4 隔离证明整体作废需重证』的条件分支随 Q24 关闭"
+    evidence: "ASSESSMENT.md:194"
+
+  - id: G1-DONE-02
+    topic: "派生面/投影缺口策略（D-2）"
+    sources: ["READINESS.md:30-35", "ASSESSMENT.md §8.1"]
+    owner: "Q35"
+    status: resolved
+    resolution: "禁止静默继续，须重建或明确失败；部分查询行为留待接口细化（细化不重开原则）"
+    evidence: "ASSESSMENT.md:195"
+
+  - id: G1-DONE-03
+    topic: "跨插件原子提交在同一事务内成立（Q40）——D-19 修法不得打断它"
+    sources: ["PR #44 事务机制", "tests/capability-scope.test.ts 的装配根正例"]
+    owner: "Q40"
+    status: resolved
+    resolution: "保留单事务跨领域协作；实现形状改为 Application 持协调权 + 写经拥有者命令端口（OWN-02 只裁形状，不重开 Q40）"
+    evidence: "capability-scope.test.ts 正例 + PLAN §4.1′"

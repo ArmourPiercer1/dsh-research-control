@@ -351,3 +351,43 @@ Draft 的批评（"机制有了但没人被迫用它"）由此从推测升级为
 | M4 下标写法 `tx['appendLedger']` 再接调用括号 | 计数判据红：`出现 2 次 / 被标记 1 次`（行级标记看不见的形态） |
 
 **新增未修项 D-20 / D-21 / D-22** 见 `READINESS.md`，均为本次收口过程中发现，不粉饰为已闭合。
+
+---
+
+## 包 2（D-20 / D-22，外部复审第四轮）：变异矩阵与面加宽实证（2026-10-30，作者自验）
+
+**面哈希**：`KERNEL_SURFACE.sha256` `ad394ff3…abb2fbc` → `5721830a…686eaa3103`（先写 CONTRACTS §16.2 再动机制）。
+**加宽/收紧对拍**（`.scratch/d20-face`，git-archive 的 HEAD 旧代码与新代码同进程枚举成员，脚手架用后即删）：
+`PluginFace` / `UnitOfWork` / `Kernel` 成员清单**一字不变**；`NamespaceWriter` 差集 =
+`{加入: [appendAuthoritativeEvent], 移除: []}`；`registry` 差集 = `{加入: [formalEventOwner, formalEvents], 移除: []}`
+（后者是字符串→字符串的 Map，不携带句柄）；`eventsOf` 行形状 `["payload","seq"] → ["actor","payload","seq"]`
+（E-01 泄露面加宽一项，已登记 READINESS 的 E-01 行）。
+
+**分层防御矩阵**（D-20 是三层独立拦截；端到端红条只在全回退时翻红——这正是分层的代价，
+所以每层另有单层直测，缺一层就有一条测试红，回归不会静默）：
+
+| 变异（中和不删，`sha256sum -c` 逐次核验还原） | g1a 端到端 | 单层直测 |
+|---|---|---|
+| M1 通道门（`appendLedger` 正式类型拒绝）短路 | **8/0 仍绿**（归属门+信任模型拦截） | `formal-event-authority`「通用通道写正式事件」红 |
+| M2 归属门（scoped `appendLedger` 的 `#assertScope(owner)`）短路 | **8/0 仍绿**（通道门+信任模型拦截） | `use-case-write-path` 末条红（精确码不再成立） |
+| M3 投影退回读 `note` 字符串 | **8/0 仍绿**（写侧两门让伪造根本落不了库） | `formal-event-authority` 两条红（forge 计入 + 正例翻转失效） |
+| M4 三层同时中和（= 修复整体回退） | **D-20 红条翻红**（1 failed / 7 passed） | —（端到端负载性证据） |
+| M5 `ValidationService` 回退「全权回调 + 参数属性 `runIn`」 | **D-22 红条翻红**（1 failed / 7 passed），其余 7 条不动 | 单点即红：兼容口收口不是摆设 |
+
+还原核验：每次变异还原后 `sha256sum -c` 两文件均 OK（最终态 kernel.ts `9712561e…`、test-records.ts `ea19614b…`）。
+
+**适配器可达性直测**（兼容口不是第二入口）：直接调 `adaptLegacyValidationWiring((fn)=>w.uow(ADM,fn))`，
+包装对象自有属性 = `['submitReport']`、原型 = `Object.prototype`、返回值无函数、
+无 `revise/createObject/appendLedger` 名字、台账零多余行——事务句柄对持有者不可达。
+
+**g0-gate 终态**（基线未动，等父代理重算）：exit 1，失败集变化**恰好**两条：
+D-20 与 D-22 从基线 failures 移入 passes（「审查方新增通过 2 条 / 红条消失 2 条」），无其它新增红/新增通过。
+
+**未覆盖的失败模式（如实登记）**：
+① D-21 观察事实：`linkRef` 只判 `from` 归属、**从不判 `to`**（目标存在即可挂 `required` 边）；
+`RPT-${seq}` 预占可让他人随后的 `recordReport` 撞 `RECORD_ALREADY_DECLARED` 整笔回滚（DoS 面）。
+跨能力引用目标是合法需求（Q45/Q40），本包**没有**加"禁止跨领域边"。
+② H 是 append-only：库里**既有的**伪造 v1 行（如修前落库的 `note:'AUTHORIZED'`）在新投影下自动失效，
+但仍留在库——审计/标注/处置是运维与迁移路径的缺口，机制层不擅自删历史。
+③ `policyVersion` 冻结判据表目前只有 `fact-standing/v2` 一个版本；未来版本的兼容策略（升级窗口、
+旧事件重放口径）属 G1 裁定，不在本包范围。

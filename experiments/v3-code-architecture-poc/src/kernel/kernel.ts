@@ -45,6 +45,12 @@ export interface Authorizer {
 export class CapabilityRegistry {
   private readonly caps = new Map<CapabilityId, ActivatedCapability>();
   private readonly kindOwner = new Map<ObjectKindLabel, CapabilityId>();
+  /**
+   * D-20（包 2，CONTRACTS.md §16.2）：正式事件类型 → 归属能力。登记判据与 `kindOwner` 同族；
+   * 归属账本按**能力 id** 记，不随路由移交/停用消失——拥有者被停用时正式事件在两个通道上都
+   * 写不动（那正是语义）。Kernel 只当不透明字符串，不解释事件业务含义（业务无知不变）。
+   */
+  private readonly formalEvents = new Map<string, CapabilityId>();
   private readonly requires = new Map<string, readonly { capability: CapabilityId; contractVersion: string; required?: boolean }[]>();
   private eventAuthority: { pluginId: string; mode: string } | null = null;
   private readonly manifests = new Map<string, PluginManifest>();
@@ -81,6 +87,17 @@ export class CapabilityRegistry {
         throw new Refusal('CAPABILITY_INACTIVE', { kind: k.kind, capability: k.capability });
       }
       this.kindOwner.set(k.kind, k.capability);
+    }
+    // D-20（包 2）：正式事件类型登记（CONTRACTS.md §16.2）。判据与 ownsKinds 同族：
+    // 一个事件类型只能有一个权威签发者；归属指向未激活能力即装配失败。
+    for (const e of m.ownsEventTypes ?? []) {
+      if (this.formalEvents.has(e.eventType)) {
+        throw new Refusal('AMBIGUOUS_AUTHORITY', { axis: 'event-type', eventType: e.eventType, plugin: m.pluginId });
+      }
+      if (!this.caps.has(e.capability)) {
+        throw new Refusal('CAPABILITY_INACTIVE', { eventType: e.eventType, capability: e.capability });
+      }
+      this.formalEvents.set(e.eventType, e.capability);
     }
     this.requires.set(m.pluginId, m.requires);
   }
@@ -123,6 +140,8 @@ export class CapabilityRegistry {
     const cap = this.kindOwner.get(kind);
     return cap ? this.caps.get(cap) : undefined;
   }
+  /** D-20（包 2）：正式事件类型的归属能力；未登记返回 undefined（= 普通事件，走通用台账通道）。 */
+  formalEventOwner(eventType: string): CapabilityId | undefined { return this.formalEvents.get(eventType); }
   capability(cap: CapabilityId): ActivatedCapability | undefined { return this.caps.get(cap); }
   get eventAuthorityMode(): { pluginId: string; mode: string } | null { return this.eventAuthority; }
   /** 所有权移交：只改 Capability→Plugin 的实现映射，不改 ObjectID/Revision（#44 §11）。 */
@@ -415,11 +434,17 @@ export class Kernel {
    * 判读 payload 是领域的事）。存在的理由：领域需要"这个对象到某水位被声明成什么"这类查询，
    * 若让它自己去碰 `port`/`raw`，就等于把全库读写交出去，命名空间隔离只在句柄层生效、在这里失效。
    */
-  eventsFor(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; payload: unknown }[] {
-    return this.#port.read((raw) => raw.all<{ seq: number; payload_json: string }>(
-      `select seq, payload_json from ledger where object_id=? and event_type=? and seq <= ? order by seq`,
+  /**
+   * D-20（包 2，CONTRACTS.md §16.2）：行内**多一个 `actor`** = ledger 里机制记下的登记者主体。
+   * 加它的理由：领域投影要认"签发方"，而载荷里的 `by`/`issuer` 都只是调用方自己写的字符串，
+   * 谁都可以在 `appendLedger` 时随手编一个。真正不可伪造的签发主体只有这一处——写 ledger 行时
+   * 由机制从**已验证主体**落账的那一列。不新增成员、只加宽一行，窄面的封闭集判据不受影响。
+   */
+  eventsFor(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; actor: string | null; payload: unknown }[] {
+    return this.#port.read((raw) => raw.all<{ seq: number; actor: string | null; payload_json: string }>(
+      `select seq, actor, payload_json from ledger where object_id=? and event_type=? and seq <= ? order by seq`,
       oid, eventType, cutoff,
-    ).map((r) => ({ seq: r.seq as CommitSequence, payload: JSON.parse(r.payload_json) as unknown })));
+    ).map((r) => ({ seq: r.seq as CommitSequence, actor: r.actor, payload: JSON.parse(r.payload_json) as unknown })));
   }
 
   /** 对象归属能力（目录表是一次主键查询）；对象不存在返回 undefined 而非抛错，避免额外的存在性 oracle。 */
@@ -621,6 +646,19 @@ export interface NamespaceWriter {
   createOwned(a: { readonly kind: ObjectKindLabel; readonly payload: unknown }): ObjectOid;
   reviseOwned(oid: ObjectOid, a: { readonly payload: unknown; readonly expectedRevision?: number }): number;
   linkOwned(a: { readonly from: RevisionRef; readonly to: AnyRef; readonly role: string; readonly required?: boolean }): void;
+  /**
+   * D-20（外部复审第四轮，包 2，CONTRACTS.md §16.2）：**正式事件类型的唯一写入入口**，
+   * 归该事件类型的归属能力（`PluginManifest.ownsEventTypes` 登记）。与 `appendLedger` 的分工：
+   * 通用通道写普通事件（受归属判据约束），本入口写正式事件（受**事件类型归属**判据约束——
+   * 正式事件本就关于他人对象，例如记录域对对象模型的对象声明采纳，两根轴不可混同）。
+   * 判据先于写入、零残留：① eventType 已登记且登记在本端口能力名下 ⇒ 否则 `EVENT_AUTHORITY_REQUIRED`；
+   * ② objectId 存在 ⇒ 否则 `NOT_FOUND_IN_SPACE`；③ revision 在对象归属 ns 真实存在 ⇒ 否则同码。
+   * ledger 行的 `actor` 由**机制**从本事务已验证主体写下：签发主体是机制事实，不是载荷字段。
+   */
+  appendAuthoritativeEvent(a: {
+    readonly eventType: string; readonly objectId: ObjectOid; readonly revision: number;
+    readonly payload: unknown; readonly describedAt?: number;
+  }): CommitSequence;
 }
 /** 插件可见的窄面（装配根用 Kernel.faceFor 造；类型面即边界，`src/domains/**` 不得出现 Kernel）。 */
 export interface PluginFace {
@@ -633,8 +671,11 @@ export interface PluginFace {
   /**
    * 作用域：**默认限本能力拥有的对象**。跨命名空间读需装配根 `grantCrossEventRead`，
    * 否则 `NAMESPACE_ESCAPE`（E-01；先例见下方 `revisionOf` 的恒拒绝）。
+   * D-20（包 2，CONTRACTS.md §16.2）：行加宽一个 `actor`——机制 ledger 记下的登记者主体。
+   * 领域判定"签发方"只许拿它对照，载荷里的自述字符串不算身份（这同时把 E-01 的已知泄露面
+   * 加宽一项，如实登记在 §16.2）。
    */
-  eventsOf(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; payload: unknown }[];
+  eventsOf(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; actor: string | null; payload: unknown }[];
   /**
    * 恒拒绝的占位：窄面**曾经**提供按任意 oid 读修订，实测任何领域都能借此把别的能力的
    * 对象读走（R3-A）。跨命名空间的读属于装配边界，由宿主替插件取好再交进来。
@@ -673,6 +714,15 @@ class NamespaceWriterImpl implements NamespaceWriter {
     this.#assertLive();
     if (a.ns !== this.ns) {
       throw new Refusal('NAMESPACE_ESCAPE', { attempted: a.ns, own: this.ns, capability: this.#cap, oid: a.oid });
+    }
+    // D-20 ①（包 2，CONTRACTS.md §16.2）：`write()` 顺手登记的台账行不得冒充正式事件类型——
+    // 扩展状态行的登记事件与领域正式声明在 H 里必须是不同通道，否则本入口就是 appendLedger
+    // 拒绝后的第二条后门。
+    if (this.#k.registry.formalEventOwner(a.eventType) !== undefined) {
+      throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
+        eventType: a.eventType, capability: this.#cap, channel: 'NamespaceWriter.write',
+        reason: 'write() 的登记式台账行不是正式事件的写入通道；请经本能力命令 Port 的 appendAuthoritativeEvent',
+      });
     }
     // D-24 ①（外部复审第四轮，席位 G1-A A-1/A-3）：状态行必须挂在**存在**的对象上。
     // 不在 `object_directory` 的 oid 是幽灵对象——没有任何对象拥有它，也没有任何合法的
@@ -727,6 +777,47 @@ class NamespaceWriterImpl implements NamespaceWriter {
     //     **底层句柄**（外层事务）归账。若瞬时实例自带句柄或按实例记账，这些边会从
     //     提交期增量验证里静默漏掉（最容易漏的旁路，勿"重构"掉）。
     return new UnitOfWorkImpl(this.#k, outer.principal, RAW_OF_UOW.get(outer)!, this.#cap);
+  }
+
+  /**
+   * D-20（包 2，CONTRACTS.md §16.2）：正式事件类型的**唯一写入入口**。
+   *
+   * 为什么不复用 `#scoped().appendLedger()`：那条通道的第一道判据就是"正式事件不得从这里写"
+   * （通道判据在实现层同样生效，本入口若借道就是自我拒绝）；且正式事件的归属轴是**事件类型**
+   * 而非对象归属——记录域对对象模型的对象声明采纳是既定用途，对象归属检查会把合法路径一并杀掉。
+   * 归属核对在这里做：eventType 必须登记在**本端口能力**名下；对象与修订必须真实存在
+   * （修订判据与 D-24 ② 同源，按归属 ns 归因）。`actor` 取**外层事务的已验证主体**——
+   * 签发主体由机制落账，载荷里的任何自述都不是身份。
+   */
+  appendAuthoritativeEvent(a: {
+    eventType: string; objectId: ObjectOid; revision: number; payload: unknown; describedAt?: number;
+  }): CommitSequence {
+    this.#assertLive();
+    const owner = this.#k.registry.formalEventOwner(a.eventType);
+    if (owner === undefined || owner !== this.#cap) {
+      throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
+        eventType: a.eventType, capability: this.#cap, owner: owner ?? null, channel: 'appendAuthoritativeEvent',
+        reason: owner === undefined
+          ? '该事件类型未登记为正式事件：没有权威签发者，机制不代它落账'
+          : '该正式事件类型不归本端口能力所有——命令 Port 只能签发自己登记的事件',
+      });
+    }
+    const host = WRITER_UOW.get(this);
+    if (!host) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.#cap });
+    if (!this.#raw.get(`select oid from object_directory where oid=?`, a.objectId)) {
+      throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
+    }
+    if (!revisionExistsInOwnerNs(this.#raw, a.objectId, a.revision)) {
+      throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId, revision: a.revision, level: 'revision' });
+    }
+    const seq = this.#k.nextLedgerSeq(this.#raw);
+    this.#raw.run(
+      `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
+       values(?,?,?,?,?,?,?,?,?)`,
+      seq, this.#k.space, a.eventType, host.principal.actorId, a.objectId, a.revision,
+      JSON.stringify(a.payload), a.describedAt ?? null, Date.now(),
+    );
+    return seq;
   }
 
   readLatest(oid: ObjectOid) {
@@ -944,8 +1035,25 @@ class UnitOfWorkImpl implements UnitOfWork {
     recordId?: string; describedAt?: number; declaresRecord?: boolean;
   }): CommitSequence {
     this.#assertLive();
-    if (a.objectId !== undefined && !this.#raw.get(`select oid from object_directory where oid=?`, a.objectId)) {
-      throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
+    // D-20 ①（外部复审第四轮，包 2，CONTRACTS.md §16.2）**通道判据**：已登记的正式事件类型
+    // 不得经通用台账写入——**一切作用域，含 assembly**。唯一入口是归属能力窄面的
+    // `appendAuthoritativeEvent`（= 所属领域的授权命令 Port 背后的机制通道）。
+    // 这是机制拒绝，不是约定：判据在实现的最内层写点，词法扫描网再严也不在这里做豁免。
+    if (this.#k.registry.formalEventOwner(a.eventType) !== undefined) {
+      throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
+        eventType: a.eventType, scope: this.#scope, channel: 'appendLedger',
+        reason: '该事件类型已登记为正式事件：通用 appendLedger 不是它的写入通道，'
+          + '必须经归属能力的授权命令 Port（机制面 = NamespaceWriter.appendAuthoritativeEvent）',
+      });
+    }
+    if (a.objectId !== undefined) {
+      const dir = this.#raw.get<{ owner_capability: string }>(
+        `select owner_capability from object_directory where oid=?`, a.objectId);
+      if (!dir) throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
+      // D-20 ②（外部复审第四轮，包 2）**归属判据**：scoped 事务里对他人对象记事件，走与
+      // `revise` 同一条 `#assertScope(owner)`——读侧 E-01 的写侧对称门（席位 G1-A A-6 的入口）。
+      // assembly 作用域保留跨领域台账：那是协调权（Q40），与 §16 两层写面的既有分工一致。
+      this.#assertScope(dir.owner_capability as CapabilityId, 'appendLedger', a.objectId);
     }
     const seq = this.#k.nextLedgerSeq(this.#raw);
     if (a.recordId !== undefined) {

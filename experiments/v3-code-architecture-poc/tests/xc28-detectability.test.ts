@@ -26,8 +26,10 @@ function mk(name: string, withEdges: boolean): { w: World; v: ValidationService;
     w.raw.all<{ role: string }>(`select role from ref_edge where from_oid=?`, oid).map((r) => r.role);
   // D-19c：接纳编排是 Application Use-case，一律由装配根构造（这里不使用它产出对象）
   const intake = w.intakeUseCase();
+  // D-22（包 2）：装配根交出受限提交接口（单动作「登记校验报告」，CONTRACTS.md §16.2），
+  // 不再把全权事务回调交进领域对象。
   const v = new ValidationService(
-    w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(WRITER, fn),
+    w.kernel.faceFor(CAP_RECORDS), w.validationSubmission(WRITER),
     (ref) => w.readRevision(ref), withEdges ? edges : undefined,
   );
   // intake 只用于满足构造与主体链，这里不需要它产出对象

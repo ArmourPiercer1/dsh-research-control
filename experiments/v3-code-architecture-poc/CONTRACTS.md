@@ -330,7 +330,9 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
   墙失效才算洞；网失效只是退化。**墙的适用边界（席位 G1-A 实测后收窄，三处声明一律以本条为准：本文件、
 `src/app/delegation.ts` 头、`tests/domain-write-face.test.ts` 头）**：`#assertScope` 只对**经
 `Kernel.uowFor(cap, …)` 取得的事务**生效。凡装配根把 `Kernel.uow()`（`scope='assembly'`）交进
-领域对象（现状：`ValidationService.runIn`、任何以 `UnitOfWork` 为形参的领域服务），该路径
+领域对象（修前现状：`ValidationService.runIn` 一路已由 §16.2 收口；「任何以 `UnitOfWork`
+为形参的领域服务」作为**一般形态**仍是常态约束——`src/domains/**` 目前不再有任何对象持有
+全权事务执行器），该路径
 **没有归属检查执行点，只有那张已知可绕的词法网**。故**"D-19c 已收口"仅在"经 `uowFor` 的领域
 事务路径"内成立**（D-22）。另：席位实测墙在该路径上确实守得住拼接成员名、`getPrototypeOf`
 取方法、`Reflect.get/apply`、端口-kind 错配、移交后复用旧端口。网明确不拦拼接成员名与反射取成员——该边界由
@@ -370,3 +372,85 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
   **不采用**"oid 主能力 == 写入能力"的一刀切（那会打断 Q45 正例，护栏测试持续阻止该回头路）。
   完整修法需要一个显式的挂载声明/登记机制；在它出现前，`write()` 对"他人核心对象"的合法
   挂载仍按行形态放行，这是被记录的边界，不是被忽略的洞。
+
+### 16.2 正式事件的唯一权威写入入口与领域服务的受限提交 Port（D-20 / D-22，外部复审第四轮，2026-10-30，包 2）
+
+**本节先于代码**：以下每一条都是插件可见面变化，全部在此声明后才允许动 `src/`。
+
+**新增契约字段 `PluginManifest.ownsEventTypes`（清单面加宽）**：能力可把自己拥有的事件类型登记为
+**正式事件类型**——即「领域据以执行接纳/授权类判定、派生业务投影直接相信它」的事件。
+形状与 `ownsKinds` 同族：`readonly { eventType: string; capability: CapabilityId }[]`。
+登记判据也与 `ownsKinds` 同族：同一事件类型被两个能力登记 ⇒ `AMBIGUOUS_AUTHORITY`；
+指向未激活能力 ⇒ `CAPABILITY_INACTIVE`。Kernel 把 eventType 当**不透明字符串**，不解释任何业务语义
+（业务无知扫描继续覆盖本面）。归属账本按能力 id 记，**不随路由停用而消失**：拥有者被停用时，
+正式事件在两个通道上都写不动——那正是语义，不是可用性缺陷。
+
+**新增拒绝码 `EVENT_AUTHORITY_REQUIRED`**：语义 =「**本通道没有资格写这个事件类型**」，与
+「缺授权轴」的 `AUTHORITY_REQUIRED` 是两回事，与「改了他人的对象」的 `CAPABILITY_SCOPE_ESCAPE`
+也是两回事。适用面：① 通用 `appendLedger`（含 `declareRecord`）或 `NamespaceWriter.write()`
+携带的登记式台账行写了**已登记的正式事件类型**；② `appendAuthoritativeEvent` 收到**未登记**的
+eventType（没有权威签发者，机制拒当它的传声筒）。不可重试：调用方必须换通道或先登记。
+
+**新增端口成员 `NamespaceWriter.appendAuthoritativeEvent(a: { eventType; objectId; revision; payload;
+describedAt? }): CommitSequence`（窄面加宽一项）**——正式事件类型的**唯一写入入口**，属于该事件
+类型的**归属能力**。落笔前的判据全部先于写入、零残留：
+① eventType 已登记为正式事件类型，且登记在**本端口能力**名下 ⇒ 否则 `EVENT_AUTHORITY_REQUIRED`；
+② `objectId` 必须存在于 `object_directory` ⇒ 否则 `NOT_FOUND_IN_SPACE`；
+③ `revision` 必须在该对象的**归属命名空间**里真实存在（与 §16.1 的 D-24② 修订判据同源）⇒
+否则 `NOT_FOUND_IN_SPACE`。
+ledger 行的 `actor` 列由**机制**从本事务已验证主体写下——**签发主体是机制事实，不是载荷字段**。
+正式事件关于的可以是**他人拥有的对象**（记录域对对象模型的对象声明采纳，这正是它的既定用途），
+因此本入口核对的是**事件类型归属**，不是对象归属——与 §16 表格的 `write()` 语义分属两根轴。
+
+**唯一入口的机制执行（不是约定）**：
+
+- `appendLedger`（以及经它的 `declareRecord`）在**一切事务作用域——包括 `assembly`**——拒绝写已登记的
+  正式事件类型。装配根与 Application Use-case 也不例外：正式事件只能经**所属领域的授权命令 Port**
+  写入（PoC 里 = `FactDesignationCommandPort.declare`，判据仍住 `FactStandingPolicy`，端口只落笔）。
+  Q40 不破：命令 Port 在**调用方交来的同一条事务**内写入。
+- `appendLedger` 的 `objectId` 归属从此受检：scoped 事务里走与 `revise` **同一条** `#assertScope(owner)`
+  ⇒ 在 scoped 事务里给他人对象记事件 = `CAPABILITY_SCOPE_ESCAPE`。这是读侧 E-01（`eventsOf` 默认拒绝
+  跨命名空间）的**写侧对称门**；assembly 作用域保留跨领域台账（协调权，Q40 依据不变）。
+- `NamespaceWriter.write()` 顺手登记的台账行同样过正式事件名单 ⇒ 不能借扩展状态行冒充正式事件。
+
+**投影信任模型（领域侧，与机制配套；D-20 复审要求 3、4）**：派生业务状态**不得**凭载荷里任何
+随手字符串判定（修前 `note:'AUTHORIZED'` 就是被实测利用的伪造面——无关能力一条 `appendLedger`
+即翻转他人对象的采纳投影）。判定只认：
+
+1. **结构化字段**：事件必须带 `designationSchema` 标记与齐全的 `stance/issuer/authorization/policyVersion`
+   字段，任一缺失即不参与投影；
+2. **签发方 = 机制 ledger actor**：`eventsOf`/`eventsFor` 的行新增 `actor` 列（读面加宽，见下），
+   投影要求 `payload.issuer === row.actor`——载荷自称不算身份，机制记的才算；
+3. **授权是结构化字段**，按领域**写入当时**的判定落成数据；投影**从不查询当前权限**；
+4. **`policyVersion` 按事件记录的版本判定**：投影按事件记录的版本号查**冻结的判据表**
+   （`FACT_STANDING_RULES`；新版本 = 加一行，旧版本的判据**永不再改**）；未知版本 ⇒ fail-closed
+   不计入。**禁止**按当前配置对历史事件做静默重解释——事后权限/规则变化不得改写当时所写事件的效力。
+
+旧形状事件（无 `designationSchema`，含历史伪造行）在新信任模型下自动退出投影 = 不再生效，但 H 是
+append-only，它们**仍在库里**；对这类存量伪造的处置是运维/审计问题（ledger 侧审计目前无机制承接，
+登记在回报与 G1 余项，勿当作已解决）。
+
+**读面加宽（同时加宽 E-01 的泄露面一项，如实登记）**：`eventsOf`/`eventsFor` 返回行新增 `actor`
+（机制 ledger 主体）。E-01 的已知耦合因此从「存在性 + 归属者身份」加宽为「+ 事件行的登记者」——
+对正式声明类事件，签发者本来就是业务可见数据；若将来把跨命名空间读开放给其它事件类型，须连同
+E-01 的 G1 裁定一并复核。
+
+**D-22：领域验证服务只接收有具体用途的受限提交接口**。`ValidationService` 的**类型面**只收
+`ValidationReportSubmission`——一个只有 `submitReport(...)`（「登记一份校验报告」这一个动作）的
+Port，**不再收任意回调形态的全权事务执行器**；Application 层的跨插件协调事务不受影响（提交 Port
+由装配根实现，内部用授权主体自开事务）。构造参数一律 `#` 私有字段——D-17/P2-2（TS `private`
+参数属性 = 运行时自有可枚举字段）这条教训在本仓第三次点名，不得再犯。**运行时兼容（诚实登记，
+过渡形态，显式具名）**：既有攻击夹具（含本条的审查者冻结裁判 `attacks/review/g1a-regression.test.ts`
+——它以回调形态构造并预设构造成功，只要求句柄运行时不可达）仍以旧形态接线，审查文件不可改。
+兼容路径是**模块级导出的具名适配器** `adaptLegacyValidationWiring(wiring)`（入参类型 `LegacyRunIn`
+标记 `@deprecated`）：构造器只有 `this.#submit = adaptLegacyValidationWiring(submission)` 一行；
+适配器把 callable **降级包装**成单动作 Port 后原执行器即脱离一切可达位置——不在实例、不在原型、
+不在包装对象的自有属性上，**兼容入口对第三方持有者同样取不回事务句柄**（可达性=零，判据由
+`tests/formal-event-authority.test.ts` 以直接攻击适配器的形式钉死，而不是只钉"从服务实例拿不到"）。
+删除条件：三个旧夹具（`re-review-g0b` / `r5r8` / `reduce-coverage`）与裁判改接线后，删除适配器、
+`LegacyRunIn` 与构造器内那一行。
+
+**墙适用边界的更新**：上面「装配根交入全权事务」的收窄声明里，`ValidationService.runIn` 一路已收口
+（运行时面与结果面双重实测：`attacks/review/g1a-regression.test.ts` D-22 条）；一般形态的约束继续
+有效——任何新的领域对象都不得持有通用事务执行器，接线一律用**有具体用途的 Port**。
+

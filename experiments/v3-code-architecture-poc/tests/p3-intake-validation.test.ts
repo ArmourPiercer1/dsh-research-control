@@ -36,8 +36,10 @@ describe('P3 Raw Intake / Domain Admission / 版本化校验 / 派生业务视�
       // 跨归属协调权只有一个来源，用例只拿到「对象拥有者的作用域端口」，拿不到通用写面。
       // 业务判据（能不能接纳、声明是否已获授权）仍在领域策略里，用例无权改写（F-23 同族）。
       intake: w.intakeUseCase(),
-      // 事务执行器由装配根提供：主体在宿主侧核验后交出，领域拿不到"给自己发身份"的能力（F-23）。
-      validation: new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(PRINCIPAL('synth-runner'), fn), (ref) => w.kernel.readRevision(ref)),
+      // D-22（包 2）：事务执行器交进领域对象的路径已收口——装配根交出的是**受限提交接口**
+      // （只有「登记一份校验报告」这一个动作，CONTRACTS.md §16.2），主体仍是装配侧核验的
+      // synth-runner（F-23 主体链不变）；领域对象不再持有任何形态的事务执行器。
+      validation: new ValidationService(w.kernel.faceFor(CAP_RECORDS), w.validationSubmission(PRINCIPAL('synth-runner')), (ref) => w.kernel.readRevision(ref)),
       standing: w.standingUseCase(),
     };
   };
@@ -211,8 +213,16 @@ describe('P3 Raw Intake / Domain Admission / 版本化校验 / 派生业务视�
     const { w, standing } = mk('p3-unverified');
     const oid = w.uow(WRITER, (tx) => tx.createObject({ kind: 'test.claim', payload: {} }));
     w.uow(WRITER, (tx) => standing.declare(tx, { oid, revision: 1, stance: 'ACCEPTED' }));
-    const rows = w.raw.all<{ note: string }>(`select json_extract(payload_json,'$.note') note from ledger where event_type='synth:fact-designation'`);
-    expect(rows[0].note).toBe('AUTHORITY_UNVERIFIED');
+    // D-20（包 2）：授权判定落成**结构化字段** `authorization`（不再是被实测伪造过的随手字符串
+    // note，CONTRACTS.md §16.2）；`issuer` 是领域写下的自述，`actor` 是机制 ledger 记的登记者——
+    // 两者都必须存在且此处一致（声明经命令 Port 写入，写入主体 = 事务已验证主体）。
+    const rows = w.raw.all<{ authorization: string; issuer: string; actor: string | null }>(
+      `select json_extract(payload_json,'$.authorization') authorization,
+              json_extract(payload_json,'$.issuer') issuer, actor
+         from ledger where event_type='synth:fact-designation'`);
+    expect(rows[0].authorization).toBe('AUTHORITY_UNVERIFIED');
+    expect(rows[0].issuer).toBe('alice');
+    expect(rows[0].actor).toBe('alice');
     expect(w.readRecord).toBeTypeOf('function');
     expect(standing.standingAt(oid, w.ledgerHead()).state).toBe('NOT_ADOPTED');
     w.close();

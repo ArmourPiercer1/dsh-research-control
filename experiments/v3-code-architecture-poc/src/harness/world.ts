@@ -7,7 +7,7 @@ import {
   Kernel, type Authorizer, type NamespaceWriter, type ObjectSnapshot, type UnitOfWork,
 } from '../kernel/kernel.ts';
 import { TEST_OBJECT_MODEL } from '../domains/test-object-model.ts';
-import { CAP_RECORDS, FactStandingPolicy, IntakePolicy } from '../domains/test-records.ts';
+import { CAP_RECORDS, FactDesignationCommandPort, FactStandingPolicy, IntakePolicy, type ValidationReportSubmission } from '../domains/test-records.ts';
 import { IntakeUseCase } from '../app/intake-use-case.ts';
 import { StandingUseCase } from '../app/standing-use-case.ts';
 import type { UseCaseDelegation } from '../app/delegation.ts';
@@ -112,9 +112,24 @@ export class World {
 
   /** Raw Intake / Domain Admission 用例的**唯一**构造点（业务判据仍在领域，这里只接线）。 */
   intakeUseCase(policy = new IntakePolicy()): IntakeUseCase { return new IntakeUseCase(policy, this.useCaseDelegation); }
-  /** 派生业务视图（采纳/撤回）用例的唯一构造点。 */
+  /**
+   * 派生业务视图（采纳/撤回）用例的唯一构造点。
+   * D-20（包 2）：正式接纳事件的写入**只经领域命令 Port**——装配根在这里把记录域窄面交给
+   * `FactDesignationCommandPort`（唯一写入口），机制侧的通道判据保证没有旁路（CONTRACTS §16.2）。
+   */
   standingUseCase(policy?: FactStandingPolicy): StandingUseCase {
-    return new StandingUseCase(policy ?? new FactStandingPolicy(this.kernel.faceFor(CAP_RECORDS), this.authority));
+    const face = this.kernel.faceFor(CAP_RECORDS);
+    const pol = policy ?? new FactStandingPolicy(face, this.authority);
+    return new StandingUseCase(pol, new FactDesignationCommandPort(pol, face));
+  }
+
+  /**
+   * D-22（包 2，CONTRACTS.md §16.2）：领域校验服务的**受限提交接口**的装配点——
+   * 只有「登记一份校验报告」这一个动作；报告行的授权主体 = 这里显式交出的装配身份（F-23），
+   * 领域对象拿不到任何形态的事务执行器。
+   */
+  validationSubmission(runAs: VerifiedPrincipal): ValidationReportSubmission {
+    return { submitReport: (a) => this.uow(runAs, (tx) => tx.recordReport(a)) };
   }
 
   get raw() { return this.port.raw; }

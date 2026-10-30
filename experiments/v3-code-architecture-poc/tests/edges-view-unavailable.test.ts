@@ -26,8 +26,9 @@ function mk(name: string, view?: (w: World) => (oid: ObjectOid) => readonly stri
   { w: World; v: ValidationService; tmp: string } {
   const dir = mkdtempSync(join(POC_DATA_DIR, `edges-${name}-`));
   const w = openWorld({ file: join(dir, 'space.db'), space: 'SP-E', grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
+  // D-22（包 2）：受限提交接口替代全权事务回调（CONTRACTS.md §16.2）。
   const v = new ValidationService(
-    w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(WRITER, fn),
+    w.kernel.faceFor(CAP_RECORDS), w.validationSubmission(WRITER),
     (ref) => w.readRevision(ref), view ? view(w) : undefined,
   );
   return { w, v, tmp: dir };
@@ -63,7 +64,7 @@ describe('D-15：边视图"未提供"与"提供为空"必须可区分', () => {
   test('反差：同一份数据，接上线 ⇒ 真检出 VIOLATION、NOT_ACHIEVED', () => {
     const dir = mkdtempSync(join(POC_DATA_DIR, 'edges-wired-'));
     const w = openWorld({ file: join(dir, 'space.db'), space: 'SP-E', grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
-    const v = new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(WRITER, fn),
+    const v = new ValidationService(w.kernel.faceFor(CAP_RECORDS), w.validationSubmission(WRITER),
       (ref) => w.readRevision(ref), realEdges(w));
     try {
       const oid = dualSource(w);
@@ -77,7 +78,7 @@ describe('D-15：边视图"未提供"与"提供为空"必须可区分', () => {
   test('反差：**交了但视图为空** ⇒ 是真检过没这条边，不得冒"未提供"的信号', () => {
     const dir = mkdtempSync(join(POC_DATA_DIR, 'edges-empty-'));
     const w = openWorld({ file: join(dir, 'space.db'), space: 'SP-E', grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
-    const v = new ValidationService(w.kernel.faceFor(CAP_RECORDS), (fn) => w.uow(WRITER, fn),
+    const v = new ValidationService(w.kernel.faceFor(CAP_RECORDS), w.validationSubmission(WRITER),
       (ref) => w.readRevision(ref), () => []);
     try {
       const oid = w.uow(WRITER, (tx) => tx.createObject({ kind: 'test.claim', payload: { text: 'ok', operating_context: 'W1' } }));

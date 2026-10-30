@@ -106,6 +106,13 @@ export type RefusalCode =
   | 'AUTHORITY_REQUIRED'       // 缺该业务动作所需的授权轴（与写权分轴，SP-09）
   | 'NAMESPACE_ESCAPE'        // 插件写非自己的持久命名空间（#44 §4.2、§6.2 禁止复制核心权威）
   | 'CAPABILITY_SCOPE_ESCAPE' // D-19：能力作用域事务试图改/引用其它能力拥有的对象（Q12 领域权威边界）
+  // D-20（外部复审第四轮，包 2）：**通道**判据——「本通道没有资格写这个事件类型」。
+  // 已登记的正式事件类型（PluginManifest.ownsEventTypes）不得经通用 appendLedger/declareRecord
+  // 或 write() 的登记式台账行写入（一切作用域，含 assembly）；唯一入口是归属能力窄面的
+  // appendAuthoritativeEvent。反向：appendAuthoritativeEvent 收到未登记类型也是此码（没有权威
+  // 签发者）。与 AUTHORITY_REQUIRED（缺授权轴）、CAPABILITY_SCOPE_ESCAPE（改他人对象）分属三回事。
+  // 语义与适用面全文见 CONTRACTS.md §16.2——插件可见面变化（拒绝码会到达插件代码）。
+  | 'EVENT_AUTHORITY_REQUIRED'
   | 'PROJECTION_UNAVAILABLE'; // 投影落后/缺口且调用方要求一致完整
 
 /** 领域扩展拒绝码：强制前缀，避免与 Kernel 封闭集混淆或被误当成机制语义。 */
@@ -185,6 +192,15 @@ export interface PluginManifest {
   readonly eventAuthority?: 'none' | 'ledger-payload' | 'ledger-ref';
   /** 该插件拥有的对象类别标签 → 拥有它的 Capability（Directory 路由用，#44 §5.2）。 */
   readonly ownsKinds?: readonly { readonly kind: ObjectKindLabel; readonly capability: CapabilityId }[];
+  /**
+   * D-20（外部复审第四轮，包 2；CONTRACTS.md §16.2）：把自己拥有的事件类型登记为**正式事件类型**——
+   * 领域据以执行接纳/授权类判定、派生业务投影直接相信它的事件。登记后：
+   * · 通用 `appendLedger`/`declareRecord` 与 `write()` 的登记式台账行一律不得写它（一切作用域，含 assembly）；
+   * · 唯一写入入口 = 归属能力窄面的 `NamespaceWriter.appendAuthoritativeEvent`。
+   * Kernel 把 eventType 当不透明字符串（业务无知不变）。登记判据与 `ownsKinds` 同族：
+   * 重复登记 ⇒ `AMBIGUOUS_AUTHORITY`，指向未激活能力 ⇒ `CAPABILITY_INACTIVE`。
+   */
+  readonly ownsEventTypes?: readonly { readonly eventType: string; readonly capability: CapabilityId }[];
 }
 
 // ---------------------------------------------------------------- 校验贡献

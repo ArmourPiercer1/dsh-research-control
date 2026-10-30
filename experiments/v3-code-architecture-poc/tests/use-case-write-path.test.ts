@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { POC_DATA_DIR } from '../src/harness/paths.ts';
 import { openWorld, PRINCIPAL } from '../src/harness/world.ts';
 import { TEST_OBJECT_MODEL, CAP_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
+import { TEST_RECORDS } from '../src/domains/test-records.ts';
 import type { NamespaceWriter, UnitOfWork } from '../src/kernel/kernel.ts';
 import type { ObjectOid, PluginManifest } from '../src/contracts/index.ts';
 
@@ -210,18 +211,47 @@ describe('D-19c 用例侧：跨归属写经拥有者的端口，且仍是一条�
     } finally { w.close(); }
   });
 
-  test('已知残留（钉的是现状）：appendLedger 的 objectId 归属目前不受检', () => {
-    // 读侧的对称口子 eventsOf 在 E-01 之后是"默认拒绝跨命名空间"，写侧的 appendLedger 还没有
-    // 对应判据。要把它也变成墙，需要给 NamespaceWriter 加**作用域化事件追加**成员——那是
-    // **新的插件可见成员**，必须先写进 CONTRACTS.md 再动机制，本席不擅自加。
-    // 本条断言的是**当前行为**：谁补上了判据，这条就转红 ⇒ 届时把它翻正并删掉本注释。
-    const w = world('ledger-gap');
+  test('已知缺陷 · 已修（D-20，包 2）：appendLedger 判 objectId 归属，正式事件另锁通道', () => {
+    // 修前（RE-REVIEW-G1-A §④ 点名的分类错误）：本条用 `expect(code).toBe('NO_REFUSAL')`
+    // 把"appendLedger 的 objectId 归属不受检"钉成期望行为，等于给一条 P1 打绿灯。
+    // 包 2 修完 D-20 后按报告要求改成**双向断言**（两条都得钉住，缺一即假绿）：
+    //   · 普通事件在 scoped 事务里写他人对象 ⇒ `CAPABILITY_SCOPE_ESCAPE`（读侧 E-01 的写侧对称门）；
+    //   · 已登记的正式事件类型在**一切**作用域（含 assembly）都不能经通用通道写 ⇒
+    //     `EVENT_AUTHORITY_REQUIRED`（唯一入口是归属领域的授权命令 Port，CONTRACTS.md §16.2）。
+    // 反向对照必须同时成立，否则"修成一刀切"也能骗绿：
+    //   · 普通事件写**自己**对象的台账照常成功；
+    //   · 正式事件经命令 Port（`standing.declare`）照常成功。
+    const w = world('ledger-gap', [TEST_OBJECT_MODEL, SECOND, TEST_RECORDS]);
     try {
       const foreign = w.uow(ADMIN, (tx) => tx.createObject({ kind: 'test.artifact', payload: { v: 1 } }));
-      const code = refusalCode(() => w.uowFor(CAP_OBJECT_MODEL, ADMIN, (tx) => tx.appendLedger({
+      const own = w.uow(ADMIN, (tx) => tx.createObject({ kind: 'test.claim', payload: { v: 1 } }));
+      // ① 跨归属普通台账：scoped 事务 ⇒ 拒，且拒绝先于写入（该 oid 名下零 ledger 行）。
+      const cross = refusalCode(() => w.uowFor(CAP_OBJECT_MODEL, ADMIN, (tx) => tx.appendLedger({
         eventType: 'synth:foreign-note', objectId: foreign, revision: 1, payload: { note: '别人的对象上记一笔' },
       })));
-      expect(code, '现状：机制不判 appendLedger.objectId 的归属（未覆盖形态，见注释）').toBe('NO_REFUSAL');
+      expect(cross, 'scoped 事务对他人对象 appendLedger 必须被拒（D-20 归属判据）').toBe('CAPABILITY_SCOPE_ESCAPE');
+      expect(w.raw.get<{ c: number }>(
+        `select count(*) c from ledger where object_id=? and event_type='synth:foreign-note'`, foreign)!.c)
+        .toBe(0);                                             // 拒绝先于写入，不留残留
+      // ② 装配作用域写他人对象的普通台账仍可用（协调权，Q40——不许把这条修成一刀切）。
+      expect(refusalCode(() => w.uow(ADMIN, (tx) => tx.appendLedger({
+        eventType: 'synth:assembly-note', objectId: foreign, revision: 1, payload: {},
+      })))).toBe('NO_REFUSAL');
+      // ③ 普通事件写自己拥有的对象：照常成功（正例护栏）。
+      expect(refusalCode(() => w.uowFor(CAP_OBJECT_MODEL, ADMIN, (tx) => tx.appendLedger({
+        eventType: 'synth:own-note', objectId: own, revision: 1, payload: {},
+      })))).toBe('NO_REFUSAL');
+      // ④ 正式事件类型：连装配作用域都写不动（通道判据与归属判据正交，作用域帮不上忙）。
+      expect(refusalCode(() => w.uow(ADMIN, (tx) => tx.appendLedger({
+        eventType: 'synth:fact-designation', objectId: foreign, revision: 1,
+        payload: { stance: 'ACCEPTED', note: 'AUTHORIZED' },
+      })))).toBe('EVENT_AUTHORITY_REQUIRED');
+      // ⑤ 同一事件经领域命令 Port（唯一入口）照常落笔——证明上面三条不是过度收紧。
+      const standing = w.standingUseCase();
+      const seq = w.uow(ADMIN, (tx) => standing.declare(tx, { oid: foreign, revision: 1, stance: 'ACCEPTED' }));
+      expect(seq).toBeGreaterThan(0);
+      //  ADMIN 无 domain-admission ⇒ 声明保存但不计入投影（PR-A1，判据在领域不在机制）。
+      expect(standing.standingAt(foreign, w.ledgerHead()).state).toBe('NOT_ADOPTED');
     } finally { w.close(); }
   });
 });

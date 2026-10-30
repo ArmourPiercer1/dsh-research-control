@@ -1,6 +1,7 @@
 {
-  "generated_from_commit": "7fef5a96a583293b74e5668fa78a0e2a4d04301c",
-  "note": "审查方 attacks/** 的已知状态：failures 是逐条定性过的已知红（见 ../EVIDENCE.md）；passes 是覆盖面基线（G-2：被 skip／改名／删文件都表现为通过项消失）。g0-gate 要求两个集合都完全相等。",
+  "generated_from_commit": "d923c6d48d7ca88aa8d2ba2171fae3fd46105411",
+  "total": 125,
+  "note": "审查方 attacks/** 的已知状态：failures=逐条定性过的已知红（见 ../EVIDENCE.md）；passes=覆盖面基线；total=收集总数。g0-gate 要求三者一致，并且收集期失败/被 skip 一律红（外部复审第三轮：审查方允许已知断言红，不允许文件根本没跑）。",
   "failures": [
     "experiments/v3-code-architecture-poc/attacks/host/host-boundary-attack.test.ts > host-boundary adversarial attacks plugin handles must not carry arbitrary SQL (immutability triggers are not theirs to drop)",
     "experiments/v3-code-architecture-poc/attacks/review/r3-independent-attacks.test.ts > R3 independent boundary attacks PluginFace revisionOf is not namespace-scoped: a domain face can read another capability",

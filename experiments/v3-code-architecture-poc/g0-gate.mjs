@@ -46,13 +46,21 @@ function runVitest(paths) {
   const start = out.indexOf('{');            // reporter=json 前可能混有 banner 行
   const failed = new Set();
   const passNames = new Set();   // G-2：通过项的身份也要留痕
+  const loadErrors = [];   // 收集/解析期失败：testResults 里有文件但没有断言 ⇒ 不是"已知断言红"
   let passed = 0;
   let skipped = 0;
   let success = false;   // 必须在 try 外声明：解析失败时也要能被判为 false
+  let total = 0;         // 同上：j 是 try 内的局部量，外层取值必须提前声明
   try {
     const j = JSON.parse(out.slice(start));
     success = j.success === true;
+    total = j.numTotalTests ?? 0;
     for (const f of j.testResults ?? []) {
+      // 外部复审第三轮：审查方流**允许**已知断言失败，但不允许"文件根本没跑起来"混在里面。
+      // 收集期/解析期崩溃的文件有 status=failed 却没有 assertionResults ⇒ 单独收集。
+      if ((f.assertionResults ?? []).length === 0 && (f.status === 'failed' || f.message)) {
+        loadErrors.push(`${String(f.name ?? '?').replace(REPO + '/', '')}：${String(f.message ?? 'no assertions collected').split('\n')[0].slice(0, 160)}`);
+      }
       for (const a of f.assertionResults ?? []) {
         if (a.status === 'failed') failed.add(`${f.name.replace(REPO + '/', '')} > ${a.fullName}`);
         else if (a.status === 'passed') { passed += 1; passNames.add(`${f.name.replace(REPO + '/', '')} > ${a.fullName}`); }
@@ -60,9 +68,11 @@ function runVitest(paths) {
       }
     }
   } catch {
-    return { failed: null, passNames: null, passed: 0, skipped: 0, status: r.status, success: false, raw: (out + (r.stderr ?? '')).slice(-800) };
+    return { failed: null, passNames: null, loadErrors: null, total: 0, passed: 0, skipped: 0,
+      status: r.status, success: false, raw: (out + (r.stderr ?? '')).slice(-800) };
   }
-  return { failed, passNames, passed, skipped, status: r.status, success, raw: '' };
+  return { failed, passNames, loadErrors, total: total || (failed.size + passed + skipped),
+    passed, skipped, status: r.status, success, raw: '' };
 }
 
 note('[1/3] 类型门（含作者 tests，不含 attacks/**）');
@@ -104,6 +114,11 @@ else {
   // G-2（外部复审，2026-10-30）：只比失败集合会被**覆盖面缩水**骗过——
   // 原本通过的审查方测试被 describe.skip、被删文件、被改名时，失败集合可以一字不变，
   // 门禁照样报"与基线一致"。所以通过项的身份同样必须在基线里，且必须逐一对上。
+  if (v.loadErrors.length > 0) fail.push(`审查方收集期失败 ${v.loadErrors.length} 份文件 —— 这与"已知断言红"是两类事，`
+    + `不能因为失败集合没变就当没发生：\n  ${v.loadErrors.join('\n  ')}`);
+  if (v.skipped > 0) fail.push(`审查方出现 ${v.skipped} 条 skip/pending：被跳过的覆盖面必须显式入基线，不能静默消失`);
+  if ((b.total ?? 0) > 0 && v.total !== b.total) fail.push(`审查方收集总数 ${v.total} ≠ 基线 ${b.total}：有文件没被收集或凭空多出一份`);
+  if ((b.total ?? 0) === 0) fail.push('BASELINE.json 缺 total：收集总数变化无法被发现');
   const knownPass = new Set(b.passes ?? []);
   if ((b.passes?.length ?? 0) === 0) fail.push('BASELINE.json 缺 passes：覆盖面缩水无法被发现（G-2）');
   const pAdded = [...v.passNames].filter((x) => !knownPass.has(x)).sort();

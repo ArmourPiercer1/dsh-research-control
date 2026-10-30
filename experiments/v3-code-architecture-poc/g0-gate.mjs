@@ -19,7 +19,7 @@
  * 用法：node experiments/v3-code-architecture-poc/g0-gate.mjs [--baseline <path>]
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,7 +31,15 @@ const baselinePath = argv.includes('--baseline')
   ? argv[argv.indexOf('--baseline') + 1]
   : join(ROOT, 'attacks', 'BASELINE.json');
 
-const AUTHOR_MIN_PASSED = 90;   // 作者侧当前 95 例；下限兜住「测试整批消失」这一类假绿
+// GT-4（外部复审第四轮，席位 G2-A/G3-A 两次实测放大）：原先这里是魔数下限 90，而实际例数
+// 一路涨到 167 ⇒ **可静默消失的窗口 = 167 − 90 = 77 例 ≈ 46%**：整删 4 个测试文件（47 例）后
+// 门禁仍打印「OK —— 90 例全绿」PASS。魔数下限本身不可信（注释还停在「当前 95 例」），
+// 故换成与审查方流**同构的显式锚**：`AUTHOR_ANCHOR.json` 记录 passed / files / 生成提交，
+// 判据是**逐等**而非 ≥ —— 变多变少都必须显式 `--reanchor` 承认。
+// 理由：覆盖面缩水与覆盖面静默增长是同一类失真，后者让「全绿」这句话的含义随时间悄悄漂移。
+const anchorPath = argv.includes('--anchor')
+  ? argv[argv.indexOf('--anchor') + 1]
+  : join(ROOT, 'AUTHOR_ANCHOR.json');
 const fail = [];
 const note = (s) => console.log(s);
 
@@ -87,6 +95,31 @@ else note('  OK');
 
 note('[2/3] 作者测试门（tests/**，0 红是硬条件）');
 const a = runVitest([join(ROOT, 'tests')]);
+// 显式重锚：只能记"当前真实通过数"，且当前必须干净（有红/有 skip 一律拒写），
+// 否则重锚就变成了把回归洗成基线的通道——那是 GT-3 教过的事。
+if (argv.includes('--reanchor')) {
+  if (a.failed === null || a.status !== 0 || !a.success || a.skipped > 0 || a.failed.size > 0) {
+    fail.push('拒绝写锚：作者测试当前不干净（有红 / 有 skip / 非零退出）。锚只能记真实通过数。');
+  } else {
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf-8' }).stdout.trim();
+    writeFileSync(anchorPath, JSON.stringify({
+      generated_from_commit: head,
+      passed: a.passed,
+      total: a.total,
+      note: '作者侧覆盖面锚（GT-4）。判据是逐等而非 ≥：实测通过数与本文件 passed 不等即红，'
+        + '变少=测试被删/被排除/被 skip，变多=「全绿」的含义已漂移；两者都必须显式 --reanchor 承认。',
+    }, null, 2) + '\n');
+    note(`  已重锚 ${anchorPath}：passed=${a.passed} total=${a.total} @ ${head.slice(0, 7)}`);
+  }
+}
+let anchor = null;
+let anchorErr = '';
+try {
+  anchor = JSON.parse(readFileSync(anchorPath, 'utf-8'));
+} catch (e) {
+  anchorErr = `作者覆盖面锚缺失或不可解析（${String(e.message).split('\n')[0]}）：`
+    + `覆盖面判据失效，须显式 \`node g0-gate.mjs --reanchor\` 建立`;
+}
 if (a.failed === null) fail.push('作者测试门无法解析 vitest 输出:\n' + a.raw);
 else if (a.status !== 0) fail.push(`作者测试门 vitest 退出码=${a.status}，解析到的红条数=${a.failed.size}。`
   + `典型成因：测试文件在 import 阶段崩溃（收集期错误不进 assertionResults）——`
@@ -94,10 +127,19 @@ else if (a.status !== 0) fail.push(`作者测试门 vitest 退出码=${a.status}
 else if (!a.success) fail.push('作者测试门 success=false 但未解析到红条（同上的收集期崩溃形态）');
 else if (a.skipped > 0) fail.push(`作者测试门出现 ${a.skipped} 条 skip/pending —— 跳过不是通过。`
   + `整文件 skip 时 vitest 退出码仍为 0，只有计数能抓住它`);
-else if (a.passed < AUTHOR_MIN_PASSED) fail.push(`作者测试通过数 ${a.passed} < 下限 ${AUTHOR_MIN_PASSED}：`
-  + `测试集合被裁剪（文件丢失/被排除）同样表现为"0 红"，这条兜住"红是零但测试没了"`);
 else if (a.failed.size > 0) fail.push(`作者测试红 ${a.failed.size} 条：\n  ${[...a.failed].join('\n  ')}`);
-else note(`  OK —— ${a.passed} 例全绿（skip=${a.skipped}，exit=0，success=true）`);
+else if (anchorErr) fail.push(anchorErr);
+else if (!/^[0-9a-f]{7,40}$/.test(anchor.generated_from_commit ?? '')) {
+  fail.push('作者锚缺 generated_from_commit 或不是提交号：覆盖面判据的来源不可追溯');
+} else if (spawnSync('git', ['merge-base', '--is-ancestor', anchor.generated_from_commit, 'HEAD'],
+  { cwd: REPO, encoding: 'utf-8' }).status !== 0) {
+  fail.push(`作者锚的 ${anchor.generated_from_commit} 不是 HEAD 的祖先：来自分叉或已 rebase，须重锚`);
+} else if (a.passed !== anchor.passed) {
+  fail.push(`作者覆盖面漂移：实测 ${a.passed} 例 ≠ 锚 ${anchor.passed} 例`
+    + `（锚建于 ${String(anchor.generated_from_commit).slice(0, 7)}）。`
+    + `变少 ⇒ 测试被删 / 被排除 / 被 skip；变多 ⇒ 「全绿」这句话的含义已经漂移。`
+    + `两个方向都必须核对差异后显式 \`node g0-gate.mjs --reanchor\` 承认。`);
+} else note(`  OK —— ${a.passed} 例全绿，与覆盖面锚逐等（skip=0，exit=0，success=true）`);
 
 note('[3/3] 审查方基线门（attacks/**：多一条要查，少一条也要查）');
 const b = JSON.parse(readFileSync(baselinePath, 'utf-8'));

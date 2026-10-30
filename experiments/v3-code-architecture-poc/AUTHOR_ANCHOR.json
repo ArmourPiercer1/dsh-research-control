@@ -1,0 +1,6 @@
+{
+  "generated_from_commit": "eeccbf519d27ed56d7ff9a85da98d88f0254bd9a",
+  "passed": 167,
+  "total": 167,
+  "note": "作者侧覆盖面锚（GT-4）。判据是逐等而非 ≥：实测通过数与本文件 passed 不等即红，变少=测试被删/被排除/被 skip，变多=「全绿」的含义已漂移；两者都必须显式 --reanchor 承认。"
+}

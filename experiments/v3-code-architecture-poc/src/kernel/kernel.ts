@@ -9,6 +9,7 @@
 import {
   Refusal,
   asOid,
+  type AuthorityEvidence,
   type AuthorityResource,
   type AnyRef,
   type CapabilityId,
@@ -46,11 +47,13 @@ export class CapabilityRegistry {
   private readonly caps = new Map<CapabilityId, ActivatedCapability>();
   private readonly kindOwner = new Map<ObjectKindLabel, CapabilityId>();
   /**
-   * D-20（包 2，CONTRACTS.md §16.2）：正式事件类型 → 归属能力。登记判据与 `kindOwner` 同族；
+   * D-20（包 2，CONTRACTS.md §16.2）：正式事件类型 → { 归属能力, 授权轴 }。登记判据与 `kindOwner` 同族；
    * 归属账本按**能力 id** 记，不随路由移交/停用消失——拥有者被停用时正式事件在两个通道上都
-   * 写不动（那正是语义）。Kernel 只当不透明字符串，不解释事件业务含义（业务无知不变）。
+   * 写不动（包 3/D-25 起为现状：`appendAuthoritativeEvent` 有激活核对）。
+   * `axis`（包 3，N1）是**授权取证来源的索引**：权威入口落笔前用它对已验证主体核对，
+   * 证据写入 ledger 见证列——Kernel 对 eventType 与 axis 都只当不透明字符串（业务无知不变）。
    */
-  private readonly formalEvents = new Map<string, CapabilityId>();
+  private readonly formalEvents = new Map<string, { capability: CapabilityId; axis: string }>();
   private readonly requires = new Map<string, readonly { capability: CapabilityId; contractVersion: string; required?: boolean }[]>();
   private eventAuthority: { pluginId: string; mode: string } | null = null;
   private readonly manifests = new Map<string, PluginManifest>();
@@ -88,8 +91,10 @@ export class CapabilityRegistry {
       }
       this.kindOwner.set(k.kind, k.capability);
     }
-    // D-20（包 2）：正式事件类型登记（CONTRACTS.md §16.2）。判据与 ownsKinds 同族：
-    // 一个事件类型只能有一个权威签发者；归属指向未激活能力即装配失败。
+    // D-20（包 2）+ 包 3（N1）：正式事件类型登记（CONTRACTS.md §16.2）。判据与 ownsKinds 同族且**按序**：
+    // 一个事件类型只能有一个权威签发者；归属指向未激活能力即装配失败；
+    // **缺授权轴 ⇒ ACTIVATION_IMPOSSIBLE**——没有授权轴的正式事件永远产生不了授权证据，
+    // 宁可装配不成立，也不留一个"写得进、证不了"的通道（fail-closed，勿"优化"成默认放行）。
     for (const e of m.ownsEventTypes ?? []) {
       if (this.formalEvents.has(e.eventType)) {
         throw new Refusal('AMBIGUOUS_AUTHORITY', { axis: 'event-type', eventType: e.eventType, plugin: m.pluginId });
@@ -97,7 +102,13 @@ export class CapabilityRegistry {
       if (!this.caps.has(e.capability)) {
         throw new Refusal('CAPABILITY_INACTIVE', { eventType: e.eventType, capability: e.capability });
       }
-      this.formalEvents.set(e.eventType, e.capability);
+      if (typeof e.requiresAuthority !== 'string' || e.requiresAuthority === '') {
+        throw new Refusal('ACTIVATION_IMPOSSIBLE', {
+          eventType: e.eventType, capability: e.capability,
+          reason: '正式事件类型未声明 requiresAuthority：没有授权轴就无法产生机制授权证据',
+        });
+      }
+      this.formalEvents.set(e.eventType, { capability: e.capability, axis: e.requiresAuthority });
     }
     this.requires.set(m.pluginId, m.requires);
   }
@@ -141,7 +152,13 @@ export class CapabilityRegistry {
     return cap ? this.caps.get(cap) : undefined;
   }
   /** D-20（包 2）：正式事件类型的归属能力；未登记返回 undefined（= 普通事件，走通用台账通道）。 */
-  formalEventOwner(eventType: string): CapabilityId | undefined { return this.formalEvents.get(eventType); }
+  formalEventOwner(eventType: string): CapabilityId | undefined { return this.formalEvents.get(eventType)?.capability; }
+  /**
+   * D-20（包 3，N1，CONTRACTS.md §16.2 判据 ③）：正式事件类型登记的**授权轴**（不透明字符串）。
+   * 权威入口用它对已验证主体取证；注册期已拒绝缺轴登记，运行期取不到 = 账本被机制外手段变更，
+   * 调用方必须 fail-closed 拒写。
+   */
+  formalEventAuthority(eventType: string): string | undefined { return this.formalEvents.get(eventType)?.axis; }
   capability(cap: CapabilityId): ActivatedCapability | undefined { return this.caps.get(cap); }
   get eventAuthorityMode(): { pluginId: string; mode: string } | null { return this.eventAuthority; }
   /** 所有权移交：只改 Capability→Plugin 的实现映射，不改 ObjectID/Revision（#44 §11）。 */
@@ -439,12 +456,23 @@ export class Kernel {
    * 加它的理由：领域投影要认"签发方"，而载荷里的 `by`/`issuer` 都只是调用方自己写的字符串，
    * 谁都可以在 `appendLedger` 时随手编一个。真正不可伪造的签发主体只有这一处——写 ledger 行时
    * 由机制从**已验证主体**落账的那一列。不新增成员、只加宽一行，窄面的封闭集判据不受影响。
+   * D-20（包 3，N1）：行内**再多一个 `authority`** = ledger `authority_basis` 的机制授权见证
+   * （`AuthorityEvidence | null`；null=无见证行）。这是投影判定授权结论的**唯一**可采信来源，
+   * 与 E-01 泄露面第三次加宽同条目登记。解析防御：见证列内容不合形状 ⇒ 判 `authorized:false`
+   * （fail-closed），绝不回退成 null 让行滑进"历史自称"分支。
    */
-  eventsFor(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; actor: string | null; payload: unknown }[] {
-    return this.#port.read((raw) => raw.all<{ seq: number; actor: string | null; payload_json: string }>(
-      `select seq, actor, payload_json from ledger where object_id=? and event_type=? and seq <= ? order by seq`,
+  eventsFor(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly {
+    seq: CommitSequence; actor: string | null; authority: AuthorityEvidence | null; payload: unknown;
+  }[] {
+    return this.#port.read((raw) => raw.all<{
+      seq: number; actor: string | null; authority_basis: string | null; payload_json: string;
+    }>(
+      `select seq, actor, authority_basis, payload_json from ledger where object_id=? and event_type=? and seq <= ? order by seq`,
       oid, eventType, cutoff,
-    ).map((r) => ({ seq: r.seq as CommitSequence, actor: r.actor, payload: JSON.parse(r.payload_json) as unknown })));
+    ).map((r) => ({
+      seq: r.seq as CommitSequence, actor: r.actor, authority: parseAuthorityBasis(r.authority_basis),
+      payload: JSON.parse(r.payload_json) as unknown,
+    })));
   }
 
   /** 对象归属能力（目录表是一次主键查询）；对象不存在返回 undefined 而非抛错，避免额外的存在性 oracle。 */
@@ -529,6 +557,17 @@ export class Kernel {
     if (!this.auth.can(principal.actorId, resource, this.space)) {
       throw new Refusal('AUTHORITY_REQUIRED', { actor: principal.actorId, required: resource, space: this.space });
     }
+  }
+
+  /**
+   * 授权**取证**的唯一只读入口（包 3，N1；CONTRACTS.md §16.2 判据 ③）。
+   * 与 `assertAuthority` 读**同一本** authority 账本——只是不抛错，返回机制侧证据的布尔结论。
+   * 存在理由：正式事件通道需要「未授权也照常落库、但见证记 authorized:false」（PR-A1），
+   * 抛错形态承载不了这个语义。**不得**为领域另开第二套权限查询路径或第二本账——领域侧的
+   * `Authorizer` 探针与本方法是同一 closure 的两个出口（world.ts 装配点可见）。
+   */
+  principalCan(principal: VerifiedPrincipal, resource: AuthorityResource): boolean {
+    return this.auth.can(principal.actorId, resource, this.space);
   }
 
   get head(): CommitSequence {
@@ -674,8 +713,12 @@ export interface PluginFace {
    * D-20（包 2，CONTRACTS.md §16.2）：行加宽一个 `actor`——机制 ledger 记下的登记者主体。
    * 领域判定"签发方"只许拿它对照，载荷里的自述字符串不算身份（这同时把 E-01 的已知泄露面
    * 加宽一项，如实登记在 §16.2）。
+   * D-20（包 3，N1）：行再加宽一个 `authority`——机制授权见证（`null`=无见证行）。带见证的行，
+   * 授权结论只许拿它对照，载荷 `authorization` 仅为意图声明（E-01 泄露面第三次加宽，同处登记）。
    */
-  eventsOf(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly { seq: CommitSequence; actor: string | null; payload: unknown }[];
+  eventsOf(oid: ObjectOid, eventType: string, cutoff: CommitSequence): readonly {
+    seq: CommitSequence; actor: string | null; authority: AuthorityEvidence | null; payload: unknown;
+  }[];
   /**
    * 恒拒绝的占位：窄面**曾经**提供按任意 oid 读修订，实测任何领域都能借此把别的能力的
    * 对象读走（R3-A）。跨命名空间的读属于装配边界，由宿主替插件取好再交进来。
@@ -781,13 +824,21 @@ class NamespaceWriterImpl implements NamespaceWriter {
 
   /**
    * D-20（包 2，CONTRACTS.md §16.2）：正式事件类型的**唯一写入入口**。
+   * 包 3（N1/D-25）补齐第三层——授权取证与激活核对，判据编号与执行顺序见 §16.2：
    *
    * 为什么不复用 `#scoped().appendLedger()`：那条通道的第一道判据就是"正式事件不得从这里写"
    * （通道判据在实现层同样生效，本入口若借道就是自我拒绝）；且正式事件的归属轴是**事件类型**
    * 而非对象归属——记录域对对象模型的对象声明采纳是既定用途，对象归属检查会把合法路径一并杀掉。
-   * 归属核对在这里做：eventType 必须登记在**本端口能力**名下；对象与修订必须真实存在
-   * （修订判据与 D-24 ② 同源，按归属 ns 归因）。`actor` 取**外层事务的已验证主体**——
-   * 签发主体由机制落账，载荷里的任何自述都不是身份。
+   * ① 归属核对：eventType 必须登记在**本端口能力**名下；
+   * ② 激活核对（D-25）：本端口能力已被运维停用时，这里与 `write()` 同判 `CAPABILITY_INACTIVE`——
+   *    修前这里零核对，"停用即写不动"只覆盖了一半通道；
+   * ③ 授权取证（N1，D-20 第三层）：向**机制可信**的授权来源（`registry.formalEventAuthority` 给出
+   *    登记轴，`Kernel.principalCan` 读与 `assertAuthority` 同一本 authority 账本）对外层事务的
+   *    已验证主体取证，证据写入 ledger 见证列 `authority_basis`。取证结论为 false **不拒写**
+   *    （PR-A1：未授权声明完整保存），但带 `authorized:false` 见证的行永不被投影计入（§16.2 见证优先闸）；
+   *    取不到证（轴缺失=账本被机制外变更）才 fail-closed 拒写。载荷的 `authorization` 字段自此只是
+   *    意图声明——授权结论是机制事实，与"签发主体是机制事实"（actor 列）同一条原则的两半。
+   * ④⑤ 对象与修订必须真实存在（修订判据与 D-24 ② 同源，按归属 ns 归因）。
    */
   appendAuthoritativeEvent(a: {
     eventType: string; objectId: ObjectOid; revision: number; payload: unknown; describedAt?: number;
@@ -802,8 +853,26 @@ class NamespaceWriterImpl implements NamespaceWriter {
           : '该正式事件类型不归本端口能力所有——命令 Port 只能签发自己登记的事件',
       });
     }
+    // D-25（包 3）：激活核对。判据与 `write()`/`readLatest()` 的 CAPABILITY_INACTIVE **同源**
+    // （registry 激活视图）；修前这里零核对 ⇒ 停用拥有者后权威通道仍可签发正式事件（席位 G2-A C5）。
+    if (!this.#k.registry.capability(this.#cap)) {
+      throw new Refusal('CAPABILITY_INACTIVE', { capability: this.#cap, channel: 'appendAuthoritativeEvent' });
+    }
     const host = WRITER_UOW.get(this);
     if (!host) throw new Refusal('CAPABILITY_INACTIVE', { capability: this.#cap });
+    // N1（包 3）③：授权取证**先于对象解析**（#44 §5.1「权限校验先于对象解析」的同类排布；
+    // 也让"轴缺失"这种装配性故障先于业务性错误冒头）。
+    const axis = this.#k.registry.formalEventAuthority(a.eventType);
+    if (axis === undefined) {
+      // 注册期已拒绝缺轴登记；走到这里 = 账本被机制外手段变更 ⇒ fail-closed，绝不默认放行。
+      throw new Refusal('AUTHORITY_REQUIRED', {
+        eventType: a.eventType, capability: this.#cap,
+        reason: '正式事件类型没有登记授权轴，机制无法取证——宁可拒写也不签发无证据的授权结论',
+      });
+    }
+    const evidence: AuthorityEvidence = {
+      axis, capability: this.#cap, authorized: this.#k.principalCan(host.principal, axis),
+    };
     if (!this.#raw.get(`select oid from object_directory where oid=?`, a.objectId)) {
       throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
     }
@@ -812,9 +881,10 @@ class NamespaceWriterImpl implements NamespaceWriter {
     }
     const seq = this.#k.nextLedgerSeq(this.#raw);
     this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
-       values(?,?,?,?,?,?,?,?,?)`,
-      seq, this.#k.space, a.eventType, host.principal.actorId, a.objectId, a.revision,
+      `insert into ledger(seq, space, event_type, actor, authority_basis, object_id, revision, payload_json, described_at, recorded_at)
+       values(?,?,?,?,?,?,?,?,?,?)`,
+      seq, this.#k.space, a.eventType, host.principal.actorId, JSON.stringify(evidence),
+      a.objectId, a.revision,
       JSON.stringify(a.payload), a.describedAt ?? null, Date.now(),
     );
     return seq;
@@ -877,12 +947,31 @@ const TX_REQUIRED_EDGES = new WeakMap<RawTx, RequiredEdgeRow[]>();
 type RequiredEdgeViolation = { readonly code: 'REQUIRED_REF_MISSING' | 'HARD_REF_NOT_PINNED'; readonly detail: Record<string, unknown> };
 
 /**
+ * 机制授权见证列的解析（包 3，N1；CONTRACTS.md §16.2 判据 ③ 与读面加宽）。
+ * `null` = 无见证（非权威通道行 / 机制生效前的历史行）——投影可据此走"历史按当时判据"分支。
+ * **列值不合形状 ⇒ 返回"未授权见证"而不是 null**：坏掉的见证若退化成 null，行就会滑进
+ * 历史自称分支被旧判据计入——fail-closed 要求坏见证只能往"不计入"的方向坍缩。
+ */
+function parseAuthorityBasis(col: string | null): AuthorityEvidence | null {
+  if (col === null) return null;
+  const malformed: AuthorityEvidence = { axis: '(malformed)', capability: '(malformed)', authorized: false };
+  try {
+    const v = JSON.parse(col) as { axis?: unknown; capability?: unknown; authorized?: unknown };
+    if (typeof v.axis !== 'string' || v.axis === ''
+      || typeof v.capability !== 'string' || v.capability === ''
+      || typeof v.authorized !== 'boolean') return malformed;
+    return { axis: v.axis, capability: v.capability, authorized: v.authorized };
+  } catch {
+    return malformed;
+  }
+}
+
+/**
  * 修订级存在判据（D-24 ②）：必须按**归属命名空间**归因——join `object_directory` 后，
  * "目标对象在其归属 ns 里确有该修订"才算成立（RD-05 的精确性语义）。不带归属判据时，
  * 任何能力在自己 ns 里伪造一行 `oid@revN` 就能冒充"该对象存在第 N 修订"（席位 G1-A A-2）。
  */
-function revisionExistsInOwnerNs(raw: RawTx, oid: ObjectOid, revision: number): boolean {
-  return raw.get(
+function revisionExistsInOwnerNs(raw: RawTx, oid: ObjectOid, revision: number): boolean {  return raw.get(
     `select 1 as x from domain_state ds
        join object_directory d on d.oid = ds.oid and d.ns = ds.ns
       where ds.oid=? and ds.revision=?`, oid, revision,

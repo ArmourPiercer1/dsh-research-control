@@ -113,19 +113,29 @@ describe('包 2 D-20：正式事件类型的唯一写入口与投影信任模型
       FACT_DESIGNATION_EVENT)!.c).toBe(0);
   });
 
-  test('投影只信结构化字段 + 机制 actor + 记录版本：三种历史伪造形态全部不计入', () => {
+  test('投影只信结构化字段 + 机制 actor + 机制见证 + 记录版本：四种历史伪造形态全部不计入', () => {
+    // 包 3（N1）改了本条对照正例的形状：**机制通道写出的行必带授权见证**，"外形齐全"不再是
+    // 充分条件——无见证的 v3 行只能是裸 SQL（装配/运维面）手插的产物 ⇒ fail-closed 不计。
+    // 残余与修前同一族且同处登记：装配裸面可以连见证列一起伪造（它本来就能改整库）——
+    // 那是 G1 的存量/裸面处置缺口，不是插件可见面（插件没有任何写 ledger 的旁路）。
     const x = w('fe-forge');
     const standing = x.standingUseCase();
     const oid = x.uow(WRITER, (tx) => tx.createObject({ kind: 'test.claim', payload: { v: 1 } }));
-    const forge = (actor: string | null, payload: Record<string, unknown>): void => {
+    const forge = (actor: string | null, payload: Record<string, unknown>, authority?: unknown): void => {
       const seq = (x.raw.get<{ m: number }>(`select coalesce(max(seq),0)+1 m from ledger`)!.m);
       x.raw.run(
-        `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
-         values(?,?,?,?,?,?,?,?,?)`,
-        seq, 'SP-FE', FACT_DESIGNATION_EVENT, actor, oid, 1, JSON.stringify(payload), null, Date.now());
+        `insert into ledger(seq, space, event_type, actor, authority_basis, object_id, revision, payload_json, described_at, recorded_at)
+         values(?,?,?,?,?,?,?,?,?,?)`,
+        seq, 'SP-FE', FACT_DESIGNATION_EVENT, actor,
+        authority === undefined ? null : JSON.stringify(authority),
+        oid, 1, JSON.stringify(payload), null, Date.now());
       // 把水位推到该行之后：这些行是"**已提交的历史**"，必须被投影看见并逐条按新判据拒识——
       // 若靠 seq>head 的水位差把它们挡掉，本测试就成了假绿（判据根本没被喂到）。
       x.raw.run(`update meta set value=? where key='ledger_seq'`, seq);
+    };
+    const good = {
+      designationSchema: FACT_DESIGNATION_SCHEMA, stance: 'ACCEPTED',
+      issuer: 'carol', authorization: 'AUTHORIZED', policyVersion: FACT_STANDING_POLICY_VERSION,
     };
     // ① 修前形态：只有 note 字符串（g1a 红条使用的载荷）——新判据不读 note，直接忽略
     forge('nobody', { stance: 'ACCEPTED', by: 'nobody', note: 'AUTHORIZED' });
@@ -139,12 +149,11 @@ describe('包 2 D-20：正式事件类型的唯一写入口与投影信任模型
       designationSchema: FACT_DESIGNATION_SCHEMA, stance: 'ACCEPTED',
       issuer: 'carol', authorization: 'AUTHORIZED', policyVersion: 'fact-standing/v99',
     });
+    // ④ 包 3 新形态：字段全齐、自称当前版本，但**没有机制见证**——机制通道写不出这种行
+    forge('carol', good);
     expect(standing.standingAt(oid, x.ledgerHead()).state).toBe('NOT_ADOPTED');
-    // 对照正例：形状齐全 + issuer===actor + 已获授权 ⇒ 计入（判据不是恒拒绝的摆设）
-    forge('carol', {
-      designationSchema: FACT_DESIGNATION_SCHEMA, stance: 'ACCEPTED',
-      issuer: 'carol', authorization: 'AUTHORIZED', policyVersion: FACT_STANDING_POLICY_VERSION,
-    });
+    // 对照正例：形状齐全 + issuer===actor + 带已授权见证 ⇒ 计入（判据不是恒拒绝的摆设）
+    forge('carol', good, { axis: 'domain-admission', capability: CAP_RECORDS, authorized: true });
     expect(standing.standingAt(oid, x.ledgerHead()).state).toBe('ADOPTED');
   });
 });

@@ -376,14 +376,29 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
 ### 16.2 正式事件的唯一权威写入入口与领域服务的受限提交 Port（D-20 / D-22，外部复审第四轮，2026-10-30，包 2）
 
 **本节先于代码**：以下每一条都是插件可见面变化，全部在此声明后才允许动 `src/`。
+**（包 3 修订标注，2026-10-30，外部复审席位 G2-A 的 N1/D-25 收口）** 本节中标注「包 3」的条目为
+本轮新增/改写的插件可见面：清单条目新增 `requiresAuthority`、权威入口新增激活核对与授权取证、
+`eventsOf`/`eventsFor` 行新增 `authority`、投影信任模型第 3/4 条改写、`ledger` 新列 `authority_basis`。
+其余为包 2 原文。
 
 **新增契约字段 `PluginManifest.ownsEventTypes`（清单面加宽）**：能力可把自己拥有的事件类型登记为
 **正式事件类型**——即「领域据以执行接纳/授权类判定、派生业务投影直接相信它」的事件。
-形状与 `ownsKinds` 同族：`readonly { eventType: string; capability: CapabilityId }[]`。
-登记判据也与 `ownsKinds` 同族：同一事件类型被两个能力登记 ⇒ `AMBIGUOUS_AUTHORITY`；
-指向未激活能力 ⇒ `CAPABILITY_INACTIVE`。Kernel 把 eventType 当**不透明字符串**，不解释任何业务语义
-（业务无知扫描继续覆盖本面）。归属账本按能力 id 记，**不随路由停用而消失**。
-**（2026-10-30 席位 G2-A 实测纠正，此前本行把期望写成了事实）** 拥有者 Capability 被停用时：通用通道 `appendLedger` 拒绝（未激活 ⇒ `CAPABILITY_INACTIVE`），但 `appendAuthoritativeEvent` **当前并不核对激活状态，仍会写入**（`kernel.ts:502-518/792-830` 零激活核对 ⇒ 停用能力仍能签发正式事件，登记为 **D-25**）。**以机制行为为准**；「停用即写不动」是**待实现的目标语义**，不是现状。
+形状与 `ownsKinds` 同族，包 3 起为
+`readonly { eventType: string; capability: CapabilityId; requiresAuthority: AuthorityResource }[]`。
+**`requiresAuthority`（包 3，N1 收口）**＝该正式事件类型的签发所须经核对的**业务授权轴**（对 Kernel
+为不透明字符串）：它是机制侧授权结论的**唯一取证来源**（见入口判据 ⑤）。登记判据与 `ownsKinds`
+同族且**按序判定**：同一事件类型被两个能力登记 ⇒ `AMBIGUOUS_AUTHORITY`；指向未激活能力 ⇒
+`CAPABILITY_INACTIVE`；**缺授权轴 ⇒ `ACTIVATION_IMPOSSIBLE`**（正式事件没有授权轴就永远无法产生
+授权证据，装配不可成立，fail-closed；此码此前只出现在 `activate()` 的依赖环判据，现登记到注册期）。
+Kernel 把 eventType 与 axis 都当**不透明字符串**，不解释任何业务语义（业务无知扫描继续覆盖本面）。
+归属账本按能力 id 记，**不随路由停用而消失**。
+**（2026-10-30 席位 G2-A 实测纠正 → 包 3 已兑现，D-25 已修）** 此前本处把期望写成了事实（权威通道
+对停用状态零核对，停用能力仍能签发正式事件）。机制现状：`appendAuthoritativeEvent` 在写入前核对
+本端口能力的**激活状态**（查生效路由表，缺失 ⇒ `CAPABILITY_INACTIVE`、零残留），「拥有者被停用 ⇒
+正式事件在两个通道上都写不动」自包 3 起是**现状而非目标语义**。实测依据（勿信文档，跑这条）：
+`tests/n1-authorization-evidence.test.ts` 的「D-25 直测面」用例——`unloadCapability(CAP_RECORDS, ADM)`
+之后通道 B `appendAuthoritativeEvent` 得 `CAPABILITY_INACTIVE` 且 ledger 计数不动，同场对照同能力
+`write()` 同码拒绝、通道 A 仍 `EVENT_AUTHORITY_REQUIRED`，`loadCapability` 后恢复可签发。
 
 **新增拒绝码 `EVENT_AUTHORITY_REQUIRED`**：语义 =「**本通道没有资格写这个事件类型**」，与
 「缺授权轴」的 `AUTHORITY_REQUIRED` 是两回事，与「改了他人的对象」的 `CAPABILITY_SCOPE_ESCAPE`
@@ -393,14 +408,33 @@ eventType（没有权威签发者，机制拒当它的传声筒）。不可重�
 
 **新增端口成员 `NamespaceWriter.appendAuthoritativeEvent(a: { eventType; objectId; revision; payload;
 describedAt? }): CommitSequence`（窄面加宽一项）**——正式事件类型的**唯一写入入口**，属于该事件
-类型的**归属能力**。落笔前的判据全部先于写入、零残留：
+类型的**归属能力**。落笔前的判据全部先于写入、零残留（编号即执行顺序）：
 ① eventType 已登记为正式事件类型，且登记在**本端口能力**名下 ⇒ 否则 `EVENT_AUTHORITY_REQUIRED`；
-② `objectId` 必须存在于 `object_directory` ⇒ 否则 `NOT_FOUND_IN_SPACE`；
-③ `revision` 必须在该对象的**归属命名空间**里真实存在（与 §16.1 的 D-24② 修订判据同源）⇒
+② 本端口能力处于**激活**状态（包 3，D-25：查 `capability_route` 生效路由；停用即写不动，两个通道同判）
+⇒ 否则 `CAPABILITY_INACTIVE`；
+③ **授权取证，先于对象解析（包 3，N1——D-20 第三层的机制落点；#44 §5.1「权限校验先于对象解析」
+的同类排布）**：机制向**机制可信的授权来源**取证——取该事件类型登记的 `requiresAuthority` 轴
+（判据 ① 的同一本归属账本），对**本事务的已验证主体**用与 `assertAuthority` **同一条** authority
+账本核对（`Kernel.principalCan`；不建第二套权限账本、不调用任何领域回调），并把证据
+`{ axis, capability, authorized }` 写入 ledger 新列 `authority_basis`——**机制独占写入**：
+`appendAuthoritativeEvent` 的入参里没有能填这一列的字段，调用者改不动它。
+取证失败的两形 fail-closed 拒写（先于任何写、零残留）：事件类型没有登记授权轴（装配判据被运行时
+变更绕开时的兜底）⇒ `AUTHORITY_REQUIRED`；取证通道本身抛错 ⇒ 原样拒绝，事务回滚。
+**「取证结论为未授权」不是拒写**：PR-A1 要求无业务授权轴的主体其声明**完整保存**（行落库、见证
+`authorized:false`、载荷意图字段为 `AUTHORITY_UNVERIFIED`），但该行自此**永不计入投影**（见下文见证优先闸）。
+④ `objectId` 必须存在于 `object_directory` ⇒ 否则 `NOT_FOUND_IN_SPACE`；
+⑤ `revision` 必须在该对象的**归属命名空间**里真实存在（与 §16.1 的 D-24② 修订判据同源）⇒
 否则 `NOT_FOUND_IN_SPACE`。
-ledger 行的 `actor` 列由**机制**从本事务已验证主体写下——**签发主体是机制事实，不是载荷字段**。
+ledger 行的 `actor` 列由**机制**从本事务已验证主体写下——**签发主体是机制事实，不是载荷字段**；
+包 3 起 `authority_basis` 同理——**授权结论是机制事实，不是载荷字段**。
 正式事件关于的可以是**他人拥有的对象**（记录域对对象模型的对象声明采纳，这正是它的既定用途），
 因此本入口核对的是**事件类型归属**，不是对象归属——与 §16 表格的 `write()` 语义分属两根轴。
+
+**存储面（登记；非冻结面）**：`ledger` 新增可空列 `authority_basis text`——机制见证的 JSON 封套，仅
+`appendAuthoritativeEvent` 写，其余通道（`appendLedger`/`write()`/`recordReport`/迁移器）一律留 NULL。
+PoC 侧 `SCHEMA_VERSION` 4→5（DDL 在 `src/storage-sqlite/sqlite-port.ts`，**不在**冻结的根 `schema/**`，
+后者与本 PoC 零引用关系）；既有 v4 库按既有纪律在打开路径 `SCHEMA_UPGRADE_REQUIRED` fail-loud，
+PoC 测试世界全部新建库、无迁移债；实施期若要读旧库，迁移器须显式补写。
 
 **唯一入口的机制执行（不是约定）**：
 
@@ -413,27 +447,48 @@ ledger 行的 `actor` 列由**机制**从本事务已验证主体写下——**�
   跨命名空间）的**写侧对称门**；assembly 作用域保留跨领域台账（协调权，Q40 依据不变）。
 - `NamespaceWriter.write()` 顺手登记的台账行同样过正式事件名单 ⇒ 不能借扩展状态行冒充正式事件。
 
-**投影信任模型（领域侧，与机制配套；D-20 复审要求 3、4）**：派生业务状态**不得**凭载荷里任何
-随手字符串判定（修前 `note:'AUTHORIZED'` 就是被实测利用的伪造面——无关能力一条 `appendLedger`
-即翻转他人对象的采纳投影）。判定只认：
+**投影信任模型（领域侧，与机制配套；D-20 复审要求 3、4；包 3 修订第 3、4 条）**：派生业务状态
+**不得**凭载荷里任何随手字符串判定（修前 `note:'AUTHORIZED'` 就是被实测利用的伪造面——无关能力
+一条 `appendLedger` 即翻转他人对象的采纳投影）。判定只认：
 
-1. **结构化字段**：事件必须带 `designationSchema` 标记与齐全的 `stance/issuer/authorization/policyVersion`
+1. **结构化字段**：事件必须带 `designationSchema` 标记与齐全的 `stance/issuer/policyVersion`
    字段，任一缺失即不参与投影；
 2. **签发方 = 机制 ledger actor**：`eventsOf`/`eventsFor` 的行新增 `actor` 列（读面加宽，见下），
    投影要求 `payload.issuer === row.actor`——载荷自称不算身份，机制记的才算；
-3. **授权是结构化字段**，按领域**写入当时**的判定落成数据；投影**从不查询当前权限**；
+3. **授权结论只认机制见证（包 3，N1，替换原第 3 条「授权是结构化字段」）**：ledger 新列
+   `authority_basis` 是 `appendAuthoritativeEvent` 落笔前按归属账本的 `requiresAuthority` 轴向
+   可信授权来源取证后写下的**机制见证**（入口判据 ③）。载荷的 `authorization` 字段**降级为
+   意图声明**——领域写入方仍会填它（观测用途），**投影不采信它**。
+   **见证优先闸**：凡带机制见证的行，授权结论一律以 `authority_basis.authorized` 为准，
+   **与载荷自称的版本号无关**——`authorized:false` 的行无论自称 v2、v3 还是任何版本，一律不计。
+   这条闸把「今天的新写入挑一个旧版本号走自称判据」的逃逸道封死：能走到「载荷自称」判据的
+   只剩**无见证的历史行**（见第 4 条）。投影**从不查询当前权限**；
 4. **`policyVersion` 按事件记录的版本判定**：投影按事件记录的版本号查**冻结的判据表**
    （`FACT_STANDING_RULES`；新版本 = 加一行，旧版本的判据**永不再改**）；未知版本 ⇒ fail-closed
-   不计入。**禁止**按当前配置对历史事件做静默重解释——事后权限/规则变化不得改写当时所写事件的效力。
+   不计入。**包 3 新增 `fact-standing/v3` 行**：结构化字段 + `issuer === actor` + 见证
+   `authorized === true`，判据体内**不读**载荷 `authorization`。**v2 自此为只读历史语义**：
+   领域写入方只产 v3；v2 判据（含其授权子句「载荷自称 AUTHORIZED」）只对**无见证行**可达 =
+   包 3 机制生效前写入的存量行，新写入不可达（权威通道的每一行必带见证）。
+   **禁止**按当前配置对历史事件做静默重解释——两个方向都不许偏：已落库的 v2 行在包 3 之后、
+   在业务授权被撤销之后，仍按 v2 冻结判据继续生效（`tests/n1-authorization-evidence.test.ts`
+   「撤销 × 历史双钉」方向①钉住）；撤销后的新写入不计入（方向②：见证 `authorized:false`）。
 
 旧形状事件（无 `designationSchema`，含历史伪造行）在新信任模型下自动退出投影 = 不再生效，但 H 是
 append-only，它们**仍在库里**；对这类存量伪造的处置是运维/审计问题（ledger 侧审计目前无机制承接，
-登记在回报与 G1 余项，勿当作已解决）。
+登记在回报与 G1 余项，勿当作已解决）。**包 3 如实登记的同类残余**：包 3 之前经权威通道写入的
+「v2 外形伪造行」（诚实 issuer + 自称 AUTHORIZED，席位 G2-A 组合 C4 形态）**无见证** ⇒ 仍按
+冻结的 v2 判据计入——历史不可重解释与存量伪造处置在 append-only 上互相拉扯，处置归运维/审计
+（G1 余项），PoC 测试世界全部新建库、不携带这类存量行；集成期读旧库必须先过审计。
 
-**读面加宽（同时加宽 E-01 的泄露面一项，如实登记）**：`eventsOf`/`eventsFor` 返回行新增 `actor`
+**读面加宽（同时加宽 E-01 的泄露面，如实登记）**：`eventsOf`/`eventsFor` 返回行新增 `actor`
 （机制 ledger 主体）。E-01 的已知耦合因此从「存在性 + 归属者身份」加宽为「+ 事件行的登记者」——
 对正式声明类事件，签发者本来就是业务可见数据；若将来把跨命名空间读开放给其它事件类型，须连同
 E-01 的 G1 裁定一并复核。
+**包 3 再加宽一项（E-01 泄露面第三次加宽，登记于 READINESS 的 E-01 行）**：返回行新增
+`authority: { axis; capability; authorized } | null` = ledger `authority_basis` 的机制见证
+（无见证行为 null）。跨命名空间读由此多看到「该事件签发时经核对的授权轴名 + 机制授权结论」；
+投影判定必需这一列（不把它交给读者，领域就只能回去读载荷自称——正是 N1 消灭的形态），
+故按必要性加宽并如实登记，E-01 的 G1 裁定复核范围随之扩大。
 
 **D-22：领域验证服务只接收有具体用途的受限提交接口**。`ValidationService` 的**类型面**只收
 `ValidationReportSubmission`——一个只有 `submitReport(...)`（「登记一份校验报告」这一个动作）的

@@ -21,6 +21,10 @@ create table if not exists ledger(
   space         text not null,
   event_type    text not null,
   actor         text,
+  -- 包 3（N1，CONTRACTS.md §16.2 判据 ③）：机制授权见证的 JSON 封套（AuthorityEvidence 形状）。
+  -- 仅 appendAuthoritativeEvent 写；其余写通道与历史行一律 NULL。触发器保证行不可改 ⇒ 见证
+  -- 落库后连机制自己都改不动——这是「授权结论是机制事实」的存储层支点。
+  authority_basis text,
   object_id     text,
   revision      integer,
   record_id     text,
@@ -178,7 +182,12 @@ class Adapter implements RawTx {
  *  2. 因此：空库才建表；已有库必须先过版本与表集/触发器集校验，通过后**不再执行任何 DDL**。
  *     任何分歧都 fail-loud，交显式迁移器处理。
  */
-export const SCHEMA_VERSION = 4;
+/**
+ * v4→v5（包 3，N1）：`ledger` 新增可空列 `authority_basis`（机制授权见证）。
+ * 打开路径纪律不变：既有 v4 库一律 `SCHEMA_UPGRADE_REQUIRED` fail-loud，不隐式迁移
+ * （PoC 测试世界全部新建库，无迁移债；实施期旧库迁移器需显式补写并登记）。
+ */
+export const SCHEMA_VERSION = 5;
 const REQUIRED_TABLES = [
   'meta', 'ledger', 'records', 'check_report', 'object_directory', 'domain_state',
   'journal', 'capability_route', 'projection_state', 'ref_edge',

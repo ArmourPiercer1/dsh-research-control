@@ -67,6 +67,20 @@ export interface ScopedCapabilities {
   can(resource: AuthorityResource): boolean;
 }
 
+/**
+ * 机制授权见证（包 3，N1；CONTRACTS.md §16.2 入口判据 ③）：
+ * `appendAuthoritativeEvent` 落笔前按事件类型登记的 `requiresAuthority` 轴、对本事务已验证主体
+ * 向机制可信授权来源取证后写进 ledger 的证据封套。**只有机制能写**：任何写入口的入参都不含
+ * 能填这一列的字段。`null` = 该行无见证（非权威通道行，或机制生效前写入的历史行）。
+ * 派生投影对带见证的行，授权结论只认本结构的 `authorized`，不认载荷里的任何自称。
+ * 本文件业务无知：`axis`/`capability` 是不透明字符串，Kernel 不解释（arch 扫描继续覆盖本面）。
+ */
+export interface AuthorityEvidence {
+  readonly axis: AuthorityResource;
+  readonly capability: CapabilityId;
+  readonly authorized: boolean;
+}
+
 // ---------------------------------------------------------------- 拒绝码
 
 /**
@@ -197,10 +211,19 @@ export interface PluginManifest {
    * 领域据以执行接纳/授权类判定、派生业务投影直接相信它的事件。登记后：
    * · 通用 `appendLedger`/`declareRecord` 与 `write()` 的登记式台账行一律不得写它（一切作用域，含 assembly）；
    * · 唯一写入入口 = 归属能力窄面的 `NamespaceWriter.appendAuthoritativeEvent`。
-   * Kernel 把 eventType 当不透明字符串（业务无知不变）。登记判据与 `ownsKinds` 同族：
-   * 重复登记 ⇒ `AMBIGUOUS_AUTHORITY`，指向未激活能力 ⇒ `CAPABILITY_INACTIVE`。
+   * Kernel 把 eventType 与 axis 当不透明字符串（业务无知不变）。登记判据与 `ownsKinds` 同族且**按序**：
+   * 重复登记 ⇒ `AMBIGUOUS_AUTHORITY`，指向未激活能力 ⇒ `CAPABILITY_INACTIVE`，
+   * **缺 `requiresAuthority` ⇒ `ACTIVATION_IMPOSSIBLE`**（包 3，N1：正式事件没有授权轴就永远
+   * 无法产生授权证据，装配不可成立，fail-closed）。
+   * **`requiresAuthority`（包 3）**＝该事件类型签发所须经核对的业务授权轴（不透明字符串）：
+   * 权威入口落笔前用它对已验证主体取证，证据写入 ledger 见证列（`AuthorityEvidence`）——
+   * 授权结论自此是机制事实，不再采信载荷自称（CONTRACTS.md §16.2 判据 ③ 与投影信任模型第 3 条）。
    */
-  readonly ownsEventTypes?: readonly { readonly eventType: string; readonly capability: CapabilityId }[];
+  readonly ownsEventTypes?: readonly {
+    readonly eventType: string;
+    readonly capability: CapabilityId;
+    readonly requiresAuthority: AuthorityResource;
+  }[];
 }
 
 // ---------------------------------------------------------------- 校验贡献

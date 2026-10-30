@@ -33,7 +33,7 @@ import {
   Refusal,
   type CheckReportRecord,
   type CommitSequence, type ObjectKindLabel, type ObjectOid, type AnyRef,
-  type RevisionRef, type VerifiedPrincipal,
+  type RevisionRef, type VerifiedPrincipal, type AuthorityEvidence,
 } from '../contracts/index.ts';
 import type { Coverage, Finding } from './validation-contract.ts';
 
@@ -49,7 +49,10 @@ export const TEST_RECORDS: PluginManifest = {
   // （含 assembly）都写不动它；唯一入口是本能力命令 Port（`FactDesignationCommandPort`）背后的
   // `NamespaceWriter.appendAuthoritativeEvent`。登记进清单而不是装配点硬编码，是为了让
   // 「谁有权签发这个事件」成为可审查的**声明**，与 ownsKinds 同族。
-  ownsEventTypes: [{ eventType: 'synth:fact-designation', capability: CAP_RECORDS }],
+  // 包 3（N1，§16.2 判据 ③）：`requiresAuthority` 声明签发所须经机制核对的业务授权轴——机制据此
+  // 对已验证主体取证并把证据写进 ledger 见证列；投影只认见证。缺这条声明会在装配期被
+  // ACTIVATION_IMPOSSIBLE 拒绝（正式事件不许有"写得进、证不了"的形态）。
+  ownsEventTypes: [{ eventType: 'synth:fact-designation', capability: CAP_RECORDS, requiresAuthority: 'domain-admission' }],
 };
 
 export const SYNTH_NOTE = '本模块为**测试专用**的合成策略，仅验证机制承载能力，不代表科研语义政策。';
@@ -276,26 +279,36 @@ export class ValidationService {
 }
 
 /**
- * **正式接纳事件（`synth:fact-designation`）的结构化契约**（D-20，外部复审第四轮，包 2）。
+ * **正式接纳事件（`synth:fact-designation`）的结构化契约**（D-20，外部复审第四轮，包 2；
+ * 包 3 修订 ③——授权结论改由机制见证承载，CONTRACTS.md §16.2）。
  *
  * 修前的伪造面（席位 A-6 实测）：投影读的是 `payload.note === 'AUTHORIZED'`——一个任何能力
- * 在 `appendLedger` 里随手写的字符串。修后的信任模型（CONTRACTS.md §16.2）：
+ * 在 `appendLedger` 里随手写的字符串。包 2 修后仍剩的半扇门（席位 G2-A C4 实测）：把判据从
+ * `note` 换成结构化字段 `authorization`，**判据依旧认载荷自称**。包 3 的信任模型：
  * ① 事件必须带 `designationSchema` 标记与齐全的结构化字段；② `issuer` 必须等于机制 ledger
- * 记下的 `actor`（载荷自称不算身份）；③ 授权是结构化字段，由**写入当时**的业务授权轴判定
- * 落成数据；④ `policyVersion` 记下判据版本，投影按**事件记录的版本**查冻结判据表，不按当前
- * 配置重算——事后权限变化不得静默重解释历史。
+ * 记下的 `actor`（载荷自称不算身份）；③ **授权只认机制见证**——权威入口落笔前按清单登记的
+ * `requiresAuthority` 轴向可信授权来源取证、写入 ledger 见证列；载荷的 `authorization` 降级为
+ * **意图声明**（观测用途），投影不采信；④ `policyVersion` 记下判据版本，投影按**事件记录的版本**
+ * 查冻结判据表，不按当前配置重算——事后权限变化不得静默重解释历史（两个方向都不许偏）。
  */
 export const FACT_DESIGNATION_EVENT = 'synth:fact-designation';
 export const FACT_DESIGNATION_SCHEMA = 'synth:fact-designation/2';
-/** 业务授权判据的版本号：写进事件，供投影按"当时"的规则判定。 */
-export const FACT_STANDING_POLICY_VERSION = 'fact-standing/v2';
+/**
+ * 业务授权判据的版本号：写进事件，供投影按「当时」的规则判定。
+ * 包 3 升 v3：**v2 自此为只读历史语义**（§16.2——写入方只产 v3；v2 判据及其载荷自称子句只对
+ * 无见证的历史行可达，冻结表里的 v2 行一字未动）。载荷形状未变，故 `designationSchema` 不升版。
+ */
+export const FACT_STANDING_POLICY_VERSION = 'fact-standing/v3';
 
 export interface FactDesignationPayload {
   readonly designationSchema: string;
   readonly stance: 'ACCEPTED' | 'WITHDRAWN';
   /** 已验证主体 id；仅当与机制 ledger.actor 相同时才承载身份（§16.2）。 */
   readonly issuer: string;
-  /** 写入**当时**由业务授权轴判定的结果；投影从不重新查询权限。 */
+  /**
+   * **意图声明（包 3 起）**：领域写入方按当时的授权轴判定填在这里，供人读与审计对照。
+   * 投影**不采信本字段**——授权结论只认机制见证（`eventsOf` 行的 `authority` 列）。
+   */
   readonly authorization: 'AUTHORIZED' | 'AUTHORITY_UNVERIFIED';
   readonly policyVersion: string;
 }
@@ -306,23 +319,44 @@ export interface FactDesignationPayload {
  * 未知版本 ⇒ 不参与投影（fail-closed）：机制宁可少认，不可冒认。
  * 旧形状事件（无 designationSchema、只有 note 字符串）同样不进任何版本 = 自动退出投影；
  * H 里已有的这类行（含历史伪造）不再生效但仍在库——处置是运维/审计问题，见回报。
+ *
+ * 判据函数的第三参 `authority` = 机制授权见证（`null` = 无见证行）。**v2 行一字未动**
+ * （两个参数的旧函数在新表类型下原样成立）：载荷自称的授权子句自包 3 起只对无见证行可达。
+ * 另有一道**见证优先闸**在 `designationCountsAsAdmitted`——带见证但未授权的行在任何版本
+ * 判据之前就被挡下，因此"挑旧版本号走自称判据"对新写入不可达（§16.2 投影信任模型第 3 条）。
  */
-const FACT_STANDING_RULES: Readonly<Record<string, (p: FactDesignationPayload, actor: string | null) => boolean>> = Object.freeze({
-  [FACT_STANDING_POLICY_VERSION]: Object.freeze((p: FactDesignationPayload, actor: string | null): boolean =>
+const FACT_STANDING_RULES: Readonly<Record<string,
+  (p: FactDesignationPayload, actor: string | null, authority: AuthorityEvidence | null) => boolean
+>> = Object.freeze({
+  // ↓ v2：包 2 落地原文，冻结（只读历史语义）。仅改类型形态不改判据体。
+  'fact-standing/v2': Object.freeze((p: FactDesignationPayload, actor: string | null): boolean =>
     p.designationSchema === FACT_DESIGNATION_SCHEMA
     && (p.stance === 'ACCEPTED' || p.stance === 'WITHDRAWN')
     && typeof p.issuer === 'string' && p.issuer !== '' && p.issuer === actor
     // 只有写入当时判定为**已获授权**的声明参与投影；未授权声明完整保存但不计入（PR-A1）。
     && p.authorization === 'AUTHORIZED'),
+  // ↓ v3（包 3，N1）：授权结论只认机制见证，判据体内**不读**载荷 authorization。
+  'fact-standing/v3': Object.freeze((p: FactDesignationPayload, actor: string | null,
+    authority: AuthorityEvidence | null): boolean =>
+    p.designationSchema === FACT_DESIGNATION_SCHEMA
+    && (p.stance === 'ACCEPTED' || p.stance === 'WITHDRAWN')
+    && typeof p.issuer === 'string' && p.issuer !== '' && p.issuer === actor
+    // 无见证（null）的 v3 行 = 只能来自装配/运维裸面手插，不可能是机制通道产物 ⇒ 不计（fail-closed）。
+    && authority !== null && authority.authorized),
 });
 
 /** 行是否"生效声明"（计入投影）。未生效（未授权）声明完整保存但不参与（PR-A1）。 */
-function designationCountsAsAdmitted(payload: unknown, actor: string | null): boolean {
+function designationCountsAsAdmitted(
+  payload: unknown, actor: string | null, authority: AuthorityEvidence | null,
+): boolean {
+  // **见证优先闸**（包 3，N1）：带机制见证且未授权的行一律不计——放在版本查表**之前**，
+  // 所以载荷自称 v2/v3/任何版本号都绕不过它。无见证行（历史）才轮到版本判据按当时的规则算。
+  if (authority !== null && !authority.authorized) return false;
   const p = payload as Partial<FactDesignationPayload> | null;
   if (!p || typeof p !== 'object' || typeof p.policyVersion !== 'string') return false;
   const rule = FACT_STANDING_RULES[p.policyVersion];
   if (!rule) return false;                       // 未知版本：fail-closed
-  return rule(p as FactDesignationPayload, actor);
+  return rule(p as FactDesignationPayload, actor, authority);
 }
 
 /**
@@ -357,17 +391,27 @@ export class FactDesignationCommandPort {
  * 未获业务授权的声明完整保存但标注 AUTHORITY_UNVERIFIED，且不参与投影（PR-A1）。
  */
 export class FactStandingPolicy {
+  // N3（教训第四次收口）：协作对象一律 `#` 私有字段——TS 参数属性（`private readonly x`）在
+  // 运行时是**自有可枚举属性**，插件拿 face 就能顺着 `.face`/`.authority` 走回来。
+  // `tests/n3-parameter-property-gate.test.ts` 双门禁（源码级 + 运行时级）钉住本形态不得回归。
+  readonly #face: PluginFace;
   /** 只接窄面：领域持有 Kernel 或 port 就等于命名空间隔离对它失效（门禁会红，F-23）。 */
-  constructor(private readonly face: PluginFace, private readonly authority?: Authorizer) {}
+  readonly #authority?: Authorizer;
+  constructor(face: PluginFace, authority?: Authorizer) {
+    this.#face = face;
+    this.#authority = authority;
+  }
 
   /**
    * 事实声明事件的**领域部分**（D-19c：只出草稿，不落笔；D-20：载荷结构化）。
    * 业务授权轴（`domain-admission`）的判定留在这里——它是业务规则，不是协调权；
-   * 判定发生在**写入当时**，结果作为数据落进事件；投影端从不重新查权限。
+   * 判定发生在**写入当时**，结果作为**意图声明**落进载荷（包 3 起投影不采信它）。
+   * 授权结论的权威来源是机制见证：权威入口按清单登记的同一根轴、对同一本 authority 账本
+   * 取证（`world.authority` 与 `Kernel.principalCan` 是同一 closure 的两个出口，不建第二套账）。
    * 唯一合法消费者是 `FactDesignationCommandPort`（草稿不落笔，落笔即走权威通道）。
    */
   designationEvent(principal: VerifiedPrincipal, a: { oid: ObjectOid; revision: number; stance: 'ACCEPTED' | 'WITHDRAWN' }): LedgerEventDraft {
-    const authorized = this.authority?.can(principal.actorId, 'domain-admission', this.face.space) ?? false;
+    const authorized = this.#authority?.can(principal.actorId, 'domain-admission', this.#face.space) ?? false;
     const payload: FactDesignationPayload = {
       designationSchema: FACT_DESIGNATION_SCHEMA,
       stance: a.stance,
@@ -379,18 +423,19 @@ export class FactStandingPolicy {
   }
 
   /**
-   * 投影（D-20 修后信任模型，CONTRACTS.md §16.2）：
-   * 只认**结构化字段 + 机制记的签发方 + 事件记录的判据版本**——
-   * 不读 `note` 之类的随手字符串（修前正是它让无关能力一条伪造声明翻转他人对象，席位 A-6）；
-   * 不调 `authority.can`（那是"按当前权限重解释历史"，复审要求 4 明令禁止）。
+   * 投影（D-20 修后信任模型 + 包 3 收口，CONTRACTS.md §16.2）：
+   * 只认**结构化字段 + 机制记的签发方（`actor`）+ 机制授权见证（`authority`）+ 事件记录的判据
+   * 版本**——不读 `note`/`authorization` 之类载荷自称（前者是席位 A-6 的伪造面，后者是席位
+   * G2-A C4 的伪造面）；不调 `authority.can`（那是"按当前权限重解释历史"，复审要求 4 明令禁止）。
    */
   standingAt(oid: ObjectOid, cutoff: CommitSequence): { state: 'ADOPTED' | 'NOT_ADOPTED'; watermark: CommitSequence } {
     // 只经机制原语取事件，不碰 port/raw：否则命名空间隔离对这个领域就是纸面上的（F-23）。
-    const rows = this.face.eventsOf(oid, FACT_DESIGNATION_EVENT, cutoff);
+    const rows = this.#face.eventsOf(oid, FACT_DESIGNATION_EVENT, cutoff);
     {
       let state: 'ADOPTED' | 'NOT_ADOPTED' = 'NOT_ADOPTED';
       for (const r of rows) {
-        if (!designationCountsAsAdmitted(r.payload, r.actor)) continue; // 未生效/旧形状/未知版本一律不参与
+        // 未生效/旧形状/未知版本/带未授权见证的行一律不参与
+        if (!designationCountsAsAdmitted(r.payload, r.actor, r.authority)) continue;
         const stance = (r.payload as FactDesignationPayload).stance;
         state = stance === 'ACCEPTED' ? 'ADOPTED' : 'NOT_ADOPTED';
       }

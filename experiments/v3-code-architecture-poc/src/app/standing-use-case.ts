@@ -20,17 +20,24 @@ import type { CommitSequence, ObjectOid } from '../contracts/index.ts';
 import type { FactDesignationCommandPort, FactStandingPolicy } from '../domains/test-records.ts';
 
 export class StandingUseCase {
+  // N3（同一条教训第四次收口）：构造参数一律 `#` 私有字段——参数属性在运行时是自有可枚举
+  // 属性，`commands`/`policy` 都会成为运行时可达面。双门禁见 `tests/n3-parameter-property-gate.test.ts`。
+  readonly #policy: FactStandingPolicy;
+  readonly #commands: FactDesignationCommandPort;
   constructor(
-    private readonly policy: FactStandingPolicy,
-    private readonly commands: FactDesignationCommandPort,
-  ) {}
+    policy: FactStandingPolicy,
+    commands: FactDesignationCommandPort,
+  ) {
+    this.#policy = policy;
+    this.#commands = commands;
+  }
 
   /** 声明一条事实（授权状态由领域判完交来，用例无权改写；写入只剩命令 Port 一条通道）。 */
   declare(tx: UnitOfWork, a: { oid: ObjectOid; revision: number; stance: 'ACCEPTED' | 'WITHDRAWN' }): CommitSequence {
-    return this.commands.declare(tx, a);
+    return this.#commands.declare(tx, a);
   }
 
   standingAt(oid: ObjectOid, cutoff: CommitSequence): { state: 'ADOPTED' | 'NOT_ADOPTED'; watermark: CommitSequence } {
-    return this.policy.standingAt(oid, cutoff);
+    return this.#policy.standingAt(oid, cutoff);
   }
 }

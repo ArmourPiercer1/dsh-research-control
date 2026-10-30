@@ -250,7 +250,9 @@ describe('D-19c 用例侧：跨归属写经拥有者的端口，且仍是一条�
       const standing = w.standingUseCase();
       const seq = w.uow(ADMIN, (tx) => standing.declare(tx, { oid: foreign, revision: 1, stance: 'ACCEPTED' }));
       expect(seq).toBeGreaterThan(0);
-      //  ADMIN 无 domain-admission ⇒ 声明保存但不计入投影（PR-A1，判据在领域不在机制）。
+      //  ADMIN 无 domain-admission ⇒ 声明保存但不计入投影（PR-A1）。包 3 起该判据的**证据**在
+      // 机制侧：权威入口按清单登记的轴向 authority 账本取证并写 ledger 见证列，投影只认见证；
+      // 载荷 `authorization` 降为意图声明。"业务判据在领域"仍真，"授权结论"改由机制承载（§16.2）。
       expect(standing.standingAt(foreign, w.ledgerHead()).state).toBe('NOT_ADOPTED');
     } finally { w.close(); }
   });

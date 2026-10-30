@@ -31,7 +31,15 @@ import type { UseCaseDelegation } from './delegation.ts';
 export type AdmitOutcome = { readonly oid: ObjectOid } | { readonly refused: string };
 
 export class IntakeUseCase {
-  constructor(private readonly policy: IntakePolicy, private readonly delegation: UseCaseDelegation) {}
+  // N3（D-17/P2-2/D-22 同一条教训的第四次收口，CONTRACTS.md §16.2 与
+  // `tests/n3-parameter-property-gate.test.ts` 双门禁）：构造参数一律先收进 `#` 私有字段。
+  // TS 参数属性在运行时 = 自有可枚举属性，协作对象（policy/delegation…）顺着名字就可达。
+  readonly #policy: IntakePolicy;
+  readonly #delegation: UseCaseDelegation;
+  constructor(policy: IntakePolicy, delegation: UseCaseDelegation) {
+    this.#policy = policy;
+    this.#delegation = delegation;
+  }
 
   /**
    * 原始材料登记：解析失败也要留下来源（IC-H3 / #44 §7.2）。不产生对象（ID-08）。
@@ -42,19 +50,19 @@ export class IntakeUseCase {
    * 因此这是**协调层的机制级写入**，与 `recordReport` 同类；门禁要求此行带标记留痕。
    */
   intake(tx: UnitOfWork, a: { recordId: string; text: string; sourceRef: string; unparseable?: boolean }): CommitSequence {
-    return tx.appendLedger(this.policy.rawIntakeEvent(a)); // D-19c-ALLOWED: appendLedger 写 records/ledger（机制级 H 记录声明，无归属 kind 可走端口）
+    return tx.appendLedger(this.#policy.rawIntakeEvent(a)); // D-19c-ALLOWED: appendLedger 写 records/ledger（机制级 H 记录声明，无归属 kind 可走端口）
   }
 
   /** 领域接纳判定：不接纳时**只拒绝**，绝不触碰已登记的原始输入（#44 §7.2）。 */
   tryAdmit(tx: UnitOfWork, a: { recordId: string; kind: ObjectKindLabel; text: string }): AdmitOutcome {
-    const d = this.policy.decide(a);
+    const d = this.#policy.decide(a);
     if ('refused' in d) return d;
     return { oid: this.#writeAdmitted(tx, a, d) };
   }
 
   /** 同 `tryAdmit`，但拒绝以 `Refusal` 抛出（调用方按"必须接纳成功"处理时用这条）。 */
   admit(tx: UnitOfWork, a: { recordId: string; kind: ObjectKindLabel; text: string }): ObjectOid {
-    const d = this.policy.decide(a);
+    const d = this.#policy.decide(a);
     if ('refused' in d) throw new Refusal(d.refused, { recordId: a.recordId });
     return this.#writeAdmitted(tx, a, d);
   }
@@ -64,8 +72,8 @@ export class IntakeUseCase {
    * kind 由领域给（`policy.carrierKind`），**归属由注册表查**，两者都不写死在这里。
    */
   objectifyRecord(tx: UnitOfWork, a: { recordId: string }): ObjectOid {
-    const kind = this.policy.carrierKind;
-    return this.#writeOwned(tx, kind, this.policy.carrierPayload(a.recordId), a.recordId, true);
+    const kind = this.#policy.carrierKind;
+    return this.#writeOwned(tx, kind, this.#policy.carrierPayload(a.recordId), a.recordId, true);
   }
 
   /**
@@ -88,9 +96,9 @@ export class IntakeUseCase {
    * 这里没有任何 `tx.createObject/linkRef`——那正是本收口要消灭的形态（D-19c 门禁的红线）。
    */
   #writeOwned(tx: UnitOfWork, kind: ObjectKindLabel, payload: Record<string, unknown>, recordId: string, required: boolean): ObjectOid {
-    const owner = this.delegation.writerOwningKind(kind, tx);
+    const owner = this.#delegation.writerOwningKind(kind, tx);
     const oid = owner.createOwned({ kind, payload });
-    owner.linkOwned(this.policy.derivedFromEdge(oid, recordId, required));
+    owner.linkOwned(this.#policy.derivedFromEdge(oid, recordId, required));
     return oid;
   }
 }

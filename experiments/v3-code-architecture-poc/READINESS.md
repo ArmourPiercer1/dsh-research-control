@@ -54,6 +54,8 @@ pnpm run lint                                                 # check-imports（
 pnpm run docs:check                                           # 文档静态一致性
 pnpm run docs:probe --fail-on-blocking                        # 变更影响面
 pnpm test                                                     # 根全量（当前见 EVIDENCE.md §6 的归因边界）
+node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test   # G1 清单校验器变异自验（第五轮补）
+node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs               # G1 对账清单结构/语义机验（日常形态；--require-clear 是 G1 放行谓词、NO-GO 阶段预期红，勿挂日常门——三态语义见 PLAN §2-G1）
 ```
 
 任何一项被放宽（跳过、降标准、从索引剔除）都视为**未通过**，而不是"通过"。
@@ -256,3 +258,13 @@ GT-3（重算基线 ⇒ PASS）、N5（登记红吸收 `afterAll` 崩溃）、GT
 全部最小复现成功；**新增一条未登记细节：`attacks` 基线没有 `--reanchor` 通道，重算 JSON 无"当前不干净拒写"护栏 ⇒ 比作者锚更隐蔽**。
 E-01 / N3 / N4 状态不变。
 
+
+---
+
+**2026-10-31 契约轮登记去向（只追加，不改上文各行）**：G1-d 校验器已落地（`g1-checklist-validate.mjs`，
+调用见 §5；三态语义见 `IMPLEMENTATION-PLAN-DRAFT.md` §2-G1）；上文各行点名的 G1 项自此有**清单登记位**——
+F-G6A-3 → `G1-ROUTE-01`、F-G6A-5 → `G1-AUDIT-01`、「审查方覆盖面进基线」流程位 → `G1-GATE-01`、
+F-G6A-2 + F-G6A-6（含 G6-A 三句裁决位①、D-20 的签发两条新要求）→ `G1-EVT-01`、D-24 写侧挂载登记 →
+`G1-FACET-01`、D-31 历史面/§16.3「ns 迁移另立显式通道」→ `G1-NS-01`、§15 G1-a → `G1-OWN-02`（并条）、
+§15 G1-c → `G1-LINK-01`；三件决策的契约草案在 `G1-CONTRACT-DESIGNS.md`（A/B/C）。清单 26 条 / open 22：
+**G1 立即冻结 = NO-GO**。本文件旧行中的「归 G1」表述按上表读，不再悬空。

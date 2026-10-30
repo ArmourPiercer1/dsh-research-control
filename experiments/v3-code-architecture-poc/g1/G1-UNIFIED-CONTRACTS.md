@@ -11,7 +11,9 @@
 ## 0. 阅读纪律与权威序位
 
 **0.1 输入权威序位**（汇编遇冲突按此归位，且**必须**在文末 §7 登记；分契约彼此之间的硬不一致
-**只登记、不抹平、不再裁决**——再裁决权在父席与下一轮裁决表）：
+**只登记、不抹平、不再裁决**——再裁决权在父席与下一轮裁决表。
+2026-11-01 注记：§7.2 的 I-1…I-6 六项已经父席**另行授权**的对账席按 `G1-CONTRACT-RECONCILIATION.md`
+R-1…R-6 裁决并落地——这正是「再裁决权在父席」的行使，不与本纪律冲突；汇编层自身仍未裁任何一项）：
 
 1. `g1/G1-ADJUDICATION-TABLE.md`——裁决面（39 行；「否——裁决已定」行具有裁决效力；§2.0 命名声明先于一切）。
 2. `g1/G1-CONTRACT-EVENT-AUTHORITY.md` / `g1/G1-CONTRACT-FACET.md` / `g1/G1-CONTRACT-RELOCATION.md`——条文面
@@ -61,7 +63,11 @@ FM-3.1(b)）。现状 `NAMESPACE_ESCAPE` 显式拒读形态按 C1 裁决**让位
 「**(b) 泄露封闭清单（D1-d/C4 承接）**：计数、detail 加成、水位、total/exhausted、缓存键——五类载体
 **都不得成为「被隐藏的东西存在」的 oracle**。`hiddenBy*` 遮蔽计数按 ADJ D1-d 退出调用方 echo、
 只进内部审计面；`exhausted` 对可见集如实。⚠ 本句与 EA §7.2/7.4「echo 键集冻结、计数照旧进读回执」
-存在**条文级正面冲突**，本汇编不裁决、两侧原文并列登记于 §7 注册表 I-1。」
+存在**条文级正面冲突**，本汇编不裁决、两侧原文并列登记于 §7 注册表 I-1。
+【R-1 落地注记｜2026-11-01】该冲突已由 `G1-CONTRACT-RECONCILIATION.md` R-1 裁决并两侧落地：以本句
+（= ADJ D1-d/C4）为准，EA-7.2 末句「计数照旧进读回执」与 EA-7.4「响应面零差分」旧句已在原位标注作废、
+调用方 echo 面**不含任何 `hiddenBy*` 键**（遮蔽算法、`K=32`、「只报不阻」与审计载荷一字未动——
+「改的是出口，不是算法」）；本句即现行有效口径，见 §7.2 I-1 状态列。」
 
 ## 2. Port 正式签名与错误模型（交付物 2；契约形状 TS，落码归实施批）
 
@@ -85,8 +91,9 @@ FM-3.1(b)）。现状 `NAMESPACE_ESCAPE` 显式拒读形态按 C1 裁决**让位
   不可重试，须另起事务（§16.1 D-23；保证范围限 Kernel 管理路径，§0.4）。
 
 错误模型：`NO_SPACE_WRITE`（SP-09(b)，四表零变化）；`AUTHORITY_REQUIRED`（缺业务轴，与写权分轴，F-02/CP-5）；
-`ACTIVATION_IMPOSSIBLE`（必需依赖缺失/成环；登记轴值 ∈ 机制自身权限轴 D-26；挂载名未入名单时装配挂载 Port FM-7）；
-`TX_CLOSED`。
+`ACTIVATION_IMPOSSIBLE`（必需依赖缺失/成环；登记轴值 ∈ 机制自身权限轴 D-26；挂载名未入名单时装配挂载 Port FM-7；
+R-5 后扩至：机制提案名未入账期间其机制内部直写通道装配红，EA-2.4 与重定位落账 RL——同族「名册缺项 = 装配红」，
+该用途扩展的 `CONTRACTS.md` §5 CP-2 登记义务未了，见 §7.3 M-1 行注记）；`TX_CLOSED`。
 
 ### P2 ObjectRef / RevisionRef
 
@@ -162,13 +169,32 @@ FM-3.1(b)）。现状 `NAMESPACE_ESCAPE` 显式拒读形态按 C1 裁决**让位
 - 注册判据序 EA-3.2 ①–⑤：双认领/认领机制名 ⇒ `AMBIGUOUS_AUTHORITY`；缺 `requiresAuthority` / 轴 ∈
   机制自身权限轴 ⇒ `ACTIVATION_IMPOSSIBLE`；owner 未激活 ⇒ `CAPABILITY_INACTIVE`。
 - `AuthorizationContext` 九字段（`ctxId, actor, capability, axis, authorized, ruleSetVersion, contractVersion,
-  issuedAtMs, txSeq`，EA-4.2）；`gateFullShape` 现两类别式（EA-4.5）：**正式类**（`axis ∉ MECHANISM_RESOURCES`）
-  允许 `authorized ∈ {true,false}` 两态落账（B-3 未生效声明收存不投影）；**路由类**（`axis='capability-admin'`）
-  要求 `authorized=1`。⚠ FM-7 把 `MECHANISM_RESOURCES` 扩入 `'facet-mount'` 后，挂载审计行两类别式皆不满足
-  ——正面冲突登记 §7 I-2，修法（三类化）待裁，本汇编不造第三类公式。
+  issuedAtMs, txSeq`，EA-4.2）；`gateFullShape` 轴判据**已三分**（2026-11-01 R-2 裁决落地；本段旧作「现两类别式
+  （EA-4.5）：**正式类**（`axis ∉ MECHANISM_RESOURCES`）允许 `authorized ∈ {true,false}` 两态落账（B-3 未生效声明
+  收存不投影）；**路由类**（`axis='capability-admin'`）要求 `authorized=1`」——旧两类别式已在 EA-4.5 原位保留并标注
+  被取代，其中路由类一支现为 ② 支且是 ③ 支的特例）。现行三分（封闭覆盖、闸内**不写任何事件名清单**）：
+  ① `classify='domain' ∧ axis ∉ MECHANISM_RESOURCES`；② `classify='mechanism' ∧ axis='capability-admin' ∧
+  authorized=1`；③ `classify='mechanism' ∧ axis ∈ MECHANISM_RESOURCES ∧ axis = registeredMechanismAxis(event_type)
+  ∧ authorized=1`——③ 是**覆盖式谓词**（不许退化成点名名单，再堆白名单 = 把 C-27 的「名单与事实同源 ⇒ 失明」
+  搬进闸门）。FM-7 把 `'facet-mount'` 扩入 `MECHANISM_RESOURCES` 后的挂载审计行由 ③ 支覆盖，FM-7 已登记显式依赖
+  **DEP-EA45-3** 与 EA S16 ↔ FM S12/S13 互指机验。⚠ 旧句「FM-7 扩名 ⇒ 两类别式皆不满足、修法（三类化）待裁，
+  本汇编不造第三类公式」登记的冲突已由 R-2 裁决并两侧落地（见 §7.2 I-2 状态列）；三分式的规范文本以 EA-4.5
+  正文为准，本汇编仍不造公式。
 - `replayAuthorityEvidence` 三态：`VERIFIED` / 信封不全形 / `UNVERIFIABLE_LEGACY`（包 3 前无信封行；
   复算按行钉住版本，禁按当前配置回算——C-18）。
-- 机制事件名封闭名单首批 10 + planned 3（名单块以 EA §2.4 与锚文件逐等，夹具 S 组机验）；新名入账走
+- 机制事件名封闭名单（2026-11-01 R-5 落地后的基数；旧叙事「首批 10 + planned 3」**作废**——把
+  `raw-record-declared`/`integrity-audit-recorded`/`read-shadow-recorded` 算进「首批 10」的写法即 R-5
+  所废的自授批准面）：现为**已入账 7**（`capability-enabled`/`capability-disabled`/`capability-transferred`、
+  `object-registered`、`check-report-recorded`、`object-revised`、`record-backfilled`；前五名批准面 =
+  `CONTRACTS.md` §16.3/D-27 既有评审事实 C-19，后两名 = 存量写点就地升格 EA-5.2，**不得反向解释为待批**）
+  + **提案未入账 4**（`raw-record-declared`/`integrity-audit-recorded`/`read-shadow-recorded`，逐名
+  `gated_by` = EA-1.2.3 / EA-7.1 / EA-7.2；`ns-relocated` `gated_by` = `G1-NS-01`）+ **A 侧 planned 2**
+  （`facet-mounted`/`facet-unlinked`，gated `G1-FACET-01`，属 FM-9 块、各归各的门控，不混入 EA 两块）。
+  名单块以 EA §2.4 的**两块机器可读标记**（已入账块 + 提案未入账块）与夹具逐等（S1/S1b，顺序敏感；锚文件
+  为第三方位，**尚未物化** ⇒ 物化前「三方逐等」实为契约↔夹具两方）。**代价如实（R-5）**：四名提案名的人工
+  `Approved-By` 标记落地是用户/指名代表动作，且是 G2 任何依赖它们的写面 PR 的**进入门禁**（不是「先落码后补
+  批准」的退出门禁）；未入账期间通用通道拒写**且机制内部直写通道也装配红**（`ACTIVATION_IMPOSSIBLE`，
+  FM-7「名册缺项 = 装配红」同族同码，不是 `EVENT_AUTHORITY_REQUIRED`）。新名入账走
   EA-2.4 六步 + EA-6.2 R1–R4 异源对账（`EVENT_RECON_ORPHAN/STALE/SAMESOURCE/COUPLING` = **构建期判据
   信号名，不是运行期 `RefusalCode` 成员**，登记于此免误读）。
 
@@ -197,7 +223,9 @@ FM-6 形状原文承接（逐字见 FM §6，此处列操作集与判据锚）�
 （≠卸载实现 ≠移交，FM-4 三操作分轨；主体变更 = unlink+declare 两次登记）；`mountState` / `listOwnMounts`
 （仅本能力行）；`writeFacetRecord{mountId, boundRevisionRef?, payload} → {facetRecordId, facetRevision,
 targetRevisionAtRecord}`（PINNED 必填且 = 挂载钉修订；机制写快照，入参无位）。挂载行无 ns 列（逻辑身份，
-FM-2.1；与 RL-6.4 的张力登记 §7 I-3）。
+FM-2.1；与 RL-6.4 的张力登记 §7 I-3——【R-3 落地注记】该张力已裁决并两侧落地：`RELOCATABLE_NS_KEYS` 入选
+谓词收窄为「该表**物理有无 `ns` 位置列**」，挂载账判据输入 `(facetCapability, targetOid)` 是逻辑量、
+迁移前后逐字不变 ⇒ **不入清单、零搬迁**（不改行、不补见证、不落事件）；见 §7.2 I-3 状态列）。
 
 错误模型（FM-7 封闭集零扩张，复用逐码理由以 FM-7 表为锚）：`NO_SPACE_WRITE` / `CAPABILITY_INACTIVE` /
 `AUTHORITY_REQUIRED` / `NOT_FOUND_IN_SPACE`（目标不存在、无可见权、PINNED 修订不存在三者同形）/
@@ -210,9 +238,12 @@ FM-2.1；与 RL-6.4 的张力登记 §7 I-3）。
 
 RL-3 七成员签名原文承接（逐字见 RL §3；平面 = 机制运维面，插件可见面零增删）：
 `proposeRelocation`（只记账零数据动作）→ `approveRelocation`（`capability-admin`；批准人 ≠ 提案人；
-批准绑 `proposalDigest`，改参旧批准失效）→ `precheckRelocation`（**只读零写**，RL-4 十门封闭清单
-`{AUTHORITY, ROUTE_STATE, NS_SHAPE, TARGET_UNCLAIMED, TARGET_EMPTY, SOURCE_PARSEABLE, CONTENT_DIGEST,
-NO_INFLIGHT, CHAIN_INTACT, EPOCH_STABLE}`，产 `checklistDigest+contentDigest+rowCount`）→
+批准绑 `proposalDigest`，改参旧批准失效）→ `precheckRelocation`（**只读零写**，RL-4 封闭门清单的
+precheck 阶段 1–10 `{AUTHORITY, ROUTE_STATE, NS_SHAPE, TARGET_UNCLAIMED, TARGET_EMPTY, SOURCE_PARSEABLE,
+CONTENT_DIGEST, NO_INFLIGHT, CHAIN_INTACT, EPOCH_STABLE}`；旧句「RL-4 十门封闭清单」为 R-4 前形态——
+`failedGate` 封闭集现为 **12 门**：1–10 = precheck 阶段，11 `APPROVAL` / 12 `REPAIR_PROVENANCE` = 流程阶段
+（approve / repair-approve，同样零写、同样 fail-closed），阶段归属写进判据；「不得旁加」对全部 12 门生效，
+见 §7.2 I-4 状态列），产 `checklistDigest+contentDigest+rowCount`）→
 `executeRelocation`（唯一原子切换通道：RL-5.1 六步写序单事务——复核 1/2/5/7/10 → digest 复算必等 →
 位置键重映射 → **先落 `ns-relocated` 全形信封行** → 路由 `ns` 改写（enabled/plugin_id/contract_version
 一字不动）→ `ns_epoch+1`；幂等 = 同 `proposalDigest` ∧ 账终态 COMMITTED 重放回首次结果，RL-7.2）→
@@ -225,7 +256,10 @@ TRANSFER_NS_DRIFT（永久保留，RL-5.3）/ EVENT_AUTHORITY_REQUIRED / TX_CLOS
 LEDGER_SEQ_CONFLICT`（RL-11.1 复用表）；**新增恰一枚** `RELOCATION_PRECONDITION`（语义「门判据不过 ⇒
 零切换」；detail 封闭 `{capability, fromNs, toNs, failedGate, observed}`，只回显调用方输入与机制本地可判
 事实；与 `SCHEMA_INCOMPATIBLE` 不同调用方不同修法——RL-11.2 论证）。⚠ `failedGate` 取值面与 RL-4 清单
-的枚举冲突（`'APPROVAL'`、`'REPAIR_PROVENANCE'` 在十门之外）登记 §7 I-4。存储层信号文本：
+的枚举冲突（`'APPROVAL'`、`'REPAIR_PROVENANCE'` 在十门之外）登记 §7 I-4——【R-4 落地注记】已裁决并落地：
+两取值**正式入集**为 RL-4 封闭集第 **11/12** 门（旧「十门之外」说法随之作废），取值面仍一处正源、
+夹具 S6 升级为「正文 12 门逐名 ↔ 模型 12 ↔ 正文全部 `failedGate`/`gate` 取值 ⊆ 集」三方逐等 + 取值扫描；
+见 §7.2 I-4 状态列。存储层信号文本：
 `RELOCATION_LEDGER_FROZEN`、`ROUTE_RELOC_SPLIT_REQUIRED`（不入封闭集，P-03 区分原样）。
 
 ### P9 Check Request 与受限 `ValidationReportSubmission`（两立同构，ADJ D4-c）
@@ -260,10 +294,10 @@ LEDGER_SEQ_CONFLICT`（RL-11.1 复用表）；**新增恰一枚** `RELOCATION_PR
 | `RefusalCode` 封闭集（运行期） | **新增恰一枚：`RELOCATION_PRECONDITION`**（RL-11.2；§14.2 论证=不同调用方不同修法；每码钉跨空间存在性同形负例） | 1 |
 | 存储层信号文本（**非**封闭集成员，P-03 区分） | `MOUNT_ROW_FROZEN`、`MOUNT_AUDIT_REQUIRED`、`REFUSE_UNMOUNTED`、`REFUSE_BINDING_MISMATCH`（FM-2.5/FM-3.1/FM-7）；`RELOCATION_LEDGER_FROZEN`、`ROUTE_RELOC_SPLIT_REQUIRED`（RL-2.1/RL-5.2/RL-11.3） | 6 |
 | 构建期判据信号（**非**运行期码） | `EVENT_RECON_ORPHAN / STALE / SAMESOURCE / COUPLING`（EA-6.2） | 4 |
-| 授权轴（`MECHANISM_RESOURCES`） | `+ 'facet-mount'`（FM-7；与 EA-4.5 类别式冲突待裁，I-2）；manifest 登记机制自轴 ⇒ `ACTIVATION_IMPOSSIBLE`（D-26 判据④） | 1 |
-| 机制事件名封闭名单 | 首批 10（capability-enabled/-disabled/-transferred、object-registered、check-report-recorded、object-revised、record-backfilled、raw-record-declared、integrity-audit-recorded、read-shadow-recorded）+ planned 3（`facet-mounted`/`facet-unlinked` gated `G1-FACET-01`；`ns-relocated` 名已由 RL-2.2 自裁、翻转入账 gated `G1-NS-01` 落地批） | EA §2.4 |
+| 授权轴（`MECHANISM_RESOURCES`） | `+ 'facet-mount'`（FM-7；与 EA-4.5 类别式冲突已由 **R-2 裁决并两侧落地**——EA-4.5 三分 ③ 支覆盖挂载行、FM-7 登记 DEP-EA45-3，见 §7.2 I-2 状态列）；manifest 登记机制自轴 ⇒ `ACTIVATION_IMPOSSIBLE`（D-26 判据④） | 1 |
+| 机制事件名封闭名单 | **已入账 7**（capability-enabled/-disabled/-transferred、object-registered、check-report-recorded、object-revised、record-backfilled）+ **提案未入账 4**（`raw-record-declared` gated `EA-1.2.3`；`integrity-audit-recorded` gated `EA-7.1`；`read-shadow-recorded` gated `EA-7.2`；`ns-relocated` gated `G1-NS-01`——RL-2.2 已降级为**提案文书**，不再自称批准）+ **A 侧 planned 2**（`facet-mounted`/`facet-unlinked` gated `G1-FACET-01`）。旧句「首批 10 + planned 3（`ns-relocated` 名已由 RL-2.2 自裁）」系 R-5 前叙事，**作废**（R-5：契约不得自称已批准；代价 = 4 个人工 `Approved-By` 为 G2 进入门禁） | EA §2.4（两块机器可读标记，夹具 S1/S1b 逐等） |
 | `meta` 键 | `ns_epoch`（受 `meta_counter_monotonic`；陈旧路由判据 RL-2.3/RL-7.3） | RL |
-| `ledger` 列 | `contract_version` **新行必填、存量不回填**（EA-5.3；缺戳行按「切换前」档读；与 ADJ D5-c 的张力 = I-6）；`authority_basis` 既有 | EA/RL |
+| `ledger` 列 | `contract_version` **新行必填、存量不回填**（EA-5.3；缺戳行按「切换前」档读；与 ADJ D5-c 的张力 = I-6——【R-6 落地注记】收口句已两侧成文：修补 = 显式、可审计的运维动作，只调**呈现档**、可回看、只追加行，机制**绝不自动补戳**也不改写历史语义；见 §7.2 I-6 状态列）；`authority_basis` 既有 | EA/RL |
 | 保留前缀 | `FM-`/`FR-`/`NSR-`（`RPT-` 既有）→ 全集语义归 **G1-LINK-01** | D-21/FM/RL |
 | 领域侧 reason_code 封闭四值（科研词表，**不进**机制 RefusalCode） | `WITHHELD_REFERENCE / CHECKER_UNAVAILABLE / DEPENDENCY_MISSING / RULE_UNREGISTERED`（SCR-11 条件式，ADJ D4-a 采认） | 4 |
 | 乐观并发过渡形 | X-3：`expected_head_revision` 缺省/失配在接口层临时按 `TOOL_INPUT + detail.serviceCode` 回显（A-01 blob 原文码；**不自造** `F-*` 名） | ADJ X-3 |
@@ -282,7 +316,7 @@ LEDGER_SEQ_CONFLICT`（RL-11.1 复用表）；**新增恰一枚** `RELOCATION_PR
 | `object_directory` | `oid` | `space, kind, owner_capability（常量列——无合法写者）, ns（出生事实）, created_seq` | `directory_no_update / no_delete / birth_audited`（账本非空空间新行须带同 seq 的 `object-registered` 行）；**重定位对它零行写入**（RL-1.2） | PK 点查即路由热路径，无额外索引主张 | §16.2 包 5 / RL-1.2 |
 | `capability_route` | `capability` | `plugin_id, ns（当前物理位置）, enabled, contract_version, changed_seq` | `route_no_delete / route_change_guarded / route_insert_guarded`；白名单四元化 `+ns-relocated`；子句③拆单（enabled 翻转发↔enabled/disabled 事件；plugin_id/contract_version 变↔transferred；**ns 变↔ns-relocated 且 payload.fromNs/toNs 字面相符**；ns+其他混合语句 ⇒ 拒 `ROUTE_RELOC_SPLIT_REQUIRED`） | `(ns)` 反查 = `capabilityOfNs` 唯一性判据点（gate 4） | P-01/P-07 / RL-5.2 |
 | `ledger`（H） | `seq` | `event_type, object_id, actor, authority_basis（机制独占写列）, contract_version（新行必填）, recorded_at, payload_json` | `ledger_no_update / no_delete`；**「存在对 `event_type/actor/authority_basis` 的 UPDATE 路径即违宪」**（EA-5.1）；`meta.ledger_seq` 上界 + `max(seq) ≤ meta.ledger_seq` 打开判据（包 6） | `(object_id, seq)`（对象史）、`(event_type, seq)`（名单审计复算/链重建） | EA-5 / §16 |
-| EventOwnership 归属账 | `eventType` | `ownerCapability, requiresAuthority, truthSource, interpretationRuleSetVersion, contractVersion, approval, retired?` | **运行期注册表**（装配期构建，无物理写面，`snapshot()` 供复算）；唯一正源锚文件 `g1/EVENT-CONTRACT-LEDGER.json`（形状冻结 EA-6.1；CI 只读锚文件；R1–R4 异源对账） | 内存 `Map<eventType>`；无索引问题 | EA-3/EA-6 |
+| EventOwnership 归属账 | `eventType` | `ownerCapability, requiresAuthority, truthSource, interpretationRuleSetVersion, contractVersion, approval, retired?` | **运行期注册表**（装配期构建，无物理写面，`snapshot()` 供复算）；唯一正源锚文件 `g1/EVENT-CONTRACT-LEDGER.json`（形状冻结 EA-6.1；CI 只读锚文件；R1–R4 异源对账。【2026-11-01 注】**尚未物化**；物化时按 R-5 后新形状写「已入账 7 + 提案未入账 4（逐名 `gated_by`）+ A 侧 planned 2」，勿沿用「首批 10」旧叙事；物化前名单「三方逐等」实为契约↔夹具**两方**） | 内存 `Map<eventType>`；无索引问题 | EA-3/EA-6 |
 | `facet_mount` | `(mount_id, gen)` | `op, facet_capability, target_oid（逻辑身份，无 ns 列）, binding, snapshot_revision, witness_seq` | 只 INSERT；UPDATE/DELETE ⇒ `MOUNT_ROW_FROZEN`；`facet_mount_insert_guarded`（须有 `ledger.seq=witness_seq`、事件名合 op、全形信封、echo 相符，否则 `MOUNT_AUDIT_REQUIRED`）；「当前态 = 最大 gen 行」 | `(target_oid)`、`(facet_capability, target_oid)`（写判据热路径）、`(witness_seq)`（对账） | FM-2.5 |
 | `namespace_relocation` | `(relocation_id, step_seq)` | `capability, fromNs, toNs, provenance, state, proposalDigest, approvalDigest, checklistDigest, contentDigest, auditLedgerSeq, repairEvidence, proposedBy, approvedBy, createdAtMs` | UPDATE/DELETE ⇒ `RELOCATION_LEDGER_FROZEN`；**信任方向写死**：工作流账**不是**读归属链源，链源唯一 = H 内 `ns-relocated` 行（RL-2.1）；账被改写改变不了任何读判定 | `(capability, step_seq)`；「同 capability 无非终态在途」= gate 8 判据查询 | RL-2.1/RL-4 |
 
@@ -290,6 +324,12 @@ LEDGER_SEQ_CONFLICT`（RL-11.1 复用表）；**新增恰一枚** `RELOCATION_PR
 RL-6.1 列语义表：身份/内容/时刻/版本四类列重定位逐字节不变）；`RELOCATABLE_NS_KEYS` = 构建期封闭清单
 （现形 `{domain_state}`；构建判据「列名=ns 的表 ⊆ 清单 ∪ 逐表论证的显式豁免集」）——RL 把「挂载登记/
 扩展记录表」预列入清单，而构建判据按「有 ns 列」扫描、`facet_mount` 无 ns 列：登记 §7 I-3，两源待对齐。
+【R-3 落地注记｜2026-11-01】两源已对齐：清单入选谓词收窄为「该表**物理有无 `ns` 位置列**」的**类别谓词**
+（逐项归位，不再点名堆表名），现形全集 = `{domain_state}`；**双向**构建判据 = 「ns-keyed 表未入清单 ⇒
+构建红」∧「清单混入不带 ns 列的表 ⇒ 构建红」（后者不是「更保守」：切换事务会为它生成永不命中的改位置键
+步骤，把「位置无关」伪装成「已搬迁」，而挂载表 `MOUNT_ROW_FROZEN` 本就禁 UPDATE，真跑必炸）。挂载账
+（`(facetCapability, targetOid)` 逻辑输入）⇒ **不入清单、零搬迁**；扩展记录行（A2 现形：物理住属主 ns、
+带 ns 位置键）随 `domain_state` 搬走，G2 若另立表按「有无 ns 列」谓词逐项归位。见 §7.2 I-3 状态列。
 
 **3.2 打开期判据序（顺序即判据；D5-a 唯一责任者 = 我方；任两步交换的变异必红）**：
 
@@ -359,6 +399,8 @@ D3-b 并存三规则（① 墙只拒「不可安全读」不毁原字节；② �
 **4.5 投影与读面故障（承接 §9）**：滞后 ⇒ 可用但标 `STALE`；缺口 ⇒ `FULL_REBUILD_REQUIRED` 拒增量；
 不可判定 ⇒ 不得当空结果；缺口检测以 `ledger` 为对照基准（Journal 非历史真源 [实测]）。扫描面遮蔽行
 **计入复算/审计面**（D1-d 方向）还是**照旧进 echo 键**（EA-7.4 冻结面）——两判据并存待裁，见 §7 I-1。
+【R-1 落地注记】已裁决并落地：取 D1-d/C4 方向——遮蔽/漂移计数**只进内部审计面**，调用方 echo 面零
+`hiddenBy*` 键（算法与留存一字未动）；「两判据并存待裁」作废，见 §7.2 I-1 状态列。
 
 ## 5. 历史解释（交付物内「历史怎么读」）
 
@@ -387,6 +429,11 @@ ns/changed_seq、状态行位置键、**一条机制事件**、一次 ns_epoch �
 **接受**（它背书「这段漂移有来源验证过的修复记录」）但审计面永久点名（RL-8.4）。⚠ 「存量无戳行不回填」
 （EA-5.3）与「历史行补 `contract_version` = 显式修补事件语义」（ADJ D5-c → G1-VER-01）之间的张力
 登记 §7 I-6——两者不互斥的读法（缺省档读 vs 未来修补以**新事件**登记而非改旧行）由 G1-VER-01 落地批裁定。
+【R-6 落地注记｜2026-11-01】该张力已由 R-6 收口、两侧条文各补一次（EA-5.3 / RL-6.1 / RL-8.4）：
+「修补事件是**显式、可审计的运维动作**，只调整**呈现档**并可被**回看**；机制**绝不自动补戳**，也
+**不得因此改写历史语义**」——修补 = 追加行（谁、何时、把哪批行从缺省档改判为某档），修补 ≠ 洗白
+（修补行永久可指认，读者面仍按原始字节复算 digest）；G1-VER-01 落码按此句实现「追加修补行 + 呈现档」，
+本层未为其新造事件名（载体若要进台账事件名空间须另走 EA-2.4 入账）。见 §7.2 I-6 状态列。
 
 ## 6. 与三份上层 Draft 的关系（单节；#47 一律条件式）
 
@@ -412,23 +459,29 @@ EA/FM 各注「未取得项：无」）；② 机制事件命名——#47 无辖
 
 **无。** 本文件未新增任何与分契约相抵触的条文；所有「⚠」标注均为对分契约间既有冲突的**转述登记**，
 不构成新的裁决。
+【限定句｜2026-11-01】「硬不一致只登记、不抹平、不再裁决」约束的是**汇编层自身**；§7.2 的 I-1…I-6
+其后由 `G1-CONTRACT-RECONCILIATION.md`（R-1…R-6）完成裁决与条文落地——那是**父席另行授权的对账席**
+的裁决（再裁决权在父席，本次即其行使），与本纪律不冲突；读者不得据本节旧读法以为六项仍待裁决。
 
-### 7.2 注册表 B——分契约 vs 分契约（硬不一致；**不抹平**，两侧原文位置并列，待父席/下一轮裁决）
+### 7.2 注册表 B——分契约 vs 分契约（硬不一致；**不抹平**，两侧原文位置并列。
+2026-11-01 状态更新：I-1…I-6 已全部**裁决并落地**——对账席按父席授权逐条真改条文，留痕与判据见
+`G1-CONTRACT-RECONCILIATION.md` R-1…R-6；下表**条目一律不删**（本仓纪律：登记不删，改状态），
+「冲突/两侧位置/影响/建议去向」各列保留为登记原文，实际修法以状态列及其指向的 R-n 与分契约正文为准）
 
-| # | 冲突 | 两侧位置 | 影响 | 建议去向 |
-| --- | --- | --- | --- | --- |
-| I-1 | 遮蔽计数的呈现面：ADJ D1-d/C4（后裁，「裁决已定」）判「`hiddenBy*` 计数**退出调用方 echo**、只进内部审计」；EA §7.2/7.4 判「echo 键集是已冻结面、**计数照旧进读回执**、审计事件不新增键不改取值来源」 | ADJ D1-d/C4 行 vs EA-7.2 末句/EA-7.4 第二条 | 实现批只能满足其一；夹具（读回执键集 vs 审计行数）互相矛盾 | 需一次 EA §7 修订或 ADJ 补裁；§16.3「echo 形状不加字段」冻结裁决与 §16 重登记流程谁让位须点名 |
-| I-2 | `gateFullShape` 类别式覆盖：EA-4.5 两类别式（正式类 axis∉MECHANISM_RESOURCES；路由类 axis='capability-admin'）；FM-7 把 `'facet-mount'` **扩入 MECHANISM_RESOURCES** ⇒ 挂载审计行两类别式皆不满足（既非路由类、又因在 MECHANISM_RESOURCES 内被排除出正式类） | EA-4.5 vs FM-7 轴值段 + FM-9 见证列 | 挂载见证行的全形闸判据无式可依；FM 未把「EA-4.5 需三类化」登记为依赖 | EA-4.5 三类化（机制自有操作轴）或 FM-7 撤销扩名；须补一条 EA↔FM 联裁 |
-| I-3 | `RELOCATABLE_NS_KEYS` 集合来源：RL-6.4 构建判据 = 扫描「列名=ns 的表」；同条把「挂载登记/扩展记录表」预列入清单，而 `facet_mount` **无 ns 列**（FM-2.1 逻辑身份设计）——该表既扫描不到、又无 ns 位置键可搬 | RL-6.4 vs FM-2.1/FM-2.5 | 「挂载行随重定位搬家」的联动接口（RL-3.4 声称的唯一接口）在现形状下是空操作或定义缺失 | RL-6.4 与 FM-6 对齐：明确扩展记录表（A2 物理形）是否有 ns 位置键；挂载登记表本身应显式列豁免集（「位置无关」论证逐表封闭） |
-| I-4 | `failedGate` 枚举封闭性：RL-4 判「清单名即 detail.failedGate 取值、**不得旁加**（封闭十门）」；RL-3.3② 用 `failedGate='APPROVAL'`、RL-8.4/8.5 用 `'REPAIR_PROVENANCE'`——两个值在十门之外 | RL-4 清单块 vs RL-3.3/RL-8.4 | detail 封闭面的夹具 S 组逐等会红；「不得旁加」句与自家取值矛盾 | RL-4 清单扩两门并把旁加句改为「扩充 = 本合同冻结面变更」，或 approval/repair 拒绝换载体（不走 failedGate） |
-| I-5 | 新机制事件名的**批准主体**：EA-2.4 步骤 2 =「用户（或用户指名代表）批准」；EA-7.1 =「批准由 G1 冻结评审=本条裁定承担，落地时补记 Approved-By」；RL-2.2 =「本契约即批准文书」；FM-9 =「planned 块不得被引用为已入账、入账走 EA-2.4 六步」——同一流程四种自我授权表述，且 G1 冻结评审**尚未发生**（G0-R-CLOSURE：NO-GO） | EA-2.4 vs EA-7.1 vs RL-2.2 vs FM-9 | 「名单唯一正源 + 异源人工批准」的锚可能空转（批准人=文书自身） | 三处统一指回 EA-2.4 六步为唯一流程；已落文书的「即批准」句降级为「提案文书」；`Approved-By` 只能由用户/指名代表事后追加 |
-| I-6 | 历史行版本戳：EA-5.3「存量无戳行**不回填**（补戳=系统替历史补语义）」；ADJ D5-c「历史行补 `contract_version` = **显式修补事件**语义（G1-VER-01）」 | EA-5.3 vs ADJ D5-c | 若不区分「改旧行」与「新增修补事件」，两文互斥；G1-VER-01 落地时先撞 | 在 G1-VER-01 条文里写死：修补 = 追加事件行（如既有 `record-backfilled` 语义族），零 UPDATE 旧行；与 EA-5.1 违宪句相容 |
+| # | 冲突 | 两侧位置 | 影响 | 建议去向 | 状态（2026-11-01 对账结果；登记不删、原位保留，只改状态） |
+| --- | --- | --- | --- | --- | --- |
+| I-1 | 遮蔽计数的呈现面：ADJ D1-d/C4（后裁，「裁决已定」）判「`hiddenBy*` 计数**退出调用方 echo**、只进内部审计」；EA §7.2/7.4 判「echo 键集是已冻结面、**计数照旧进读回执**、审计事件不新增键不改取值来源」 | ADJ D1-d/C4 行 vs EA-7.2 末句/EA-7.4 第二条 | 实现批只能满足其一；夹具（读回执键集 vs 审计行数）互相矛盾 | 需一次 EA §7 修订或 ADJ 补裁；§16.3「echo 形状不加字段」冻结裁决与 §16 重登记流程谁让位须点名 | **已由 R-1 裁决并落地**（`G1-CONTRACT-RECONCILIATION.md` §1）：以 ADJ D1-d/C4 为准；EA-7.2 末句/7.4 旧句原位保留 + 就地标注作废，调用方 echo 零 `hiddenBy*` 键、计数只进内部审计（「改的是出口，不是算法」）；§16.3 关系已点名（其句只禁**加**字段，撤键不在其禁内）。夹具：EA T-P7 反转 + T-N11 + MUT-5；FM T-N9 + MUT-4；RL T-N19 + MUT-8；机验 EA S15 / FM S14 / RL S15。遗留义务：G2 按 EA-7.4 历史形态句做 `arch-independence` 逐条重锚 |
+| I-2 | `gateFullShape` 类别式覆盖：EA-4.5 两类别式（正式类 axis∉MECHANISM_RESOURCES；路由类 axis='capability-admin'）；FM-7 把 `'facet-mount'` **扩入 MECHANISM_RESOURCES** ⇒ 挂载审计行两类别式皆不满足（既非路由类、又因在 MECHANISM_RESOURCES 内被排除出正式类） | EA-4.5 vs FM-7 轴值段 + FM-9 见证列 | 挂载见证行的全形闸判据无式可依；FM 未把「EA-4.5 需三类化」登记为依赖 | EA-4.5 三类化（机制自有操作轴）或 FM-7 撤销扩名；须补一条 EA↔FM 联裁 | **已由 R-2 裁决并落地**（RECONCILIATION §2）：采「三类化」支——EA-4.5 轴判据**三分**，③ 为**覆盖式谓词**（`axis ∈ 机制轴集 ∧ axis = registeredMechanismAxis(event_type) ∧ authorized=1`，闸内零事件名清单，不许退化成名单）；FM-7 登记显式依赖 **DEP-EA45-3**（扩轴不撤）；旧两类别式原位保留标注被取代（② 是 ③ 特例）。机验 EA S16 ↔ FM S12/S13 互指，任一侧单独回滚即红 |
+| I-3 | `RELOCATABLE_NS_KEYS` 集合来源：RL-6.4 构建判据 = 扫描「列名=ns 的表」；同条把「挂载登记/扩展记录表」预列入清单，而 `facet_mount` **无 ns 列**（FM-2.1 逻辑身份设计）——该表既扫描不到、又无 ns 位置键可搬 | RL-6.4 vs FM-2.1/FM-2.5 | 「挂载行随重定位搬家」的联动接口（RL-3.4 声称的唯一接口）在现形状下是空操作或定义缺失 | RL-6.4 与 FM-6 对齐：明确扩展记录表（A2 物理形）是否有 ns 位置键；挂载登记表本身应显式列豁免集（「位置无关」论证逐表封闭） | **已由 R-3 裁决并落地**（RECONCILIATION §3）：**未采**上列「挂载表入豁免集」的写法——RL-6.4 重写为**类别谓词**「该表物理有无 `ns` 位置列」，清单现形全集 = `{domain_state}`；挂载账（逻辑 `(facetCapability, targetOid)`）**不入清单、零搬迁**；构建判据**双向**（漏登记 ns-keyed 表红 ∧ 清单混入无 ns 列表亦红）；RL-3.4 联动接口按谓词改写；扩展记录行（A2 现形带 ns 位置键）随 `domain_state` 搬走。机验 RL S12 ↔ FM S13（FM-11.1 A.6-6 旧句仍在原位）；夹具 T-P10/T-N18 + MUT-9 |
+| I-4 | `failedGate` 枚举封闭性：RL-4 判「清单名即 detail.failedGate 取值、**不得旁加**（封闭十门）」；RL-3.3② 用 `failedGate='APPROVAL'`、RL-8.4/8.5 用 `'REPAIR_PROVENANCE'`——两个值在十门之外 | RL-4 清单块 vs RL-3.3/RL-8.4 | detail 封闭面的夹具 S 组逐等会红；「不得旁加」句与自家取值矛盾 | RL-4 清单扩两门并把旁加句改为「扩充 = 本合同冻结面变更」，或 approval/repair 拒绝换载体（不走 failedGate） | **已由 R-4 裁决并落地**（RECONCILIATION §4）：采「清单扩两门」支——`RelocationGate` = **12 门**（1–10 = precheck 阶段；11 `APPROVAL` / 12 `REPAIR_PROVENANCE` = 流程阶段 approve / repair-approve，阶段归属写进判据），「不得旁加」对全部 12 门生效；取值面仍一处正源。夹具 S6 升三方逐等 + 正文全部取值 ⊆ 集扫描；T-N17 + MUT-7 |
+| I-5 | 新机制事件名的**批准主体**：EA-2.4 步骤 2 =「用户（或用户指名代表）批准」；EA-7.1 =「批准由 G1 冻结评审=本条裁定承担，落地时补记 Approved-By」；RL-2.2 =「本契约即批准文书」；FM-9 =「planned 块不得被引用为已入账、入账走 EA-2.4 六步」——同一流程四种自我授权表述，且 G1 冻结评审**尚未发生**（G0-R-CLOSURE：NO-GO） | EA-2.4 vs EA-7.1 vs RL-2.2 vs FM-9 | 「名单唯一正源 + 异源人工批准」的锚可能空转（批准人=文书自身） | 三处统一指回 EA-2.4 六步为唯一流程；已落文书的「即批准」句降级为「提案文书」；`Approved-By` 只能由用户/指名代表事后追加 | **已由 R-5 裁决并落地**（RECONCILIATION §5，六项中最重）：唯一有效批准 = EA-2.4 步骤 2 人工 `Approved-By`，**契约不得自称已批准**；EA-2.4 名单拆两块（**已入账 7 + 提案未入账 4**，逐名 `gated_by`）；EA-7.1/§9.2-④/RL-2.2 自授句原位标注作废（**判据 ≠ 批准**）；FM-9 标准形不动。未入账期间机制内部直写也装配红（`ACTIVATION_IMPOSSIBLE`）。代价：4 个人工 `Approved-By` = G2 依赖写面 PR 的**进入门禁**。机验 EA S1/S1b/S2/S2b/S17/S17b + T-N13/MUT-6；RL T-N20/MUT-6 + S14 |
+| I-6 | 历史行版本戳：EA-5.3「存量无戳行**不回填**（补戳=系统替历史补语义）」；ADJ D5-c「历史行补 `contract_version` = **显式修补事件**语义（G1-VER-01）」 | EA-5.3 vs ADJ D5-c | 若不区分「改旧行」与「新增修补事件」，两文互斥；G1-VER-01 落地时先撞 | 在 G1-VER-01 条文里写死：修补 = 追加事件行（如既有 `record-backfilled` 语义族），零 UPDATE 旧行；与 EA-5.1 违宪句相容 | **已由 R-6 裁决并落地**（RECONCILIATION §6）：收口句两侧各补一次（EA-5.3 / RL-6.1 / RL-8.4）——修补 = **显式、可审计的运维动作，只调呈现档、只追加行、可回看；机制绝不自动补戳、不得改写历史语义**；修补 ≠ 洗白（读者面仍按原始字节复算 digest）。G1-VER-01 落码按此实现，本层零新造事件名（载体若进台账名空间另走 EA-2.4）。机验 EA S18 / RL S13 同文；夹具 T-P9/T-N14/MUT-7（EA）、T-N21/MUT-10（RL） |
 
 ### 7.3 注册表 C——观察项（非冲突，如实登记）
 
 | # | 观察 | 位置 |
 | --- | --- | --- |
-| M-1 | `ACTIVATION_IMPOSSIBLE` 被 FM-7 用于「挂载名未入封闭名单时装配挂载 Port」——原语义（必需依赖缺失/成环）的用途扩展，复用理由属「名册缺项=装配红」同族，但 §11 表未登记此用途扩展 | FM-7 vs CONTRACTS §5 CP-2 |
+| M-1 | `ACTIVATION_IMPOSSIBLE` 被 FM-7 用于「挂载名未入封闭名单时装配挂载 Port」——原语义（必需依赖缺失/成环）的用途扩展，复用理由属「名册缺项=装配红」同族，但 §11 表未登记此用途扩展。【2026-11-01 注】R-5/R-3 后该码在 **EA 机制内部直写通道**（提案名未入账期）与 **RL 重定位落账**又各复用一次（第 3、4 次复用，「名册缺项 = 装配红」同族），对账席**反向加重**了该复用并如实上报：登记义务落点 = `CONTRACTS.md` §5 CP-2（对账席禁改面），见 `G1-CONTRACT-RECONCILIATION.md` §8 M-1 处置 | FM-7 vs CONTRACTS §5 CP-2；R-5 后 + EA-2.4 / RL 落账 |
 | M-2 | PluginFace 新增具名成员（`FacetMountPort`）触碰「插件可见成员名集零增删」面锚——`arch-independence.test.ts` 重锚义务在 FM 只隐含、未登记为显式重锚条目（RL/FM 各自对拍旧/新面锚的口径需一张统一的重锚清单） | FM-6 vs RL §3 首段/§16.3 重锚纪律 |
 | M-3 | 报告钉住集**形态闸拒绝**的对外响应码未命名（域侧 `F-*` 表不在本层；临时 `TOOL_INPUT+detail.serviceCode` 是 X-3 同族过渡形） | ADJ D4-b 落点缺码位 |
 | M-4 | `space_id`/`record_id` 取值文法：ADJ D1-a/D5-a 裁「文法权在我方契约层」，四契约与 ADJ 均未落文法本体（RL 只给了 ns 文法 `^[a-z0-9][a-z0-9._-]{0,63}$` 的同族先例） | 全部输入文件的共同空白面 |

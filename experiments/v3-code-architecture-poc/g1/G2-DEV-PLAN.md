@@ -12,10 +12,13 @@
 
 ## 0. 排期的三条硬事实（先于任何顺序）
 
-1. **契约已给出的顺序是物理依赖，不是偏好**：`RL-3.4` 的 `RELOCATABLE_NS_KEYS` 把「Facet 挂载/扩展表
-   并入同一重定位事务」定义为 A 节落地时的**唯一迁移联动接口**，而 `FM-9` 的两个挂载名与 `RL-2.2` 的
-   `ns-relocated` 都要走 `EA-2.4` 六步入账 ⇒ **事件权威层先行是结构要求**，先做 Facet 会造出一个
-   「挂载 Port 装配红 forever」的中间态（`ACTIVATION_IMPOSSIBLE`，FM-7）。
+1. **契约已给出的顺序是物理依赖，不是偏好**：`RL-3.4` 的迁移联动接口**旧句已按 R-3 改写**（旧作
+   「`RELOCATABLE_NS_KEYS` 把『Facet 挂载/扩展表并入同一重定位事务』定义为 A 节落地时的唯一迁移联动接口」，
+   `G1-CONTRACT-RECONCILIATION.md` R-3 作废该句）——现行接口是**类别谓词**：按「该表**物理有无 `ns`
+   位置列**」逐项归位；挂载登记表 `facet_mount` 无 ns 列（判据输入 = 逻辑 `(facetCapability, targetOid)`）
+   ⇒ **不入清单、零搬迁**；扩展记录行（A2 现形，物理住属主 ns）随 `domain_state` 条目搬走。而 `FM-9`
+   的两个挂载名与 `RL-2.2` 的 `ns-relocated` 都要走 `EA-2.4` 六步入账 ⇒ **事件权威层先行是结构要求**，
+   先做 Facet 会造出一个「挂载 Port 装配红 forever」的中间态（`ACTIVATION_IMPOSSIBLE`，FM-7）。
 2. **真实 DDL 只能出现在冻结之后**：`IMPLEMENTATION-PLAN-DRAFT.md §2-G1`「未完成时禁止启动」原文
    —— 禁止 G2 的真实 DDL、`capability_route` 演进、Schema 迁移器（会基于错误的时间/所有权模型固化）。
    因此本文把**所有动表形的 PR 排到 §3 的第 5 位之后**，前四位只动判据与装配。
@@ -36,7 +39,7 @@
 | W5 | **四层版本轴 + `storage_schema_version` 登记 + 打开判据序（含触发器体摘要外置）+ TransactionLease** | W1–W4 | `RL-9.1` 层界表 + `RL-8.1` 打开序（步 2 需触发器新体 ⇒ 与 W8 的触发器改造同批）；`G1-STORAGE-01/02`（open）；`D3-b` 并存三规则 | **是**（`schema/**` + DDL 形）⇒ `snapshot:update` + `Frozen-Face-Review` |
 | W6 | **检查器降级三形 + 报告绑定四要素 + 对外 Check Request 形态** | W2（报告签发资格 = 归属账 + 机制取证）、W4（回显实际生效截点） | `D4-a/b/c`：视图恒空 ⇒ `ACHIEVED+COMPLETE`（N-1）与视图抛异常 ⇒ 不落报告（N-3）都是缺陷；「三态齐备 ≠ 校验生效」（`D4-d`）⇒ 降级标注与巡检计数是**两个独立面** | 否 |
 | W7 | **Facet 双身份 + 挂载登记 + 两个 planned 名入账** | W1、W2、W5（表形与打开判据） | `FM-2.5` 的 `facet_mount` 表 + `facet_mount_insert_guarded` 触发器 + 「打开期判据…随 `SCHEMA_VERSION` 推进与 `G1-STORAGE-02` 期望摘要外置**同批**」；`FM-9` 未入账期间装配红 fail-closed | **是** ⇒ `snapshot:update` + `Frozen-Face-Review` |
-| W8 | **物理重定位（账/门/切换/触发器改造）+ 恢复条件 + 打开期漂移检测与修复流** | W1、W2、W5、W7（`RELOCATABLE_NS_KEYS` 含挂载/扩展表） | `RL-3.4`「A 节挂载表落地时以加入该清单为迁移联动的唯一接口」；`RL-6.4` 构建期扫描以清单为全量原子性前提；`RL-5.2` 触发器改造「随 `SCHEMA_VERSION` 推进 + `REQUIRED_TRIGGERS` 摘要重登 + 打开判据同批」 | **是** ⇒ `snapshot:update` + `Frozen-Face-Review` |
+| W8 | **物理重定位（账/门/切换/触发器改造）+ 恢复条件 + 打开期漂移检测与修复流** | W1、W2、W5、W7（挂载账落地先后可核**双向**清单判据；R-3：挂载表**不入** `RELOCATABLE_NS_KEYS`，扩展记录行随 `domain_state` 搬） | `RL-3.4`（R-3 改写形：联动接口 = 「物理有无 `ns` 位置列」类别谓词逐项归位，**非**表名点入）；`RL-6.4` 构建期**双向**扫描以清单为全量原子性前提；`RL-5.2` 触发器改造「随 `SCHEMA_VERSION` 推进 + `REQUIRED_TRIGGERS` 摘要重登 + 打开判据同批」 | **是** ⇒ `snapshot:update` + `Frozen-Face-Review` |
 | W9 | **工具与宿主接口冒烟（真实 DSH Adapter 最小身份/权限/Capability）+ 只读工具四硬约束** | W2、W3、W6 | `IMPLEMENTATION-PLAN-DRAFT.md §2-G2 收窄②` 把真实 Adapter 最小冒烟**提前到 G2**，理由原文：「装配根注入 principal ≠ 宿主身份真实性」必须在机制层就撞一次；`D6-b` 四条硬约束依赖 W3 的呈现裁定 | 新工具名 ⇒ **是**（`ARCHITECTURE.md` §7.2 冻结清单 + `tests/tools/permissions.test.ts` 同步，`D6-a`） |
 | W10 | **纵向切片（G2 收尾，非并行加速）**：`Raw Intake → Entity 登记 → 有来源的 Association → PropositionRevision → S-L1 CheckReport → 历史读取` | W1–W6 | `§6.1′` 原文理由：D-19 正是「机制接口全绿但领域对象无法不绕过接口实现」的现实例子，串行到 G3 才发现就是把这个教训再买一次单 | 否 |
 
@@ -53,9 +56,9 @@
 
 ```sh
 node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            # 结构+语义：本席位实测 exit 0
-node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.fixtures.mjs  # 35 PASS / 0 FAIL，exit 0
-node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET.fixtures.mjs           # 29 PASS / 0 FAIL，exit 0
-node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.fixtures.mjs      # 42 PASS / 0 FAIL，exit 0
+node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.fixtures.mjs  # 48 PASS / 0 FAIL，exit 0（2026-11-01 R 轮后复跑值；旧基线 35）
+node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET.fixtures.mjs           # 35 PASS / 0 FAIL，exit 0（复跑值；旧基线 29）
+node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.fixtures.mjs      # 57 PASS / 0 FAIL，exit 0（复跑值；旧基线 42）
 node experiments/v3-code-architecture-poc/g0-gate.mjs                          # 三条流逐等：本席位实测 exit 0
 npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json                   # 本席位实测 exit 0（零诊断）
 pnpm run check:types                                                            # 本席位实测 exit 0，但输出自带限定：
@@ -89,8 +92,16 @@ pnpm run docs:check                                                             
 ### PR-1 `events: 机制事件封闭名单锚文件 + 异源对账构建判据（R1–R4）`
 
 - **范围**：物化 `g1/EVENT-CONTRACT-LEDGER.json`（形状按 `EA-6.1`：`schemaVersion/approved[]/entries[]`，
-  含 `writeSites` glob、`planned`、`gated_by`、`interpretationRuleSetVersion`）；首批 10 个 mechanism 名 +
-  `ns-relocated / facet-mounted / facet-unlinked` 三名以 `planned:true, gated_by:'G1-NS-01' / 'G1-FACET-01'` 占位；
+  含 `writeSites` glob、`planned`、`gated_by`、`interpretationRuleSetVersion`）；**名单内容按 R-5 后的新形状写
+  （2026-11-01 回填；旧句「首批 10 个 mechanism 名 + ns-relocated/facet-mounted/facet-unlinked 三名 planned
+  占位」作废——它把三个提案未入账名算进了已批准面）**：已入账 **7 名** = 锚文件 `class:'mechanism' ∧
+  planned:false` 全集（capability-enabled/-disabled/-transferred、object-registered、check-report-recorded、
+  object-revised、record-backfilled；前五名批准面 = `CONTRACTS.md` §16.3/D-27 既有评审事实 C-19，后两名 =
+  存量升格 EA-5.2，批准条目引用该既有事实而非新造）；`planned:true` 带逐名 `gated_by` = **提案未入账 4 名**
+  （`raw-record-declared`→`EA-1.2.3`、`integrity-audit-recorded`→`EA-7.1`、`read-shadow-recorded`→`EA-7.2`、
+  `ns-relocated`→`G1-NS-01`）+ **A 侧 planned 2 名**（`facet-mounted`/`facet-unlinked`→`G1-FACET-01`）；
+  **该锚文件截至目前尚未物化**（矩阵 §4 首行复测）——物化前名单「三方逐等」只是 契约↔夹具 **两方**，
+  本 PR 物化后第三方位才就位；物化即按上述新形状写，勿沿用「首批 10」旧叙事（EA §9.4 / R-5 开放项②）；
   写对账脚本（TS Compiler API 扫 `src/kernel/**` 的 ledger insert 调用点与 `eventType` 字面量 = 事实集；
   期望集**只**读锚文件）实现 R1 `EVENT_RECON_ORPHAN` / R2 `…_STALE` / R3 `…_SAMESOURCE` / R4 `…_COUPLING`。
 - **不做什么**：不改运行时写面判据（那是 PR-2）；不给任何领域名入账；不把锚文件放进 8 根文档或
@@ -111,16 +122,24 @@ pnpm run docs:check                                                             
   `AuthorizationContext` 九字段落 `ledger.authority_basis`（**增 `actor`，不动 DDL 不推 `SCHEMA_VERSION`**，`EA-4.4`）；
   `gateFullShape` 全形闸（`EA-4.5`）+ `replayAuthorityEvidence` 三态（`EA-4.6`）；
   通用 `appendLedger` 收敛为机制内部原语 + 协调台账行改走 `writerOwningKind` 委派（`EA-2.2`，**Q40 不破**）；
-  `integrity-audit-recorded` / `read-shadow-recorded` 落账（`EA-7.1/7.2`，**K = 32 常量**）+ 非 oracle 三条（`EA-7.4`）。
+  `integrity-audit-recorded` / `read-shadow-recorded` 落账（`EA-7.1/7.2`，**K = 32 常量不变**——R-1 只改
+  出口不改算法；两名为 EA §2.4 **提案未入账**名，进入门禁见下）+ 非 oracle 三条（`EA-7.4`，R-1 形：
+  调用方 echo 面**零 `hiddenBy*` 键**，计数只进内部审计）。
 - **不做什么**：不动 Raw Intake 的容错语义（B-1：`declaredType` 畸变仍收，`EA-1.3a`）；
   不回填存量历史行、不做别名映射（`EA-5`）；不为「拒绝历史可回看」新立名单项（`FM-3.1(b)` 明写「本契约不顺手加」）。
 - **进入门禁**：PR-1 exit 0；**`G1-EVT-01` / `G1-AUDIT-01` 已在清单进入 `assigned` 且 owner 为三源之一**
-  （人工核对，机验只判非空/非 UNASSIGNED）。
+  （人工核对，机验只判非空/非 UNASSIGNED）；**`integrity-audit-recorded` / `read-shadow-recorded` 两名的
+  人工 `Approved-By` 标记 + `Event-Name-Review:` trailer 已落地（R-5：4 个提案名人工批准是依赖写面 PR 的
+  进入门禁——未入账期间机制内部直写装配红 `ACTIVATION_IMPOSSIBLE`，本 PR 的落账功能不可能绿，
+  故不许写成「先落码后补批准」的退出门禁）**。
 - **退出门禁**：`g0-gate.mjs` exit 0 且**基线红/绿名集无漂移**（Q45 护栏仍在 passes）；
-  `EA` 夹具 exit 0；真库侧新增：插件可达 mint = 0（`tests/g5a-d27-audit-reserve.test.ts` 同族扩到全部 10 名）；
+  `EA` 夹具 exit 0；真库侧新增：插件可达 mint = 0（`tests/g5a-d27-audit-reserve.test.ts` 同族扩到全部
+  **已入账 7 名**；4 个提案名在通用通道 mint 同判红，未入账期间其直写通道装配红——R-5/T-N13 的真库对应物；
+  旧句「扩到全部 10 名」为 R-5 前名单基数，作废）；
   `arch-independence.test.ts` 运行时面对拍「插件可见成员名集零增删」exit 0。
 - **验收测试要求**：T-N2（自带见证）/T-N3/T-N4（分类）/T-N6/T-N7（双认领装配红零副作用）/T-P4（有写权无业务轴
-  ⇒ 收存不投影）/T-P7（落账前后普通响应逐字节等）在**真库**上重做一遍（夹具是模型，矩阵缺口列已登记）；
+  ⇒ 收存不投影）/T-P7（**R-1 反转形**：普通响应零 `hiddenBy*` 键 + 计数在审计行可回看 + 隐藏 0/1/≥2 件
+  三世界逐字节同形）在**真库**上重做一遍（夹具是模型，矩阵缺口列已登记）；
   `gateFullShape` 的「半形必红」变异常驻（对应夹具 `MUT-1`）。
 - **依赖前序**：PR-1。
 - **冻结面**：**是**（事件不变量 + 权限/持久化格式）⇒ PR body 写 `Frozen-Face-Review: <日期> <批准人>`；
@@ -136,7 +155,9 @@ pnpm run docs:check                                                             
   不把 `NAMESPACE_ESCAPE` 与 `CAPABILITY_SCOPE_ESCAPE` 互替（`RECONCILIATION.md §3 8b` 实测）。
 - **进入门禁**：PR-2 exit 0；`G1-READ-02`、`G1-LINK-01` 进入 `assigned`（owner = 三源之一）。
 - **退出门禁**：两世界逐字节同形探针（`SCR-54` 先例形态）exit 0；`pnpm test` exit 0；
-  计数面负例（`hiddenByInactiveCapability` 等 echo 键不增字段）exit 0。
+  计数面负例（**R-1 反转形**：调用方 echo 面**零 `hiddenBy*` 键**，计数只在内部审计面可回看；旧句
+  「`hiddenByInactiveCapability` 等 echo 键不增字段」为 R-1 前形态，作废——撤键是收紧方向，但
+  `arch-independence.test.ts` 的面锚是逐字比对，须按 EA-7.4 历史形态句**逐条点名重锚**，不走静默）exit 0。
 - **验收测试要求**：「目标不存在 vs 无可见权」逐字节等；「未挂载 vs 越权」逐字节等（`FM-3.1(a)`，两源共用唯一塑形函数）；
   `RECORD_ID_RESERVED` 覆盖扩后的前缀全集；**每条新拒绝形态配「架空同形判据必放过」的变异**。
 - **依赖前序**：PR-2。
@@ -203,7 +224,12 @@ pnpm run docs:check                                                             
   `MOUNT_AUDIT_REQUIRED`）+ 打开期判据四项；`hasActiveMount` 唯一判据点（`FM-3.1`）；入参白名单守卫三类
   `detail.reason`；双身份与保留前缀；三操作分立（`FM-4`）；第二真源三面执行（`FM-5.3`）；
   **同批**走 `EA-2.4` 六步给 `facet-mounted`/`facet-unlinked` 入账（锚文件独立提交 + `Event-Name-Review:` trailer +
-  用户 `Approved-By`），并把该两名加入 `RELOCATABLE_NS_KEYS`（这是 `RL-3.4` 指定的唯一联动接口）。
+  用户 `Approved-By`）；**重定位联动按 R-3 改写**（旧句「并把该两名加入 `RELOCATABLE_NS_KEYS`（这是
+  `RL-3.4` 指定的唯一联动接口）」与本裁决直接冲突，作废——`G1-CONTRACT-RECONCILIATION.md` §7-3 点名的
+  回填项）：归位**按「物理有无 `ns` 位置列」的类别谓词逐项**判定，挂载登记表 `facet_mount` 的判据输入是
+  逻辑 `targetOid`（无 ns 位置键）⇒ **不入清单、零搬迁**（不改行、不补见证、不落事件，RL T-P10 逐字节等
+  钉住；反向判据：清单混入它会构建红，T-N18/MUT-9）；扩展记录行 = A2 现形（物理住属主 ns、带 ns 位置键）
+  随 `domain_state` 清单条目搬走；G2 若为扩展记录另立表，按同一谓词逐项归位，不点名堆名单。
 - **不做什么**：**不打死 Q45 护栏**——`attacks/review/g1a-regression.test.ts` 该条只允许**加一步 `declareMount`**，
   三条断言（成功码 / 扩展按自身修订可读 / 核心 payload 逐字段不变）**一字不改**（`FM-3.2`）；
   不提供「目标的挂载方列表」读面（`FM-2.4`）；不新增核心改写通道（`FM-5.1` 类型面无写点）。
@@ -219,19 +245,26 @@ pnpm run docs:check                                                             
 ### PR-8 `ns: 物理重定位 + 恢复条件 + 打开期漂移检测与修复流（D-31 历史面）`
 
 - **范围**：`namespace_relocation` 账（append-only + `RELOCATION_LEDGER_FROZEN`）；`ns-relocated` 名入账
-  （`planned:false`，`gated_by` 撤销）；`RelocationPorts` 七成员（运维面，插件面零增删）；`RL-4` 十条门 +
+  （`planned:false`，`gated_by` 撤销；R-5：RL-2.2 只是**提案文书**，入账 = 人工 `Approved-By` + trailer 三要素，
+  见进入门禁）；`RelocationPorts` 七成员（运维面，插件面零增删）；`RL-4` **12 门**（R-4 正式入集：precheck
+  阶段 1–10 + 流程门 11 `APPROVAL` / 12 `REPAIR_PROVENANCE`，旧句「十条门」作废）+
   事务内复核；`RL-5.1` 单事务写序；`RL-5.2` 触发器三判据改造（子句②四元集合 / 子句③拆三条 / 混合语句拒）；
-  `RL-6` 列语义 + 零写面清单 + `RELOCATABLE_NS_KEYS` 构建期扫描；`RL-6.5` 前缀完备链；`RL-7` 恢复条件；
+  `RL-6` 列语义 + 零写面清单 + `RELOCATABLE_NS_KEYS` 构建期**双向**扫描（R-3：入选 = 「物理有无 `ns`
+  位置列」类别谓词；漏登记红 ∧ 清单混入无 ns 列表也红；`facet_mount` **不入清单、零搬迁**）；`RL-6.5` 前缀完备链；`RL-7` 恢复条件；
   `RL-8.1` 打开判据步 4（全表链比对）+ `RL-INFO` 单一信息面 + `QUARANTINE` + 修复流。
 - **不做什么**：**不撤销 `TRANSFER_NS_DRIFT`**、不把移交改回携 ns（`RL-5.3`）；不解冻 `dir.ns`（`RL-1.4` B2 弃案维持）；
   **不承诺检出裸面伪造链**（`RL-6.5a` 界外 = 登记边界；文档/实现把「检测」写成「防御」即违例，`RL-13 T-N16` 钉两侧）；
   不做跨进程主动失效（既有 G1 余项，不新立项）。
-- **进入门禁**：PR-5、PR-7 exit 0；`ns-relocated` 已入账；`G1-NS-01` 清单条目 `assigned`。
+- **进入门禁**：PR-5、PR-7 exit 0；**`ns-relocated` 已入账 = 人工 `Approved-By` + `Event-Name-Review:`
+  trailer 两处同现、锚 `planned:false`（R-5：提案文书≠批准；标记未落地时 execute 在落账那一步拒签、
+  整笔回滚（T-N20），本 PR 不可能绿——进入门禁，不是退出门禁）**；`G1-NS-01` 清单条目 `assigned`。
 - **退出门禁**：`RL` 夹具 exit 0；**故障矩阵 18 条中 F-04 由「G2 故障注入验收」补上**（夹具列现为「—」，
   本 PR 必须把它变成有夹具的一行）；`g6a-d31-history-drift.test.ts` 常驻 + **`ns_epoch` 下界钉**：把 `ns_epoch`
   设为该库 `max(H.seq)` 并清空 H ⇒ 门禁必红（`G1-DONE-01` resolution 里登记的「不得随库复制」提醒的机验化）；
   `pnpm run build` exit 0（表形变更）。
-- **验收测试要求**：`RL-13` T-P1..P9 / T-N1..N16 **真库化**；`MUT-1..5` 五条架空形各配真判据对照；
+- **验收测试要求**：`RL-13` T-P1..P10 / T-N1..N21 **真库化**（2026-11-01 复跑实测的表范围；旧句
+  P9/N16 为 R 轮前基线——新增 T-P10 挂载零搬迁、T-N17 门封闭集、T-N18 双向扫描、T-N19 呈现面、
+  T-N20 批准门、T-N21 补戳各配真库对应物）；`MUT-1..10` 十条架空形各配真判据对照；
   `RL-8.1` **交换步 1/4 的变异必须红**（原文：「顺序即判据」）；`RL-INFO` 三条共用同一 `callerBodyFor(caller)`
   的构造面单一性静态门；单 Space 失败不阻断其他 Space（`R-08`，`G1-DONE-03` 验收要求原文）。
 - **依赖前序**：PR-1、PR-2、PR-5、PR-7。
@@ -264,7 +297,8 @@ pnpm run docs:check                                                             
   `D-19c-ALLOWED` 签字清单重排（`EA-2.2`，登记为实施批义务）；三条架构门与 `attacks/**` 迁入正式测试面。
 - **不做什么**：**不是提前做完 G3** —— 切片只跑一条窄路径（`§6.1′` 原话）；不引入领域校验规则的科研正当性
   （G3）；不把 `experiments/**` 当测试面（切片测试**进正式测试面**）。
-- **进入门禁**：PR-0..PR-9 全绿。
+- **进入门禁**：PR-0..PR-9 全绿；**`raw-record-declared` 人工 `Approved-By` 已落地**（切片首环 Raw Intake
+  的台账行用该提案名——R-5 fail-closed：未入账期间直写装配红，进入门禁，见 `G1-CONTRACT-RECONCILIATION.md` §7-4）。
 - **退出门禁（切片出口判据，原文可执行形态）**：该路径上**每个跨领域写都是一个拥有者命令端口调用**
   （`D-19c′` 静态集合相等核对通过）∧ 切片全程在**一条**事务内提交（Q40）∧ 切片测试在 `tests/**` 而非 `experiments/**`；
   夹具世界迁移后 `EA` 夹具与真库名单对账 exit 0（R1/R2 双向零违规）。
@@ -290,7 +324,8 @@ pnpm run docs:check                                                             
 
 | 串行对 | 为什么必须串行 |
 | --- | --- |
-| **PR-1 → PR-2 → PR-5 → PR-7 → PR-8** | 名单/归属账是所有写面判据的输入；表形（PR-5）先于挂表（PR-7）；挂载表进 `RELOCATABLE_NS_KEYS` 是重定位的**唯一**联动接口（`RL-3.4`）——倒序必造出「清单漏表 ⇒ 只搬一半」的漂移 |
+| **PR-1 → PR-2 → PR-5 → PR-7 → PR-8** | 名单/归属账是所有写面判据的输入；表形（PR-5）先于挂表（PR-7）；联动接口**旧句「挂载表进 `RELOCATABLE_NS_KEYS` 是唯一联动接口」已按 R-3 作废**——现为「物理有无 `ns` 位置列」类别谓词逐项归位（挂载账不入清单、零搬迁；扩展记录行随 `domain_state` 搬），倒序仍造出「ns-keyed 表漏登记 ⇒ 只搬一半」的漂移，且正向半边无对象可核 |
+| **4 个提案名的 `Approved-By` 落地（人工，用户/指名代表）→ 消费该名的写面 PR**（PR-2：`integrity-audit-recorded`/`read-shadow-recorded`；PR-8：`ns-relocated`；PR-10：`raw-record-declared`） | R-5 fail-closed：批准标记未落地期间，相应写面（含机制内部直写）装配红 `ACTIVATION_IMPOSSIBLE`、重定位在落账那一步整笔回滚——**这是设计后果不是缺陷**；因此 4 个 `Approved-By` 是各消费 PR 的**进入门禁**（`G1-CONTRACT-RECONCILIATION.md` §5/§7-4），不许按「先落码后补批准」排期 |
 | **G1 正式冻结 → PR-5 起的所有真实 DDL** | `§2-G1`「未完成时禁止启动」原文：会基于错误的时间/所有权模型固化 |
 | **入账（锚文件独立提交）→ 消费该名的 Port 落地** | `EA-2.4` 步骤 3「独立提交、与实现代码不同提交」+ `R4` 同提交耦合拒 ⇒ **同 PR 允许、同 commit 禁止**，且顺序固定 |
 | **触发器体改造 → `SCHEMA_VERSION` 推进 → 打开判据同批** | `RL-5.2` 头注三件套；漏一步 = 旧库静默过闸 |
@@ -313,8 +348,9 @@ pnpm run docs:check                                                             
 
 规则原文（`IMPLEMENTATION-PLAN-DRAFT.md §7` 流程规则）：**「新增或修改门禁脚本，必须同时交付至少一条
 变异验证——人为制造它应当拦住的情形，贴出红色输出，否则不算完成。」** G2 的强化：判据类变更必须
-「真实判据拦住负例 ∧ 架空判据放过同一负例」两条都在（三份夹具的 `MUT-*` 先例：EA 3 条 / FM 3 条 / RL 5 条，
-实测常驻且 exit 0）。
+「真实判据拦住负例 ∧ 架空判据放过同一负例」两条都在（三份夹具的 `MUT-*` 先例：2026-11-01 复跑实测
+常驻且 exit 0 为 EA **7** 条 / FM **4** 条 / RL **10** 条；旧计数 EA 3 / FM 3 / RL 5 是 R-1…R-6 前基线——
+R 轮每修一项各配一条同族影，**旧条零删除**）。
 
 ```sh
 # 变异向（期望：**非 0**，且红因是目标判据本身）

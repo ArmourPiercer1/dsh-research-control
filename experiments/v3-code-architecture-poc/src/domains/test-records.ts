@@ -345,6 +345,25 @@ const FACT_STANDING_RULES: Readonly<Record<string,
     && authority !== null && authority.authorized),
 });
 
+/**
+ * 冻结判据表的**原型安全查表**（N6/N7，包 4，CONTRACTS.md §16.2 投影信任模型第 4 条）。
+ * `policyVersion` 来自插件自写的 payload，而 `FACT_STANDING_RULES` 是 `Object.freeze` 的普通
+ * 对象字面量——**freeze 不封原型链**：裸下标 `TABLE['constructor']` 取到 `Object`（真值可调用
+ * ⇒ v3 全部形状判据被旁路，N6），`TABLE['__proto__']` 取到 `Object.prototype`（非函数 ⇒
+ * 调用即 `TypeError` 永久崩读者，N7）。纪律：
+ * ① 先 `Object.prototype.hasOwnProperty.call`——**禁用 `in` 与裸下标真值判断**；
+ * ② 命中值过形状校验：必须是登记过的**函数**（原型链上的 `Object`/`toString` 即便被
+ *    自制对象挂成自有属性也过不了「登记过的函数」这关，见 tests 的 FIXPROBE-3 语义）；
+ * ③ 任一不满足 ⇒ 返回 undefined ⇒ 调用方 fail-closed **不计入且不抛异常**——读者面
+ *    （standingAt）对任何畸形行必须正常返回「不计入」，可用性崩面与完整性旁路一起封。
+ */
+type StandingRule = (p: FactDesignationPayload, actor: string | null, authority: AuthorityEvidence | null) => boolean;
+function lookupStandingRule(policyVersion: string): StandingRule | undefined {
+  if (!Object.prototype.hasOwnProperty.call(FACT_STANDING_RULES, policyVersion)) return undefined;
+  const rule: unknown = (FACT_STANDING_RULES as Readonly<Record<string, unknown>>)[policyVersion];
+  return typeof rule === 'function' ? rule as StandingRule : undefined;
+}
+
 /** 行是否"生效声明"（计入投影）。未生效（未授权）声明完整保存但不参与（PR-A1）。 */
 function designationCountsAsAdmitted(
   payload: unknown, actor: string | null, authority: AuthorityEvidence | null,
@@ -354,8 +373,11 @@ function designationCountsAsAdmitted(
   if (authority !== null && !authority.authorized) return false;
   const p = payload as Partial<FactDesignationPayload> | null;
   if (!p || typeof p !== 'object' || typeof p.policyVersion !== 'string') return false;
-  const rule = FACT_STANDING_RULES[p.policyVersion];
-  if (!rule) return false;                       // 未知版本：fail-closed
+  const rule = lookupStandingRule(p.policyVersion);
+  if (!rule) return false;   // 未知版本 / 原型链键 / 非法形状：fail-closed 不计入，**绝不抛异常崩读者**
+  // 「字面相等」注记：查表用**串键** + hasOwnProperty，命中的表键与 `p.policyVersion` 逐字相等
+  // 是由构造保证的（尾随空格/大小写变体在 ① 处即 miss，Q2-5 族钉住）；`designationSchema` 匹配
+  // 由各版本判据体内检查。三者合起来 = FIXPROBE-3 要求的形状校验，勿在调用方另加恒真复核。
   return rule(p as FactDesignationPayload, actor, authority);
 }
 

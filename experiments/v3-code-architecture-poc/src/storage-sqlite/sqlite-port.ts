@@ -217,6 +217,12 @@ export class SqlitePort implements StoragePort {
     this.db.exec('pragma journal_mode = wal;');
     this.db.exec('pragma busy_timeout = 2000;');
     this.db.exec('pragma foreign_keys = on;');
+    // N9（包 4，席位 G3-A A2-5）：`INSERT OR REPLACE` 的冲突消解走「隐式删除 + 插入」，而 SQLite
+    // 的隐式删除**仅在 recursive_triggers=ON 时才触发 DELETE 触发器**（默认 OFF）——不开这条 PRAGMA，
+    // 「UPDATE/DELETE 被触发器 abort ⇒ H 不可变」的存储层支点对一条普通 REPLACE 整行替换失效
+    // （投影可被翻成 ADOPTED）。本 PRAGMA 让 REPLACE 撞 `ledger_no_delete` 等 DELETE 触发器，
+    // append-only 与 guard 面「REPLACE 属被禁写法」的登记（见 guard()）自此同真。
+    this.db.exec('pragma recursive_triggers = on;');
     this.assertOpenableThenPrepare();
     this.adapter = new Adapter(this.db);
     this.failBeforeCommit = opts.failBeforeCommit;
@@ -347,6 +353,15 @@ function translate(e: unknown): unknown {
  */
 const FORBIDDEN_KEYWORD = /^(drop|alter|create|attach|detach|pragma|vacuum|reindex|analyze)\b/i;
 /**
+ * N9（包 4，席位 G3-A A2-5）：REPLACE 形态**与 guard 面「被禁写法」登记**（CONTRACTS.md §16.2 存储纪律）。
+ * `insert or replace` / `replace into` 的冲突消解走「隐式删除 + 插入」；主修是连接开
+ * `recursive_triggers=ON`（见构造函数），让隐式删除触发 DELETE 触发器把历史行 abort 掉。guard 这条是
+ * **纵深防御的第二道**：机制句柄本就不该出现 REPLACE 语义——Kernel 的正常写全是 append `insert into`，
+ * 一条 REPLACE 出现在机制句柄上即属越界形态，先于触发器直接拒。只禁 REPLACE 两形态，不禁普通
+ * `insert into`（Kernel 落 ledger/domain_state 靠它）。
+ */
+const FORBIDDEN_REPLACE_FORM = /^(insert\s+or\s+replace|replace\s+into)\b/i;
+/**
  * 归一化后再判定：前导注释、块注释、行注释、空白与多余分号都能让锚定式正则形同虚设
  * （独立复审实测 `/* x *\/ drop trigger …` 绕过）。归一化后还要拒绝多语句，
  * 否则 `select 1; drop trigger …` 以合法关键字开头却带着 DDL。
@@ -390,6 +405,8 @@ function guard(raw: RawTx): RawTx {
   const check = (sql: string): void => {
     const head = normalizeSql(sql);
     const reason = FORBIDDEN_KEYWORD.test(head) ? 'DDL/PRAGMA/ATTACH 不得经机制句柄执行'
+      // N9：REPLACE 形态绕触发器的写法，机制句柄一律拒（主修 recursive_triggers 已在连接层把门）
+      : FORBIDDEN_REPLACE_FORM.test(head) ? 'insert or replace / replace into 属被禁写法（N9：REPLACE 走隐式删除，历史行不可经此改写）'
       // 多语句：第一条合法不代表整条合法
       : /;\s*\S/.test(head) ? '不得经机制句柄提交多语句'
       : undefined;

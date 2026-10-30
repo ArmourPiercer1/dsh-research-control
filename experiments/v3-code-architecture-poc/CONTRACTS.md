@@ -392,10 +392,32 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
 授权证据，装配不可成立，fail-closed；此码此前只出现在 `activate()` 的依赖环判据，现登记到注册期）。
 Kernel 把 eventType 与 axis 都当**不透明字符串**，不解释任何业务语义（业务无知扫描继续覆盖本面）。
 归属账本按能力 id 记，**不随路由停用而消失**。
+**`requiresAuthority` 的轴值判据（包 4，D-26，席位 G3-A A1-1/A1-3 实测）**：注册判据在「缺轴 ⇒
+`ACTIVATION_IMPOSSIBLE`」之外补一条**轴值**判据——登记的轴名**不得是机制自身权限轴**（至少
+`space-write`、`capability-admin`）。恶意清单把 `requiresAuthority` 声明成 `space-write` 时，只有写权、
+无任何业务轴的主体经正当通道即得 `authorized:true` 见证（把「写权」当成「业务授权」，正是 SP-09 明令
+禁止的混同）；修后此类登记在**装配期**即被 `ACTIVATION_IMPOSSIBLE` 拒绝、零签发面。
+**Kernel 业务无知如何守住（这条约束判据本身不得引入业务知识）**：Kernel **不**硬编码任何业务轴名
+（`domain-admission` 一类不得出现在 `src/kernel/**`）；判据用「机制资源联合」做**排除**——Kernel 只认得
+自己拥有的机制权限轴字面量集合（`space-write`/`capability-admin`，即 `MechanismResource` 的运行时投影），
+要求登记轴名**不等于**其中任何一根 ⇒ 业务授权轴必须是**机制联合之外**的字面量。Kernel 对业务轴的具体
+取值仍只当不透明字符串，取证时照旧 `principalCan(axis)`，不解释其语义。故新增的是一条**声明式排除谓词**
+（「轴 ∉ 机制自身权限轴」），**不构成业务知识回流**：Kernel 知道的仍是「我自己的写权/管理权」，不知道
+任何「科研接纳资格叫什么」。**边界如实**：空白轴（`' '`）等非机制、非业务字面量仍能过登记（Kernel 无从
+判定一根业务轴之外字符串的语义），但取证据恒 `authorized:false` ⇒ fail-closed 方向可接受，登记在案。
 **（2026-10-30 席位 G2-A 实测纠正 → 包 3 已兑现，D-25 已修）** 此前本处把期望写成了事实（权威通道
 对停用状态零核对，停用能力仍能签发正式事件）。机制现状：`appendAuthoritativeEvent` 在写入前核对
 本端口能力的**激活状态**（查生效路由表，缺失 ⇒ `CAPABILITY_INACTIVE`、零残留），「拥有者被停用 ⇒
-正式事件在两个通道上都写不动」自包 3 起是**现状而非目标语义**。实测依据（勿信文档，跑这条）：
+正式事件在两个通道上都写不动」自包 3 起是**现状而非目标语义**。
+**（包 4 纠正，2026-10-30，席位 G3-A「D25-MP」实测；旧句保留于上、以此段为准）** 上一段与下文入口
+判据 ② 原写「查 `capability_route` 生效路由」，**超前于机制真实行为**：写路径判据查的是**本进程内存
+registry**（`CapabilityRegistry.caps`），持久列 `capability_route.enabled` 只在「执行停用/启用的
+进程」+「其后新启动的进程」生效。实测（`RE-REVIEW-G3-A.md` §③-D-25）：同文件双世界，B 停用后先启动
+的 A 仍能签发（`NO_REFUSAL`），A `restart()` 后才 `CAPABILITY_INACTIVE`。据此把契约改写为机制真话：
+**停用判据是进程内即时、跨进程最终一致**，一致性窗口 = 停用前启动的全部常驻进程；运维要求即时全局
+停用时必须重启（或实施期补跨进程失效机制，G1 余项）。同处一并登记：停用窗口内 `eventsOf` 的**读面
+不关**（C-1 实测：既有 face 经停用窗口仍可 `eventsOf`；D-25 判据只承诺写面，读面语义见 E-01 行，
+属记录在案的设计边界，不是疏漏）。实测依据（勿信文档，跑这条）：
 `tests/n1-authorization-evidence.test.ts` 的「D-25 直测面」用例——`unloadCapability(CAP_RECORDS, ADM)`
 之后通道 B `appendAuthoritativeEvent` 得 `CAPABILITY_INACTIVE` 且 ledger 计数不动，同场对照同能力
 `write()` 同码拒绝、通道 A 仍 `EVENT_AUTHORITY_REQUIRED`，`loadCapability` 后恢复可签发。
@@ -410,7 +432,8 @@ eventType（没有权威签发者，机制拒当它的传声筒）。不可重�
 describedAt? }): CommitSequence`（窄面加宽一项）**——正式事件类型的**唯一写入入口**，属于该事件
 类型的**归属能力**。落笔前的判据全部先于写入、零残留（编号即执行顺序）：
 ① eventType 已登记为正式事件类型，且登记在**本端口能力**名下 ⇒ 否则 `EVENT_AUTHORITY_REQUIRED`；
-② 本端口能力处于**激活**状态（包 3，D-25：查 `capability_route` 生效路由；停用即写不动，两个通道同判）
+② 本端口能力处于**激活**状态（包 3，D-25；停用即写不动，两个通道同判。判据源 = **本进程内存 registry**
+的生效路由——包 4 纠正，原文曾写「查 `capability_route` 生效路由」，纠正说明见上文「包 4 纠正」段）
 ⇒ 否则 `CAPABILITY_INACTIVE`；
 ③ **授权取证，先于对象解析（包 3，N1——D-20 第三层的机制落点；#44 §5.1「权限校验先于对象解析」
 的同类排布）**：机制向**机制可信的授权来源**取证——取该事件类型登记的 `requiresAuthority` 轴
@@ -435,6 +458,14 @@ ledger 行的 `actor` 列由**机制**从本事务已验证主体写下——**�
 PoC 侧 `SCHEMA_VERSION` 4→5（DDL 在 `src/storage-sqlite/sqlite-port.ts`，**不在**冻结的根 `schema/**`，
 后者与本 PoC 零引用关系）；既有 v4 库按既有纪律在打开路径 `SCHEMA_UPGRADE_REQUIRED` fail-loud，
 PoC 测试世界全部新建库、无迁移债；实施期若要读旧库，迁移器须显式补写。
+**包 4 存储纪律（N9，席位 G3-A A2-5 实测）**：「`UPDATE`/`DELETE` 被触发器 abort ⇒ H 不可变」这条
+存储层支点**不完备**——SQLite 的 `INSERT OR REPLACE` 冲突消解走「隐式删除 + 插入」，而**隐式删除只在
+`recursive_triggers=ON` 时才触发 DELETE 触发器**（默认 OFF）。修前连接未开该 PRAGMA ⇒ 装配裸面
+（`port.raw`，运维/测试后门，插件句柄拿不到）一条普通 `insert or replace` 即静默整行替换历史、投影翻
+`ADOPTED`，非越权但击穿 append-only 核心不变量。修后契约：① 连接建立处必须 `PRAGMA recursive_triggers
+= ON`（实测 REPLACE 触发 `ledger_no_delete` abort `HISTORY_IMMUTABLE`、原行不变）；② 机制句柄守卫
+（`guard()`）把 `insert or replace` / `replace into` 形态一并登记为被禁写法（纵深：守卫此前只禁
+DDL/PRAGMA/ATTACH 头，不禁这类 DML 形态）。回归锚：`tests/n9-replace-append-only.test.ts`。
 
 **唯一入口的机制执行（不是约定）**：
 
@@ -465,7 +496,17 @@ PoC 测试世界全部新建库、无迁移债；实施期若要读旧库，迁�
    只剩**无见证的历史行**（见第 4 条）。投影**从不查询当前权限**；
 4. **`policyVersion` 按事件记录的版本判定**：投影按事件记录的版本号查**冻结的判据表**
    （`FACT_STANDING_RULES`；新版本 = 加一行，旧版本的判据**永不再改**）；未知版本 ⇒ fail-closed
-   不计入。**包 3 新增 `fact-standing/v3` 行**：结构化字段 + `issuer === actor` + 见证
+   不计入。**包 4 查表纪律（N6/N7，席位 G3-A 实测两个 P1 后裁定）**：`policyVersion` 在插件自写的
+   payload 里，而判据表是普通冻结对象字面量——`Object.freeze` **不封原型链**，裸下标 / `in` 查表会让
+   `'constructor'` 查到 `Object`（真值可调用 ⇒ v3 全部形状判据整体旁路，N6/P1 完整性）、`'toString'`
+   同族、`'__proto__'` 查到 `Object.prototype`（非函数 ⇒ 调用即 `TypeError` **永久崩读者**，账本不可
+   删改、再写正当 `WITHDRAWN` 也救不回，N7/P1 可用性）。因此查表**必须**：
+   ① 先 `Object.prototype.hasOwnProperty.call(TABLE, policyVersion)`（**禁用 `in` 与裸下标真值判断**）；
+   ② 命中值过**形状校验**（必须是登记过的判据函数，且载荷的 `designationSchema` 匹配、
+   `policyVersion` 与所查键**字面相等**）；③ 任一不满足 ⇒ **fail-closed 不计入且绝不抛异常**——
+   读者面（`standingAt`）对任何畸形行都必须正常返回「不计入」，可用性崩面与完整性旁路同一条修法一起封。
+   验收锚 = `tests/n6-n7-frozen-table-prototype.test.ts`（席位 FIXPROBE-1/2/3 原样移植：修法前 3 红、
+   修法后 4 绿，FIXPROBE-4 对照组恒绿）。**包 3 新增 `fact-standing/v3` 行**：结构化字段 + `issuer === actor` + 见证
    `authorized === true`，判据体内**不读**载荷 `authorization`。**v2 自此为只读历史语义**：
    领域写入方只产 v3；v2 判据（含其授权子句「载荷自称 AUTHORIZED」）只对**无见证行**可达 =
    包 3 机制生效前写入的存量行，新写入不可达（权威通道的每一行必带见证）。

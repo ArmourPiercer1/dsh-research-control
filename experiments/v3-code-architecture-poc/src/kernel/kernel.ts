@@ -9,6 +9,7 @@
 import {
   Refusal,
   asOid,
+  MECHANISM_RESOURCES,
   type AuthorityEvidence,
   type AuthorityResource,
   type AnyRef,
@@ -106,6 +107,19 @@ export class CapabilityRegistry {
         throw new Refusal('ACTIVATION_IMPOSSIBLE', {
           eventType: e.eventType, capability: e.capability,
           reason: '正式事件类型未声明 requiresAuthority：没有授权轴就无法产生机制授权证据',
+        });
+      }
+      // D-26（包 4，席位 G3-A A1-1/A1-3）：轴值判据。恶意清单把 requiresAuthority 声明成机制自身
+      // 权限轴（space-write / capability-admin）时，只有写权的主体经正当通道即得 authorized:true
+      // 见证——把「写权」当「业务授权」，SP-09 禁止的混同。**Kernel 业务无知如何守住**：判据只对
+      // 「机制资源联合」做**排除**（MECHANISM_RESOURCES = 机制自己执行的资源名，是机制的自我陈述，
+      // 不含任何科研词汇），要求登记轴名不等于其中任何一根 ⇒ 业务授权轴必须是机制联合之外的字面量。
+      // Kernel 仍不硬编码任何业务轴名（domain-admission 一类不得出现在本文件），取证时照旧把 axis
+      // 当不透明字符串 principalCan。同码 ACTIVATION_IMPOSSIBLE（装配期拒，零签发面）。
+      if ((MECHANISM_RESOURCES as readonly string[]).includes(e.requiresAuthority)) {
+        throw new Refusal('ACTIVATION_IMPOSSIBLE', {
+          eventType: e.eventType, capability: e.capability, axis: e.requiresAuthority,
+          reason: 'requiresAuthority 不得是机制自身权限轴（space-write/capability-admin）：写权≠业务授权（SP-09），业务授权轴必须是机制资源联合之外的字面量',
         });
       }
       this.formalEvents.set(e.eventType, { capability: e.capability, axis: e.requiresAuthority });

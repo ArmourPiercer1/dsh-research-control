@@ -62,6 +62,18 @@ export interface VerifiedPrincipal {
  */
 export type MechanismResource = 'space-write' | 'capability-admin';
 export type AuthorityResource = MechanismResource | (string & {});
+/**
+ * `MechanismResource` 的**运行时投影**（D-26，包 4，CONTRACTS.md §16.2）：类型联合在 JS 里不存在，
+ * 而注册判据要在运行时回答「这根轴是不是机制自己的权限轴」——本数组是机制资源自述的唯一运行时正源。
+ * **这不是业务知识回流**：里面只有机制自身执行的资源名（写权/管理权）；业务授权轴仍是 Kernel
+ * 不解释的不透明字符串。新增机制资源时类型与本数组必须同步——漏一条由下方编译期穷尽检查变红。
+ */
+export const MECHANISM_RESOURCES = ['space-write', 'capability-admin'] as const;
+// 穷尽检查（真判据，对**数组元素类型**做 Exclude）：本数组漏掉 `MechanismResource` 联合的
+// 任一成员 ⇒ 下一行编译红（运行时排除判据不得落后于类型联合——D-26 的判据强度取决于清单完整）。
+type _MechanismResourcesCover = Exclude<MechanismResource, typeof MECHANISM_RESOURCES[number]> extends never
+  ? true : { COMPILE_ERROR: 'MECHANISM_RESOURCES 未覆盖 MechanismResource 全联合' };
+export const _MECHANISM_RESOURCES_COVER: _MechanismResourcesCover = true;
 
 export interface ScopedCapabilities {
   can(resource: AuthorityResource): boolean;

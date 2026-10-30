@@ -45,6 +45,7 @@ function runVitest(paths) {
   const out = r.stdout ?? '';
   const start = out.indexOf('{');            // reporter=json 前可能混有 banner 行
   const failed = new Set();
+  const passNames = new Set();   // G-2：通过项的身份也要留痕
   let passed = 0;
   let skipped = 0;
   let success = false;   // 必须在 try 外声明：解析失败时也要能被判为 false
@@ -54,14 +55,14 @@ function runVitest(paths) {
     for (const f of j.testResults ?? []) {
       for (const a of f.assertionResults ?? []) {
         if (a.status === 'failed') failed.add(`${f.name.replace(REPO + '/', '')} > ${a.fullName}`);
-        else if (a.status === 'passed') passed += 1;
+        else if (a.status === 'passed') { passed += 1; passNames.add(`${f.name.replace(REPO + '/', '')} > ${a.fullName}`); }
         else skipped += 1;   // pending / skipped / todo —— 作者流里一条都不许有
       }
     }
   } catch {
-    return { failed: null, passed: 0, skipped: 0, status: r.status, success: false, raw: (out + (r.stderr ?? '')).slice(-800) };
+    return { failed: null, passNames: null, passed: 0, skipped: 0, status: r.status, success: false, raw: (out + (r.stderr ?? '')).slice(-800) };
   }
-  return { failed, passed, skipped, status: r.status, success, raw: '' };
+  return { failed, passNames, passed, skipped, status: r.status, success, raw: '' };
 }
 
 note('[1/3] 类型门（含作者 tests，不含 attacks/**）');
@@ -100,6 +101,16 @@ const v = runVitest([join(ROOT, 'attacks')]);
 if (v.failed === null) fail.push('审查方门无法解析 vitest 输出:\n' + v.raw);
 else if (v.status === 0 && v.passed === 0 && known.size > 0) fail.push('审查方门 0 通过且退出码 0：疑似整目录未被收集');
 else {
+  // G-2（外部复审，2026-10-30）：只比失败集合会被**覆盖面缩水**骗过——
+  // 原本通过的审查方测试被 describe.skip、被删文件、被改名时，失败集合可以一字不变，
+  // 门禁照样报"与基线一致"。所以通过项的身份同样必须在基线里，且必须逐一对上。
+  const knownPass = new Set(b.passes ?? []);
+  if ((b.passes?.length ?? 0) === 0) fail.push('BASELINE.json 缺 passes：覆盖面缩水无法被发现（G-2）');
+  const pAdded = [...v.passNames].filter((x) => !knownPass.has(x)).sort();
+  const pGone = [...knownPass].filter((x) => !v.passNames.has(x)).sort();
+  if (pAdded.length > 0) fail.push(`审查方新增通过 ${pAdded.length} 条（覆盖面变大，须显式入基线）：\n  ${pAdded.join('\n  ')}`);
+  if (pGone.length > 0) fail.push(`审查方测试消失或不再通过（skip / 改名 / 删文件都长这样）`
+    + ` —— 覆盖面缩水绝不能读成"与基线一致"：\n  ${pGone.join('\n  ')}`);
   const added = [...v.failed].filter((x) => !known.has(x));
   const gone = [...known].filter((x) => !v.failed.has(x));
   if (added.length) fail.push(`审查方新增红 ${added.length} 条（先定性再更新基线）：\n  ${added.join('\n  ')}`);

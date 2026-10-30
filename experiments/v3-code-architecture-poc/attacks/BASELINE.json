@@ -1,11 +1,9 @@
 {
-  "generated_from_commit": "95d17b8f7996e0588c0fcb61fa36b6e425e2da13",
+  "generated_from_commit": "b29d54023a0de295be3c56a5cbe152197886c1e8",
   "total": 133,
-  "note": "审查方 attacks/** 的已知状态：failures=逐条定性的已知红（含 g1a-regression 里 D-20/D-22 等未修项）；passes=覆盖面基线；total=收集总数。g0-gate 要求三者一致，且收集/清理期失败与 skip 一律红。",
+  "note": "审查方 attacks/** 的已知状态：failures=逐条定性的已知红（D-21/E-01 等未修项）；passes=覆盖面基线；total=收集总数。g0-gate 要求三者一致，且收集/清理期失败与 skip 一律红。",
   "failures": [
     "experiments/v3-code-architecture-poc/attacks/host/host-boundary-attack.test.ts > host-boundary adversarial attacks plugin handles must not carry arbitrary SQL (immutability triggers are not theirs to drop)",
-    "experiments/v3-code-architecture-poc/attacks/review/g1a-regression.test.ts > G1-A 回归（D-23/D-24/D-20/D-22 钉理想行为，红=缺陷仍在） D-20 投影翻转：appendLedger 必须核对 objectId 归属——伪造声明不得把他人对象的采纳投影翻成 ADOPTED",
-    "experiments/v3-code-architecture-poc/attacks/review/g1a-regression.test.ts > G1-A 回归（D-23/D-24/D-20/D-22 钉理想行为，红=缺陷仍在） D-22 装配根全权事务泄漏：领域实例经运行时面取回 runIn 不得完成跨归属改写",
     "experiments/v3-code-architecture-poc/attacks/review/r3-independent-attacks.test.ts > R3 independent boundary attacks PluginFace revisionOf is not namespace-scoped: a domain face can read another capability",
     "experiments/v3-code-architecture-poc/attacks/review/r3-independent-attacks.test.ts > R3 independent boundary attacks empty contract_version is accepted by readRevision although current route has a nonempty version",
     "experiments/v3-code-architecture-poc/attacks/review/r3-independent-attacks.test.ts > R3 independent boundary attacks two capabilities sharing one namespace make NamespaceWriter version attribution order-dependent",
@@ -76,6 +74,8 @@
     "experiments/v3-code-architecture-poc/attacks/review/ADJUDICATION-scan-face.oracle-probe.test.ts > hiddenByContractSkew 信息面实测（裁决附件） 改截点：C(X) 前缀计数差分可枚举隐藏行的**精确** recorded_seq（线性走表）",
     "experiments/v3-code-architecture-poc/attacks/review/ADJUDICATION-scan-face.oracle-probe.test.ts > hiddenByContractSkew 信息面实测（裁决附件） 旁证：单对象面本身是逐 oid 判别器（skew 行抛错且带版本对 payload；可见行照常；不存在 ⇒ undefined）",
     "experiments/v3-code-architecture-poc/attacks/review/ADJUDICATION-scan-face.oracle-probe.test.ts > hiddenByContractSkew 信息面实测（裁决附件） 身份推断：oid 形如 OBJ-<space>-<n> 且 n 按创建序单调 ⇒ 隐藏创建行按\"创建 seq 排序中的秩\"即可命名（无 revise 场景下身份可完全枚举）",
+    "experiments/v3-code-architecture-poc/attacks/review/g1a-regression.test.ts > G1-A 回归（D-23/D-24/D-20/D-22 钉理想行为，红=缺陷仍在） D-20 投影翻转：appendLedger 必须核对 objectId 归属——伪造声明不得把他人对象的采纳投影翻成 ADOPTED",
+    "experiments/v3-code-architecture-poc/attacks/review/g1a-regression.test.ts > G1-A 回归（D-23/D-24/D-20/D-22 钉理想行为，红=缺陷仍在） D-22 装配根全权事务泄漏：领域实例经运行时面取回 runIn 不得完成跨归属改写",
     "experiments/v3-code-architecture-poc/attacks/review/g1a-regression.test.ts > G1-A 回归（D-23/D-24/D-20/D-22 钉理想行为，红=缺陷仍在） D-23 后果锁：存量悬空 required 边不得阻塞无关主体的后续合法提交（直到判据不再全表重扫）",
     "experiments/v3-code-architecture-poc/attacks/review/g1a-regression.test.ts > G1-A 回归（D-23/D-24/D-20/D-22 钉理想行为，红=缺陷仍在） D-23 装配路径：事务回调返回后旧句柄的写入必须被拒，迟到修订不得落库",
     "experiments/v3-code-architecture-poc/attacks/review/g1a-regression.test.ts > G1-A 回归（D-23/D-24/D-20/D-22 钉理想行为，红=缺陷仍在） D-23 领域路径：uowFor 被扣住的 scoped 事务句柄在回调返回后同样必须被拒",

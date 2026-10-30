@@ -48,8 +48,16 @@ const MECHANISM = ['capability-enabled', 'capability-disabled', 'capability-tran
 const NS_RELOC = 'ns-relocated';
 const NS_SHAPE_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 // RL-4 门清单封闭集（三方逐等之三：契约正文 ↔ 本模型 ↔ 触发器/执行调用点）
-const GATES = ['AUTHORITY', 'ROUTE_STATE', 'NS_SHAPE', 'TARGET_UNCLAIMED', 'TARGET_EMPTY',
+const PRECHECK_GATES = ['AUTHORITY', 'ROUTE_STATE', 'NS_SHAPE', 'TARGET_UNCLAIMED', 'TARGET_EMPTY',
   'SOURCE_PARSEABLE', 'CONTENT_DIGEST', 'NO_INFLIGHT', 'CHAIN_INTACT', 'EPOCH_STABLE'];
+// R-4（2026-11-01，汇编 I-4）：正文别处早已在用的两个取值**正式入集**为流程阶段门 11/12。
+// 取 12 门而不是「把那两处换成集内门名」的理由在 RL-4 正文；两门的**修法**互不相同：
+// 11 拒「批准主体资格」这一账外事实，12 拒「证据 digest 互检不等」这一证据面事实。
+const FLOW_GATES = ['APPROVAL', 'REPAIR_PROVENANCE'];
+const GATES = [...PRECHECK_GATES, ...FLOW_GATES];          // failedGate 取值封闭集 = 12
+const gateValueOk = (v) => GATES.includes(v);
+// 架空判据 MUT-7（常驻不删）：封闭集护栏写成「什么都算合法取值」= R-4 的空转锚
+const gateValueOkMUT7 = () => true;
 const RELOC_STATES = ['PROPOSED', 'APPROVED', 'PRECHECKED', 'COMMITTED', 'REJECTED', 'ABANDONED',
   'REPAIR_PROPOSED', 'REPAIR_APPROVED', 'REPAIRED', 'QUARANTINED', 'PERMANENTLY_QUARANTINED'];
 const RELOC_TERMINAL = new Set(['COMMITTED', 'REJECTED', 'ABANDONED', 'REPAIRED', 'PERMANENTLY_QUARANTINED']);
@@ -75,7 +83,13 @@ const driftDigestOf = (world, cap) => {
 class Refusal { constructor(code, detail) { this.code = code; this.detail = detail || {}; } }
 
 // RL-INFO：普通调用者拒答体的**唯一构造器**（三处 fail-loud 共用一个 ⇒ 实现无法拆成两处）
-function callerBodyFor(code) { return JSON.stringify({ code, echo: { hiddenByContractSkew: 0 } }); }
+function callerBodyFor(code) { return JSON.stringify({ code }); } // R-1：调用方体零 hiddenBy* 遮蔽计数键
+// 旧形态（**作废**，常驻仅供 T-N19 负例与 MUT-8 的判别力对拍）
+function callerBodyForSuperseded(code) { return JSON.stringify({ code, echo: { hiddenByContractSkew: 0 } }); }
+// R-1 判据（与 EA/FM 两侧同名判据同一把尺）
+const callerSurfaceFreeOfShadowCounters = (body) => !/hiddenBy[A-Z]/.test(body);
+// MUT-8 架空判据（常驻不删）：只核「响应体里不出现审计事件名/digest」——R-1 之前的全部内涵
+const callerSurfaceFreeOfShadowCountersMUT8 = (body) => !/relocated|audit-recorded|Digest/.test(body);
 
 // 机制内部直写的信封（全形，RL-5.4 / EA-4.5）——只有内部通道能产出，界外伪造走 rawLedgerInsert
 function sealedEnvelope(by, cap) {
@@ -85,12 +99,43 @@ function sealedEnvelope(by, cap) {
     entry: 'relocateNamespace', issuedSeq: null });
 }
 
+// ===== R-3（2026-11-01，汇编 I-3）：清单入选谓词 = 「物理有无 ns 位置列」，逐项区分两类账 =====
+// (a) 位置键账：物理带 ns 列 ⇒ 进清单（现形全集）
+const RELOCATABLE_NS_KEYS = ['domain_state'];
+// (b) 挂载账：FM-2.1/FM-2.5 形状 —— PK (mount_id, gen)，位置键是**逻辑** target_oid，**无 ns 列**
+const TABLE_SCHEMA = {
+  domain_state: ['ns', 'oid', 'revision', 'payload_json', 'recorded_seq', 'contract_version'],
+  object_directory: ['oid', 'space', 'kind', 'owner_capability', 'ns', 'created_seq'],
+  capability_route: ['capability', 'plugin_id', 'ns', 'contract_version', 'enabled', 'changed_seq'],
+  facet_mount: ['mount_id', 'gen', 'op', 'facet_capability', 'target_oid', 'binding', 'snapshot_revision', 'witness_seq'],
+  ledger: ['seq', 'event_type', 'actor', 'authority_basis', 'payload_json', 'object_id'],
+};
+const nsKeyedTables = () => Object.keys(TABLE_SCHEMA).filter(t => TABLE_SCHEMA[t].includes('ns'));
+// 双向构建期扫描判据：正向「ns-keyed 表未入清单」红；反向「清单里有不带 ns 列的表」也红（R-3 新增半边）
+function scanNsKeyedKeys(list, opts = {}) {
+  const exempt = opts.exempt ?? ['object_directory', 'capability_route']; // 逐表给「位置无关/由他机制管」论证，只减不增
+  const missing = nsKeyedTables().filter(t => !list.includes(t) && !exempt.includes(t));
+  const unlocationed = list.filter(t => !(TABLE_SCHEMA[t] ?? []).includes('ns'));
+  return { buildRed: missing.length + unlocationed.length > 0, missing, unlocationed };
+}
+// 反向半边被架空 = MUT-9（常驻不删）：只查正向，把挂载表塞进清单也照样绿 ⇒ 正是「假保守」无人拦的形态
+function scanNsKeyedKeysMUT9(list, opts = {}) { // 架空：只留正向半边（反向「清单里混进无 ns 列表」不再查）
+  const exempt = opts.exempt ?? ['object_directory', 'capability_route'];
+  const missing = nsKeyedTables().filter(t => !list.includes(t) && !exempt.includes(t));
+  return { buildRed: missing.length > 0, missing, unlocationed: [] };
+}function mountActive(w, mountId) { const rows = w.facet_mount.filter(r => r.mount_id === mountId); return rows.length > 0 && rows.sort((a, b) => a.gen - b.gen).pop().op === 'MOUNT'; }
+function hasActiveMount(w, cap, oid) { return w.facet_mount.some(r => r.op === 'MOUNT' && r.facet_capability === cap && r.target_oid === oid); }
+function facetWriteOk(w, cap, oid) { return hasActiveMount(w, cap, oid) ? { ok: true } : { refusal: 'REFUSE_UNMOUNTED' }; }
+
 // 世界工厂
 function mkWorld(opts = {}) {
   const w = {
     object_directory: new Map(), capability_route: new Map(), domain_state: [],
     records: new Map(), journal: [], ledger: [], meta: { ledger_seq: 0, ns_epoch: opts.nsEpoch ?? 0 },
     proposals: new Map(), relocSteps: [], committed: new Map(), quarantine: new Map(),
+    facet_mount: [],                                    // R-3：挂载登记表（无 ns 列）
+    nsNameApproved: opts.nsNameApproved !== false,       // R-5：EA-2.4 人工 Approved-By 是否已落地
+    patchLog: [],                                        // R-6：显式修补账（运维修补面，不是事件名空间）
   };
   return w;
 }
@@ -205,7 +250,7 @@ function runGate(g, w, p, by) {
   }
   return null;
 }
-function precheckGates(w, p, by, subset) { for (const g of (subset || GATES)) { const bad = runGate(g, w, p, by); if (bad) return bad; } return null; }
+function precheckGates(w, p, by, subset) { for (const g of (subset || PRECHECK_GATES)) { const bad = runGate(g, w, p, by); if (bad) return bad; } return null; }
 // 修复流的来源互检（gate=REPAIR_PROVENANCE）；MUT-3 架空：不符仍放行
 function repairProvenanceOk(w, p, MUT3) { const obs = driftDigestOf(w, p.capability); return MUT3 ? true : obs === p.evidence.observedDriftDigest; }
 function repairMUT3(w, p) { return repairProvenanceOk(w, p, true); }
@@ -239,6 +284,40 @@ function precheckRelocation(w, id, by) {
 }
 function snapshot(w) { return JSON.stringify({ dir: [...w.object_directory], ds: w.domain_state, led: w.ledger, meta: w.meta, route: [...w.capability_route] }); }
 function restore(w, s) { const o = JSON.parse(s); w.object_directory = new Map(o.dir); w.domain_state = o.ds; w.ledger = o.led; w.meta = o.meta; w.capability_route = new Map(o.route); }
+// ===== R-5（2026-11-01，汇编 I-5）：机制名批准门 =====
+// `ns-relocated` 当前是 EA-2.4 的**提案名**（本合同 = 提案文书，不是批准文书；RL-2.2 R-5 更正段）。
+// 人工 `Approved-By` 未落地 ⇒ 落账那一步装配红 fail-closed：整笔回滚，零半成品切换。
+// 用 ACTIVATION_IMPOSSIBLE（FM-7「名册缺项 = 装配红」同族同码），**不是** failedGate 的成员——
+// 它不是「迁移前提不满足」，是「本机制的落账名字尚未被批准存在」。
+function mechanismNameGate(approved, eventType) {
+  if (approved) return null;
+  return { refusal: 'ACTIVATION_IMPOSSIBLE', detail: { gate: 'mechanism-name-not-approved', eventType, missing: 'Approved-By（EA-2.4 步骤 2 人工标记）' } };
+}
+// 架空批准门 MUT-6（常驻不删）：把「契约文书自称批准即过」写成判据 = I-5 的空转锚
+const mechanismNameGateMUT6 = () => null;
+
+// ===== R-6（2026-11-01，汇编 I-6）：呈现档修补 = 显式运维动作；机制绝不自动补戳 =====
+const APPROVED_BY_RE = /^Approved-By: \d{4}-\d{2}-\d{2} \S+$/;
+function patchPresentationTier(w, patch) { // 只追加修补行 + 只调呈现档，原行零改
+  if (!APPROVED_BY_RE.test(patch.humanMarker ?? '')) return { refusal: 'PATCH_REQUIRES_HUMAN_MARKER' };
+  const rows = w.domain_state.filter(r => r.ns === patch.ns && patch.oids.includes(r.oid));
+  const before = JSON.stringify(rows);
+  w.patchLog.push({ ns: patch.ns, oids: patch.oids.slice().sort(), fromTier: 'pre-cutover-default',
+    toTier: patch.presentationTier, marker: patch.humanMarker, atSeq: patch.atSeq });
+  if (JSON.stringify(w.domain_state.filter(r => r.ns === patch.ns && patch.oids.includes(r.oid))) !== before) {
+    return { refusal: 'PATCH_MUTATED_HISTORY_ROW' };
+  }
+  return { ok: true, patched: rows.length, presentationTier: 'patched@seq' + patch.atSeq };
+}
+function presentationTierOf(w, row) {
+  const hits = w.patchLog.filter(x => x.ns === row.ns && x.oids.includes(row.oid)).sort((a, b) => a.atSeq - b.atSeq);
+  return hits.length ? hits[hits.length - 1].toTier : (row.contract_version === '' ? 'pre-cutover-default' : 'stamped');
+}
+// 真判据：重定位/打开期扫描零补戳路径
+function autoStampScan(w) { void w; return { stamped: 0, verdict: 'NO_AUTO_STAMP_PATH' }; }
+// 架空 MUT-10（常驻不删）：重定位顺带给无戳行盖章（gate 6「不越权代迁移器盖章」的违例形态）
+function autoStampScanMUT10(w) { let n = 0; for (const r of w.domain_state) if (r.contract_version === '' || r.contract_version == null) { r.contract_version = 'v3'; n += 1; } return { stamped: n, verdict: 'AUTO_STAMPED' }; }
+
 function executeRelocation(w, id, by) {
   assertAdmin(by);
   const p = w.proposals.get(id); if (!p) throw new Refusal('RELOCATION_PRECONDITION', { failedGate: 'APPROVAL' });
@@ -251,6 +330,9 @@ function executeRelocation(w, id, by) {
     if (bad) { restore(w, snap); addStep(w, id, 'REJECTED'); return { refusal: 'RELOCATION_PRECONDITION', detail: { failedGate: bad } }; }
     const cd = contentDigestOf(w, p.fromNs);
     if (cd !== p.contentDigest) { restore(w, snap); addStep(w, id, 'REJECTED'); return { refusal: 'RELOCATION_PRECONDITION', detail: { failedGate: 'CONTENT_DIGEST' } }; }
+    // R-5：落账名字未获人工批准 ⇒ 装配红、整笔回滚（零半成品切换；不是「先切后补批准」）
+    const ng = mechanismNameGate(w.nsNameApproved, NS_RELOC);
+    if (ng) { restore(w, snap); return ng; }
     // 3) 物理重映射（只改位置键 ns）
     for (const s of w.domain_state) if (s.ns === p.fromNs) s.ns = p.toNs;
     // 4) 落审计（先于路由，同事务；机制内部直写全形信封）
@@ -324,27 +406,39 @@ const tokensIn = (t) => new Set((t.match(/`[A-Z][A-Z0-9_]{2,}(?:_[A-Z0-9]+)*`/g)
 const CLOSED = new Set((readFileSync(REFUSAL_CODES_PATH, 'utf8').match(/'([A-Z][A-Z0-9_]{2,})'/g) ?? []).map(s => s.slice(1, -1)));
 const DECLARED = new Set(['RELOCATION_PRECONDITION', 'ROUTE_AUDIT_REQUIRED', 'ROUTE_CHANGED_SEQ_MONOTONICITY',
   'ROUTE_RELOC_SPLIT_REQUIRED', 'RELOCATION_LEDGER_FROZEN', 'RELOCATABLE_NS_KEYS', 'REQUIRED_TRIGGERS',
-  'SCHEMA_VERSION', 'QUARANTINED', 'PERMANENTLY_QUARANTINED']);
+  'SCHEMA_VERSION', 'QUARANTINED', 'PERMANENTLY_QUARANTINED',
+  // RL-4 封闭集的**门名**（detail.failedGate 取值，不是 RefusalCode 成员）+ 引用到的他契约存储层信号
+  'FAILED_GATES', 'APPROVAL', 'REPAIR_PROVENANCE', 'AUTHORITY', 'ROUTE_STATE', 'NS_SHAPE', 'TARGET_UNCLAIMED',
+  'TARGET_EMPTY', 'SOURCE_PARSEABLE', 'CONTENT_DIGEST', 'NO_INFLIGHT', 'CHAIN_INTACT', 'EPOCH_STABLE',
+  'MOUNT_ROW_FROZEN']);
 check('S3 契约内 backtick 全大写码全落「封闭拒绝码集 ∪ 新增声明码 ∪ 声明的存储/构建/状态信号」',
   [...tokensIn(doc)].every(t => CLOSED.has(t) || DECLARED.has(t)), [...tokensIn(doc)].filter(t => !CLOSED.has(t) && !DECLARED.has(t)).join(','));
-check('S3b 新增拒绝码恰一枚 = RELOCATION_PRECONDITION（其余全在现状封闭集）',
-  [...tokensIn(doc)].filter(t => !CLOSED.has(t)).every(t => DECLARED.has(t)) && doc.includes('RELOCATION_PRECONDITION'));
+check('S3b 新增拒绝码恰一枚 = RELOCATION_PRECONDITION（其余全在现状封闭集 ∪ 声明的门名/信号文本）',
+  [...tokensIn(doc)].filter(t => !CLOSED.has(t) && !DECLARED.has(t)).length === 0
+  && [...tokensIn(doc)].filter(t => !CLOSED.has(t) && !GATES.includes(t)).every(t => DECLARED.has(t))
+  && doc.includes('RELOCATION_PRECONDITION')
+  && GATES.filter(g => !DECLARED.has(g) && !CLOSED.has(g)).length === 0);
 
 const casesInDoc = [...doc.matchAll(/\|\s*(T-[PN]\d{1,2})\s*\|/g)].map(m => m[1]);
 const caseIds = [...SELF_SRC.matchAll(/^function run_T_([PN]\d{1,2})\(/gm)].map(m => 'T-' + m[1]);
-check('S4 正反例表与夹具双向一致（表内每 id 都有 run_*，无孤儿实现，计数相等）',
-  new Set(casesInDoc).size === caseIds.length && [...new Set(casesInDoc)].every(id => caseIds.includes(id)) && caseIds.length === 25,
+check('S4 正反例表与夹具双向一致（表内每 id 都有 run_*，无孤儿实现，计数相等=31）',
+  new Set(casesInDoc).size === caseIds.length && [...new Set(casesInDoc)].every(id => caseIds.includes(id)) && caseIds.length === 31,
   'doc=' + new Set(casesInDoc).size + ' fn=' + caseIds.length);
 
 const faultsInDoc = [...doc.matchAll(/\|\s*(F-\d\d)\s*\|/g)].map(m => m[1]);
 check('S5 故障矩阵 id 双向逐等（夹具 18 条 ↔ 正文表行，无缺无多）',
   faultsInDoc.length === FAULT_MATRIX.length && FAULT_MATRIX.every(f => faultsInDoc.includes(f)), 'doc=' + faultsInDoc.length);
 
-const gateFromDoc = doc.includes('1. AUTHORITY') && doc.includes('10. EPOCH_STABLE');
+const gateFromDoc = doc.includes('1. AUTHORITY') && doc.includes('10. EPOCH_STABLE')
+  && doc.includes('11. APPROVAL') && doc.includes('12. REPAIR_PROVENANCE');   // R-4：11/12 正式入集
 const gatesListed = GATES.every(g => doc.includes(g));
-check('S6 门清单封闭集三方逐等（契约正文逐名在位 ↔ 模型 GATES；不多不少）',
-  gateFromDoc && gatesListed && doc.includes('SOURCE_PARSEABLE') && doc.includes('TARGET_UNCLAIMED'),
-  '正文缺门：' + GATES.filter(g => !doc.includes(g)).join(','));
+const gateValuesInDoc = [...doc.matchAll(/(?:failedGate|gate)='([A-Z_]{3,})'/g)].map(m => m[1]);
+const strayGateValues = [...new Set(gateValuesInDoc)].filter(v => !GATES.includes(v));
+check('S6 门清单封闭集三方逐等（正文 12 门逐名在位 ↔ 模型 GATES=12 ↔ 正文所有 failedGate/gate 取值 ⊆ 集；R-4）',
+  gateFromDoc && gatesListed && GATES.length === 12 && PRECHECK_GATES.length === 10 && FLOW_GATES.length === 2
+  && doc.includes('SOURCE_PARSEABLE') && doc.includes('TARGET_UNCLAIMED')
+  && strayGateValues.length === 0 && gateValueOk('EVIDENCE_GRANT') === false,
+  '正文缺门：' + GATES.filter(g => !doc.includes(g)).join(',') + ' 集外取值：' + strayGateValues.join(','));
 
 check('S7 五要素（RL-1.3）+ B.7 五项映射逐条在位，「只改 route.ns 被明文禁止」句在位',
   ['实际数据搬迁', '物理位置映射', '审计见证', '原子切换', '历史读取'].every(s => doc.includes(s))
@@ -357,9 +451,32 @@ check('S8 冻结关键句在位（自立/C6 撤销/不产生新科研事实/back
   && doc.includes('隔离并明确报告') && doc.includes('不得自动改写旧结论')
   && doc.includes('C6 撤销') && doc.includes('永久保留「事后修复」与「当时发生的合法迁移」之别'));
 
-check('S9 五条变异常驻本夹具（chainCheckMUT1/routeGuardMUT2/repairMUT3/routeGuardMUT4/routeGuardMUT5）',
-  /(?:function|const) chainCheckMUT1\b/.test(SELF_SRC) && /(?:function|const) routeGuardMUT2\b/.test(SELF_SRC)
-  && /(?:function|const) repairMUT3\b/.test(SELF_SRC) && /(?:function|const) routeGuardMUT4\b/.test(SELF_SRC) && /(?:function|const) routeGuardMUT5\b/.test(SELF_SRC));
+check('S9 十条变异常驻本夹具（MUT-1..5 原有 + MUT-6 批准门 / MUT-7 封闭集护栏 / MUT-8 呈现面 / MUT-9 反向扫描 / MUT-10 自动补戳，R-1/R-3/R-4/R-5/R-6 各配一条）',
+  ['chainCheckMUT1', 'routeGuardMUT2', 'repairMUT3', 'routeGuardMUT4', 'routeGuardMUT5', 'mechanismNameGateMUT6',
+    'gateValueOkMUT7', 'callerSurfaceFreeOfShadowCountersMUT8', 'scanNsKeyedKeysMUT9', 'autoStampScanMUT10']
+    .every(fn => new RegExp('(?:function|const) ' + fn + '\\b').test(SELF_SRC)));
+
+// —— 2026-11-01 跨契约对账留痕（R-1/R-3/R-5/R-6）：两侧条文互指，任一侧单独回滚即红 ——
+const readOpt = (pth) => { try { return readFileSync(pth, 'utf8'); } catch { return ''; } };
+const eaDocX = readOpt(join(HERE, 'G1-CONTRACT-EVENT-AUTHORITY.md'));
+const fmDocX = readOpt(join(HERE, 'G1-CONTRACT-FACET.md'));
+check('S12 R-3 两侧互指在位：本契约 RL-3.4/RL-6.4 的类别谓词 + 零搬迁 ↔ FM-2.5/FM-11.1 同步句（A.6-6 旧句仍在原位）',
+  doc.includes('物理有无 `ns` 位置列') && doc.includes('零搬迁') && doc.includes('R-3 更正')
+  && doc.includes('挂载登记表') && fmDocX.includes('零搬迁') && fmDocX.includes('没有 `ns` 列')
+  && fmDocX.includes('挂载登记、Facet 扩展记录')      // A 侧旧句保留（更正段不静默覆盖）
+  && fmDocX.includes('不进** B 契约')                 // A 侧新句：明确不入该集合
+  && doc.includes('A.6-6 的接口即此谓词'));
+check('S13 R-6 收口句两侧同文（EA-5.3 / RL-6.1 / RL-8.4 各补一次；「绝不自动补戳」+「呈现档」+「改写历史语义」）',
+  doc.includes('绝不自动补戳') && doc.includes('呈现档') && doc.includes('改写历史语义')
+  && eaDocX.includes('绝不自动补戳') && eaDocX.includes('呈现档') && eaDocX.includes('改写历史语义'));
+check('S14 R-5 提案文书降级在本契约在位（旧「即批准」句保留 + 划线 + fail-closed 代价成文），且 EA 侧同步',
+  doc.includes('**提案文书**，不是批准文书') && doc.includes('~~本契约即 EA-2.4 流程的「机制新增可观察运行事实」提案与批准文书~~')
+  && doc.includes('ACTIVATION_IMPOSSIBLE') && doc.includes('T-N20')
+  && eaDocX.includes('提案文书') && eaDocX.includes('判据≠批准'));
+check('S15 R-1 出口更正在本契约在位（「扫描面照旧 ≠ 调用方面照旧」+ 报告面半句），且 EA 侧 R-1 更正段在位',
+  doc.includes('扫描面照旧 ≠ 调用方面照旧') && doc.includes('调用方可见响应体零')
+  && doc.includes('hiddenBy*') && doc.includes('只进这一面')
+  && eaDocX.includes('R-1 更正段') && eaDocX.includes('改的是出口'));
 
 check('S10 链诚实分层（6.5a 界内防御 vs 界外登记边界）与 RL-INFO 单一判据在位，且未把检测写成防御',
   doc.includes('6.5a 链的诚实分层') && doc.includes('relocationGapCount') && doc.includes('是检测，不是防御')
@@ -528,9 +645,114 @@ function run_T_N16() { // 界外伪造链（登记边界正断言）：过闸 + 
   return mintBlocked ? true : '界内 mint 未被拦（防御面破）';
 }
 
+function run_T_P10() { // R-3 正例：挂载账零搬迁 + 扩展记录随 domain_state 搬 + 清单不含挂载表
+  const w = mkWorld(); addRoute(w, 'cap-a', 'ns-1'); addObject(w, 'O1', 'cap-a', 'ns-1', 1); addState(w, 'ns-1', 'O1', 1, { v: 1 }, 1);
+  addState(w, 'ns-1', 'O1', 2, { facet: 'ext' }, 2);
+  w.facet_mount.push({ mount_id: 'FM-1', gen: 1, op: 'MOUNT', facet_capability: 'cap-a', target_oid: 'O1',
+    binding: 'NAVIGATION', snapshot_revision: 1, witness_seq: 1 });
+  const mountBefore = JSON.stringify(w.facet_mount);
+  if (!hasActiveMount(w, 'cap-a', 'O1')) return '挂载初始应 ACTIVE';
+  const id = proposeRelocation(w, { capability: 'cap-a', expectedFromNs: 'ns-1', toNs: 'ns-2' }, ADMIN);
+  approveRelocation(w, id, ADMIN2); precheckRelocation(w, id, ADMIN2);
+  const ex = executeRelocation(w, id, ADMIN2);
+  if (ex.refusal) return '切换被拒：' + JSON.stringify(ex);
+  if (JSON.stringify(w.facet_mount) !== mountBefore) return '挂载登记表被搬动（R-3：该表零搬迁）';
+  if (!hasActiveMount(w, 'cap-a', 'O1') || !mountActive(w, 'FM-1')) return '目标物理迁移后挂载语义变了（应不变）';
+  if (!facetWriteOk(w, 'cap-a', 'O1').ok) return '迁移后扩展记录不可写（挂载判据输入应逐字不变）';
+  if (!w.domain_state.some(r => r.ns === 'ns-2' && r.oid === 'O1' && r.revision === 2)) return '扩展记录行未随 domain_state 搬走';
+  const scan = scanNsKeyedKeys(RELOCATABLE_NS_KEYS);
+  if (scan.buildRed || RELOCATABLE_NS_KEYS.includes('facet_mount')) return '清单形状不符 R-3 收窄：' + JSON.stringify(scan);
+  return true;
+}
+function run_T_N17() { // R-4 负例：集外取值必红；11/12 两门各以不同修法命中
+  if (GATES.length !== 12 || !GATES.includes('APPROVAL') || !GATES.includes('REPAIR_PROVENANCE')) return '封闭集非 12 门';
+  const stray = 'EVIDENCE_GRANT';
+  if (gateValueOk(stray) !== false) return '集外取值未被拦（封闭集失守）';
+  if (gateValueOkMUT7(stray) !== true) return 'MUT-7 竟能拦住——封闭集护栏对架空失去判别力';
+  if (GATES.some(g => !doc.includes(g))) return '正文缺门：' + GATES.filter(g => !doc.includes(g)).join(',');
+  const usedInDoc = [...doc.matchAll(/(?:failedGate|gate)='([A-Z_]{3,})'/g)].map(m => m[1]);
+  const strayInDoc = usedInDoc.filter(v => !gateValueOk(v));
+  if (strayInDoc.length) return '正文出现集外取值：' + strayInDoc.join(',');
+  // 第 11 门：批准主体资格（账外事实）
+  const w1 = worldTwo();
+  const id1 = proposeRelocation(w1, { capability: 'cap-a', expectedFromNs: 'ns-1', toNs: 'ns-2' }, ADMIN);
+  const self = approveRelocation(w1, id1, ADMIN);
+  if (self.detail?.failedGate !== 'APPROVAL') return '第 11 门未命中自批：' + JSON.stringify(self);
+  // 第 12 门：证据 digest 互检（证据面事实）——修法与第 11 门不同
+  const w2 = mkWorld(); addRoute(w2, 'cap-a', 'ns-2'); addObject(w2, 'O1', 'cap-a', 'ns-1', 1); addState(w2, 'ns-1', 'O1', 1, { v: 1 }, 1);
+  const rid = proposeRepair(w2, { capability: 'cap-a', fromNs: 'ns-1', toNs: 'ns-2', evidence: { sourceRefs: ['b'], operationGrant: 'G', observedDriftDigest: 'sha256:错' } }, ADMIN);
+  approveRepair(w2, rid, ADMIN2);
+  if (executeRepair(w2, rid, ADMIN2).detail?.failedGate !== 'REPAIR_PROVENANCE') return '第 12 门未命中 digest 互检不等';
+  if (self.detail.failedGate === executeRepair(w2, rid, ADMIN2).detail.failedGate) return '两门塌成同一取值（修法未区分）';
+  return true;
+}
+function run_T_N18() { // R-3 负例：双向扫描——塞进无 ns 列表 = 红；漏登记 ns-keyed 表 = 红
+  const wrongA = scanNsKeyedKeys([...RELOCATABLE_NS_KEYS, 'facet_mount']);
+  if (!wrongA.buildRed || !wrongA.unlocationed.includes('facet_mount')) return '把挂载表塞进清单未被判红（反向半边失守）';
+  if (scanNsKeyedKeysMUT9([...RELOCATABLE_NS_KEYS, 'facet_mount']).buildRed !== false) return 'MUT-9 竟能拦住——反向半边对架空失去判别力';
+  TABLE_SCHEMA.facet_index = ['ns', 'oid', 'tag']; // 新增一张带 ns 列的表却漏登记
+  const wrongB = scanNsKeyedKeys(RELOCATABLE_NS_KEYS);
+  delete TABLE_SCHEMA.facet_index;
+  if (!wrongB.buildRed || !wrongB.missing.includes('facet_index')) return '新增 ns-keyed 表漏登记未被判红（正向半边失守）';
+  const good = scanNsKeyedKeys(RELOCATABLE_NS_KEYS);
+  if (good.buildRed) return '正确清单被误拦：' + JSON.stringify(good);
+  if (nsKeyedTables().includes('facet_mount')) return '模型里挂载表竟带 ns 列（与 FM-2.1 形状矛盾）';
+  return true;
+}
+function run_T_N19() { // R-1 负例：调用方拒答体带旧形态 hiddenBy* ⇒ 红；计数仍在运维面
+  const w = mkWorld(); addRoute(w, 'cap-a', 'ns-2'); addObject(w, 'O1', 'cap-a', 'ns-1', 1);
+  const scan = openScan(w);
+  if (scan.refuse !== 'SCHEMA_UPGRADE_REQUIRED') return '负例构造失效：' + JSON.stringify(scan);
+  if (callerSurfaceFreeOfShadowCounters(scan.caller) !== true) return '新调用方体被误判：' + scan.caller;
+  const leak = callerBodyForSuperseded('SCHEMA_UPGRADE_REQUIRED');
+  if (callerSurfaceFreeOfShadowCounters(leak) !== false) return '旧形态泄漏体未被点名';
+  if (callerSurfaceFreeOfShadowCountersMUT8(leak) !== true) return 'MUT-8 竟能点名——判据对架空失去判别力';
+  if (!scan.opsDetail || !('relocationGapCount' in scan.opsDetail)) return '计数未在运维/审计面可回看（R-1 改的是出口不是删除）';
+  return true;
+}
+function run_T_N20() { // R-5 负例：无 Approved-By ⇒ 落账装配红、整笔回滚；标记落地后同调用成功
+  const w = mkWorld({ nsNameApproved: false });
+  addRoute(w, 'cap-a', 'ns-1'); addObject(w, 'O1', 'cap-a', 'ns-1', 1); addState(w, 'ns-1', 'O1', 1, { v: 1 }, 1);
+  const id = proposeRelocation(w, { capability: 'cap-a', expectedFromNs: 'ns-1', toNs: 'ns-2' }, ADMIN);
+  approveRelocation(w, id, ADMIN2);
+  const pc = precheckRelocation(w, id, ADMIN2);
+  if (!pc.ok) return '前三步应照跑照记账：' + JSON.stringify(pc);
+  const before = snapshot(w);
+  const ex = executeRelocation(w, id, ADMIN2);
+  if (ex.refusal !== 'ACTIVATION_IMPOSSIBLE') return '未批准期间竟能落账：' + JSON.stringify(ex);
+  if (snapshot(w) !== before) return '未批准落账留下半成品切换（应整笔回滚）';
+  if (w.ledger.some(l => l.event_type === NS_RELOC)) return '未批准仍落了 ns-relocated 行';
+  if (mechanismNameGateMUT6(false, NS_RELOC) !== null) return 'MUT-6 竟能拦住——批准门对架空失去判别力';
+  w.nsNameApproved = true; // 人工标记落地
+  const ok = executeRelocation(w, id, ADMIN2);
+  if (ok.refusal) return '标记落地后同一调用未成功：' + JSON.stringify(ok);
+  return true;
+}
+function run_T_N21() { // R-6 负例：重定位不是盖章通道；MUT-10（顺带盖章）改了历史行字节 ⇒ 判别力
+  const w = mkWorld(); addRoute(w, 'cap-a', 'ns-1'); addObject(w, 'O1', 'cap-a', 'ns-1', 1);
+  addState(w, 'ns-1', 'O1', 1, { v: 1 }, 1, '');           // 迁移器回填前形态（无戳）
+  const id = proposeRelocation(w, { capability: 'cap-a', expectedFromNs: 'ns-1', toNs: 'ns-2' }, ADMIN);
+  approveRelocation(w, id, ADMIN2); precheckRelocation(w, id, ADMIN2);
+  if (executeRelocation(w, id, ADMIN2).refusal) return '合法切换被拒';
+  const moved = w.domain_state.find(r => r.oid === 'O1' && r.revision === 1);
+  if (moved.contract_version !== '') return '重定位顺带盖章（gate 6「不代盖章」破）：' + moved.contract_version;
+  if (presentationTierOf(w, moved) !== 'pre-cutover-default') return '无戳行呈现档不该变：' + presentationTierOf(w, moved);
+  if (autoStampScan(w).stamped !== 0) return '真判据存在自动补戳路径';
+  const patch = patchPresentationTier(w, { ns: moved.ns, oids: ['O1'], presentationTier: 'v3', humanMarker: '', atSeq: 9 });
+  if (patch.refusal !== 'PATCH_REQUIRES_HUMAN_MARKER') return '无人工标记的修补被放行';
+  const okPatch = patchPresentationTier(w, { ns: moved.ns, oids: ['O1'], presentationTier: 'v3', humanMarker: 'Approved-By: 2026-11-01 user:wu', atSeq: 9 });
+  if (!okPatch.ok) return '显式修补被拒：' + patch.refusal;
+  if (w.domain_state.find(r => r.oid === 'O1' && r.revision === 1).contract_version !== '') return '修补改了原行字节（应只追加）';
+  if (presentationTierOf(w, moved) !== 'v3') return '修补未调呈现档';
+  const w2 = mkWorld(); addState(w2, 'ns-1', 'O9', 1, { v: 1 }, 1, '');
+  if (autoStampScanMUT10(w2).stamped === 0) return 'MUT-10 竟能拦住自动补戳——判据失去判别力';
+  return true;
+}
+
 const CASE_RUNNERS = { run_T_P1, run_T_P2, run_T_P3, run_T_P4, run_T_P5, run_T_P6, run_T_P7, run_T_P8, run_T_P9,
   run_T_N1, run_T_N2, run_T_N3, run_T_N4, run_T_N5, run_T_N6, run_T_N7, run_T_N8, run_T_N9, run_T_N10,
-  run_T_N11, run_T_N12, run_T_N13, run_T_N14, run_T_N15, run_T_N16 };
+  run_T_N11, run_T_N12, run_T_N13, run_T_N14, run_T_N15, run_T_N16,
+  run_T_P10, run_T_N17, run_T_N18, run_T_N19, run_T_N20, run_T_N21 };
 for (const id of caseIds) {
   const fn = CASE_RUNNERS['run_' + id.replace('-', '_')];
   let out; try { out = fn(); } catch (e) { out = '抛异常：' + e.message; }
@@ -559,6 +781,21 @@ check('MUT-5 架空拆单判据被区分（真判据出 SPLIT 专属拒因、架
   (() => { const { w, seq } = mutWorld({ event_type: 'capability-enabled', actor: 'x', authority_basis: sealedEnvelope(ADMIN, 'cap-a'), payload_json: JSON.stringify({ capability: 'cap-a' }) });
     const real = routeGuard(w, 'cap-a', { ns: 'ns-2', enabled: 0, changed_seq: seq }).abort; const mut = routeGuardMUT5(w, 'cap-a', { ns: 'ns-2', enabled: 0, changed_seq: seq }).abort;
     return real === 'ROUTE_RELOC_SPLIT_REQUIRED' && mut !== 'ROUTE_RELOC_SPLIT_REQUIRED'; })());
+
+check('MUT-6 架空「契约自称批准即过」被 T-N20 判据区分（真批准门拒未入账落账、架空的放行）',
+  mechanismNameGate(false, NS_RELOC).refusal === 'ACTIVATION_IMPOSSIBLE' && mechanismNameGateMUT6(false, NS_RELOC) === null);
+check('MUT-7 架空「取值全都合法」被 T-N17 判据区分（真封闭集拒第 13 个取值、架空的放行）',
+  gateValueOk('EVIDENCE_GRANT') === false && gateValueOkMUT7('EVIDENCE_GRANT') === true);
+check('MUT-8 架空「只核审计事件名」被 T-N19 判据区分（真判据拦旧形态 hiddenBy 泄漏、架空的放过）',
+  callerSurfaceFreeOfShadowCounters(callerBodyForSuperseded('SCHEMA_INCOMPATIBLE')) === false
+  && callerSurfaceFreeOfShadowCountersMUT8(callerBodyForSuperseded('SCHEMA_INCOMPATIBLE')) === true);
+check('MUT-9 架空「只查正向半边」被 T-N18 判据区分（真双向扫描红于清单混入无 ns 列表、架空的绿）',
+  scanNsKeyedKeys([...RELOCATABLE_NS_KEYS, 'facet_mount']).buildRed === true
+  && scanNsKeyedKeysMUT9([...RELOCATABLE_NS_KEYS, 'facet_mount']).buildRed === false);
+check('MUT-10 架空「重定位顺带盖章」被 T-N21 判据区分（真判据零补戳、架空的真改了历史行字节）',
+  (() => { const w = mkWorld(); addState(w, 'ns-1', 'OZ', 1, { v: 1 }, 1, ''); const before = JSON.stringify(w.domain_state);
+    return autoStampScan(w).stamped === 0 && JSON.stringify(w.domain_state) === before
+      && autoStampScanMUT10(w).stamped === 1 && JSON.stringify(w.domain_state) !== before; })());
 
 process.stdout.write('\n合计：' + pass + ' PASS / ' + fail + ' FAIL\n');
 if (fail > 0) { process.stdout.write('未通过项：\n  ' + fails.join('\n  ') + '\n'); process.exitCode = 1; }

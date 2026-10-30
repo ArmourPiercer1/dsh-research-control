@@ -165,7 +165,19 @@ interface NamespaceRelocationRecord {
 不可删改，P-01/P-04 同面）。工作流账被改写改变不了任何读判定——伪造读合法性必须去伪造 H 行
 （痕迹不可删，处置归运维/审计，与 P-04 裸面边界同条同词）。
 
-### 2.2 `ns-relocated` 事件载荷（机制封闭名单成员；本合同即 B 侧自裁文书）
+### 2.2 `ns-relocated` 事件载荷（机制封闭名单**提案**成员；本合同 = B 侧**提案文书**，不是批准文书）
+
+> **【R-5 更正段｜2026-11-01；跨契约对账，台账 `G1-CONTRACT-RECONCILIATION.md` R-5；旧句保留于下、以本段为准】**
+> 本节旧题与旧句把本合同写成「本合同即 EA-2.4 流程的提案**与批准**文书」——该「即批准」作废。
+> 唯一有效的批准 = **EA-2.4 步骤 2 的人工 `Approved-By` 标记**（锚文件 + trailer 两处同现，非作者），
+> 而 **G1 冻结评审尚未发生**（`G0-R-CLOSURE` = NO-GO）⇒ 本合同及任何分契约都**不得自称已批准**。
+> 本合同裁定的是**名称形状、载荷、写点与判据**（判据≠批准）；标准写法见 `G1-CONTRACT-FACET.md` FM-9
+> （「本合同是命名提案…本身不构成入账」），A 侧即为范式，本条向它对齐。
+> **入账前的代价如实登记，不粉饰**：`ns-relocated` 未入账期间，重定位的落账步骤装配红
+> （`ACTIVATION_IMPOSSIBLE`，与 FM-7「名册缺项 = 装配红」同族同码）⇒ **fail-closed**：提案/校验/审批
+> 各步照跑、账步照记，但切换事务在落 `ns-relocated` 那一步拒签、整笔回滚，零半成品切换。
+> 夹具证据：RL 夹具 **T-N20**（无 `Approved-By` ⇒ 该名字不可入账、切换拒签、零残留；标记落地后同调用成功）
+> + 架空 **MUT-6**（把批准门写成「契约自称批准即过」必须放过同一负例）。
 
 ```ts
 /** ns-relocated 的 ledger.payload_json。行本身由机制实现内部直写（EA-2.2 通道矩阵），
@@ -193,10 +205,13 @@ interface RepairEvidence {                    // RL-8.4；provenance=AFTER-THE-F
 }
 ```
 
-事件名裁定：`ns-relocated` 入机制封闭名单，**本契约即 EA-2.4 流程的「机制新增可观察运行事实」提案
-与批准文书**（B 面名称由其契约自裁，P-13）；锚文件 `planned:true→false` 的翻转为**独立提交**，
-受 EA-6.2 **R4 EVENT_RECON_COUPLING**（名单语义行与写码模块禁同提交）。本合同**不新增第二个机制
-事件名**——重定位的每个工作流步进是账行，不是事件（§12 对应表的第一行）。
+事件名裁定（**旧句保留于下、以本节上方 R-5 更正段为准**）：`ns-relocated` 入机制封闭名单，
+~~本契约即 EA-2.4 流程的「机制新增可观察运行事实」提案与批准文书~~ → **本契约是该提案的文书本体，
+批准不在本契约**（B 面名称的**形状与判据**由其契约自裁，P-13；**入账与否**归 EA-2.4 步骤 2 的人工标记）。
+锚文件 `planned:true→false` 的翻转为**独立提交**，受 EA-6.2 **R4 EVENT_RECON_COUPLING**（名单语义行与
+写码模块禁同提交）；翻转提交里 `Approved-By` 标记与 `Event-Name-Review:` trailer 两处同现，缺一即
+EA-6.1 三要素不满足。本合同**不新增第二个机制事件名**——重定位的每个工作流步进是账行，不是事件
+（§12 对应表的第一行）。
 
 ### 2.3 `meta.ns_epoch`（新计数键）
 
@@ -259,17 +274,31 @@ interface RepairEvidence {                    // RL-8.4；provenance=AFTER-THE-F
 ### 3.3 批准判据（RL-3.3）
 
 ① 批准人持 `capability-admin`（`assertAuthority`，缺轴 ⇒ `AUTHORITY_REQUIRED`，先于任何写）；
-② 批准人 ≠ 提案人（自批 ⇒ `RELOCATION_PRECONDITION`，gate='APPROVAL'；「非作者批准」的同族纪律，
-EA-2.4 步骤 2）；③ 批准绑定 `proposalDigest`（批准后再改提案参数 ⇒ 旧批准失效）；④ 修复提案的
-批准**额外**要求 `evidence.operationGrant` 在场（运维授权，RL-8.4）。
+② 批准人 ≠ 提案人（自批 ⇒ `RELOCATION_PRECONDITION`，**`failedGate='APPROVAL'` = RL-4 封闭集第 11 门**；
+「非作者批准」的同族纪律，EA-2.4 步骤 2）；③ 批准绑定 `proposalDigest`（批准后再改提案参数 ⇒ 旧批准
+失效 ⇒ 同属第 11 门，`observed='stale-proposal-digest'`）；④ 修复提案的批准**额外**要求
+`evidence.operationGrant` 在场（运维授权，RL-8.4；缺 ⇒ 第 11 门 `observed='no-operation-grant'`）。
+**R-4 注**：本条旧作「gate='APPROVAL'」而 RL-4 十门清单内无此取值，属同一封闭集自相矛盾（汇编 I-4）；
+现该名已正式入集为第 11 门，**取值面仍是一处正源**（RL-4 表），别处只引用不另立。
 
 ### 3.4 覆盖范围（RL-3.4）
 
 `oidScope` 封闭单值 `'ALL'`：**一个 capability 的全部机制状态行原子迁移，不允许分批**——分批
 会产生「半旧半新」可观察窗口（每行各自选边 = 每次读都可能读到不同物理世代），与 D-31 的「同一
 对象同一时刻两个答案」同族（§16.3 D-24 读侧后果句）。挂载登记/Facet 扩展记录等**其它以 ns 为
-位置键的表**随 RL-6.4 的 `RELOCATABLE_NS_KEYS` 封闭清单并入同一事务；A 节（G1-FACET-01）挂载
-表落地时以「加入该清单」为迁移联动的唯一接口（B.5-3 的裁定形态）。
+位置键的表**随 RL-6.4 的 `RELOCATABLE_NS_KEYS` 封闭清单并入同一事务。
+**【R-3 更正，2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md` R-3；旧句「A 节（G1-FACET-01）挂载表
+落地时以『加入该清单』为迁移联动的唯一接口（B.5-3 的裁定形态）」保留于下、以本段为准】** 旧句把
+「挂载登记表」当成一张待加入清单的 ns 键控表，与 A 契约 FM-2.1/FM-2.5 的表形状（PK `(mount_id, gen)`、
+位置键是**逻辑** `target_oid`、**无 `ns` 列**）不可同时成立。更正后的联动接口按**类别**而非按**表名**：
+
+- 接口谓词 = 「该表**物理有无 `ns` 位置列**」（RL-6.4 的构建期扫描判据即该谓词的实现形态）；
+  有 ⇒ 进清单、随切换事务改位置键；无 ⇒ 不入清单，按该账自身的规则处置。
+- **挂载登记表属后者 ⇒ 零搬迁**：迁移改的是目标的物理位置，而挂载判据的输入
+  `(facetCapability, targetOid)` 是两个逻辑量（FM-3.1 唯一判据点），迁移前后逐字不变
+  ⇒ 挂载语义不变，**不改行、不补见证、不落事件**。此句在 A 侧同步成文（FM-2.5 末段 + FM-11.1 A.6-6）。
+- **Facet 扩展记录行属前者**：A2 形态今天物理住在属主 ns 的状态行里（带 `ns` 位置键）⇒
+  由 `domain_state` 随行搬走，无需单独登记；G2 若把扩展记录落成独立表，按同一谓词逐项归位。
 
 ### 3.5 新鲜性（RL-3.5）
 
@@ -281,8 +310,22 @@ checklistDigest 绑定的失效条件（任一发生 ⇒ execute 需重跑 prech
 
 ## 4. RL-4 迁移前校验与目标准备清单（封闭清单；唯一责任者 = 本契约，P-12 D5-a）
 
-`RelocationGate` 封闭集（清单名即 detail.failedGate 取值，**不得旁加**；扩充 = 本合同冻结面变更，
-夹具 S 组逐等）：
+`RelocationGate` 封闭集（**R-4 修订，2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md` R-4**：
+本节旧版只有十门并写「不得旁加」，而正文别处早已在**用**两个集外取值——RL-3.3② 的 `gate='APPROVAL'`、
+RL-8.4/RL-8.5 与 §10.2 F-13 的 `failedGate='REPAIR_PROVENANCE'`（汇编注册表 B 的 I-4：同一封闭集自相矛盾）。
+**裁定：正式纳入封闭枚举**，取 **12 门**，不另立「第二套取值面」。扩充 = 本合同冻结面变更，
+夹具 S6 三方逐等（正文 ↔ 夹具 `FAILED_GATES` ↔ 故障矩阵/RL-13 引用），并新增机验护栏：
+
+- **为什么不改成「把那两处换成集内门名」**：`APPROVAL` 与 `REPAIR_PROVENANCE` 的**修法**与既有十门皆不同
+  （前者拒「批准主体资格」这一账外事实，后者拒「证据 digest 互检不等」这一证据面事实），塞进
+  `AUTHORITY`/`SOURCE_PARSEABLE` 会让 `detail.failedGate` 失去「一眼定位失败阶段」的价值，也与 §11.2
+  「detail 只回显调用方自己的输入与机制本地可判事实」的定位冲突。**取值语义不同就必须是不同取值**——
+  把它们正式入集才是对的修法，旧的「不得旁加」只是没把自己正在用的两个算进去。
+- **12 门分两阶段**（阶段归属是判据的一部分，不是注释）：1–10 = **precheck 阶段**（RL-4.1 只读校验、
+  零写）；11–12 = **流程阶段**（approve / repair-approve 时判，同样零写、同样 fail-closed）。
+- **「不得旁加」现在对全部 12 门生效**：任何 `failedGate`/`gate` 取值必须逐字等于下表某项；夹具 S6 扫
+  正文，凡出现 `failedGate='X'` 或 `gate='X'` 而 X 不在集内 ⇒ 夹具红（这条机验就是「别处再长出集外值」
+  的护栏，也是本条不止于散文的证据；新负例 T-N17 + 架空 MUT-7）。
 
 「1. AUTHORITY        入口主体与批准主体各过 capability-admin 断言（RL-3.3①）。
  2. ROUTE_STATE      路由行在位、enabled=1、持久行 ns = expectedFromNs；提案的 toNs ≠ fromNs。
@@ -302,7 +345,17 @@ checklistDigest 绑定的失效条件（任一发生 ⇒ execute 需重跑 prech
  9. CHAIN_INTACT     该 capability 既有重定位链**前缀完备**且末点 = 当前路由 ns——存在未修复
                      漂移（链断/无链）时禁止「叠加重定位」把漂移盖成新的事实（先走 RL-8 修复/隔离）。
 10. EPOCH_STABLE     清单首尾各读一次 meta.ns_epoch 相等（并发重定位探测）；execute 事务内
-                     复核 1/2/5/7/10（RL-4.3）」
+                     复核 1/2/5/7/10（RL-4.3）。
+ ---- 流程阶段门（R-4 正式入集；旧版正文已在用其取值却不在集内）----
+ 11. APPROVAL          批准阶段门（RL-3.3②③④）：批准人 = 提案人 / 批准未绑定当前 proposalDigest /
+                       修复提案缺 operationGrant ⇒ 本门（批准人缺 capability-admin 走第 1 门 AUTHORITY，
+                       不重复计）。失败后果：账记 REJECTED 终态、提案行保留（可换人再批）、
+                       **零执行零切换**；detail = {capability, fromNs, toNs, failedGate, observed}
+                       （§11.2 形状），observed ∈ {'self-approval','stale-proposal-digest','no-operation-grant'}。
+ 12. REPAIR_PROVENANCE 修复证据门（RL-8.4/RL-8.5）：申报的 observedDriftDigest 与机制复算的观测漂移集
+                       digest 互检不等 / sourceRefs 为空 / provenance 与 repairEvidence 字段缺失 ⇒ 本门。
+                       失败后果：拒签修复账（T-N9），库保持隔离姿态；**绝不允许改投一条普通 relocation
+                       蒙过去**（RL-8.4 末句「伪造救济同源」禁令即此门的后果面）。」
 
 - **RL-4.1 顺序**：GATE 1–3 是纯输入判据（先于任何读库，拒绝零残留）；4–9 只读复算；precheck
   全程零写（含 ns_epoch 只读；不落 ledger、不动 domain_state）。
@@ -396,7 +449,7 @@ checklistDigest 绑定的失效条件（任一发生 ⇒ execute 需重跑 prech
 | 身份列 | `oid`, `revision` | 逐字节不变（修订身份不因搬家而变，B.7-2/P-09） |
 | 内容列 | `payload_json` | 逐字节不变（内容 digest 进事件载荷与账，前后两算必等） |
 | 时刻列 | `recorded_seq` | 逐字节不变（登记时刻是历史事实，不是位置属性） |
-| 版本列 | `contract_version` | 逐字节不变（读者的契约版本判据 `assertContractVersion` 照常运行；迁移不代盖章，gate 6 句） |
+| 版本列 | `contract_version` | 逐字节不变（读者的契约版本判据 `assertContractVersion` 照常运行；迁移不代盖章，gate 6 句）。**R-6 半句（2026-11-01，与 EA-5.3 收口句同文；台账 R-6）**：无戳行按「切换前」缺省档读；**显式修补事件是显式、可审计的运维动作**——它以追加行的方式登记「谁在何时把这行的呈现档从缺省档改判为某档」，只调整该行的**呈现档**且可被回看；机制**绝不自动补戳**（无打开期扫描补戳、无迁移器顺带盖章，重定位也不是盖章通道），也不得因修补而**改写历史语义**（原行字节与签发证据一字不动，修补只追加、零 UPDATE）。夹具 T-N21 |
 
 **位置键不是行内容**是本节的裁定句：改 `ns` 列 = 行从位置 A 出现在位置 B；B.7-2 的「行内容……
 逐字节不变」以 (身份, 内容, 时刻, 版本) 四类列为度量，`contentDigest` 是其可机验形态（RL-4 门 7）。
@@ -423,10 +476,26 @@ revision、新对象、新记录、投影输入变化。科研史不因搬家多
 
 ### 6.4 `RELOCATABLE_NS_KEYS` 封闭清单（防「只搬一半表」）
 
-「每张以 ns 为位置键的机制表必须**显式登记**于 RELOCATABLE_NS_KEYS：{domain_state}（现形全集）
-+ {挂载登记/扩展记录表（G1-FACET-01 落地时）}。构建期判据：对存储 SCHEMA 扫描『列名 = ns 的
-表』，结果集 ⊆ 清单 ∪ 显式豁免集（豁免须逐表给『位置无关』论证，封闭列出、只减不增）——新增
-ns-keyed 表而未入清单 = 构建红。此判据同时是 RL-3.4 全量原子性的实现前提。」
+**（R-3 修订版：清单只收「物理带 `ns` 位置列的表」，并逐项区分两类账）**
+
+「RELOCATABLE_NS_KEYS = **以「该表物理有无 `ns` 位置列」为唯一入选谓词**的封闭清单：
+ {domain_state}（现形全集）。清单**不收**不带 `ns` 列的表——尤其**不收挂载登记表**。
+
+ 两类账的分工（这是收窄的全部实质，不是一句「待协调」）：
+ (a) **位置键账**（物理带 `ns` 列：现形 = `domain_state`）⇒ 进清单，随切换事务与路由行同笔改位置键；
+ (b) **挂载账**（FM-2.1/FM-2.5 的 `facet_mount`：PK `(mount_id, gen)`，位置键是**逻辑** `target_oid`，
+     **无 `ns` 列**）⇒ 按**挂载账自身规则**处理，判据输入是 `(facetCapability, targetOid)` 两个逻辑量，
+     目标物理 ns 迁移前后逐字不变 ⇒ **零搬迁**（不改行、不补见证、不落事件；A 侧 FM-2.5 末段同句成文）。
+
+ 构建期扫描判据（谓词的正向半边）：对存储 SCHEMA 扫描『列名 = ns 的表』，结果集 ⊆ 清单 ∪ 显式豁免集
+ （豁免须逐表给『位置无关』论证，封闭列出、只减不增）——新增 ns-keyed 表而未入清单 = **构建红**。
+ 反向扫描判据（谓词的反向半边，R-3 新增）：清单里出现**不带 `ns` 列**的表 = **构建红**，
+ 不是「更保守」——那会在切换事务里为它生成一条永不命中的改位置键步骤（把「位置无关」伪装成
+ 「已搬迁」），而挂载表的 `MOUNT_ROW_FROZEN` 触发器本就禁 UPDATE，真跑必炸。
+ 夹具：RL 夹具 **T-P10**（挂载账在切换前后逐字节等 + 清单里无挂载表）与 **T-N18**（把 `facet_mount`
+ 塞进清单 ⇒ 构建红；把新增的 ns-keyed 表漏在清单外 ⇒ 构建红，两形皆红）。
+
+ 此判据同时是 RL-3.4 全量原子性的实现前提。」
 
 ### 6.5 历史读取与重定位链（读归属判据升维）
 
@@ -441,6 +510,14 @@ ns-keyed 表而未入清单 = 构建红。此判据同时是 RL-3.4 全量原子
  ③ 其余（无链 / 断链 / 起点非出生 ns / 信封不全形）⇒ SCHEMA_INCOMPATIBLE（现状同码同形，
     快照面 fail-loud 语义一字不改——一行归属不符不得炸整页的 §14.5 分界与 D-24 读侧遮蔽计数
     在扫描面照旧）」
+
+**③ 的「照旧」指算法与留存照旧，出口照 EA-7.4 的 R-1 更正段（2026-11-01；台账 R-1）**：遮蔽计数
+**照算**（`byContractSkew`/`byInactiveCapability` 两维、只报不阻、阈值 K 归 EA-7.2），但其唯一合法
+落点是**内部审计/运维面**（`read-shadow-recorded` 行与 §8.1 报告面）；**调用方可见响应体零
+`hiddenBy*` 键**。本契约 §11.2 的 `RELOCATION_PRECONDITION` detail 本来就只回显
+`{capability, fromNs, toNs, failedGate, observed}`——夹具里那份带 `echo.hiddenByContractSkew` 的旧
+调用方体是**违例形态**，已按 R-1 撤键（RL 夹具 T-N19 + 架空 MUT-8；EA 夹具 T-N11 / FM 夹具 T-N9 同族）。
+一句话：**扫描面照旧 ≠ 调用方面照旧**——前者是算法与留存，后者是呈现面；R-1 改的是出口，不是算法。
 
 - **前缀完备是反洗白判据**：一条尾点正确的孤立行解释不了起点在别处的出生（例如 dir.ns=A、
   route.ns=C、账里只有 B→C ⇒ 拒）。往返（A→B 再 B→A）天然可判：链覆盖 birth 点即可
@@ -517,7 +594,7 @@ T-N16 把「伪造链过闸 = 已登记界」与「界内 mint 仍零」钉成�
     counts 与 oid 集的摘要），并把 violation oid 集**点名到运维/审计面**
  5. 其余既有打开判据照旧」
 
-- **报告面裁定（B.5-2）**：拒开细节（点名 oid 集、计数、断裂 hop）只进**运维/审计面**；插件/
+- **报告面裁定（B.5-2）**：拒开细节（点名 oid 集、计数、断裂 hop）只进**运维/审计面**；插件/（R-1 同一把尺，2026-11-01：遮蔽/漂移计数**只进这一面**，插件与调用方可见字节里零 `hiddenBy*` 键——夹具 T-N19 与 EA/FM 两侧同判据）
   调用方面只拿到 `SCHEMA_UPGRADE_REQUIRED` 统一形（与 `TRANSFER_NS_DRIFT`「只回显调用方自己的
   输入」先例同型延伸，P-05；E-01 家族的「拒读即 oracle」教训在此的反用：打开失败形态对一切
   调用者同形，信息面收缩在运维侧）。
@@ -540,7 +617,12 @@ T-N16 把「伪造链过闸 = 已登记界」与「界内 mint 仍零」钉成�
 EA-7.2 预留的载荷两维（P-14）正式激活：`routeDirMismatchCount` = enabled 路由 ns ≠ dir.ns 的
 目录行数；`relocationGapCount` = 其中无前缀完备链背书者。每次审计运行照 EA-7.1 落一条
 `integrity-audit-recorded`（把 F-G6A-4 的「零声纳」翻成「每次运行落一条可回看的持久行」，
-F-G6A-5 解法同族）；**不阻塞任何读写**。重开照常开的 v7 形态（P-08）自此 = 打开期第 4 步检出。
+F-G6A-5 解法同族）；**不阻塞任何读写**。
+**R-5 联动（2026-11-01；台账 R-5）**：该名当前是 EA-2.4 的**提案名**（人工 `Approved-By` 未落地 ⇒
+EA §2.4「提案未入账」块，`gated_by: EA-7.1`），因此本句的落账步骤在**入账前装配红**
+（`ACTIVATION_IMPOSSIBLE`，EA 夹具 T-N13 同族）：审计**照常跑、结果照常进运维面报告**，只是那一条
+持久行**落不下去**——「声纳」在标记落地前只有实时面、没有留存面。这条代价如实登记，不写成
+「先落码后补批准」；标记落地即恢复留存，无需改码。重开照常开的 v7 形态（P-08）自此 = 打开期第 4 步检出。
 
 ### 8.3 隔离（QUARANTINE）
 
@@ -554,11 +636,12 @@ F-G6A-5 解法同族）；**不阻塞任何读写**。重开照常开的 v7 形�
 - **默认禁止自动补造「当时合法迁移」的证据**——没有任何自动机制、打开期扫描或迁移器可以为
   先例漂移生成重定位账（B.7/P-09 原句全文效力；`migrateLegacyRecords` 不承担此责，P-08 (2) 段
   「救济面为空是裁定不是指控」的裁定在此转正为义务：**它今后也无权补造**）。
+- **同一条纪律覆盖版本戳（R-6 半句，2026-11-01；与 EA-5.3 收口句同文，两侧各补一次）**：上面那句「禁止自动补造」不只管重定位账，也管 `contract_version` 的**呈现档**——**显式修补事件是显式、可审计的运维动作**（走 RL-3⑦ 同一条显式通道：谁、何时、把哪批行的呈现档从缺省档改判为某档；追加行、可回看），它**只调整呈现档**；机制**绝不自动补戳**，也**不得因修补改写历史语义**（原行 `payload_json`/`recorded_seq`/签发证据一字不动，只追加、零 UPDATE）。**修补 ≠ 洗白**：修补行永久可指认，读者面仍按原始字节复算 digest。夹具 RL T-N21（重定位/打开期顺带盖章 ⇒ 红）+ EA T-P9/T-N14 同族。
 - **唯一合法入账** = RL-3⑦ 修复通道：具备运维授权（`operationGrant` 在场 + capability-admin
   取证）的主体，在**验证原始库/备份/来源**（`sourceRefs` 引用登记）之后做的**一次显式修复**。
   机制的验证责任如实限定：复算「观测漂移集 digest」（对当前 dir/route 差集按 oid 排序计算）与
   证据申报的 `observedDriftDigest` **互检**（不等 ⇒ `RELOCATION_PRECONDITION`
-  (failedGate='REPAIR_PROVENANCE')）；「证据所引的备份是否真为事实来源」仍是**人认边界**（与
+  (failedGate='REPAIR_PROVENANCE' = RL-4 封闭集第 12 门，R-4 正式入集)）；「证据所引的备份是否真为事实来源」仍是**人认边界**（与
   EVT §6.1「批准者是否真读了 diff 仍是人认」同界，不假装机器能审意图）。
 - 账与事件**永久保留「事后修复」与「当时发生的合法迁移」之别**：`provenance:'AFTER-THE-FACT-REPAIR'`
   + `repairEvidence` 必填，随 `ns-relocated` 行进 H（不可删）+ 账行（不可改）；读面链判据
@@ -729,10 +812,16 @@ RELOCATION_PRECONDITION + 账零污染；回退（proposeRollback）不新增状
 | T-N10 | 负 | no-op 重定位（toNs=当前 ns） | 拒（NS_SHAPE/TARGET_EMPTY 覆盖）；零切换 | run_T_N10 |
 | T-N11 | 负 | ns+enabled 同语句混合改 | `ROUTE_RELOC_SPLIT_REQUIRED`；路由一字不动 | run_T_N11 |
 | T-N12 | 负 | 双提案并发（第二提案） | failedGate='NO_INFLIGHT'；单在途 | run_T_N12 |
-| T-N13 | 负 | 会话内无链漂移的快照读（D-31 现状形复钉） | `SCHEMA_INCOMPATIBLE`，非整页毒化（扫描面遮蔽计数照旧） | run_T_N13 |
+| T-N13 | 负 | 会话内无链漂移的快照读（D-31 现状形复钉） | `SCHEMA_INCOMPATIBLE`，非整页毒化（遮蔽计数在**内部审计面**照算照落；调用方响应面零 `hiddenBy*` 键——R-1 措辞，2026-11-01） | run_T_N13 |
 | T-N14 | 负 | 在断链 capability 上直接重定位 | failedGate='CHAIN_INTACT'；不叠漂移 | run_T_N14 |
 | T-N15 | 负 | precheck 后并发路由变更再 execute | 事务内复核失配 ⇒ 回滚零残留（含 ghost 序号零留）；重试成功 | run_T_N15 |
 | T-N16 | 负 | **界外裸面伪造链（登记边界的正断言）**：裸 SQL 直插一条形态齐全带信封的 `ns-relocated` 造「完备链」，随后打开 + 读 + 界内 mint 对照 | 伪造链在判据层过闸（**已登记界**，T-N16 断言「过」而非「拦」）；但伪造行 `ledger_no_delete` 不可删（痕迹恒在）；**同一夹具态下界内通道 mint `ns-relocated` 仍零**（`EVENT_AUTHORITY_REQUIRED`）——两条并列，防「检测」被读成「防御」；`relocationGapCount` 对伪造链报 0（不可检出）如实断言 | run_T_N16 |
+| T-P10 | 正 | **R-3 挂载账零搬迁**：capability 重定位 A→B，该能力既是某核心对象的挂载方、其扩展记录行又物理住在自己 ns 里 | 挂载表 `facet_mount` **前后逐字节等**（无 ns 列可搬）；`(facetCapability, targetOid)` 判据输入不变 ⇒ 挂载仍 ACTIVE 且扩展记录仍可写；扩展记录行随 `domain_state` 搬走；`RELOCATABLE_NS_KEYS` 内**无**挂载表 | 「mountRows(前)=mountRows(后) ∧ hasActiveMount 不变 ∧ facetWrite ok ∧ !清单含 facet_mount ∧ 扫描集⊆清单」 | run_T_P10 |
+| T-N17 | 负 | **R-4 封闭集护栏**：正文/模型出现集外 `failedGate` 取值（模拟别处长出第 13 个取值 `'EVIDENCE_GRANT'`）；并逐一验 12 门各自可命中 | 集外取值 ⇒ S6 判红（正文扫描）；11 门自批 / 12 门 digest 互检不等各自命中且**修法不同**（前者拒账外事实、后者拒证据面事实），detail 形状仍 §11.2 封闭五键 | 「FAILED_GATES.length=12 ∧ 正文所有 failedGate/gate 取值 ⊆ 集 ∧ 第11门命中 ∧ 第12门命中 ∧ MUT-7（集外值不校验）放过同一越界值」 | run_T_N17 |
+| T-N18 | 负 | **R-3 双向扫描**：(a) 把无 ns 列的 `facet_mount` 塞进 `RELOCATABLE_NS_KEYS`；(b) 新增一张带 ns 列的表却漏登记 | 两形皆构建红：(a) 反向判据（清单里出现无 ns 列的表）；(b) 正向判据（ns-keyed 表未入清单）。(a) **不是**「更保守」——切换事务会为它生成永不命中的 UPDATE，且 `MOUNT_ROW_FROZEN` 本就禁 UPDATE | 「scan(含 facet_mount 的清单)=BUILD_RED ∧ scan(漏登记新表)=BUILD_RED ∧ 正确清单=GREEN ∧ MUT-9 放过 (a)」 | run_T_N18 |
+| T-N19 | 负 | **R-1 呈现面**：调用方拒答体带旧形态 `echo.hiddenByContractSkew`（RL-INFO 旧构造器形态） | 判红——三处 fail-loud 的调用方体必须零 `hiddenBy*` 键；计数仍在运维/审计面（`opsDetail` 里点名 oid 集与两维计数） | 「callerSurfaceFreeOfShadowCounters(新体)=true ∧ callerSurfaceFreeOfShadowCounters(旧体)=false ∧ opsDetail 含计数 ∧ MUT-8 放过旧体」 | run_T_N19 |
+| T-N20 | 负 | **R-5 无批准标记**：`ns-relocated` 的 `Approved-By` 未落地期间跑完整合法重定位（提案→批准→precheck 全过）再 execute | 前三步照跑照记账；execute 在落 `ns-relocated` 那一步**拒签**（`ACTIVATION_IMPOSSIBLE` 族）⇒ **整笔回滚**：路由 ns、状态行位置键、`ns_epoch` 全部回到切换前，零半成品切换；标记落地后同一调用成功 | 「precheck ok ∧ execute 拒签 ∧ dir/route/domain_state/ledger/meta 与切换前逐字节等 ∧ 落地后 committed ∧ MUT-6（契约自称批准即过）放过同一未批准态」 | run_T_N20 |
+| T-N21 | 负 | **R-6 自动补戳禁令**：重定位/打开期扫描顺带给 `contract_version=''` 的历史行盖章（迁移器顺带盖章形态） | 判红——重定位不是盖章通道：切换后无戳行仍无戳（呈现档仍「切换前」），读者面 `assertContractVersion` 继续拒读；要改呈现档只能走 RL-3⑦ 显式修补通道（追加行、可回看） | 「execute 后 exists(contract_version='') 不变 ∧ 真判据 stamped=0 ∧ MUT-10 同批盖章（=违例形态被复现）」 | run_T_N21 |
 
 ---
 
@@ -748,7 +837,9 @@ RELOCATION_PRECONDITION + 账零污染；回退（proposeRollback）不新增状
 2. **打开流程次序**：§8.1 全序 + 报告面裁定（点名只运维面、插件面同形，B.5-2 的
    「#44 §5.2 Directory 不得泄漏」约束在打开失败形态的延伸）。
 3. **覆盖范围**：`oidScope:'ALL'` 全量原子，禁分批（RL-3.4）；与 Facet 挂载表联动 =
-   `RELOCATABLE_NS_KEYS` 登记制（RL-6.4），G1-FACET-01 表落地即入清单（A.6-6 的接口）。
+   `RELOCATABLE_NS_KEYS` 登记制（RL-6.4）**按「物理有无 `ns` 位置列」入选**（R-3 修订，2026-11-01：
+旧句「G1-FACET-01 表落地即入清单」作废——挂载登记表无 `ns` 列，**不入清单、零搬迁**；A2 扩展记录行
+今天随 `domain_state` 搬。A.6-6 的接口即此谓词，两侧同批改：FM-2.5 / FM-11.1）。
 4. **跨进程陈旧**：ns_epoch fail-loud（RL-7.3）——陈旧从「错答/静默空」降级为「可用性角」；
    主动失效机制仍属 G1 余项（D-25/EVT §9.2-⑤ 同项不重复立项）。
 5. **重定位事件名**：`ns-relocated`（RL-2.2 自裁；EA-2.4 六步 + R4 异提交纪律；不复用

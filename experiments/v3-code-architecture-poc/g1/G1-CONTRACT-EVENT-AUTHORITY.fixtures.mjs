@@ -51,18 +51,57 @@ function docMechanismList() {
 }
 
 // 判据模型里的机制名单——三方逐等之二（本文件是判据的模型实现）
+// 【R-5 裁决 2026-11-01】只列**有批准面**的七名：包 6 既有预留五名（C-19）+ 存量就地升格两名。
+// 本组契约新造、除契约文字外无批准记录的三名（raw-record-declared / integrity-audit-recorded /
+// read-shadow-recorded）**不在运行时名单**——它们是本契约的提案（契约裁定形状与判据，判据≠批准），
+// 入账的唯一门槛是锚文件里的人工 `Approved-By` 标记。台账见 G1-CONTRACT-RECONCILIATION.md R-5。
 const MODEL_MECHANISM = [
   'capability-enabled', 'capability-disabled', 'capability-transferred',
   'object-registered', 'check-report-recorded',
-  'object-revised', 'record-backfilled',            // 存量机制写点就地升格（EA-5.2，C.5-1 裁定）
-  'raw-record-declared',                            // EA-1.2.3 固定名
-  'integrity-audit-recorded', 'read-shadow-recorded' // EA-7.1（C-24 转正 + 本契约新裁）
+  'object-revised', 'record-backfilled'             // 存量机制写点就地升格（EA-5.2，C.5-1 裁定）
+];
+// 提案未入账（EA-2.4 步骤 2 的人工标记未落地；锚文件 planned:true）
+const MODEL_PENDING_APPROVAL = [
+  { eventType: 'raw-record-declared', gated_by: 'EA-1.2.3' },       // 本契约新裁名
+  { eventType: 'integrity-audit-recorded', gated_by: 'EA-7.1' },    // C-24 建议转正（判据面）
+  { eventType: 'read-shadow-recorded', gated_by: 'EA-7.2' }         // 本契约新裁（读侧遮蔽持久化）
 ];
 const RAW_FIXED_EVENT = 'raw-record-declared';
-// planned 占位（不入运行时名单；EA-2.4 末段）
+// planned 占位（不入运行时名单；EA-2.4 末段 + RL-2.2 提案文书降级）
 const MODEL_PLANNED = [{ eventType: 'ns-relocated', gated_by: 'G1-NS-01' }];
 
-const MECHANISM_RESOURCES = new Set(['space-write', 'capability-admin']); // EA-3.2 判据④（D-26 / C-17）
+// 名单的两个阶段（与 FM 夹具 w.listed 同型）：'listed' = 人工标记已落地的稳态（默认，正向用例的
+// 世界）；'proposed' = 批准未落地 ⇒ 提案名按 unregistered 处理、机制内部直写装配红。
+// FM-9 的两个挂载类机制名：名字本体与入账判据归 A 契约，EA 侧只在「已入账」阶段把它们当机制名
+// （EA-4.5 ③ 支的覆盖域必须包含它们，否则 R-2 的三分对白契约为空——依赖登记见 FM-7/FM-11.2）
+const FM_MOUNT_MECHANISM = ['facet-mounted', 'facet-unlinked'];
+const PHASES = {
+  'proposed': new Set(MODEL_MECHANISM),
+  listed: new Set([...MODEL_MECHANISM, ...MODEL_PENDING_APPROVAL.map(p => p.eventType),
+    ...MODEL_PLANNED.map(p => p.eventType), ...FM_MOUNT_MECHANISM])
+};
+
+// R-5 批准门（新增判据）：机制内部直写通道的名字必须已入账，否则装配红（fail-closed）。
+// 用 ACTIVATION_IMPOSSIBLE（FM-7「名册缺项 = 装配红」同族同码），**不得**用
+// EVENT_AUTHORITY_REQUIRED——后者出现在 Raw Intake 路径上就是 T-N8 钉的 B-1 违例。
+function mechanismWriteGate(eventType, phase = 'listed') {
+  if (PHASES[phase].has(eventType)) return null;
+  return { refusal: { code: 'ACTIVATION_IMPOSSIBLE', detail: { gate: 'mechanism-name-not-approved', eventType, missing: 'Approved-By（EA-2.4 步骤 2 人工标记）' } } };
+}
+// 架空批准门 MUT-6（常驻不删）：把「有批准标记」写成「契约文书自称批准即过」= I-5 的空转锚
+function mechanismWriteGateMUT6(eventType, phase = 'listed') { void phase; void eventType; return null; }
+
+// 机制轴集（D-26/C-17「至少」的入账全集；FM-7 依 EA-2.4 扩入 facet-mount——R-2 ③ 支的覆盖域）
+const MECHANISM_RESOURCES = new Set(['space-write', 'capability-admin']); // EA-3.2 判据④ 的基线两轴
+const MECHANISM_AXES = new Set(['space-write', 'capability-admin', 'facet-mount']);
+// 名册登记的机制轴（锚文件条目的 axis 归属侧模型；挂载两名的名字本体归 FM-9，这里只取「名→轴」登记面）
+const MECHANISM_AXIS_OF = {
+  'capability-enabled': 'capability-admin', 'capability-disabled': 'capability-admin',
+  'capability-transferred': 'capability-admin', 'ns-relocated': 'capability-admin',
+  'integrity-audit-recorded': 'capability-admin', 'read-shadow-recorded': 'capability-admin',
+  'facet-mounted': 'facet-mount', 'facet-unlinked': 'facet-mount'
+};
+const registeredMechanismAxis = (eventType) => MECHANISM_AXIS_OF[eventType] ?? null;
 
 // 归属账（EA-3）——「三方逐等」之三：锚文件的最小模型（形状 = 契约 §6.1 entries）
 const OWNERSHIP = new Map([
@@ -82,9 +121,9 @@ const DECL_TYPE_RE = new RegExp(DECL_TYPE_RE_SRC);
 // ============================================================ EA-1.2 分类器（唯一判据点）
 
 let classifyCalls = 0; // T-P3 用：Raw 路径对分类器必须零调用（EA-1.3a 三不参与之「不参与授权判定」）
-function classify(eventType) {
+function classify(eventType, phase = 'listed') {
   classifyCalls += 1;
-  if (MODEL_MECHANISM.includes(eventType)) return { cls: 'mechanism', owner: null };
+  if (PHASES[phase].has(eventType)) return { cls: 'mechanism', owner: null };
   const e = OWNERSHIP.get(eventType);
   if (e) return { cls: 'domain', owner: e.ownerCapability };
   return { cls: 'unregistered', owner: null };
@@ -144,19 +183,38 @@ function domainWrite(portCapability, input, opts) {
 }
 
 const EA46_CTX_FIELDS = ['ctxId', 'actor', 'capability', 'axis', 'authorized', 'ruleSetVersion', 'contractVersion', 'issuedAtMs', 'txSeq'];
-// EA-4.5 全形闸（正式事件形态；路由审计变体在 T-* 里用 axis 断言覆盖）
-function gateFullShape(row) {
+// EA-4.5 全形闸（R-2 三分修订版：①领域事件 ②路由/运维审计 ③机制挂载类审计，覆盖式不点名）
+function axisBranchFullShape(row, e, phase = 'listed') {
+  const cls = classify(row.event_type, phase).cls;
+  if (cls === 'domain') return !MECHANISM_AXES.has(e.axis);                     // ① D-26 原句
+  if (cls !== 'mechanism') return false;                                        // 未入账名没有合法见证形态
+  if (!MECHANISM_AXES.has(e.axis)) return false;                                             // ②③共同前提
+  if (registeredMechanismAxis(row.event_type) !== e.axis) return false;         // 名册轴绑定（防串用）
+  return e.authorized === true;                                                 // ②③：判定输入型必已生效
+}
+function gateFullShape(row, phase = 'listed') {
   const e = row.authority_basis;
   if (row.actor == null) return false;
   if (e == null || typeof e !== 'object') return false;
   if (!EA46_CTX_FIELDS.every(f => Object.prototype.hasOwnProperty.call(e, f))) return false;
   if (e.actor !== row.actor) return false;                 // 同源一致性（F-G6A-2 修法）
-  if (MECHANISM_RESOURCES.has(e.axis)) return false;        // D-26 轴值谓词
-  if (classify(row.event_type).owner !== e.capability) return false;
+  if (!axisBranchFullShape(row, e, phase)) return false;   // 三分轴判据（EA-4.5 R-2）
+  if (classify(row.event_type, phase).cls === 'domain'
+    && classify(row.event_type, phase).owner !== e.capability) return false; // ①类的审计复算面
   return true;
 }
 // 架空判据 MUT-1（常驻不删）：只核「有一个 actor」——C-21 点名处的模型
 function gateFullShapeMUT1(row) { return row.actor != null; }
+// 架空判据 MUT-4（R-2 新增，常驻不删）：③ 支丢掉「名册轴绑定」——凡轴在机制轴集且 authorized=1 即过。
+// 真判据必须拦住「机制名挂到别的机制轴上」的负例（T-N12），MUT-4 必须放过同一负例。
+function gateFullShapeMUT4(row) {
+  const e = row.authority_basis;
+  if (row.actor == null || e == null) return false;
+  if (!EA46_CTX_FIELDS.every(f => Object.hasOwnProperty.call(e, f))) return false;
+  if (e.actor !== row.actor) return false;
+  if (classify(row.event_type).cls === 'mechanism') return MECHANISM_AXES.has(e.axis) && e.authorized === true;
+  return !MECHANISM_AXES.has(e.axis);
+}
 
 // EA-4.6 审计复算三态
 function replayAuthorityEvidence(row, frozenVersions) {
@@ -172,8 +230,12 @@ function countsInProjection(row) { return row.authority_basis != null && row.aut
 
 // ============================================================ EA-1.3 Raw Intake 通道
 
-function declareRawIntake(principal, env) {
+function declareRawIntake(principal, env, phase = 'listed') {
   if (!principal.spaceWrite) return { refusal: { code: 'AUTHORITY_REQUIRED' }, deletedRaw: [] }; // B-4：既有授权路径，非本码
+  // R-5：固定名 raw-record-declared 是本契约的**提案**（人工 Approved-By 未落地期间不入账）——
+  // 未入账期间落账通道装配红 fail-closed（材料照收、行写不下去），不是「先落码后补批准」。
+  const gate = mechanismWriteGate(RAW_FIXED_EVENT, phase);
+  if (gate) return { refusal: gate.refusal, deletedRaw: [] };
   // declaredType 绝不进分类器（EA-1.2.3）；此路径不存在 EVENT_AUTHORITY_REQUIRED（B-1）
   // EA-1.3a：形状卫生在传输层做——畸变置 null + PARSE_FAILED，整封照常收（B-1 不因元数据形状翻转）
   let declaredType = env.declaredType ?? null;
@@ -221,6 +283,28 @@ function interpretLegacyRow(row) { // 未知即 fail-closed（N6/N7 的 hasOwnPr
   return t[row.version]; // 行本身一字不动地读——返回值只是解释文本
 }
 
+// ===== EA-5.3（R-6 收口句）显式修补事件模型 =====
+// 收口句：修补 = **显式、可审计的运维动作**，只调整该行的**呈现档**且可被回看；机制**绝不自动补戳**，
+// 也**不得因修补改写历史语义**（原行字节一字不动，修补只追加、零 UPDATE）。
+// 如实边界：修补动作的载体若要进台账事件名空间，须另走 EA-2.4 入账——本模型用**运维修补账**表达，
+// 不替自己新造机制事件名（那正是 R-5 刚作废的动作）。
+const APPROVED_BY_RE = /^Approved-By: \d{4}-\d{2}-\d{2} \S+$/;
+function patchContractVersionPresentation(patchLog, row, patch) {
+  if (!APPROVED_BY_RE.test(patch.humanMarker ?? '')) return { refusal: 'PATCH_REQUIRES_HUMAN_MARKER' };
+  const before = JSON.stringify(row);
+  patchLog.push({ patchedSeq: row.seq, presentationTier: patch.presentationTier, marker: patch.humanMarker, atSeq: patch.atSeq });
+  if (JSON.stringify(row) !== before) return { refusal: 'PATCH_MUTATED_HISTORY_ROW' }; // 只追加，零改旧行
+  return { ok: true, presentationTier: presentationTierOf(patchLog, row) };
+}
+function presentationTierOf(patchLog, row) {
+  const p = patchLog.filter(x => x.patchedSeq === row.seq).sort((a, b) => a.atSeq - b.atSeq).pop();
+  return p ? 'patched@seq' + p.atSeq : 'pre-cutover-default';
+}
+// 机制侧不存在自动补戳路径（打开期扫描 / 迁移器顺带盖章都算违例）
+function autoStampScan(history) { void history; return { stamped: 0, verdict: 'NO_AUTO_STAMP_PATH' }; }
+// 架空判据 MUT-7（常驻不删）：打开期「顺手」给无戳行盖章——真判据零改历史行，MUT-7 改了历史行字节
+function autoStampScanMUT7(history) { let n = 0; for (const r of history) if (r.contract_version == null) { r.contract_version = 'v3'; n += 1; } return { stamped: n, verdict: 'AUTO_STAMPED' }; }
+
 // ============================================================ EA-6 构建期对账（异源是全部意义）
 
 // expectSource='ledger-file' = 契约合规；'derived' = 从写点现算（R3 违例的模型 = MUT-3 家族）
@@ -254,7 +338,9 @@ function reconcileCoupling({ changedFiles, ledgerSemanticDiff }) {
 
 // ============================================================ EA-7 只报不阻计数器持久化
 
-function persistAuditRun(history, run) { // 每次运行必落一条（EA-7.1）
+function persistAuditRun(history, run, phase = 'listed') { // 每次运行必落一条（EA-7.1）
+  const gate = mechanismWriteGate('integrity-audit-recorded', phase);           // R-5：未入账 ⇒ 零行
+  if (gate) return gate;
   const row = {
     eventType: 'integrity-audit-recorded', runId: run.runId, trigger: run.trigger,
     counts: { checked: run.checked, violations: run.violations.length, softChecked: run.softChecked, softGhosts: run.softGhosts.length },
@@ -262,16 +348,18 @@ function persistAuditRun(history, run) { // 每次运行必落一条（EA-7.1）
     schemaVersion: run.schemaVersion, ruleSetVersion: run.ruleSetVersion
   };
   history.push(row);
-  return row;
+  return { row };
 }
 // 读侧遮蔽聚合落账（EA-7.2）：首次非零 或 距上次落账再满 K 次
 const READ_SHADOW_K = 32; // 契约常量；改值 = 动本合同冻结面
-function readShadowDecision(state, hiddenCounts) {
+function readShadowDecision(state, hiddenCounts, phase = 'listed') {
   const nonzero = hiddenCounts.byContractSkew > 0 || hiddenCounts.byInactiveCapability > 0;
   if (!nonzero) return { dropped: false, state };
   const firstEver = state.lastDrop === null && state.pending === 0;
   state.pending += 1;
   if (firstEver || state.pending >= READ_SHADOW_K) {
+    const gate = mechanismWriteGate('read-shadow-recorded', phase);             // R-5：未入账 ⇒ 不落账
+    if (gate) { state.pending -= 1; return { dropped: false, refusal: gate.refusal, state }; }
     const row = { eventType: 'read-shadow-recorded', windowEndSeq: state.seq, hidden: { ...hiddenCounts }, targetsDigest: digest(hiddenCounts.targets ?? []) };
     state.lastDrop = state.seq; state.pending = 0;
     return { dropped: true, row, state };
@@ -287,23 +375,53 @@ function stateRowWrite(writerCap, row, dir, mounts) {
   return { ok: true };
 }
 
-// EA-7.4 模型：普通调用者可见响应面（echo 键集已冻结，§16.3「echo 形状不加字段」句）——
-// 审计/遮蔽事件的存在与否**不经过**这个函数，这是「非 oracle」的结构面。
-const ECHO_FROZEN_KEYS = ['hiddenByContractSkew', 'hiddenByInactiveCapability'];
+// EA-7.4 模型（R-1 修订后形态）：普通调用者可见响应面**零 `hiddenBy*` 键**——遮蔽计数的唯一
+// 合法落点是内部审计通道的 read-shadow-recorded 行（裁决表 D1-d/C4；EA-7.2/7.4 更正段）。
+// 审计/遮蔽事件的存在与否不经过这个函数（结构面），且三态世界（隐藏 0/1/≥2）在此逐字节同形。
+const CALLER_ECHO_KEYS = [];                                    // 新形态：调用方 echo 面零遮蔽计数键
+// 旧形态（已作废，仅用于 T-N11 负例与 MUT-5 的判别力自验；常驻不删）
+const ECHO_SUPERSEDED_KEYS = ['hiddenByContractSkew', 'hiddenByInactiveCapability'];
 function pluginVisibleResponse(world) {
-  return JSON.stringify({ visibleRows: world.visibleRows, echo: Object.fromEntries(ECHO_FROZEN_KEYS.map(k => [k, world.echo[k] ?? 0])) });
+  return JSON.stringify({ visibleRows: world.visibleRows, echo: Object.fromEntries(CALLER_ECHO_KEYS.map(k => [k, world.echo[k] ?? 0])) });
 }
+function pluginVisibleResponseSuperseded(world) { // 旧形态：把遮蔽计数摆进调用方 echo 面
+  return JSON.stringify({ visibleRows: world.visibleRows, echo: Object.fromEntries(ECHO_SUPERSEDED_KEYS.map(k => [k, world.echo[k] ?? 0])) });
+}
+// R-1 新增判据：普通响应面不得出现任何 hiddenBy* 遮蔽计数键
+const callerSurfaceFreeOfShadowCounters = (body) => !/hiddenBy[A-Z]/.test(body);
+// 架空判据 MUT-5（常驻不删）：只核「响应体里不出现审计事件名字样」——即 R-1 之前 T-P7 的全部内涵；
+// 真判据必须拦住旧形态泄漏体，MUT-5 必须放过同一泄漏体（否则该负例对架空无判别力）。
+const callerSurfaceFreeOfShadowCountersMUT5 = (body) => !/audit-recorded|shadow-recorded|Digest/.test(body);
+// 内部审计通道（有权面）：遮蔽计数在这里可回看——R-1 改的是出口，不是删除计数
+const auditShadowCounts = (row) => row && row.hidden ? { ...row.hidden } : null;
 // EA-5.1a 模型：对既有 ledger 行的任何 UPDATE/DELETE —— 既有触发器拒（G2-A F1 十写形实测的现状建模）
 function ledgerRewriteAttempt() { return { refusal: 'TRIGGER_UPDATE_REFUSED' }; }
 
 // ============================================================ 结构校验（S 组）：契约正文自身自洽
 
 const MECH_LIST = docMechanismList();
-check('S1 机制封闭名单三方逐等（契约 §2.4 名单块 ↔ 夹具模型，成员逐一含顺序）',
+check('S1 机制封闭名单三方逐等（契约 §2.4 已入账块 ↔ 夹具模型，成员逐一含顺序）',
   Array.isArray(MECH_LIST) && MECH_LIST.length === MODEL_MECHANISM.length && MECH_LIST.every((n, i) => n === MODEL_MECHANISM[i]),
   MECH_LIST ? MECH_LIST.join(',') : '未找到 EA-2 名单块标记');
-check('S2 planned 条目不入运行时名单（ns-relocated 仍被分类为 unregistered）',
-  !MODEL_MECHANISM.includes('ns-relocated') && classify('ns-relocated').cls === 'unregistered');
+
+// R-5：提案未入账块也三方逐等（顺序敏感），且四名一律不入运行时名单
+function docPendingList() {
+  const m = doc.match(/<!-- EA-2 PLANNED-PENDING-LIST-BEGIN -->([\s\S]*?)<!-- EA-2 PLANNED-PENDING-LIST-END -->/);
+  if (!m) return null;
+  return m[1].replace(/[「」]/g, '').split(/[·\s]+/).map(s => s.replace(/[，,]/g, '').trim())
+    .filter(s => /^[a-z][a-z0-9-]*$/.test(s));
+}
+const PENDING_DOC = docPendingList();
+const PENDING_MODEL = [...MODEL_PENDING_APPROVAL.map(p => p.eventType), ...MODEL_PLANNED.map(p => p.eventType)];
+check('S1b 提案未入账块三方逐等（契约 §2.4 R-5 段 ↔ 夹具 PENDING 模型）',
+  Array.isArray(PENDING_DOC) && PENDING_DOC.length === PENDING_MODEL.length && PENDING_DOC.every((n, i) => n === PENDING_MODEL[i]),
+  PENDING_DOC ? PENDING_DOC.join(',') : '未找到 PLANNED-PENDING 块标记');
+check('S2 planned/未入账条目不入运行时名单（proposed 阶段仍按 unregistered），且批准落地后可入账',
+  [...PENDING_MODEL, 'ns-relocated'].every(n => !MODEL_MECHANISM.includes(n) && classify(n, 'proposed').cls === 'unregistered')
+  && classify('ns-relocated').cls === 'mechanism');
+check('S2b R-5 批准门在写入路径上（未入账 ⇒ 装配红；且不是走 EVENT_AUTHORITY_REQUIRED 那条 B-1 违例路）',
+  mechanismWriteGate('read-shadow-recorded', 'proposed').refusal.code === 'ACTIVATION_IMPOSSIBLE'
+  && mechanismWriteGate('capability-enabled', 'proposed') === null);
 
 const refLines = doc.split('\n').filter(l => /\|\s*C-\d\d\s*\|/.test(l));
 const shaRe = /5ec38974fc|0369c3196c|37de107ed5|d2f19cc/;
@@ -330,7 +448,7 @@ check('S5 契约内出现的全大写码全部落在封闭拒绝码集 ∪ 声�
 const casesInDoc = [...doc.slice(doc.indexOf('## 8. EA-8'), doc.indexOf('## 9. EA-9')).matchAll(/\|\s*(T-[PN]\d{1,2})\s*\|/g)].map(m => m[1]);
 const caseIds = [...SELF_SRC.matchAll(/^function run_T_([PN]\d{1,2})\(/gm)].map(m => 'T-' + m[1]);
 check('S6 正反例表与夹具双向一致（表内每个 id 都有 run_*，无孤儿实现）',
-  casesInDoc.length === 17 && casesInDoc.every(id => caseIds.includes(id)) && caseIds.length === casesInDoc.length,
+  casesInDoc.length === 23 && casesInDoc.every(id => caseIds.includes(id)) && caseIds.length === casesInDoc.length,
   'doc=' + casesInDoc.length + ' fn=' + caseIds.length);
 
 const docCollapsed = doc.replace(/\s+/g, ' ');
@@ -345,10 +463,45 @@ check('S8 历史节覆盖两个存量名 + 「不重写 Ledger」机验句在位
 check('S9 反自证判据 R3 在正文（对账器不得从写点模块取期望集）',
   doc.includes('EVENT_RECON_SAMESOURCE') && doc.includes('禁止从') && doc.includes('g1/EVENT-CONTRACT-LEDGER.json'));
 
-check('S10 本夹具自身保留三条架空判据（变异常驻不删除）',
-  /function classifyMUT2\(/.test(readFileSync(SELF_PATH, 'utf8'))
-  && /function gateFullShapeMUT1\(/.test(readFileSync(SELF_PATH, 'utf8'))
-  && /function reconcileMUT3\(/.test(readFileSync(SELF_PATH, 'utf8')));
+// —— 2026-11-01 跨契约对账（R-1/R-2/R-5/R-6）留痕机验：旧句保留 + 更正段在位 + 两侧互指 ——
+const FM_DOC_PATH = join(HERE, 'G1-CONTRACT-FACET.md');
+const FM_FIX_PATH = join(HERE, 'G1-CONTRACT-FACET.fixtures.mjs');
+const RL_DOC_PATH = join(HERE, 'G1-CONTRACT-RELOCATION.md');
+const readOpt = (pth) => { try { return readFileSync(pth, 'utf8'); } catch { return ''; } };
+const fmDoc = readOpt(FM_DOC_PATH), fmFix = readOpt(FM_FIX_PATH), rlDoc = readOpt(RL_DOC_PATH);
+
+check('S15 R-1 留痕：正文含「R-1 更正段」+ 旧句原文保留（不静默覆盖）+ 新形态句「零 hiddenBy* 键」在位',
+  [...doc.matchAll(/R-1 更正段/g)].length >= 2
+  && doc.includes('既有 `hiddenByContractSkew` 等 echo 键')          // 旧句仍在原位
+  && doc.includes('计数照旧进读回执')                                // 被取代的旧句仍在原位
+  && doc.includes('调用方 echo 面**不含任何 `hiddenBy*` 键**')
+  && doc.includes('改的是出口'));
+
+check('S16 R-2 两侧互指：本契约点名 FM-7/FM-9 为 ③ 的挂载方 + FM 侧登记 DEP-EA45-3 显式依赖（任一侧单独回滚即红）',
+  doc.includes('R-2 修订段') && doc.includes('FM-7 轴值段与 FM-11.2 关系表')
+  && doc.includes('覆盖式谓词，不点名轴名也不点名事件名')
+  && fmDoc.includes('DEP-EA45-3') && fmDoc.includes('EA-4.5 ③ 支')
+  && /function gateFullShapeSuperseded2Branch\(/.test(readFileSync(SELF_PATH, 'utf8')));
+
+check('S17 R-5 无自授批准：全文零处未标注取代的「本契约即批准」类句；提案名各有 gated_by；批准门在正文成文',
+  [...doc.matchAll(/(本契约|本合同)(即|=|＝)批准/g)]
+    .every(m => doc.slice(Math.max(0, m.index - 400), m.index + 400).includes('旧作')
+      || doc.slice(Math.max(0, m.index - 400), m.index + 400).includes('更正')),
+  '未标注取代的自授批准句残留')
+  ;
+check('S17b 提案块逐名有 gated_by（四个提案名各有门控锚），且正文声明「批准主体唯一 = 人工 Approved-By」',
+  MODEL_PENDING_APPROVAL.every(x => doc.includes(x.gated_by)) && MODEL_PLANNED.every(x => doc.includes(x.gated_by))
+  && doc.includes('PLANNED-PENDING-LIST-BEGIN') && doc.includes('Approved-By')
+  && doc.includes('判据≠批准'));
+
+check('S18 R-6 收口句在位（EA 侧成文 + RL 侧同半句，两侧各补一次）',
+  doc.includes('绝不自动补戳') && doc.includes('呈现档') && doc.includes('改写历史语义')
+  && (rlDoc === '' || (rlDoc.includes('绝不自动补戳') && rlDoc.includes('呈现档'))));
+
+check('S10 本夹具保留七条架空判据（变异常驻不删除；R-1/R-2/R-5/R-6 各配一条）',
+  ['classifyMUT2', 'gateFullShapeMUT1', 'reconcileMUT3', 'gateFullShapeMUT4', 'callerSurfaceFreeOfShadowCountersMUT5',
+    'mechanismWriteGateMUT6', 'autoStampScanMUT7']
+    .every(fn => new RegExp('function ' + fn + '\\(|const ' + fn + ' =').test(readFileSync(SELF_PATH, 'utf8'))));
 
 // —— 父席四条限定（§9.5）的正文在位与同步校验 ——
 check('S11 declaredType 形状正则：契约两处引用与夹具实现逐字同步（EA-1.3a）',
@@ -415,8 +568,8 @@ function run_T_P5() { // 审计持久化：同数不同集可分（F-G6A-5 的�
   const a = persistAuditRun(hist, { runId: 'a', trigger: 'open', checked: 20, violations: [], softChecked: 10, softGhosts: ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'], schemaVersion: 7, ruleSetVersion: 'r1' });
   const b = persistAuditRun(hist, { runId: 'b', trigger: 'audit-call', checked: 20, violations: [], softChecked: 10, softGhosts: ['e7', 'e8', 'e2', 'e3', 'e4', 'e5'], schemaVersion: 7, ruleSetVersion: 'r1' });
   if (hist.length !== 2) return '两次运行未各落一条';
-  if (a.softGhostsDigest === b.softGhostsDigest) return '同数不同集 digest 相同（淹没能复现）';
-  if (a.counts.softGhosts !== 6 || b.counts.softGhosts !== 6) return '计数语义被改动';
+  if (a.row.softGhostsDigest === b.row.softGhostsDigest) return '同数不同集 digest 相同（淹没能复现）';
+  if (a.row.counts.softGhosts !== 6 || b.row.counts.softGhosts !== 6) return '计数语义被改动';
   const st = { lastDrop: null, pending: 0, seq: 1 };
   const d1 = readShadowDecision(st, { byContractSkew: 1, byInactiveCapability: 0, targets: ['x'] });
   if (!d1.dropped) return '首次非零未落账';
@@ -437,20 +590,29 @@ function run_T_P6() { // 旧名历史行读不变 + 新写切换 + 「为归类�
   if (!backfill.includes('回填事实')) return 'record-backfilled 解释未含「永久携带回填事实」义务（B.7）';
   return true;
 }
-function run_T_P7() { // 非 oracle（EA-7.4）：落账不扩对外信息面——响应面形状与取值逐字节等
-  const world = { visibleRows: 4, echo: { hiddenByContractSkew: 6 } };
+function run_T_P7() { // 非 oracle（EA-7.4，R-1 修订后）：落账不扩对外信息面 ∧ 遮蔽计数退出调用方 echo
+  const world = { visibleRows: 4, echo: { hiddenByContractSkew: 6 } }; // world 里仍有计数（内部态）
   const before = pluginVisibleResponse(world);
   const auditCh = [];
   persistAuditRun(auditCh, { runId: 'r', trigger: 'audit-call', checked: 9, violations: [], softChecked: 4, softGhosts: ['a', 'b', 'c', 'd'], schemaVersion: 7, ruleSetVersion: 'r1' });
   const st = { lastDrop: null, pending: 0, seq: 7 };
-  const drop = readShadowDecision(st, { byContractSkew: 6, byInactiveCapability: 0, targets: ['t1', 't2'] });
+  const drop = readShadowDecision(st, { byContractSkew: 6, byInactiveCapability: 2, targets: ['t1', 't2'] });
   if (!drop.dropped) return '遮蔽未落账';
   auditCh.push(drop.row);
   const after = pluginVisibleResponse(world);
   if (after !== before) return '普通调用者响应面被落账改变（oracle 违例）：' + before + ' vs ' + after;
   if (auditCh.length !== 2) return '内部审计通道行数未 +2';
   if (/audit-recorded|shadow/.test(after)) return '对外响应混入审计事件名';
-  if (!after.includes('"hiddenByContractSkew":6')) return '既有冻结 echo 键取值来源被改动';
+  if (callerSurfaceFreeOfShadowCounters(after) !== true) return '调用方 echo 面仍有 hiddenBy* 键（R-1 未落实）';
+  if (after.includes('"hiddenByContractSkew"')) return '旧形态 echo 键未撤（R-1 未落实）';
+  // 计数没被删，只是换了出口：内部审计行里逐字可回看
+  const counts = auditShadowCounts(auditCh[1]);
+  if (!counts || counts.byContractSkew !== 6 || counts.byInactiveCapability !== 2) return '遮蔽计数未在审计行里可回看：' + JSON.stringify(counts);
+  // D1-d 的三态同形：隐藏 0 / 1 / ≥2 件在调用方处逐字节等
+  const s0 = pluginVisibleResponse({ visibleRows: 4, echo: {} });
+  const s1 = pluginVisibleResponse({ visibleRows: 4, echo: { hiddenByContractSkew: 1 } });
+  const s9 = pluginVisibleResponse({ visibleRows: 4, echo: { hiddenByContractSkew: 6, hiddenByInactiveCapability: 3 } });
+  if (!(s0 === s1 && s1 === s9)) return '隐藏 0/1/≥2 三态在调用方处不同形（可差分 oracle）';
   return true;
 }
 function run_T_N1() { // 无挂载伪造修订
@@ -520,8 +682,104 @@ function run_T_N10() { // R4：名单语义行与写码同提交 = 红；分开�
   return true;
 }
 
-const CASE_RUNNERS = { run_T_P1, run_T_P2, run_T_P3, run_T_P4, run_T_P5, run_T_P6, run_T_P7,
-  run_T_N1, run_T_N2, run_T_N3, run_T_N4, run_T_N5, run_T_N6, run_T_N7, run_T_N8, run_T_N9, run_T_N10 };
+function run_T_P8() { // R-2 三分全形闸：②③ 各命中 + 旧两类别式的判别力 + ③ 的覆盖性自验
+  const route = mechAuditRow('ns-relocated', 'capability-admin');
+  const mount = mechAuditRow('facet-mounted', 'facet-mount');
+  if (gateFullShape(route) !== true) return '② 路由/运维审计支未放行';
+  if (gateFullShape(mount) !== true) return '③ 机制挂载类审计支未放行（R-2 未落实）';
+  if (gateFullShapeSuperseded2Branch(mount) !== false) return '旧二类别式竟能放行挂载行——三分修订无必要（夹具失效）';
+  if (gateFullShape(mechAuditRow('read-shadow-recorded', 'capability-admin', { authorized: false })) !== false) return '②③ 未强制 authorized=1';
+  // 覆盖性自验：新机制轴 + 新机制名入账 ⇒ 判据一字不改即覆盖（回头堆名单就是违例）
+  MECHANISM_AXES.add('quarantine-op'); MECHANISM_AXIS_OF['quarantine-executed'] = 'quarantine-op'; PHASES.listed.add('quarantine-executed');
+  let covered = false;
+  try { covered = gateFullShape(mechAuditRow('quarantine-executed', 'quarantine-op')) === true; }
+  finally { MECHANISM_AXES.delete('quarantine-op'); delete MECHANISM_AXIS_OF['quarantine-executed']; PHASES.listed.delete('quarantine-executed'); }
+  if (!covered) return '③ 不是覆盖式谓词：新机制轴/新名入账后必须改判据 = 违例';
+  return true;
+}
+function run_T_P9() { // R-6 正例：修补是显式运维动作——只追加、只调呈现档、可回看、无自动补戳路径
+  const history = [{ seq: 11, event_type: 'object-revised', contract_version: null, payload_json: '{}' }];
+  const patchLog = [];
+  const before = JSON.stringify(history);
+  if (presentationTierOf(patchLog, history[0]) !== 'pre-cutover-default') return '无戳行未走「切换前」缺省档';
+  const noMarker = patchContractVersionPresentation(patchLog, history[0], { rowSeq: 11, presentationTier: 'v3', humanMarker: '', atSeq: 40 });
+  if (noMarker.refusal !== 'PATCH_REQUIRES_HUMAN_MARKER') return '无人工标记的修补被放行';
+  if (patchLog.length !== 0) return '无标记修补仍落了行';
+  const ok = patchContractVersionPresentation(patchLog, history[0], { rowSeq: 11, presentationTier: 'v3', humanMarker: 'Approved-By: 2026-11-01 user:wu', atSeq: 41 });
+  if (!ok.ok) return '显式修补被拒：' + ok.refusal;
+  if (ok.presentationTier !== 'patched@seq41') return '呈现档未按修补行调整：' + ok.presentationTier;
+  if (JSON.stringify(history) !== before) return '修补改了历史行（应只追加、零 UPDATE）';
+  if (patchLog[0].marker !== 'Approved-By: 2026-11-01 user:wu') return '修补行不可回看（缺人工标记）';
+  const auto = autoStampScan(history);
+  if (auto.stamped !== 0 || JSON.stringify(history) !== before) return '机制侧存在自动补戳路径（R-6 违例）';
+  return true;
+}
+function run_T_N11() { // R-1 负例：普通响应面出现 hiddenBy* ⇒ 判红（旧形态 echo 键集就是违例）
+  const leak = pluginVisibleResponseSuperseded({ visibleRows: 4, echo: { hiddenByContractSkew: 6, hiddenByInactiveCapability: 1 } });
+  if (!/hiddenBy/.test(leak)) return '负例构造失效（旧形态未含 hiddenBy 键）';
+  if (callerSurfaceFreeOfShadowCounters(leak) !== false) return '泄漏体未被判据点名';
+  const good = pluginVisibleResponse({ visibleRows: 4, echo: { hiddenByContractSkew: 6 } });
+  if (callerSurfaceFreeOfShadowCounters(good) !== true) return '新形态被误判';
+  if (callerSurfaceFreeOfShadowCountersMUT5(leak) !== true) return 'MUT-5 竟能点名——判据对架空失去判别力';
+  return true;
+}
+function run_T_N12() { // R-2 负例：机制名串到别的机制轴 / 名单外名带机制轴 / 领域事件冒充机制审计轴
+  if (gateFullShape(mechAuditRow('facet-mounted', 'capability-admin')) !== false) return '挂载名串用路由轴未被拦';
+  if (gateFullShapeMUT4(mechAuditRow('facet-mounted', 'capability-admin')) !== true) return 'MUT-4 竟能拦住——③ 的架空形失去判别力';
+  if (gateFullShape(mechAuditRow('facet-remounted', 'facet-mount')) !== false) return '机制封闭名单外的名带机制轴被放行';
+  const dom = domainWrite('cap-records', { eventType: EVENT, objectId: 'O-core', revision: 1, payload: {} }, OPTS_OK);
+  if (dom.refusal) return '正例构造失效：' + JSON.stringify(dom.refusal.detail);
+  if (gateFullShape({ ...dom.row, authority_basis: { ...dom.row.authority_basis, axis: 'capability-admin' } }) !== false) return '领域事件冒充机制审计轴被放行（① 失守）';
+  return true;
+}
+function run_T_N13() { // R-5 负例：无 Approved-By ⇒ 该名字不可入账、机制直写装配红；标记落地后同调用成功
+  const name = 'read-shadow-recorded';
+  if (classify(name, 'proposed').cls !== 'unregistered') return '未入账名被分类为 mechanism（提案名冒充已入账）';
+  const mint = genericAppend(name, 'appendLedger', (n) => classify(n, 'proposed'));
+  if (!mint || mint.detail.classification !== 'unregistered') return '通用通道未拒未入账名';
+  const hist = [];
+  const run = { runId: 'x', trigger: 'open', checked: 1, violations: [], softChecked: 0, softGhosts: [], schemaVersion: 7, ruleSetVersion: 'r1' };
+  const blocked = persistAuditRun(hist, run, 'proposed');
+  if (!blocked.refusal || blocked.refusal.code !== 'ACTIVATION_IMPOSSIBLE') return '机制直写未 fail-closed：' + JSON.stringify(blocked);
+  if (hist.length !== 0) return '未批准期间仍落了账（装配应红、零行）';
+  const raw = declareRawIntake(PRIN, { recordId: 'R', declaredType: 'zzz:x', body: 'b' }, 'proposed');
+  if (!raw.refusal || raw.refusal.code !== 'ACTIVATION_IMPOSSIBLE') return 'Raw 落账通道未 fail-closed';
+  if (raw.refusal.code === 'EVENT_AUTHORITY_REQUIRED') return '未入账给了 B-1 违例码（T-N8 同族）';
+  if (mechanismWriteGateMUT6(name, 'proposed') !== null) return 'MUT-6 竟能拦住——批准门对架空失去判别力';
+  const landed = persistAuditRun(hist, { ...run, runId: 'y' }, 'listed');
+  if (!landed.row || hist.length !== 1) return '人工标记落地后同一调用未成功（fail-closed 写成了永久禁用）';
+  return true;
+}
+function run_T_N14() { // R-6 负例：自动补戳路径不存在；MUT-7（打开期顺带盖章）改了历史行字节 ⇒ 判别力
+  const h = [{ seq: 1, contract_version: null }, { seq: 2, contract_version: null }];
+  const before = JSON.stringify(h);
+  if (autoStampScan(h).stamped !== 0) return '真判据竟会补戳';
+  if (JSON.stringify(h) !== before) return '真判据改了历史行';
+  const mut = autoStampScanMUT7(h);
+  if (mut.stamped === 0) return 'MUT-7 竟能拦住自动补戳——判据失去判别力';
+  if (JSON.stringify(h) === before) return 'MUT-7 与真判据不可分（架空形没改历史行）';
+  return true;
+}
+
+// 机制类审计行的构造器（②③ 支用；capability 侧的机制单点写在真实实现里，模型只钉形状与轴）
+function mechAuditRow(eventType, axis, opts = {}) {
+  const ctx = { ctxId: 'ctx-m' + eventType, actor: 'ops:root', capability: 'cap-mechanism', axis,
+    authorized: opts.authorized === false ? false : true, ruleSetVersion: 'r1', contractVersion: 'v3',
+    issuedAtMs: 1730000000009, txSeq: 900 };
+  return { event_type: eventType, actor: 'ops:root', authority_basis: ctx };
+}
+// R-2 之前的两类别式（**作废形态**，常驻不删）：T-P8 用它证明三分修订改的是真行为
+function gateFullShapeSuperseded2Branch(row) {
+  const e = row.authority_basis;
+  if (row.actor == null || e == null) return false;
+  if (!EA46_CTX_FIELDS.every(f => Object.prototype.hasOwnProperty.call(e, f))) return false;
+  if (e.actor !== row.actor) return false;
+  return (!MECHANISM_AXES.has(e.axis)) || (e.axis === 'capability-admin' && e.authorized === true);
+}
+
+const CASE_RUNNERS = { run_T_P1, run_T_P2, run_T_P3, run_T_P4, run_T_P5, run_T_P6, run_T_P7, run_T_P8, run_T_P9,
+  run_T_N1, run_T_N2, run_T_N3, run_T_N4, run_T_N5, run_T_N6, run_T_N7, run_T_N8, run_T_N9, run_T_N10,
+  run_T_N11, run_T_N12, run_T_N13, run_T_N14 };
 for (const id of caseIds) {
   const fn = CASE_RUNNERS['run_' + id.replace('-', '_')];
   let out;

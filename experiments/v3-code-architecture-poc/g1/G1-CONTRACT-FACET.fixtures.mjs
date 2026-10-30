@@ -11,12 +11,12 @@
   - 这里实现的是**契约判据的最小模型**（挂载账 / 双身份发号 / 挂载判定 / 三操作 / 见证全形闸 /
     对账器），不是机制实现；判据语义逐条对应契约正文的 FM-* 小节。
   - **事件与见证形状复用 EA 契约夹具**：AuthorizationContext 九字段、机制封闭名单、
-    REFUSE_UNMOUNTED 引用形状、归属账示例 facet:calibration-observed——由 S1/S2/S12 跨文件
+    REFUSE_UNMOUNTED 引用形状、归属账示例 facet:calibration-observed——由 S1/S2/S11 跨文件
     解析对拍，**本夹具不另造**（S2 字段集逐字逐序对账）。
   - 变异纪律：MUT-* 架空判据常驻本文件不删除（仓内「架空不删除」纪律）；断言方向 =
     真实判据必须拦住负例，架空判据必须放过同一负例（否则正反例表对「架空」没有判别力）。
   - Q45 护栏（契约 FM-3.2）：T-P2 复现 g1a-regression.test.ts 正例护栏的三条断言形状；
-    S11 对拍护栏测试名、三断言词与 BASELINE passes 条目——「任何条款都不得使该正例判红」。
+    S6 对拍护栏测试名、三断言词与 BASELINE passes 条目——「任何条款都不得使该正例判红」。
 */
 
 import { readFileSync } from 'node:fs';
@@ -60,6 +60,12 @@ const EA_MECH = [...eaMechBlock.matchAll(/'([a-z][a-z0-9-]+)'/g)].map(m => m[1])
 // EA 契约正文名单块（三方逐等之 EA 侧）
 const eaDocBlock = (eaDoc.match(/<!-- EA-2 MECHANISM-CLOSED-LIST-BEGIN -->([\s\S]*?)<!-- EA-2 MECHANISM-CLOSED-LIST-END -->/) ?? [null, ''])[1];
 const EA_DOC_MECH = eaDocBlock.replace(/[「」]/g, '').split(/[·\s]+/).map(s => s.replace(/[，,]/g, '').trim()).filter(s => /^[a-z][a-z0-9-]*$/.test(s));
+// EA 侧「名 → 在册登记的机制轴」（锚文件轴归属侧模型的 EA 夹具实现）——R-2 ③ 支的名册绑定面
+const eaAxisBlock = (eaFix.match(/const MECHANISM_AXIS_OF = \{([\s\S]*?)\};/) ?? [null, ''])[1];
+const EA_AXIS_OF = Object.fromEntries([...eaAxisBlock.matchAll(/'([a-z][a-z0-9-]+)'\s*:\s*'([a-z0-9-]+)'/g)].map(m => [m[1], m[2]]));
+// EA 契约正文的「提案未入账」块（R-5）——本契约的两个 planned 名不得出现在其中（各归各的门控）
+const eaPendingBlock = (eaDoc.match(/<!-- EA-2 PLANNED-PENDING-LIST-BEGIN -->([\s\S]*?)<!-- EA-2 PLANNED-PENDING-LIST-END -->/) ?? [null, ''])[1];
+const EA_PENDING = eaPendingBlock.replace(/[「」]/g, '').split(/[·\s]+/).map(s => s.trim()).filter(s => /^[a-z][a-z0-9-]*$/.test(s));
 // EA AuthorizationContext 九字段（见证形状的唯一正源）
 const EA_CTX_FIELDS = [...((eaFix.match(/const EA46_CTX_FIELDS = \[([^\]]*)\];/) ?? [null, ''])[1].matchAll(/'([^']+)'/g))].map(m => m[1]);
 
@@ -92,13 +98,18 @@ function issueCtx(principal, capability, axis, txSeq) {
   };
 }
 function fullCtx(e) { return e != null && typeof e === 'object' && CTX_FIELDS.every(f => Object.prototype.hasOwnProperty.call(e, f)); }
-// 挂载审计全形闸（FM-9：FM-3.1/FM-2.2 判据的账面收口；EA-4.5 的挂载变体，字段面不另造）
+// 名 → 在册登记的机制轴（本契约侧；与 EA 夹具同名条目必须逐等，S13 机验——两份名册不是二真源）
+const MECHANISM_AXIS_OF = { 'facet-mounted': 'facet-mount', 'facet-unlinked': 'facet-mount' };
+// 挂载审计全形闸 = **EA-4.5 ③ 支的覆盖式谓词**（R-2 依赖登记见 FM-7 DEP-EA45-3；字段面不另造）：
+// 名 ∈ 机制封闭名单 ∧ 轴 ∈ 机制轴集 ∧ 轴 = 该名在册登记的机制轴 ∧ authorized = 1
 function gateFullShapeMount(row) {
   const e = row.authority_basis;
   if (row.actor == null || !fullCtx(e)) return false;
   if (e.actor !== row.actor) return false;
-  if (e.axis !== 'facet-mount' || e.authorized !== true) return false;
-  if (MECH_ROUTE_AXES.has(e.axis)) return false;
+  if (classify(row.event_type, true).cls !== 'mechanism') return false;          // 名在册
+  if (!MECH_AXES.has(e.axis)) return false;                                      // 轴 ∈ 机制轴集
+  if (MECHANISM_AXIS_OF[row.event_type] !== e.axis) return false;                // 名册轴绑定（防串用）
+  if (e.authorized !== true) return false;                                       // 判定输入型必已生效
   return e.capability === row.capability;
 }
 function gateFullShapeRoute(row) {
@@ -301,8 +312,14 @@ function pluginVisibleResponse(w) {
       stateRows: w.facetRows.filter(r => r.targetOid === oid && r.ns === OWN_NS(o.owner)).map(r => r.facetRevision),
     };
   }
-  return JSON.stringify({ core, echo: { hiddenByContractSkew: 0 } });
+  return JSON.stringify({ core, echo: {} }); // R-1：插件可见面零 hiddenBy* 遮蔽计数键（FM-2.4 同步句）
 }
+// 旧形态（R-1 之前，**作废**，常驻仅供 T-N9 负例与 MUT-4 的判别力对拍）
+function pluginVisibleResponseSuperseded(w) { return pluginVisibleResponse(w).replace('"echo":{}', '"echo":{"hiddenByContractSkew":0}'); }
+// R-1 判据：普通调用者可见面零 hiddenBy* 键（与 EA 夹具同名判据同一把尺）
+const callerSurfaceFreeOfShadowCounters = (body) => !/hiddenBy[A-Z]/.test(body);
+// MUT-4 架空判据（常驻不删）：只核「响应里不出现审计事件名/digest」——即 R-1 之前的全部内涵
+const callerSurfaceFreeOfShadowCountersMUT4 = (body) => !/facet-mounted|facet-unlinked|Digest|digest/.test(body);
 
 // —— 内部审计真因复算面（FM-3.1(b)：账可复算、不落行、插件面零入口）
 function auditTruthCause(w, op, cap, oid) {
@@ -390,7 +407,8 @@ const PLANNED_DOC = docPlannedList();
 check('S1 planned 名单三方逐等（契约 FM-9 块 ↔ 夹具模型 ↔ 不在 EA 运行时名单/正文名单），gated_by=G1-FACET-01 在位',
   Array.isArray(PLANNED_DOC) && PLANNED_DOC.length === 2 && PLANNED_DOC.every((n, i) => n === MODEL_PLANNED[i])
   && MODEL_PLANNED.every(n => !EA_MECH.includes(n) && !EA_DOC_MECH.includes(n))
-  && doc.includes("gated_by: 'G1-FACET-01'") && doc.includes('planned: true') && EA_MECH.length >= 10);
+  && doc.includes("gated_by: 'G1-FACET-01'") && doc.includes('planned: true') && EA_MECH.length >= 7
+  && EA_PENDING.length >= 1 && MODEL_PLANNED.every(n => !EA_PENDING.includes(n)));
 
 check('S2 见证形状复用不另造：AuthorizationContext 九字段与 EA 夹具逐字逐序等；归属账示例 facet:calibration-observed 在 EA 账内',
   CTX_FIELDS.length === 9 && CTX_FIELDS.length === EA_CTX_FIELDS.length && CTX_FIELDS.every((f, i) => f === EA_CTX_FIELDS[i])
@@ -410,17 +428,18 @@ const tokensIn = (text) => new Set([...text.matchAll(/`([A-Z][A-Z0-9_]{2,})`/g)]
 const CLOSED_CODES = new Set((readFileSync(REFUSAL_CODES_PATH, 'utf8').match(/'([A-Z][A-Z0-9_]{2,})'/g) ?? []).map(s => s.slice(1, -1)));
 const NON_REFUSAL_OK = new Set(['REFUSE_UNMOUNTED', 'REFUSE_BINDING_MISMATCH', 'MOUNT_ROW_FROZEN', 'MOUNT_AUDIT_REQUIRED',
   'ROUTE_AUDIT_REQUIRED', 'HISTORY_IMMUTABLE', 'SCHEMA_VERSION', 'NO_REFUSAL', 'OPEN_DESIGN_QUESTIONS', 'FROZEN_DOCS',
-  'NAVIGATION', 'PINNED', 'MECHANISM_RESOURCES']); // 绑定模式名 / 名单集名——形态词非拒绝码（FM-6/FM-7）
+  'NAVIGATION', 'PINNED', 'MECHANISM_RESOURCES', 'RELOCATABLE_NS_KEYS',
+  'APPROVED_BY']); // 绑定模式名 / 他契约名单集名 / 批准标记名——形态词非拒绝码（FM-6/FM-7）
 const badTokens = [...tokensIn(doc)].filter(t => !(CLOSED_CODES.has(t) || NON_REFUSAL_OK.has(t)));
-check('S5 契约内出现的全大写码全部落在封闭拒绝码集 ∪ 声明的存储层信号文本（封闭集零扩张，FM-7）',
+check('S4 契约内出现的全大写码全部落在封闭拒绝码集 ∪ 声明的存储层信号文本（封闭集零扩张，FM-7）',
   badTokens.length === 0, badTokens.join(','));
 
 const t10 = doc.slice(doc.indexOf('## 10. FM-10'), doc.indexOf('## 11. FM-11'));
 const casesInDoc = [...t10.matchAll(/\|\s*(T-[PN]\d{1,2})\s*\|/g)].map(m => m[1]);
 const caseIds = [...selfSrc.matchAll(/^function run_T_([PN]\d{1,2})\(/gm)].map(m => 'T-' + m[1]);
-check('S4 正反例表与夹具双向一致（表内每个 id 都有 run_*，无孤儿实现，双向等数=15）',
-  casesInDoc.length === 15 && new Set(casesInDoc).size === 15 && caseIds.length === 15
-  && casesInDoc.every(id => caseIds.includes(id)) && new Set(caseIds).size === 15,
+check('S5 正反例表与夹具双向一致（表内每个 id 都有 run_*，无孤儿实现，双向等数=17）',
+  casesInDoc.length === 17 && new Set(casesInDoc).size === 17 && caseIds.length === 17
+  && casesInDoc.every(id => caseIds.includes(id)) && new Set(caseIds).size === 17,
   'doc=' + casesInDoc.length + ' fn=' + caseIds.length);
 
 const GUARD_NAME = 'D-24 正例护栏：Facet 把扩展记录挂载到他人拥有的核心对象（Q45 合法形态）必须继续成功';
@@ -445,10 +464,29 @@ check('S9 FM-3.1 三条在位：取证先于解析 + 唯一塑形函数/内部�
   doc.includes('取证先于对象解析') && doc.includes('唯一塑形函数') && doc.includes('内部审计保留真区别')
   && doc.includes('复用不改变 `CAPABILITY_SCOPE_ESCAPE` 原有的越权语义') && doc.includes('内部审计通道的判定复算面'));
 
-check('S10 本夹具保留三条架空判据（MUT-1 行形态 / MUT-2 卸载即撤销 / MUT-3 见证脱钩，函数常驻）',
-  selfSrc.includes("mutator !== 'MUT1-rowshape'") && /function disableCapabilityMUT2\(/.test(selfSrc) && selfSrc.includes("mutator === 'MUT3-decoupled'"));
+check('S10 本夹具保留四条架空判据（MUT-1 行形态 / MUT-2 卸载即撤销 / MUT-3 见证脱钩 / MUT-4 遮蔽计数呈现面，常驻不删）',
+  selfSrc.includes("mutator !== 'MUT1-rowshape'") && /function disableCapabilityMUT2\(/.test(selfSrc)
+  && selfSrc.includes("mutator === 'MUT3-decoupled'") && /callerSurfaceFreeOfShadowCountersMUT4\s*=/.test(selfSrc));
 
-check('S12 存储层信号文本登记在位（不是 `RefusalCode` 封闭集成员）且 EA 夹具 REFUSE_UNMOUNTED 引用形状承接',
+// —— 跨契约对账（R-1/R-2/R-3；两侧条文互指，任一侧单独回滚即红）——
+check('S12 R-2 显式依赖两侧互指在位：本契约 DEP-EA45-3 + 见证列指 EA-4.5 ③ 支 ↔ EA 正文三分式与挂载方点名',
+  doc.includes('DEP-EA45-3') && doc.includes('EA-4.5 ③ 支')
+  && eaDoc.includes('轴判据**三分**') && eaDoc.includes('registeredMechanismAxis')
+  && eaDoc.includes('显式跨契约依赖') && eaDoc.includes('FM-7 轴值段与 FM-11.2 关系表')
+  && eaDoc.includes('R-2 修订段') && eaDoc.includes('EA 夹具 S16 / FM 夹具 S12 双向机验')
+  && /function gateFullShapeMUT4\(/.test(eaFix) && eaFix.includes('run_T_P8') && eaFix.includes('run_T_N12'));
+check('S13 名册轴不成为二真源：本夹具「名→机制轴」与 EA 夹具同名条目逐等；且 facet_mount 形状零 ns 列（R-3 的前提）',
+  MODEL_PLANNED.every(n => EA_AXIS_OF[n] === 'facet-mount' && MECHANISM_AXIS_OF[n] === EA_AXIS_OF[n])
+  && !/FacetMountRow[\s\S]{0,900}?\bns\s*:/.test(doc.replace(/`ns`/g, 'NS列'))
+  && doc.includes('没有 `ns` 列') && doc.includes('零搬迁')
+  && /function gateFullShapeMount\([\s\S]{0,700}?MECHANISM_AXIS_OF\[row\.event_type\]/.test(selfSrc));
+check('S14 R-1 同步在位：插件可见响应体零 hiddenBy* 键 + 正文同步句 + MUT-4 与旧形态常驻（判别力可自验）',
+  !pluginVisibleResponse(mkWorld()).includes('hiddenBy')
+  && callerSurfaceFreeOfShadowCounters(pluginVisibleResponse(mkWorld())) === true
+  && doc.includes('零 `hiddenBy*` 遮蔽计数键') && eaDoc.includes('R-1 更正段')
+  && pluginVisibleResponseSuperseded(mkWorld()).includes('hiddenByContractSkew'));
+
+check('S11 存储层信号文本登记在位（不是 `RefusalCode` 封闭集成员）且 EA 夹具 REFUSE_UNMOUNTED 引用形状承接',
   doc.includes('不是 `RefusalCode` 封闭集成员') && eaFix.includes("'REFUSE_UNMOUNTED'")
   && ['REFUSE_UNMOUNTED', 'MOUNT_ROW_FROZEN', 'MOUNT_AUDIT_REQUIRED', 'REFUSE_BINDING_MISMATCH'].every(t => doc.includes(t)));
 
@@ -701,6 +739,40 @@ function run_T_N8() {
   return null;
 }
 
+function run_T_P8() { // R-2：挂载见证行走 EA-4.5 ③ 支的覆盖式谓词；名册轴是判据的一半
+  const w = mkWorld();
+  const d = declareMount(w, 'cap-calibration', PRIN, { targetOid: 'O-core', binding: { mode: 'NAVIGATION' } });
+  if (d.refusal) return 'declare 被拒：' + JSON.stringify(d.refusal);
+  const led = w.ledger.find(l => l.event_type === 'facet-mounted');
+  if (!led) return '无挂载见证行';
+  if (gateFullShapeMount(led) !== true) return '③ 支未放行合法挂载见证行（R-2 未落实）';
+  // 串轴（挂载名挂到路由轴）⇒ 真判据必拒
+  if (gateFullShapeMount({ ...led, authority_basis: { ...led.authority_basis, axis: 'capability-admin' } }) !== false) return '挂载名串用路由轴未被拦';
+  // 覆盖性：新机制名 + 新机制轴入账 ⇒ 判据一字不改即覆盖（点名清单式判据在此会失守）
+  MODEL_PLANNED.push('facet-quarantined'); MECHANISM_AXIS_OF['facet-quarantined'] = 'facet-quarantine';
+  MECH_AXES.add('facet-quarantine');
+  let covered = false;
+  try {
+    covered = gateFullShapeMount({ event_type: 'facet-quarantined', actor: 'ops:root', capability: 'cap-calibration',
+      authority_basis: { ctxId: 'c', actor: 'ops:root', capability: 'cap-calibration', axis: 'facet-quarantine',
+        authorized: true, ruleSetVersion: 'r1', contractVersion: 'v3', issuedAtMs: 1, txSeq: 1 } }) === true;
+  } finally {
+    MODEL_PLANNED.pop(); delete MECHANISM_AXIS_OF['facet-quarantined']; MECH_AXES.delete('facet-quarantine');
+  }
+  if (!covered) return '③ 不是覆盖式：新机制轴/名入账后必须改判据 = 违例';
+  return null;
+}
+function run_T_N9() { // R-1：普通响应面出现 hiddenBy* 遮蔽计数 ⇒ 判红（旧形态 echo 键就是违例）
+  const w = mkWorld();
+  const good = pluginVisibleResponse(w);
+  if (callerSurfaceFreeOfShadowCounters(good) !== true) return '新形态被误判：' + good;
+  const leak = pluginVisibleResponseSuperseded(w);
+  if (!leak.includes('hiddenByContractSkew')) return '负例构造失效';
+  if (callerSurfaceFreeOfShadowCounters(leak) !== false) return '泄漏体未被判据点名';
+  if (callerSurfaceFreeOfShadowCountersMUT4(leak) !== true) return 'MUT-4 竟能点名——判据对架空失去判别力';
+  return null;
+}
+
 // ============================================================ 变异自验（架空判据必须被捕获）
 
 (function mutChecks() {
@@ -723,6 +795,13 @@ function run_T_N8() {
     disableCapability(realW, PRIN_ADMIN, 'cap-calibration'); enableCapability(realW, PRIN_ADMIN, 'cap-calibration');
     const realBack = writeFacetRecord(realW, 'cap-calibration', PRIN, { mountId: rd.mountId, payload: { v: 2 } });
     check('MUT-2 判别力：架空「卸载即撤销」使恢复后写入被拒（T-P4 会红）；真实判据下仍通', !!back.refusal && !realBack.refusal);
+  }
+  // MUT-4：R-1 的呈现面判据架空形（只核审计事件名字样）必须放过旧形态泄漏体
+  {
+    const w = mkWorld();
+    const leak = pluginVisibleResponseSuperseded(w);
+    check('MUT-4 判别力：真判据拦下旧形态 hiddenBy* 泄漏；架空「只核审计事件名」放过同一泄漏体',
+      callerSurfaceFreeOfShadowCounters(leak) === false && callerSurfaceFreeOfShadowCountersMUT4(leak) === true);
   }
   // MUT-3：见证脱钩 ⇒ 对账器点名孤儿挂载链；原子形态零孤儿
   {
@@ -747,6 +826,7 @@ const CASES = [
   ['T-P5', '挂载对属主读面零差分（非 oracle）+ own 面只见自己', run_T_P5],
   ['T-P6', '未入账装配红 fail-closed 零残留', run_T_P6],
   ['T-P7', '内部审计真因可区分（UNMOUNTED/NO_RIGHT/MOUNT_ACTIVE）插件零入口', run_T_P7],
+  ['T-P8', 'R-2 依赖兑现：挂载见证走 EA-4.5 ③ 覆盖式谓词 + 名册轴绑定 + 新机制轴入账零改判据', run_T_P8],
   ['T-N1', '无挂载伪造核心修订必拒零残留（EA T-N1 引用形状承接）', run_T_N1],
   ['T-N2', '身份冒充三连（自带 id / 保留前缀 / FR 进正式槽）各拒', run_T_N2],
   ['T-N3', '目标不存在 vs 无可见权 declare 逐字节同形', run_T_N3],
@@ -755,6 +835,7 @@ const CASES = [
   ['T-N6', '缺 facet-mount 轴 = AUTHORITY_REQUIRED 且零幽灵审计行', run_T_N6],
   ['T-N7', '第二真源三面：机制零误炸 + 不入核心快照 + 不认领核心边 + 报告可落', run_T_N7],
   ['T-N8', '未挂载 vs 越权：同一响应面逐字节等 + 信号词零对外', run_T_N8],
+  ['T-N9', 'R-1 同步：普通响应面出现 hiddenBy* 遮蔽计数 ⇒ 判红（旧形态 echo 键 = 违例）', run_T_N9],
 ];
 for (const [id, desc, fn] of CASES) {
   let r = null;

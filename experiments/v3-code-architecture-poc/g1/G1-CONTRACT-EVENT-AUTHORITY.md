@@ -215,17 +215,39 @@ V1/HSR 面的工具名与事件族，**没有裁 V3 机制名**（F-1/B6 教训�
 `record-backfilled` 按 EA-5 原名保留、无前缀；前缀规则会让它们「形状上不像机制名」，制造
 分类双源。封闭、可机验、异源的名单已经满足 SI-02 想买的性质，前缀只是其中一种实现且与存量冲突）。
 
-机制封闭名单首批成员（= 锚文件 `class:'mechanism'` 全集；夹具与本表逐等）：
+机制封闭名单·**已入账**成员（= 锚文件 `class:'mechanism'` 且 `planned:false` 全集；夹具与本表逐等）：
 <!-- EA-2 MECHANISM-CLOSED-LIST-BEGIN -->
 「capability-enabled · capability-disabled · capability-transferred · object-registered ·
-check-report-recorded · object-revised · record-backfilled · raw-record-declared ·
-integrity-audit-recorded · read-shadow-recorded」
+check-report-recorded · object-revised · record-backfilled」
 <!-- EA-2 MECHANISM-CLOSED-LIST-END -->
-其中前五名 = 包 6 既有预留（C-19）；`object-revised`/`record-backfilled` = 存量机制写点就地升格
-（EA-5.2）；`raw-record-declared` = EA-1.2.3；`integrity-audit-recorded` = C-24 建议转正（EA-7.1）；
-`read-shadow-recorded` = 本合同新裁（EA-7.2，读侧遮蔽持久化）。`ns-relocated`（DESIGN B.5-5）
-在 G1-NS-01 裁定前**不入名单**（锚文件以 `planned:true, gated_by:'G1-NS-01'` 占位；C.5-4 的
-「C1 未定则不得先落」自此解除，但 B 面名称仍须其契约自裁）。
+其中前五名 = 包 6 既有预留（C-19，批准面 = `CONTRACTS.md` §16.3/D-27 的既有评审事实）；
+`object-revised`/`record-backfilled` = 存量机制写点就地升格（EA-5.2，**不是新增名**，历史行同名同判）。
+
+**【R-5 更正段｜2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md` R-5；本表与 EA-7.1/RL-2.2 同批】**
+上面这个块旧作「首批成员（10 名）」并含 `raw-record-declared`/`integrity-audit-recorded`/
+`read-shadow-recorded` 三名，其批准面旧写「批准记录 = 本合同」。**该批准面作废**：唯一有效批准 =
+本节步骤 2 的人工标记（锚文件 `approved[]` 里一条「Approved-By: <日期> <非作者>」+ 提交 trailer
+`Event-Name-Review:` 两处同现，§6.1 批准三要素），而 **G1 冻结评审尚未发生**
+（`G0-R-CLOSURE.md` = NO-GO）⇒ 本契约及任何分契约**都不得自称已批准**；「名单的形状与判据由本契约
+裁定」成立，但**判据 ≠ 批准**。因此三名自本段起降级为**提案未入账**（形状/类别/写点/判据仍由本契约
+裁定，运行时名单不含它们）：
+
+<!-- EA-2 PLANNED-PENDING-LIST-BEGIN -->
+「raw-record-declared · integrity-audit-recorded · read-shadow-recorded · ns-relocated」
+<!-- EA-2 PLANNED-PENDING-LIST-END -->
+
+- 逐名 `gated_by`：`raw-record-declared` → `EA-1.2.3`（本契约新裁名）；`integrity-audit-recorded` →
+  `EA-7.1`（C-24 建议转正）；`read-shadow-recorded` → `EA-7.2`（本契约新裁）；`ns-relocated` →
+  `gated_by:'G1-NS-01'`——`ns-relocated`（DESIGN B.5-5）在 G1-NS-01 裁定前不入名单，锚文件以
+  `planned:true, gated_by:'G1-NS-01'` 占位（B 面名称自裁；其提案文书侧的同一更正写在 RL-2.2）。
+- **未入账期间的语义（fail-closed，不靠约定）**：分类器对四名给 `unregistered` ⇒ 通用通道 mint 拒
+  （EA-2.2 既有默认，无放行窗口）；**机制内部直写通道同样拒**——装配期依赖这些名的写入口
+  （Raw Intake 落账、审计持久化、遮蔽落账、重定位落账）在未批准期间 `ACTIVATION_IMPOSSIBLE`
+  （与 FM-7「名册缺项 = 装配红」同族同码），已收材料/已做校验不丢，只是**台账行写不下去**。
+  如实写明代价：这四名的 `Approved-By` 落地是**用户动作**，且是 G2 任何依赖它们的写面 PR 的
+  **进入门禁**（不是「先落码后补批准」的退出门禁）。
+- **不得反向解释**：本节不是把 C-19 五名或存量两名的既有批准面重开——那七名的批准面在上一段，
+  本段只处理「由本组契约新造、且除本组契约外无批准记录」的名字。
 
 ### 2.5 诚实边界
 
@@ -348,12 +370,39 @@ G2-A 已实测同族的载荷侧半扇门：判据从 `note` 换到结构化字�
    row.actor ≠ NULL
    ∧ parse(row.authority_basis) 为 AuthorizationContext **全形**（九字段齐、类型对）
    ∧ envelope.actor = row.actor                                  // 同源一致性（F-G6A-2 修法转正）
-   ∧ envelope.axis ∉ MECHANISM_RESOURCES（正式事件）｜ envelope.axis = 'capability-admin'（路由审计）
-   ∧ envelope.authorized = 1（路由审计类）
-   ∧ envelope.capability = ownershipOwnerAt(row.event_type, envelope.contractVersion)（审计复算面）」
+   ∧ 轴判据**三分**（封闭覆盖；每一支都是谓词，闸内**不写任何事件名清单**）：
+       ① 正式领域事件：classify(row.event_type) = 'domain'
+                        ∧ envelope.axis ∉ MECHANISM_RESOURCES
+       ② 路由/运维审计（既有触发器形态原样钉住）：
+                        classify(row.event_type) = 'mechanism'
+                        ∧ envelope.axis = 'capability-admin' ∧ envelope.authorized = 1
+       ③ 机制挂载/机制操作类审计（**覆盖式谓词，不点名轴名也不点名事件名**）：
+                        classify(row.event_type) = 'mechanism'          // 名单唯一正源 = EA-2.4 机制封闭名单
+                        ∧ envelope.axis ∈ MECHANISM_RESOURCES           // 机制轴集（D-26「至少」的既有方向）
+                        ∧ envelope.axis = registeredMechanismAxis(row.event_type)  // 该名在册登记的机制轴（防串用）
+                        ∧ envelope.authorized = 1
+   ∧ envelope.capability = ownershipOwnerAt(row.event_type, envelope.contractVersion)（①类的审计复算面；
+     ②③类的 capability = 该名写点的机制归属主体，由机制单点写，不做归属账复算）」
+
+**R-2 修订段（2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md` R-2）**：本条旧式的轴判据只有两支
+「`envelope.axis ∉ MECHANISM_RESOURCES`（正式事件）｜ `envelope.axis = 'capability-admin'`（路由审计）」，
+在 G1-FACET-01 把机制轴 `facet-mount` 扩入机制轴集后**两式皆不满足**——挂载类审计行既不是路由审计，
+又因轴在机制轴集内被 ① 排除，判据无式可依（汇编注册表 B 的 I-2）。三分修订即修此。三点如实写明：
+
+- **② 是 ③ 的特例**（`'capability-admin'` 本身在机制轴集内），单列只为把现状 `route_change_guarded`
+  的既成形态钉成可读的历史支；两支同时成立时判据等价（都要求 `authorized = 1`），不产生第二真源。
+- **③ 不许退化成名单**：三支的划分只依赖三个既有正源——分类器（EA-1.2）、机制轴集
+  （`MECHANISM_RESOURCES`）、名册登记的机制轴（锚文件条目）。新增机制名或新增机制轴 ⇒ 本判据
+  **一字不改**；若在本闸内再写一份事件名白名单，就是把 C-27「名单与事实同源 ⇒ 失明」搬进闸门，
+  按契约违例处置。
+- **挂载方的显式依赖登记在同批**：`G1-CONTRACT-FACET.md` 的 FM-7 轴值段与 FM-11.2 关系表把
+  「挂载见证行的全形闸依据 = 本条 ③」登记为**显式跨契约依赖**（依赖本三分修订）；本条亦点名 FM-7/FM-9
+  为 ③ 的挂载方。两侧互指，任一单独回滚即夹具红（EA 夹具 S16 / FM 夹具 S12 双向机验）。
 
 现状 `route_change_guarded` 只核 `l.actor is not null` + 轴 + authorized（C-21 点名处）；本合同
 把它升到全形。**只做等式不做全形 = 半形**，半形必红由夹具变异 MUT-1 钉（§8/夹具）。
+**③ 的架空同样必红**：MUT-4 把 ③ 写成「轴在机制轴集 ∧ authorized=1 即过」（丢掉名册轴绑定），
+夹具 T-N12 用「机制名挂到别的机制轴上」这一负例区分——真判据拦得住，MUT-4 放过。
 
 ### 4.6 审计侧「事后能否复算」判据
 
@@ -404,6 +453,15 @@ G2-A 已实测同族的载荷侧半扇门：判据从 `note` 换到结构化字�
   补戳 = 系统替历史补语义）。无戳行按「切换前」解释档读，读者必须能报告「此版本来自缺省档」。
 - 每个机制名在锚文件带 `interpretationRuleSetVersion`；读者加载冻结解释表时逐名校验版本可解析，
   缺项 = 装配红（fail-closed，禁止「按当前版本猜」）。
+- **无戳行的版本归属（R-6 收口句，2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md` R-6）**：
+  本条「不回填、按「切换前」缺省档读」与裁决表 D5-c 行「历史行补 `contract_version` = **显式修补
+  事件**语义（G1-VER-01）」不是互斥的两条——收口成一句写死：
+  **「显式修补事件是显式、可审计的运维动作：它以追加行的方式登记「谁在何时把这行的呈现档从缺省档
+  改判为某档」，只调整该行的*呈现档*且可被回看；机制绝不自动补戳（无打开期扫描补戳、无迁移器顺带
+  盖章），也不得因修补而改写历史语义（原行字节与签发证据一字不动，修补只追加、零 UPDATE）。」**
+  两侧对称：`EA-5.1` 的「禁止为归类而重写 History Ledger」禁的是**改旧行**，D5-c 允许的是**追加
+  修补行**——「不回填」与「显式修补」因此同时成立，B 契约侧同一句写在 RL-6.1 版本行列与 RL-8.4
+  （同一批落地，夹具 EA T-P9 正例 + T-N14 负例钉两侧）。
 
 ### 5.4 被否证的替代案（留痕）
 
@@ -474,13 +532,28 @@ G2-A 已实测同族的载荷侧半扇门：判据从 `note` 换到结构化字�
 
 ## 7. EA-7 「只报不阻」计数器的持久化（F-G6A-5 / G1-AUDIT-01）
 
-### 7.1 两个机制名（本契约 = 其命名批准文书，C-24 转正）
+### 7.1 两个机制名（本契约 = 其**提案文书**；批准归 EA-2.4，C-24 转正指判据面）
 
 `integrity-audit-recorded`：`auditRequiredIntegrity()` **每次运行必落一条**机制事件（机制内部直写、
 预留名）。`read-shadow-recorded`：读侧遮蔽计数（`hiddenByContractSkew`/`hiddenByInactiveCapability`）
-的聚合落账事件。两名的 `class:'mechanism'`、`writeSites` 限定在审计/读上下文模块、
-批准记录 = 本合同（EA-2.4 步骤 2 的批准由 G1 冻结评审 = 本条裁定承担，落地时按流程补记
-`Approved-By` 标记行）。
+的聚合落账事件。两名的 `class:'mechanism'`、`writeSites` 限定在审计/读上下文模块。
+
+**【R-5 更正段｜2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md` R-5；旧句保留于下、以本段为准】**
+本节旧题作「本契约 = 其命名**批准文书**（C-24 转正）」，正文旧写「批准记录 = 本合同（EA-2.4 步骤 2
+的批准由 **G1 冻结评审 = 本条裁定承担**，落地时按流程补记 `Approved-By` 标记行）」。**自引用作废**：
+
+- 本条**不授予批准**。它裁定的是两名的**形状、类别、写点白名单与落账判据**（= 提案的全部技术内涵，
+  一字不缩），而批准的唯一落点是 EA-2.4 步骤 2 的人工标记（§6.1 批准三要素：用户或其指名代表、
+  ≠ 实现者、锚文件 + trailer 两处同现）。**「本条裁定判据」与「本条即批准」是两件事**，旧句把前者
+  写成了后者，等于让文书自己给自己签字，令「名单唯一正源 + 异源人工批准」的锚空转（I-5 的实况）。
+- 「C-24 转正」自此准确表述为：**C-24 的建议在本契约转正为判据**（形状/写点/阈值/digest 都定了），
+  不是转正为已入账名。两名在锚文件里 `planned:true`，`gated_by` 见 §2.4 提案未入账块。
+- 入账前装配保持 **fail-closed**：审计持久化写入口未获批准即装配红（`ACTIVATION_IMPOSSIBLE`，
+  FM-7 同族同码），F-G6A-5 的持久化修法在人工标记落地前**不得声称已上线**——这条代价如实登记，
+  不用「先落码、补标记」绕过。夹具对拍：T-N13（无 `Approved-By` ⇒ 该名字不可入账、机制直写拒、
+  通用通道走 `unregistered` 拒；标记落地后同一调用成功）。
+- 同一更正的同族句写在 RL-2.2（`ns-relocated` 由「本契约即批准文书」降级为「提案文书」）；
+  FM-9 的写法（「本合同是命名提案…本身不构成入账」）是**标准形**，本段向它对齐，A 侧条文不动。
 
 ### 7.2 落账形状与阈值裁决
 
@@ -500,7 +573,16 @@ G2-A 已实测同族的载荷侧半扇门：判据从 `note` 换到结构化字�
 读侧落账裁决（一过性回声 → 持久痕迹的最小代价形态）：满足「该能力首次出现非零遮蔽」或
 「距上次落账后非零遮蔽读次数达到 K = 32」即落一条；K 是**契约常量**（改值 = 动本合同冻结面，
 运维不可私调大——防「把阈值调到天上去」掏空本判据）。落账**不阻塞任何读写**（C2 只报不阻语义
-一字不动），计数照旧进读回执。
+一字不动）。
+
+**【R-1 更正段｜2026-11-01，跨契约对账裁决；台账见 `G1-CONTRACT-RECONCILIATION.md` R-1；旧句保留
+于上、以本段为准】** 上一段末句旧作「**计数照旧进读回执**」，该句自本段起**作废**。依据 =
+裁决表 D1-d 行与 C4 行（二者均为「否——裁决已定」）：#42 SP-03 要求「不得给出被屏蔽条目的
+精确计数」、#47 SF-N-04 要求「不写被屏蔽计数」，故 `hiddenBy*` 遮蔽计数**退出调用方 echo 面**，
+其唯一合法落点是本节的 `read-shadow-recorded` 行（内部审计通道，EA-7.4 通道封闭）。
+**改的是出口，不是算法**：怎么算（按维度分别计）、K = 32 阈值、只报不阻、落账形状与载荷字段
+（§7.2 `hidden: {byContractSkew, byInactiveCapability}`）一字不改；改前文本在「读回执里能看到
+非零遮蔽」这一含义上不再成立。
 
 ### 7.3 合法流量淹没问题为何由此解决
 
@@ -521,15 +603,30 @@ E-01/D-12 的教训是「计数回显泄露隐藏对象存在性」——审计�
   读取面 = 装配根/运维授权的审计查询（与 §16.1 审计面同界），插件读 API 与业务读面**没有**触达
   这两类行的入口；插件可见成员名集零增删（`arch-independence.test.ts` 运行时面对拍先例）。
 - **响应面零差分**：普通调用者的任何响应体（含读回执、错误 detail）**不得因审计事件的存在或缺席
-  而改变形状**——既有 `hiddenByContractSkew` 等 echo 键是「知数量不给身份」的已冻结面
-  （§16.3「echo 形状不加字段」句），审计事件不新增任何键、不改变任何既有键的取值来源；
-  「计数被落账」这件事本身对普通调用者不可观测。
+  而改变形状**——审计事件不新增任何键；「计数被落账」这件事本身对普通调用者不可观测。
+  - **【R-1 更正段｜2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md` R-1；旧句保留于下、以本项
+    新句为准】** 本项旧作「……既有 `hiddenByContractSkew` 等 echo 键是『知数量不给身份』的
+    **已冻结面**（§16.3「echo 形状不加字段」句），审计事件**不改变任何既有键的取值来源**」，
+    该两句自本段起**作废**。作废理由：它把「旧形态的键集」当成了冻结对象，与裁决表 D1-d/C4
+    （遮蔽计数只进内部审计面、退出调用方 echo）正面冲突——若照旧句实现，`hiddenBy*` 键会随
+    遮蔽发生而取值变化，正是 D1-d 要消除的「隐藏 0 / 1 / ≥2 可差分」形态。
+  - **新形态（成文）**：调用方 echo 面**不含任何 `hiddenBy*` 键**——「知数量不给身份」不再是
+    对普通调用者的承诺，而是**对内部审计面的描述**（计数在 `read-shadow-recorded` 行里，
+    读取面归 §16.1 审计通道/运维授权）。隐藏 0 件、1 件、≥2 件三种世界在普通调用者处
+    **逐字节同形**（D1-d 的负例要求）。键集**收缩**按 `CONTRACTS.md` §16 流程重登记对拍
+    （C4 原句）；§16.3「echo 形状不加字段」句只禁**加**字段，撤键不在其禁内，故不作为保留
+    旧键的理由。旧键集（`{hiddenByContractSkew, hiddenByInactiveCapability}`）作为历史形态记录在
+    本段与台账里，G2 实现批按新形态落地并在 arch-independence 对拍中重锚。
 - **暴露的唯一通道**：确需把审计信息给某个调用方 ⇒ 走**已裁决的运维授权路径 / E-01 呈现裁定**
   （G1-READ-02 复核范围既有句所辖），由呈现层在授权后映射——机制层不为此开特例读面。
   digest 的小集合枚举残余仍按 §7.3 的运维信息面同界处置。
 
-夹具对拍：T-P7 断言「落账前后，普通调用者可见响应面的形状与取值逐字节等；内部审计通道的行数 +1」
-——把「持久化不扩对外信息面」做成可执行判据，而不是修辞。
+夹具对拍：T-P7 断言「落账前后，普通调用者可见响应面的形状与取值逐字节等，且响应体**零
+`hiddenBy*` 键**；内部审计通道的遮蔽行里带着那些计数」——把「持久化不扩对外信息面 + 遮蔽计数
+退出调用方面」做成可执行判据，而不是修辞。反向负例 **T-N11**：把旧形态 echo 键集（带
+`hiddenByContractSkew`）的响应体喂给判据 `callerSurfaceFreeOfShadowCounters()`，必判红；
+配套的架空判据 MUT-5（只核「响应体里不出现审计事件名字样」，即旧 T-P7 的判据全部内涵）对同一
+泄漏体**判绿**——证明本判据不是同义反复（架空必红纪律）。
 
 ---
 
@@ -554,6 +651,12 @@ E-01/D-12 的教训是「计数回显泄露隐藏对象存在性」——审计�
 | T-N8 | 负 | **越界误用**：把预留闸接到 Raw 通道上，令未识别 declaredType 被 EVENT_AUTHORITY_REQUIRED 拒收 | 本合同判 RED——B-1 边界违例（命名权威被用成存在性 oracle） | 「declareRawIntake 路径上任何 EVENT_AUTHORITY_REQUIRED = 契约违例」 | run_T_N8 |
 | T-N9 | 负 | 删定义洗白：某机制名从名单与写点被同步抹除，期望集若从写点现算则「一致」 | 异源对账 R1/R2 点名（写点没了走 R2 孤儿名单面；改写点藏名走 R1）；同源对账失明（MUT-3） | 「reconcile(ledger, sites, 'ledger-file') 报事件名点名 ∧ reconcile(..., 'derived') 报告无异常 = 被判定为不合格对账器」 | run_T_N9 |
 | T-N10 | 负 | 同提交耦合（R4）：一个提交同时改名单**语义行**与 `src/kernel/**` 写点区；对照：两提交分开 / 同提交仅豁免变更（追加批准记录、planned 翻转） | 耦合提交构建红；两个合法形状放行 | 「reconcileCoupling(语义行变更 ∧ 写码变更)=EVENT_RECON_COUPLING ∧ 分开提交无违规 ∧ 纯追加批准记录无违规」 | run_T_N10 |
+| T-P8 | 正 | **R-2 三分全形闸**：路由审计行（②）与机制挂载类审计行（③，轴 = 该名在册登记的机制轴）各过闸；再临时新增一根机制轴 + 一个新机制名入账 | 两支皆过；**旧两类别式对挂载行必须判不过**（证明三分是真改）；②③ 未 `authorized=1` 不过；新轴新名**不改判据一字**即被 ③ 覆盖（覆盖式谓词的定义性检验） | 「gateFullShape(路由行)=true ∧ gateFullShape(挂载行)=true ∧ gateFullShapeSuperseded2Branch(挂载行)=false ∧ gateFullShape(未生效行)=false ∧ gateFullShape(新轴新名行)=true」 | run_T_P8 |
+| T-P9 | 正 | **R-6 显式修补事件**：无戳行按缺省档读；运维带人工标记追加一条修补行；同场试打开期自动补戳 | 无标记的修补被拒；带标记的修补**只追加行、只调呈现档、可回看**，原行逐字节不变；机制侧零自动补戳 | 「tier(未修补)=pre-cutover-default ∧ 无标记修补=PATCH_REQUIRES_HUMAN_MARKER ∧ tier(修补后)=patched@seqN ∧ JSON(原行) 前后逐字节等 ∧ patchLog[0].marker 含 Approved-By ∧ autoStampScan.stamped=0」 | run_T_P9 |
+| T-N11 | 负 | **R-1 遮蔽计数泄漏**：把旧形态响应体（echo 里带 `hiddenByContractSkew`）作为普通调用者可见面 | 判红——遮蔽计数只进内部审计面，调用方面零 `hiddenBy*` 键 | 「callerSurfaceFreeOfShadowCounters(旧形态体)=false ∧ callerSurfaceFreeOfShadowCounters(新形态体)=true ∧ MUT-5(同一泄漏体)=true（判别力自验）」 | run_T_N11 |
+| T-N12 | 负 | **R-2 串轴**：机制名挂到别的机制轴（挂载名带 `capability-admin`）；机制封闭名单外的名带机制轴；领域事件冒充机制审计轴 | 三形皆拒（③ 的名册轴绑定 + 名单合取项 + ① 的排除式） | 「gateFullShape(串轴挂载行)=false ∧ gateFullShape(名单外名带机制轴)=false ∧ gateFullShape(领域行冒充机制轴)=false ∧ gateFullShapeMUT4(串轴挂载行)=true（判别力自验）」 | run_T_N12 |
+| T-N13 | 负 | **R-5 无批准标记**：`Approved-By` 未落地期间对提案名（如 `read-shadow-recorded`）分别试通用通道 mint 与机制内部直写；再模拟标记落地后重试 | 通用通道拒（`unregistered`）；机制直写**装配红 ACTIVATION_IMPOSSIBLE、零行**（不得给 `EVENT_AUTHORITY_REQUIRED`）；标记落地后同一调用成功 | 「classify(名,'proposed')=unregistered ∧ mint 拒 ∧ 直写 refusal.code=ACTIVATION_IMPOSSIBLE ∧ 账本零行 ∧ 入账后同调用 row 存在 ∧ MUT-6 放行同一未批准调用（判别力自验）」 | run_T_N13 |
+| T-N14 | 负 | **R-6 自动补戳**：打开期扫描给无 `contract_version` 的历史行盖章 | 真判据下零补戳且历史行字节零改；架空形（顺带盖章）必须真的改了历史行字节 ⇒ 判据有判别力 | 「autoStampScan(历史).stamped=0 ∧ 历史逐字节不变 ∧ autoStampScanMUT7(历史).stamped>0 ∧ 历史被改（=违例形态被复现）」 | run_T_N14 |
 
 ---
 
@@ -578,8 +681,7 @@ E-01/D-12 的教训是「计数回显泄露隐藏对象存在性」——审计�
    要么改走 Raw 信封——**不留豁免窗**（豁免 = 名单外默认可写的残体）；存量夹具迁移登记为实施批义务。
 3. **信封形状变更**：JSON 列内加字段，不动 DDL 不推版本（EA-4.4）；N1/G27-C 的「半形必红」判据与
    裸面边界断言在实现批**同批重锚**（收紧方向的重锚，逐条点名，不走静默）。
-4. **审计事件名归属**：`integrity-audit-recorded`/`read-shadow-recorded` 归机制类、本契约即批准
-   （EA-7.1）；`ns-relocated` 保持 planned-gated 待 G1-NS-01（C.5-4 的倒逼顺序就此解除）。
+4. **审计事件名归属**：**【R-5 更正，2026-11-01；旧句保留于下、以本条为准】** 旧作「`integrity-audit-recorded`/`read-shadow-recorded` 归机制类、**本契约即批准**（EA-7.1）；`ns-relocated` 保持 planned-gated 待 G1-NS-01（C.5-4 的倒逼顺序就此解除）」。更正后：两名**归机制类**、分类与判据由本契约裁定——这部分成立；**批准不在本契约**（批准主体唯一 = EA-2.4 步骤 2 的人工 `Approved-By` 标记，且 G1 冻结评审尚未发生），两名现列 §2.4「提案未入账」块（`gated_by` = EA-7.1 / EA-7.2），入账前机制内部直写装配红（夹具 T-N13）；`ns-relocated` 保持 planned-gated 待 G1-NS-01，同族句 RL-2.2 已同步降级为**提案文书**（C.5-4 的倒逼顺序就此解除）。
 5. **跨进程陈旧**：机制名单编译期固化；领域归属账装配期内存态 + 持久路由重开重载，实话同 C-30
    （D-25 家族）。**deny-by-default 的方向性红利写明**：陈旧窗口只会让旧进程「拒绝它不认识的新名」，
    不会出现「放行本该拒的旧名」——陈旧从安全洞降级为可用性角；补跨进程失效机制与否仍属 G1 余项。
@@ -630,3 +732,25 @@ E-01/D-12 的教训是「计数回显泄露隐藏对象存在性」——审计�
 **本席对该限定的补充立场（一句话，防落地时被读松）**：④ 的正确读法是
 「审计事件把**发现能力**从『恰好有人盯回声』升级为『账可回看』，同时把**信息面**原样封在运维侧」——
 持久化扩的是内部审计的留存，不是对外可见性；两者同批落地，缺任一即本条未实现。
+
+### 9.6 跨契约对账更正记录（2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md`）
+
+> 来源：装配席 `G1-UNIFIED-CONTRACTS.md` §7.2 注册表 B 的硬不一致 I-1…I-6（编号对应本席的 R-1…R-6）。
+> 裁决序位照 §7.1：裁决表 > 分契约 > `CONTRACTS.md` > 对账记录 > G0。本节只是留痕，正文的规范句在
+> §2.4 / §4.5 / §5.3 / §7.1 / §7.2 / §7.4 本体里；**旧句一律保留原文 + 就地标注取代**（照 `CONTRACTS.md`
+> D-25/包 4 更正段先例），不静默覆盖。
+
+| 项 | 本契约侧改了什么 | 判据/夹具落点 | 状态 |
+| --- | --- | --- | --- |
+| **R-1**（I-1） | §7.2 末句「计数照旧进读回执」+ §7.4「既有 `hiddenBy*` echo 键是已冻结面、不改变取值来源」两条**作废并更正**：裁决表 D1-d/C4 为准，遮蔽计数**退出调用方 echo 面、只进内部审计面**。**改的是出口不是算法**——遮蔽算法、`K=32`、「只报不阻」、审计载荷 `hidden:{byContractSkew,byInactiveCapability}` 一字未动 | §7.4 新形态「调用方 echo 面零 `hiddenBy*` 键」；T-P7 反转断言 + 三态同形；新 T-N11 + MUT-5 | 已修，夹具绿 |
+| **R-2**（I-2） | §4.5 轴判据二分支 → **三分**，③ 为覆盖式谓词（名 ∈ 机制封闭名单 ∧ 轴 ∈ 机制轴集 ∧ 轴 = `registeredMechanismAxis(名)` ∧ `authorized=1`），闸内不写事件名清单 | T-P8（含覆盖性自验）/ T-N12 + MUT-4；与 FM 的 DEP-EA45-3 互指（EA S16 ↔ FM S12） | 已修，两侧同批 |
+| **R-3**（I-3） | 本契约零冲突，仅在 §2.4 名单侧确认「挂载登记表不是 ns 键控表」不影响机制名账 | — | 不适用（改在 RL/FM） |
+| **R-4**（I-4） | 本契约零冲突（`failedGate` 封闭集是 B 契约面），只登记观察：封闭集与机制名账无耦合，改名不牵动本契约 | — | 不适用（改在 RL） |
+| **R-5**（I-5） | §2.4 名单拆「已入账 7 名 + 提案未入账 4 名」两块（机器可读标记 + 逐名 `gated_by`）；§7.1 标题与正文删自授批准语义（**判据≠批准**）；§9.2-④ 同族句同步；机制内部直写通道未入账 ⇒ `ACTIVATION_IMPOSSIBLE` 装配红 | S1/S1b/S2/S2b 三方逐等 + 批准门在写入路径上；T-N13 + MUT-6 | 已修；**代价如实登记**：G2 前置是 4 个人工标记 |
+| **R-6**（I-6） | §5.3 新增「无戳行的版本归属」成文收口句：修补是显式、可审计的运维动作，只调**呈现档**且可回看；机制**绝不自动补戳**，也不得因修补**改写历史语义**（只追加、零 UPDATE） | T-P9 / T-N14 + MUT-7；RL-6.1/RL-8.4 各补同半句 | 已修，两侧同步 |
+
+**本节不改的东西（防读松）**：EA-4.2 九字段信封、EA-4.3 取证序、D-26 轴谓词的方向、EA-5.1a 合一判据、
+`K=32` 阈值、EA-7.4「非 oracle」的方向本身——R-1 只是把「不进对外面」从「计数取值不变」推进到
+「计数不在场」，方向同源。名单基数由「首批 10」变「已入账 7 + 提案未入账 4」⇒ 汇编席
+`G1-UNIFIED-CONTRACTS.md` 的基数句需回填（本席禁改，已在台账登记为下游回填项）。
+

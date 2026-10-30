@@ -161,6 +161,11 @@ Facet 的相互独立，**Facet 版本不能覆盖对象核心 Revision**（F-06
 原文处置），确需暴露走已裁决的呈现裁定通道（E-01/G1-READ-02 复核范围），与 EA-7.4 通道封闭
 同型。审计/运维面可读挂载账（内部审计通道）。
 
+**同步句（R-1，2026-11-01 跨契约对账；台账 `G1-CONTRACT-RECONCILIATION.md` R-1）**：本节的
+「默认不上插件读面」按 EA-7.4 的 R-1 更正段取**同一把尺**——挂载面/插件可见的任何响应体
+（含读回执与错误 detail）**零 `hiddenBy*` 遮蔽计数键**；遮蔽计数只进内部审计面。本契约不为此
+新增键、也不开「挂载遮蔽计数」这类新读数（对外同形/内部保真的老规矩，FM-3.1(a)/(b) 同一立场）。
+
 ### 2.5 账本形态与守卫（形状冻结，物理 DDL 归 G2）
 
 「表 `facet_mount`：PK `(mount_id, gen)`；只允许 INSERT；触发器拒 UPDATE/DELETE ⇒ 存储层信号
@@ -171,6 +176,21 @@ Facet 的相互独立，**Facet 版本不能覆盖对象核心 Revision**（F-06
 `(witness_seq)`。打开期判据（归 D5-a 我方打开序）：表在位 + 触发器在位 + 每 mount_id 链终态
 合法 + 目标 oid ∈ 目录 + 见证引用可解析；随 `SCHEMA_VERSION` 推进与 G1-STORAGE-02 期望摘要
 外置同批。」
+
+**本表与物理重定位的关系（R-3，2026-11-01 跨契约对账；台账 `G1-CONTRACT-RECONCILIATION.md` R-3）**：
+上面这个形状里**没有 `ns` 列**——位置键是逻辑 `target_oid`（FM-2.1 的「逻辑身份，不携物理 ns」设计），
+这是**有意的**，不是漏列。据此两条成文：
+
+- **零搬迁（一句成文）**：`facet_mount` 是「挂载登记表」而非「以 ns 为位置键的表」，因此它
+  **不进** B 契约的 `RELOCATABLE_NS_KEYS`；目标能力的物理 ns 迁移后，挂载行的判据输入
+  `(facetCapability, targetOid)` 一字不变（FM-3.1 唯一判据点只看这两个逻辑量），故
+  **挂载语义不变 ⇒ 零搬迁、零改行、零补见证、零事件**。
+- **反向也被钉住**：把挂载登记表塞进 `RELOCATABLE_NS_KEYS` 是**违例**而不是「更保守」——该表无
+  `ns` 可搬，事务里会为它凭空多一条永不命中的 UPDATE 步骤（且 `MOUNT_ROW_FROZEN` 本就禁 UPDATE，
+  真跑必炸），把「位置无关」伪装成「已搬迁」。B 侧的构建期扫描判据 + RL 夹具 T-N18 钉这一形。
+- **扩展记录行是另一回事**：扩展记录行今天物理上就住在挂载方自己的 ns 里（A2 形态 = 属主 ns 的
+  状态行），**带** ns 位置键 ⇒ 迁移时按 B 契约 RL-6.4 的扫描判据自然随行搬走，与本表无关；
+  G2 若把扩展记录落成独立表，判据按「该表有没有 ns 列」逐项归位，不靠点名。
 
 ## 3. FM-3 挂载判据——D-24 完整修法
 
@@ -369,6 +389,20 @@ Facet 缺席/失效/升级失败只让依赖扩展的能力降级，基础对象
 ⇒ `ACTIVATION_IMPOSSIBLE`（判据④同型）。该轴的**授予政策**归宿主/装配（机制只做不透明轴取证，
 SP-09 两分；与裁决表 §4 项 1 采纳权委托同族，不是新决策项）。
 
+**显式跨契约依赖（DEP-EA45-3，登记于此；2026-11-01 跨契约对账 R-2 / 汇编注册表 B 的 I-2）**：
+扩轴本身让挂载见证行**必须**有一条能容纳「机制名 + 机制自有操作轴」的全形闸式可依。EA-4.5 旧式只有
+两类别式（正式类 `axis ∉ MECHANISM_RESOURCES`；路由类 `axis = 'capability-admin'`），扩轴后挂载审计行
+两式皆不满足 ⇒ **本契约 FM-2.2⑥/FM-9 见证列的全形要求在当时是无处兑现的**。据此本契约把
+「**依赖 EA-4.5 三分修订**（③ = 名 ∈ 机制封闭名单 ∧ 轴 ∈ 机制轴集 ∧ 轴 = 该名在册登记的机制轴 ∧
+`authorized=1` 的覆盖式谓词）」登记为**显式依赖**，三点如实写明：
+
+- 该依赖**已兑现**：EA-4.5 现文含三分支封闭覆盖，并反向点名 FM-7/FM-9 为 ③ 的挂载方（两侧互指）。
+- **依赖是双向绑死的**：若有人单独回滚 EA-4.5 的三分式，本契约的挂载见证判据立刻无式可依，夹具当场红
+  （EA 夹具 T-P8/T-N12 + 本夹具 S12 双向机验；本契约侧的依赖登记句也在 S12 的核对面里）；反之，
+  若本契约撤销扩轴，③ 支对本契约为空支但**不因此作废**（它同时覆盖未来机制轴，作废才是错）。
+- 扩轴**不撤**（父席裁决定的是判据形状，不是让 A 收回 `facet-mount`）：撤轴会把挂载审计塞回
+  `capability-admin`，令路由审计与挂载审计在同一根轴上不可分——那才是真回退。
+
 ## 8. FM-8 权限矩阵
 
 | 动作 | 通道 | 前置核对（序 = FM-2.2/§16.2 先例） | 见证 | 拒绝形状（对外） |
@@ -391,7 +425,7 @@ SP-09 两分；与裁决表 §4 项 1 采纳权委托同族，不是新决策项
 
 | 动作 | 事件 | 类别/写点 | 见证来源 | 名字状态 |
 | --- | --- | --- | --- | --- |
-| declareMount | `facet-mounted` | 机制类，机制内部直写（挂载入口内） | `AuthorizationContext` 全形（EA-4.2 九字段原样复用；轴 `facet-mount`；`authorized=1`；`replayAuthorityEvidence` 三态适用） | **planned**：`planned:true, gated_by:'G1-FACET-01'` 占位 |
+| declareMount | `facet-mounted` | 机制类，机制内部直写（挂载入口内） | `AuthorizationContext` 全形（EA-4.2 九字段原样复用；轴 `facet-mount`；`authorized=1`；`replayAuthorityEvidence` 三态适用）。**全形闸的依据是 EA-4.5 ③ 支**（覆盖式谓词，非点名清单）——见 FM-7 的 DEP-EA45-3 显式依赖登记 | **planned**：`planned:true, gated_by:'G1-FACET-01'` 占位 |
 | writeFacetRecord | （无）；内容声明 = 领域事件如 `facet:calibration-observed` | 领域类，owner 签发 Port（EA-2.2） | EA-4 全形信封，B-3 形态（authorized=false 收存不投影）**适用** | 领域名走 EA-3 归属账登记，本契约零新名 |
 | unlinkMount | `facet-unlinked` | 机制类，同 declareMount | 同上 | **planned**，同左 |
 | 卸载实现 | `capability-disabled` | 机制类（路由） | 路由审计信封（轴 capability-admin，authorized=1） | **既有成员**（EA §2.4 名单） |
@@ -423,6 +457,7 @@ unregistered 默认拒」不是散文论证**：夹具 T-N5 把 planned 名（`f
 | T-P5 | 正 | 非 oracle：他人对某核心对象挂载 0 vs 1 个，属主读面响应逐字节等；挂载方 own 面只见自己行 | 允许形态零差分 | 「response(前)=response(后) 逐字节 ∧ listOwnMounts 无他人行 ∧ 插件可见成员名集零增删」 | run_T_P5 |
 | T-P6 | 正 | 入账顺序 fail-closed：名单未入账阶段装配挂载 Port | `ACTIVATION_IMPOSSIBLE`，零挂载行零审计行 | 「pre-listing declare ⇒ ACTIVATION_IMPOSSIBLE ∧ 两表零行」 | run_T_P6 |
 | T-P7 | 正 | 真因内部保真（FM-3.1(b)）：同一响应面之外，内部审计复算面对「未挂载」与「越权（有挂载但改核心）」给出**可区分**真因；插件面读不到 | 允许形态：内部 {UNMOUNTED ≠ NO_RIGHT}；对外字节不可区分（由 T-N8 对偶钉） | 「auditQuery(admin) 两真因各异 ∧ 无运维授权 ⇒ 无入口 ∧ 插件可见响应字节不含真因词」 | run_T_P7 |
+| T-P8 | 正 | **R-2 依赖兑现（DEP-EA45-3）**：合法挂载见证行走 EA-4.5 **③ 支覆盖式谓词**；再临时新增一根机制轴 + 一个新挂载机制名入账 | 合法挂载行过闸；把挂载名串到路由轴 ⇒ 拒；新机制轴/新名入账后**判据一字不改**即过（覆盖性的定义性检验） | 「gateFullShapeMount(挂载行)=true ∧ gateFullShapeMount(挂载名+capability-admin 轴)=false ∧ gateFullShapeMount(新轴新名行)=true ∧ 本夹具名册轴与 EA 夹具同名条目逐等（S13）」 | run_T_P8 |
 | T-N1 | 负 | **无挂载伪造核心修订**（Q45 反面对偶）：扩展能力对未登记挂载的他人核心对象写状态行 | 拒 `CAPABILITY_SCOPE_ESCAPE`（内部信号 REFUSE_UNMOUNTED）；目录/状态/台账零残留 | 「refusal 命中 ∧ signal=REFUSE_UNMOUNTED ∧ dir/facetRows/ledger 行数不变」（EA T-N1 引用形状承接） | run_T_N1 |
 | T-N2 | 负 | 身份冒充：自带 facetRecordId/自带 FM- 前缀 id/FR 进正式端点槽位 | 各拒；机制发号不可自填 | 「白名单外 id ⇒ CAPABILITY_SCOPE_ESCAPE(reason=input-carries-id-field) ∧ FM-/FR- 声明 ⇒ RECORD_ID_RESERVED ∧ formalSlot(FR)=拒 ∧ formalSlot(oid@rev)=收」 | run_T_N2 |
 | T-N3 | 负 | 同形不泄：目标不存在 vs 目标存在但无可见权，declareMount 响应 | 两世界逐字段等（D1-c） | 「两世界 refusal JSON 逐字节等（同码同 detail 键集）」 | run_T_N3 |
@@ -431,6 +466,7 @@ unregistered 默认拒」不是散文论证**：夹具 T-N5 把 planned 名（`f
 | T-N6 | 负 | 幽灵审计：缺 facet-mount 轴主体尝试挂载 | `AUTHORITY_REQUIRED` 且**零挂载行、零审计行**（F-20 假凭据禁令） | 「refusal ∧ mounts.size=0 ∧ auditRows=0」 | run_T_N6 |
 | T-N7 | 负 | 第二真源三面：扩展 payload 重复核心关系（used_in 形态） | 机制零语义误炸（写通），但核心快照不含它、扩展不能认领核心边、领域 XC-28 检查可落 NOT_ACHIEVED 报告 | 「write ok ∧ coreSnapshot 不含扩展行 ∧ linkOwned(核心边)⇒CAPABILITY_SCOPE_ESCAPE ∧ report(NOT_ACHIEVED) 可落且不改写核心」 | run_T_N7 |
 | T-N8 | 负 | 同形双源（FM-3.1(a)）：「未挂载目标被拒」与「D-19 越权被拒」在同一响应面**逐字节等**；`REFUSE_UNMOUNTED`/`REFUSE_BINDING_MISMATCH` 信号词不得出现在对外字节中 | 两世界 refusal JSON 逐字节等；detail 键集 = {oid, capability}；信号词零出现 | 「JSON.stringify(拒A)=JSON.stringify(拒B) ∧ keys(detail)={capability,oid} ∧ 对外全文不含两信号词」 | run_T_N8 |
+| T-N9 | 负 | **R-1 同步（FM-2.4 同步句）**：把 R-1 之前的旧形态响应体（读回执 echo 里带 `hiddenByContractSkew`）作为插件可见面 | 判红——遮蔽计数只进内部审计面，挂载面/插件可见面零 `hiddenBy*` 键；本契约不新增遮蔽读数 | 「callerSurfaceFreeOfShadowCounters(新形态)=true ∧ callerSurfaceFreeOfShadowCounters(旧形态体)=false ∧ callerSurfaceFreeOfShadowCountersMUT4(同一泄漏体)=true（判别力自验）」 | run_T_N9 |
 
 **架空判据变异（常驻不删，自验判别方向——真实判据必须拦，架空必须放）**：
 
@@ -439,6 +475,7 @@ unregistered 默认拒」不是散文论证**：夹具 T-N5 把 planned 名（`f
 | MUT-1 | 行形态判据（ns=自己 ⇒ 放行）= D-24 现状 | T-N1 负例在 MUT-1 下必须被放行（证明挂载判据有判别力；EA A.2 机验否证的夹具化） |
 | MUT-2 | 卸载即撤销（disable 清挂载 ACTIVE 态） | T-P4 的「卸载非撤销」断言（重启用后必须仍写通）在 MUT-2 下必红 |
 | MUT-3 | 审计后置且可脱钩（先行落行、见证异步补） | 对账器点名「无见证挂载链」（MUT-3 的崩溃窗口产出孤儿；原子形态零孤儿）——F-20 幽灵审计禁令的机验化 |
+| MUT-4 | 遮蔽计数呈现面判据写成「响应体里不出现审计事件名/digest 即过」（=R-1 之前 T-P5 的全部内涵） | T-N9 的旧形态泄漏体在 MUT-4 下被放过、在真判据下被点名——证明「撤键」这条判据不是空转（2026-11-01 R-1 同步新增） |
 
 ## 11. FM-11 裁定记录、A.6 清偿与关系表
 
@@ -451,7 +488,7 @@ unregistered 默认拒」不是散文论证**：夹具 T-N5 把 planned 名（`f
 | 3 卸载/换包状态迁移 | FM-4 表：三操作分轨；历史记录永久可读 |
 | 4 读面语义 | FM-3.1（拒绝 detail 零加成）+ FM-2.4（默认不上读面）+ FM-8（同形位）；同形收口归 D1-c/E-01 呈现复核，本契约保证**不加一格** |
 | 5 XC-28 判据归属 | FM-5.3：领域出判据（版本钉检查规则），机制执行三面、不自判真值；`NAMESPACE_ESCAPE` 不得互替 |
-| 6 挂载账与 ns 重定位 | 挂载 `targetOid` 是逻辑身份，不随物理 ns 迁移而语义变化；挂载方行的物理归属属 B1 重定位覆盖集（B.5-3 已把「挂载登记、Facet 扩展记录」列入），细节归 G1-NS-01；B1 落地前挂载不引入新的幽灵形态（routeNs 重定位链判据同源） |
+| 6 挂载账与 ns 重定位 | 挂载 `targetOid` 是逻辑身份，不随物理 ns 迁移而语义变化。**【R-3 更正，2026-11-01；台账 `G1-CONTRACT-RECONCILIATION.md` R-3；旧句保留于下、以本行为准】** 本行旧作「挂载方行的物理归属属 B1 重定位覆盖集（B.5-3 已把『挂载登记、Facet 扩展记录』列入）」——该说法与 FM-2.1/FM-2.5 的表形状自相矛盾（`facet_mount` **无 ns 列**，扫描判据扫不到它、也没有可搬的位置键），且与 B 侧 RL-6.4 的构建期扫描判据（只认「列名=ns 的表」）不可同时成立。更正后：**挂载登记表不进 `RELOCATABLE_NS_KEYS`，按挂载账自身规则处理 = 零搬迁**（目标物理 ns 迁移后 `(facetCapability, targetOid)` 一字不变 ⇒ 挂载语义不变，成文句见 FM-2.5 末段）；**扩展记录行**（今天物理住在属主 ns 的状态行里，带 ns 位置键）仍随 B1 重定位搬家，G2 若另立表则按「该表有无 ns 列」逐项归位。细节归 G1-NS-01；B1 落地前挂载不引入新的幽灵形态（routeNs 重定位链判据同源） |
 
 ### 11.2 与 #42 / #44 / #47 已裁定语义的关系
 
@@ -465,7 +502,11 @@ unregistered 默认拒」不是散文论证**：夹具 T-N5 把 planned 名（`f
 | #42 SP-09（F-13） | **一致 + 限定延伸** | 两轴分权原样（FM-7）；「未生效声明」不延伸到**判定输入型**登记行（FM-2.2 如实声明该限定） |
 | #47（F-14） | **未覆盖**——条件式：即便 #42 合并且条文不变，#47 现文对 Facet/挂载零规则；**不写「属 #47 决策面」**（F-24） | 全库检索实测；DDL/物理形态按裁决表 D5-a/D5-b「唯一责任者=我方 G1 + G2 实施」承接 |
 | #47 SF-28（F-15，条件式） | **同向不借道** | 双身份与「断言不参与身份」同形状，但本契约不依赖 #47 条文成立 |
-| PoC 内部 §16.1/§16.3、D1-c/X-5 裁决行 | **承接不推翻** | 包 1/包 6 已收口面原样；本契约补 F-25 点名的「挂载声明机制」最后一块 |
+ | PoC 内部 §16.1/§16.3、D1-c/X-5 裁决行 | **承接不推翻** | 包 1/包 6 已收口面原样；本契约补 F-25 点名的「挂载声明机制」最后一块 |
+| **EA-4.5 三分全形闸（R-2 / 汇编 I-2）** | **显式依赖，已兑现** | DEP-EA45-3（FM-7 轴值段）：挂载见证行的全形闸依据 = EA-4.5 ③ 支覆盖式谓词；两侧条文互指，夹具双向机验（本夹具 S12 + EA 夹具 T-P8/T-N12）。单独回滚任一侧 ⇒ 当场红 |
+| **EA-7.4 遮蔽计数呈现面（R-1 / 汇编 I-1）** | **同步（同一把尺）** | FM-2.4 同步句：插件可见响应面零 `hiddenBy*` 键，计数只进内部审计面；本契约不开新读数（夹具 T-N9） |
+| **RL-6.4 `RELOCATABLE_NS_KEYS`（R-3 / 汇编 I-3）** | **依赖已落实（本契约侧不再自称在集合内）** | FM-2.5 末段 + FM-11.1 A.6-6 更正行：挂载登记表无 ns 列 ⇒ 不入该集合 ⇒ 目标物理迁移零搬迁（B 侧 RL-6.4 (b) 项 + RL 夹具 T-P10/T-N18 机验） |
+| **EA-2.4 批准主体（R-5 / 汇编 I-5）** | **本契约为标准形，条文未动** | FM-9「本合同是命名提案…本身不构成入账」保持原样；EA-7.1 与 RL-2.2 的「即批准」句向本写法降级（EA 夹具 T-N13 / RL 夹具 T-N20 钉 fail-closed） |
 
 ### 11.3 真·用户决策
 

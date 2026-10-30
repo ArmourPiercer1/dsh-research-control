@@ -24,7 +24,8 @@
  *        工作树不干净 / 流不可解析 / 出现 skip ⇒ 拒写（临时路径同判据，见 `writeBaseline` 定义处注释）。
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -95,13 +96,32 @@ function testsDigest() {
 
 /** 跑一次 vitest，返回 { failed: Set<string>, passed: number, raw }。 */
 function runVitest(paths) {
-  const r = spawnSync('npx', ['vitest', 'run', '--config', CONFIG, '--reporter=json', ...paths],
-    { cwd: REPO, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 });
+  // 第六轮（G0-R 收尾）：JSON **和** stderr banner 都要——`Unhandled Errors` 汇总只由
+  // default reporter 写 stderr（实测 `--reporter=json` 单独跑或加 basic 都丢弃它），
+  // 而 JSON reporter 的 stdout 会与 default 的进度输出混流。故 JSON 走
+  // `--outputFile.json` 文件通道、default reporter 只贡献 stdout 进度与 stderr banner，
+  // 两通道互不污染。banner 解析与「断言红不豁免运行级异常」在 gate-causes.mjs 唯一实现。
+  const tmp = mkdtempSync(join(tmpdir(), 'g0-gate-'));
+  const jsonPath = join(tmp, 'report.json');
+  let r;
+  try {
+    r = spawnSync('npx', ['vitest', 'run', '--config', CONFIG,
+      '--reporter=json', `--outputFile.json=${jsonPath}`, '--reporter=default', ...paths],
+      { cwd: REPO, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 });
+  } catch (e) {
+    rmSync(tmp, { recursive: true, force: true });
+    throw e;
+  }
   // 席位 A 实测的假绿路径：测试文件在 **import 阶段**损坏时，vitest 退出码=1、success=false，
   // 但 JSON 里没有任何 assertionResult ⇒ failed 集合为空 ⇒ 门禁会打印"全绿"。
   // 退出码与 success 必须单独判，不能只看断言计数。
-  const out = r.stdout ?? '';
-  const start = out.indexOf('{');            // reporter=json 前可能混有 banner 行
+  let out = '';
+  try {
+    out = readFileSync(jsonPath, 'utf-8');
+  } catch {
+    out = '';
+  }
+  if (out.trim() === '') out = r.stdout ?? '';   // 兜底：旧单 reporter 形态（JSON 在 stdout）
   const failed = new Set();
   const passNames = new Set();   // G-2：通过项的身份也要留痕
   // N5（RE-REVIEW-G2-A §③ 裁定的实现，2026-10-31）：旧 loadErrors 判据
@@ -115,8 +135,9 @@ function runVitest(paths) {
   let skipped = 0;
   let success = false;   // 必须在 try 外声明：解析失败时也要能被判为 false
   let total = 0;         // 同上：j 是 try 内的局部量，外层取值必须提前声明
+  let result;
   try {
-    const j = JSON.parse(out.slice(start));
+    const j = JSON.parse(out.slice(out.indexOf('{')));
     success = j.success === true;
     total = j.numTotalTests ?? 0;
     for (const f of j.testResults ?? []) {
@@ -126,14 +147,18 @@ function runVitest(paths) {
         else skipped += 1;   // pending / skipped / todo —— 作者流里一条都不许有
       }
     }
+    // stderr 必须进 collectCauses：运行级 banner（通道①）在 JSON 里**零痕迹**，
+    // 唯一落点是 default reporter 的 stderr（第六轮实测，gate-causes.mjs 头注）。
     causes = collectCauses(j, { status: r.status, totalReds: failed.size, totalSkipped: skipped,
-      stripPrefix: REPO + '/' });
+      stripPrefix: REPO + '/', stderr: r.stderr ?? '' });
+    result = { failed, passNames, causes, total: total || (failed.size + passed + skipped),
+      passed, skipped, status: r.status, success, raw: '' };
   } catch {
-    return { failed: null, passNames: null, causes: null, total: 0, passed: 0, skipped: 0,
+    result = { failed: null, passNames: null, causes: null, total: 0, passed: 0, skipped: 0,
       status: r.status, success: false, raw: (out + (r.stderr ?? '')).slice(-800) };
   }
-  return { failed, passNames, causes, total: total || (failed.size + passed + skipped),
-    passed, skipped, status: r.status, success, raw: '' };
+  rmSync(tmp, { recursive: true, force: true });
+  return result;
 }
 
 note('[1/3] 类型门（含作者 tests，不含 attacks/**）');

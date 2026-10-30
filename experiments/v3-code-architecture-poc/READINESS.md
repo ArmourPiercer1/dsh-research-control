@@ -140,7 +140,7 @@ node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs             
 
 （D-20/D-22/D-23/D-24 的修复前后比较已有机验锚）（基线 `total 133 / failures 39 / passes 94` @ `8adc6ac`）
 
-| N5 | **P1 候选 — 未修（G2-A）** → **已修并常驻回归（外部复审第五轮收尾 2026-10-31）** | 同文件内存在一条已登记红时，清理期崩溃被 `reds===0` 放过 ⇒ 门禁假绿（G-1/G-2/GT-1 同族第四次） | 基线逐文件登记**失败成因签名**，任何未登记成因一律红（席位实测 133 例零误报）。**第五轮落地**：判据内核 `gate-causes.mjs`（成因=`<文件> \| <成因类> \| <归一签名>`，纯断言红不产出成因 ⇒ 基线零误报前提）；两态实测——旧门在「登记红+afterAll 抛」注入下打印「与基线完全一致」PASS（吸收复现），新门同注入红（未登记成因逐条点名），`.scratch/n5-repro/{OLD,NEW}.out`（一次性证据）；**常驻**= `tests/n5-failure-cause-signature.test.ts`+探针（吸收/钩子/对照/收集四形态：A/B/D 必红、C 零误报）。签名**不含用例名**（名由名集判据管）、文件路径与钩子抛语参与 ⇒「安全但吵」为有意选边（论证入 `gate-causes.mjs` 头注）。配套护栏：基线写入改走 `--write-baseline`，工作树不干净/流不可解析/有 skip ⇒ 拒写（临时路径同判）——堵「改完 attacks 随手重算」这条比作者锚更隐蔽的 GT-3 换口 |
+| N5 | **P1 候选 — 未修（G2-A）** → **已修并常驻回归（外部复审第五轮收尾 2026-10-31）** → **运行级独立判定 + 反转默认兜底（外部复审第六轮 2026-10-31，见文末第六轮节）** | 同文件内存在一条已登记红时，清理期崩溃被 `reds===0` 放过 ⇒ 门禁假绿（G-1/G-2/GT-1 同族第四次）；第六轮实测：同类假绿在**运行级异常**（未处理拒绝/微任务抛）形态下同样成立——「登记红+运行级异常」的 JSON 与纯红**同形**，旧运行级分支被 `totalReds===0` 前置豁免 | 基线逐文件登记**失败成因签名**，任何未登记成因一律红（席位实测 133 例零误报）。**第五轮落地**：判据内核 `gate-causes.mjs`（成因=`<文件> \| <成因类> \| <归一签名>`，纯断言红不产出成因 ⇒ 基线零误报前提）；两态实测——旧门在「登记红+afterAll 抛」注入下打印「与基线完全一致」PASS（吸收复现），新门同注入红（未登记成因逐条点名），`.scratch/n5-repro/{OLD,NEW}.out`（一次性证据）；**常驻**= `tests/n5-failure-cause-signature.test.ts`+探针（吸收/钩子/对照/收集四形态：A/B/D 必红、C 零误报）。签名**不含用例名**（名由名集判据管）、文件路径与钩子抛语参与 ⇒「安全但吵」为有意选边（论证入 `gate-causes.mjs` 头注）。配套护栏：基线写入改走 `--write-baseline`，工作树不干净/流不可解析/有 skip ⇒ 拒写（临时路径同判）——堵「改完 attacks 随手重算」这条比作者锚更隐蔽的 GT-3 换口。**第六轮（G0 末项收口）**：「登记红 + 未归属运行级异常」假绿**实测成立**（改造前门禁仿真打印「与基线完全一致」PASS，`.scratch/n5-runlevel-repro/`）；vitest 4.1.11 JSON reporter 在该场景零信息（顶层无 errors/failureMessage 键，红场 exit 恒 1 零信号），唯一旁证 = default reporter 的 stderr `Unhandled Errors` banner（json reporter 丢弃）⇒ `g0-gate.mjs` 改**双 reporter 双通道**、`gate-causes.mjs` 运行级**独立判定（断言红不再是豁免）**+ **反转默认**：`exit≠0 或 success≠true` 且文件级/运行级成因=0 且红=0 且 skip=0 的一切无法归因形态一律红（「运行结果无法归因（banner 未匹配 / 信号缺失）⇒ 保守判红」——**父席裁定：banner 只是归因通道之一，匹配不到绝不落回「与基线一致」**）。**本守卫依赖 vitest 4.1.11 实测的 reporter 输出形态：banner 正则与该版本绑定为被钉契约，升级 vitest 必须复跑 n5 五形态（A/B/D/E 与 F 兜底）；E 形断言保证改文案先红（守卫需随 reporter 形态更新，禁止放宽断言迁就新版）**。界外如实登记（不编造检测手段）：worker 回收后的定时器异常 vitest 自身零痕迹 exit=0，任何基于其输出的判据都检不出；「红在场 + banner 失配」期间不可检出，唯一防线即 E 形先红 |
 | N3 | **P2 — 部分修（G4-A：门 1 AST 十形态全抓；门 2 四种双盲形态，"两层由 AST 兜底"的兜底句被否证）** | 包 3 两道门被席位 G3-A 实测打穿：门 1 正则+括号配对被 `constructor(tag = ")", private readonly face)`（默认值字符串未配对右括号截断参数表扫描）等三式绕过；门 2 `'value' in d` 对 **getter 访问器**失明、不下钻**一层包装** `{bundle:{face}}` ⇒ 「结构性防复发」承诺不成立，按未修记 | 包 4 重写（`tests/n3-parameter-property-gate.test.ts`）：**门 1 = TS Compiler API AST**（经 `typescript-6` 别名——train 的 `typescript@7` 原生移植不暴露经典 API）遍历构造器参数修饰符（参数属性），覆盖 PropertyDeclaration 可见性修饰符、AccessorDeclaration、`Object.defineProperty(s)(this,…)` 注入；**解析诊断 fail-closed**（读不进语法树=违规）。**门 2 = 双 descriptor + 一层递归**：accessor 与 value 都判（own accessor 保守拦）、plain-object 包装递归一层、Symbol 键继续查。**红→绿血统自带**：旧门实现保留为副本，每条已知绕过形态先钉「旧门漏检」红、再断「新门抓住」绿（六行分列输出见包 4 回报）；白名单为空仍是断言；门 1↔门 2 镜像纪律保持。**登记的残余形态**：两层以上包装、Proxy ownKeys 欺骗（N3g，理论）、storage/kernel 装配层参数属性（插件不可达，扩面须先登记）。**变异验证**：把两门降级回旧形态 ⇒ 血统测试与变异锚点 3 条转红，还原 `sha256sum -c` OK |
 | N4 | **P2 观察 — 未修** | `tx` 运行时原型比声明接口宽（`reassignRouteInternal` 直改 `capability_route` 的裸通道挂在插件经手实例原型上，`kernel.ts:1186`）；实测被方法体内 `AUTHORITY_REQUIRED` 兜住，**无越权** | "类型面即边界"实为编译期边界；应收敛运行时原型或给裸通道补机制授权 |
 | D-25 | **P1 候选 — 已修（包 3，2026-10-30），待独立复验** | `unloadCapability` 停用拥有者后 `appendAuthoritativeEvent` **仍能签发正式事件**（零激活核对）；`CONTRACTS` 原句曾把期望写成事实（G2-A N2） | 包 3 修法（CONTRACTS.md §16.2 入口判据 ②）：签发入口在事件类型归属核对之后、对象解析之前核对**激活状态**（生效路由缺失 ⇒ `CAPABILITY_INACTIVE`、零残留）；同时按 `requiresAuthority` 轴向机制可信授权来源**取证**并落 ledger 见证 `authority_basis`（判据 ③，N1 同处修）。实测依据：`tests/n1-authorization-evidence.test.ts`「D-25 直测面」（停用后通道 B `CAPABILITY_INACTIVE`+ledger 不动、`write()` 同码、再启用恢复）；「去掉机制侧取证 ⇒ 单测必须红」的变异验证记录在该文件头与回报。**（包 4 文档纠正，席位 G3-A D25-MP 实测）** 本行与 CONTRACTS 原句「查生效路由表」超前于机制真实行为：判据查**本进程内存 registry**，持久列 `capability_route.enabled` 只在执行停用/启用的进程 + 其后新启动进程生效（B 停用后先启动的 A 仍能签发，A restart 才拒）；CONTRACTS §16.2 已按实测改写并**保留旧句痕迹**，跨进程陈旧窗口记为设计边界（实施期或补跨进程失效机制）。停用窗口内 `eventsOf` **读面不关**（D-25 只承诺写面，判据如此，登记于同处） |
@@ -268,3 +268,21 @@ F-G6A-2 + F-G6A-6（含 G6-A 三句裁决位①、D-20 的签发两条新要求�
 `G1-FACET-01`、D-31 历史面/§16.3「ns 迁移另立显式通道」→ `G1-NS-01`、§15 G1-a → `G1-OWN-02`（并条）、
 §15 G1-c → `G1-LINK-01`；三件决策的契约草案在 `G1-CONTRACT-DESIGNS.md`（A/B/C）。清单 26 条 / open 22：
 **G1 立即冻结 = NO-GO**。本文件旧行中的「归 G1」表述按上表读，不再悬空。
+
+---
+
+**2026-10-31 第六轮收口登记（外部复审第六轮，只追加，不改上文各行）**：
+① **G0 末项（N5 运行级）收口**——「登记红 + 未归属运行级异常」假绿**实测成立**（改造前
+门禁仿真 PASS exit=0，证据 `.scratch/n5-runlevel-repro/`），修法=双 reporter 双通道 +
+banner 运行级独立判据 + **反转默认**（无法归因的非零状态一律红）；N5 行已升级为五形态
+（A/B/D/E + F 兜底钉），**升级 vitest 必须复跑该五形态**（banner 正则与 4.1.11 绑定为
+被钉契约）。② **G1 门禁 P1 修复**——`--require-clear` 终局谓词增 `assigned==0`（推进态
+不过终局闸）、done 三件套之 resolution 机验（DONE-RESOLUTION）、superseded 继任链必须到达
+done（SUPERSEDED-CHAIN，成环/甩锅 open 红）、同条目重复字段 PARSE 红；自验 7→13 形态
+（M8–M12 反例 + P1 正向：全清必须判绿，防死闸），甩锅链完整形态逐字留在自验输出。
+③ **三件契约只补不推翻**——A.8/B.7/C.7 裁定约束已写入 `G1-CONTRACT-DESIGNS.md`
+（绑定粒度四条、五项迁移不变量 + backfill 写死、Q37 容错不被命名权威破坏）。
+④ **证据口径更正**——关系表逐条重算：第五轮时点真数 **12 一致/7 需澄清/19 行**，
+PLAN §16 旧行「13/8」为错数（13+8=21≠19），更正痕迹两头保留；「冲突 0」口径限定与
+#47 全文对账登记为 `G1-RECON-01`（放行前置，对账输入清单在 DESIGN 附二）。
+清单 26→27 条（+RECON-01），open 22→23；上文各行旧计数按各自落盘时点读。

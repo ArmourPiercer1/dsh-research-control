@@ -5,16 +5,21 @@
 # （不得写"经审查通过"这类无法机验的话）不达标。本文件把它变成机验对象。
 #
 # 放行判据（写进 IMPLEMENTATION-PLAN-DRAFT.md §2 G1）：
-# 【现行机验，外部复审第五轮补，2026-10-31】
-#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            ⇒ exit 0（结构/语义校验绿）
-#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test ⇒ exit 0（校验器变异自验，架空非删除）
-#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --require-clear ⇒ exit 0（放行谓词：open==0 且 UNASSIGNED==0）
+# 【现行机验，外部复审第五轮补，2026-10-31；第六轮修订谓词，2026-10-31】
+#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            ⇒ exit 0（结构/语义校验绿；assigned 允许日常存在）
+#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test ⇒ exit 0（校验器变异自验，架空非删除；13 条形变：M1–M7 原有 + M8–M12 第六轮反例 + P1 正向形状【全清必须判绿，防死闸】；甩锅链完整形态在自验输出里逐字留形）
+#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --require-clear ⇒ exit 0
+#     （**终局放行谓词**，第六轮改写：违规==0 且所有有效工作项均为 done、或为 supersedes 链
+#      最终到达 done 的 superseded——`open`/`assigned` 一律不放行。「已指派」是推进态不是
+#      终局态，旧版只数 open/unassigned 的洞由自验 M8 钉死）
 # 【已被取代（旧 grep 判据，第三轮原文保留以示演化；锚定教训仍然有效：任何 grep 都会
 #   被文件头注释里的示例字样自我命中，这正是整体换成「解析式校验器」的理由之一）】
 #   grep -c '^    status: open$'  experiments/v3-code-architecture-poc/G1-RECONCILIATION-CHECKLIST.yaml  ⇒ 0
 #   grep -c '^    owner: "UNASSIGNED"$'  同一文件  ⇒ 0   # 每条都必须有权威归属，不许留空
-# # 关闭任一条必须在 evidence 字段里给出**可定位**依据（Q 编号 / 裁定提交号 / 用户指令原文位置，
-# 或带扩展名的文件路径〔可带 :行号〕），并在 resolution 字段写清"谁让位、依据什么"。
+# # 关闭任一条必须凑齐**三件套**（第六轮起全部机验）：owner 非 UNASSIGNED（OWNER-RULE，
+# 权威性仍人工判据）+ evidence **可定位**依据（Q 编号 / 裁定提交号 / 用户指令原文位置，或带
+# 扩展名的文件路径〔可带 :行号〕；DONE-EVIDENCE）+ resolution 写清「谁让位、依据什么」，
+# 内容必须是可核对的裁定/实测出处而非结论词（DONE-RESOLUTION）。
 # **不许为了过计数把条目删除**——删除会让 diff 显示条目减少，评审时按"逃逸"处理；
 # id **不复用、不重排语义**（此两条为评审纪律，git diff 即机验面）。
 #
@@ -26,11 +31,16 @@
 #               open 允许 UNASSIGNED，其余状态一律不许）
 #   status      open | assigned | done | superseded
 #               （2026-10-31 词汇迁移：v1 的 `resolved` ≡ `done`；既有 4 条 resolved 已逐条改写为 done，
-#                 语义与 resolution 字段一字不变。旧词再出现即校验红——防的是词汇漂移，不是历史。）
+#                 语义与 resolution 字段一字不变。旧词再出现即校验红——防的是词汇漂移，不是历史。
+#                 第六轮：assigned 为有主推进态，日常合法，但**不过** --require-clear 终局门禁。）
 #   evidence    判定所依据的实测/文档位置（含行号或提交号）；status=done 时必须非空且含可定位锚点
 #               （「已修」不许是自我声明——GT 系列教训的迁移）
-#   resolution（done 时填）谁让位、依据什么；open 时省略
-#   supersedes （可空）本条取代的旧条目 id，必须存在；status=superseded 时必填
+#   resolution（done 时**必填**，DONE-RESOLUTION 机验）谁让位、依据什么，内容须为可核对的
+#               裁定/实测出处（Q 编号 / 提交 / 文件行位），不许只写结论词；open 时省略
+#   supersedes （可空）本条取代的旧条目 id，必须存在；status=superseded 时必填，且**继任链
+#               必须最终到达 done**（SUPERSEDED-CHAIN：成环或终点 open/assigned 一律红）
+#   解析纪律（第六轮）：同一条目内同一字段出现两次 ⇒ **PARSE 直接红**（旧实现校验取末次、
+#   统计取首次，「被验证的状态 ≠ 被统计的状态」——自验 M11 钉死）。
 
 schema_version: 1
 plan: "experiments/v3-code-architecture-poc/IMPLEMENTATION-PLAN-DRAFT.md"
@@ -123,7 +133,7 @@ items:
       - "kernel.ts 的 linkRef 原样入库（无规范化，席位 B 引 fa9c2d0:702）"
     owner: "RE-REVIEW-G0-B.md N-2 裁定（席位 B，独立实测）+ CONTRACTS.md §14 限定段（『解除限定须三项交付』的期限承接位 = G3）"
     status: done
-    resolution: "主张按实现收窄（`used_in`/`Used_In`/`\" USED_IN\"` 与 operatingContext/嵌套别名不在检测面内）；无限定用词被明文禁止。解除限定的三项交付另计 G3 工作量"
+    resolution: "主张按实现收窄（`used_in`/`Used_In`/`\" USED_IN\"` 与 operatingContext/嵌套别名不在检测面内）；无限定用词被明文禁止。解除限定的三项交付另计 G3 工作量。出处：限定段 CONTRACTS.md:277-288 + N-2 攻击矩阵 RE-REVIEW-G0-B.md:33-36（第五轮逐处核对行，与本条 evidence 同锚）"
     evidence: "CONTRACTS.md:277-288（『可检测』准确边界段：`used_in`/`USED_IN_`/`Used_In`/带前导空格变体与 operatingContext/嵌套不入检出面；解除限定须三项交付：角色名入库规范化 / 别名字面量表 / payload 形状校验）+ attacks/review/RE-REVIEW-G0-B.md:13 与 :33-36（N-2 攻击矩阵 A7-A10 实测漏检形，独立席位证据非作者自述）"
 
   # ---------- 读面信息与存在性 oracle ----------
@@ -196,7 +206,7 @@ items:
     sources: ["READINESS.md:30-35", "ASSESSMENT.md §8.1"]
     owner: "Q24"
     status: done
-    resolution: "一空间独立库；『选单库多空间 ⇒ P4 隔离证明整体作废需重证』的条件分支随 Q24 关闭"
+    resolution: "一空间独立库；『选单库多空间 ⇒ P4 隔离证明整体作废需重证』的条件分支随 Q24 关闭。出处：Q24 裁定原文 ASSESSMENT.md:194（第五轮逐字核对行），D-1 行同文登记"
     evidence: "ASSESSMENT.md:194"
 
   - id: G1-DONE-02
@@ -204,7 +214,7 @@ items:
     sources: ["READINESS.md:30-35", "ASSESSMENT.md §8.1"]
     owner: "Q35"
     status: done
-    resolution: "禁止静默继续，须重建或明确失败；部分查询行为留待接口细化（细化不重开原则）"
+    resolution: "禁止静默继续，须重建或明确失败；部分查询行为留待接口细化（细化不重开原则）。出处：Q35 裁定原文 ASSESSMENT.md:195（第五轮逐字核对行），D-2 行同文登记"
     evidence: "ASSESSMENT.md:195"
 
   - id: G1-DONE-03
@@ -212,7 +222,7 @@ items:
     sources: ["PR #44 事务机制", "tests/capability-scope.test.ts 的装配根正例"]
     owner: "Q40"
     status: done
-    resolution: "保留单事务跨领域协作；实现形状改为 Application 持协调权 + 写经拥有者命令端口（OWN-02 只裁形状，不重开 Q40）"
+    resolution: "保留单事务跨领域协作；实现形状改为 Application 持协调权 + 写经拥有者命令端口（OWN-02 只裁形状，不重开 Q40）。出处：Q40（仓内入账行 READINESS.md:117『同一条事务（Q40 不破）』）+ PLAN §4.1′ 采纳形状（:185）+ CONTRACTS.md:312 端口面"
     evidence: "capability-scope.test.ts 正例 + PLAN §4.1′"
 
   # ---------- 外部复审第五轮裁定第 2、3 条补登记（2026-10-31；G1-d 校验器已落地，
@@ -307,3 +317,12 @@ items:
     owner: "UNASSIGNED"
     status: open
     evidence: "tests/g5a-d21-reserved-prefix.test.ts 钉住止血形态；「前缀全集语义归 G1」为 CONTRACTS §16.3 自让；边的权威归属规则尚无任何裁定"
+  - id: G1-RECON-01
+    topic: "**#47 全文对账（正式 G1 放行前必须完成）**：#47（Schema 决策族）条文不在本实验分支，本轮及此前各轮对它的引用全部是仓内**间接引文**（T-GAP-13 / SD-* 族名 / 各文档转述）。放行前必须从 #47 的**实际提交**逐条读取接口与 Schema 条文并落行号，至少覆盖：SpaceContext、时间截点（recorded_as_of → CommitSequence 映射）、检查报告形状、存量版本（contract_version/迁移起点）、迁移合同（含 backfill 与 relocation 语义）。完成判据：本节各条引用的「#47 需澄清」行全部换成「文件:行号」直引，且 G1-CONTRACT-DESIGNS.md 附录「对账输入清单」逐项标注 一致/需澄清/冲突"
+    sources:
+      - "G1-CONTRACT-DESIGNS.md 文件头「引证纪律」（#47 条文不在仓内，引用只到仓内可定位引文位）"
+      - "G1-CONTRACT-DESIGNS.md 附录「对账输入清单（未逐条裁定）」（#47 head 与文件清单，第六轮 gh 只读采集）"
+      - "IMPLEMENTATION-PLAN-DRAFT.md §2-G1 ③（T-GAP-13 引文——同为转述，非直引）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "gh pr view 47 headRefOid 实测见 G1-CONTRACT-DESIGNS.md 附录（第六轮）；本实验分支内 #47 条文零直引——grep 全仓 `SD-` 仅 RECONCILIATION.md 反例清单与转述命中。『冲突 0』只表示已检查的 19 项关系（A.7 六行 + B.6 六行 + C.6 七行，第六轮逐条重算）中未确认冲突，不得读作已完成 #42/#44/#47 全文对账（口径见 G1-CONTRACT-DESIGNS.md 附录）"

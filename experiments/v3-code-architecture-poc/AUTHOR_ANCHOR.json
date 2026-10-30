@@ -1,8 +1,8 @@
 {
-  "generated_from_commit": "d57820840ac8af9b3302560c33166cf9150c43af",
-  "passed": 207,
-  "total": 207,
-  "passed_sha256": "115026e7cde9d91f87fad46a87941b3a0a78a9c5662c21e777d358d129127ed8",
-  "files_sha256": "fe1c391601c0f3cbcd05989c2142c35e811e72b12ce635d358e334b14a863197",
+  "generated_from_commit": "2e29e6bc8edfdd4ca78dd8f60019a217ad969d2f",
+  "passed": 225,
+  "total": 225,
+  "passed_sha256": "9a50234f90592426d01ea79ab61dd33af8416a3f557a848f5492a249726a2994",
+  "files_sha256": "c3e6d682ad0ec39aaa19137fa7f24e4ed432cadad70ce1583100af39a3fb5059",
   "note": "作者侧覆盖面**身份锚**（GT-4 包 5 升级，三代演化见 g0-gate.mjs 头注）。判据全部逐等：passed/total 是可读冗余但参判（不符即红）；passed_sha256 钉通过项身份（用例增/删/改名/skip 变摘要）；files_sha256 钉 tests/** 路径+内容（断言体乃至注释改一个字节变摘要）。等数替换（删 K 真例补 K 假例）从计数锚的漏网形态变为双摘要齐红。收不住：改断言体**并且**重锚——那是显式承认流程本身，防线是变异抽检纪律（纪律非机制）。"
 }

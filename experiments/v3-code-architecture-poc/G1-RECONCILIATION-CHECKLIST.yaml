@@ -156,6 +156,26 @@ items:
     status: open
     evidence: "与 VER-01 同批裁，避免两处各写一套版本推进规则"
 
+  # ---------- 存储层生命周期与基准外置（外部复审第五轮裁定 2026-10-31 登记，父席第五轮收尾）----------
+  - id: G1-STORAGE-01
+    topic: "首版正式实现须把 D-23 的事务终结保证落实为 StoragePort 层的受限 TransactionLease——PoC 实测保证范围仅「Kernel 管理的 UoW 路径」，SqlitePort.tx() 本身无独立失效机制"
+    sources:
+      - "experiments/v3-code-architecture-poc/CONTRACTS.md §16.1（保证范围限定条）"
+      - "attacks/review/RE-REVIEW-G2-A.md §① D-23 行 + RE-REVIEW-G6-A.md §① 裁定表（第五轮裁定：「Kernel 管理的 UoW 路径已验证闭合」≠「StoragePort 的所有事务消费者都有同等保证」）"
+      - "tests/d23-tx-lifecycle.test.ts（界外事实钉：port.tx 直取句柄回调返回后仍可 autocommit 写入）"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "记账发生在 Kernel.uow() 的 finally（kernel.ts CLOSED_TX:1045）；直接 port.tx 消费者不受该账约束=界外事实已钉。若 G1 引入新机制消费者而不先下沉 TransactionLease，D-23 原洞即重现（与 F-G6A-6 事件名预留 deny-by-exception 同因）。"
+
+  - id: G1-STORAGE-02
+    topic: "触发器体摘要的期望值须外置（锚文件记 digest，而非模块加载时从 SCHEMA 现算）——现「从 SCHEMA 源码删触发器定义+REQUIRED_TRIGGERS 名单项」的洗白形态只被 files_sha 身份锚挡住，digest 判据对它为设计外真空"
+    sources:
+      - "experiments/v3-code-architecture-poc/CONTRACTS.md §16.3（登记上限段）"
+      - "attacks/review/RE-REVIEW-G6-A.md §④ :320-331 行裁定 + 附录 C.3 第 1 句"
+    owner: "UNASSIGNED"
+    status: open
+    evidence: "第五轮裁定：不在 PoC 内继续加自证，归正式 Schema 评审与独立基线负责；本条即那个「独立基线」的登记位（父席第五轮收尾：只在 CONTRACTS 残余与 G1 清单各留一句，不加机制）。"
+
   # ---------- 已由 Q 号裁定、不再列为待议（复审者点名）----------
   - id: G1-DONE-01
     topic: "空间粒度（D-1）"

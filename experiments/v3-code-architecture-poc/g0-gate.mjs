@@ -12,17 +12,23 @@
  *   3. 审查方 `attacks/**` —— 失败集合必须与 `attacks/BASELINE.json` **完全相等**：
  *        多出红条 ⇒ 红（新增失败必须先定性：产品缺陷还是修复导致，写进 EVIDENCE 再更新基线）；
  *        少了红条 ⇒ 也红（说明某个洞被修好了，必须显式确认并更新基线，不许静默通过）。
+ *      且**文件级失败必须逐条登记成因**（N5，gate-causes.mjs）：钩子异常/收集期错误/
+ *        未捕获异常各有签名，登记在基线可选字段 `file_causes`；任何未登记成因一律红。
  *
  * 这不是把审查方的红"藏起来"：恰恰相反，它把红条集合变成**被逐条盯住的资产**。
  * 基线文件由作者维护，但内容全部来自审查方的实测失败名，作者不改他们的测试。
  *
- * 用法：node experiments/v3-code-architecture-poc/g0-gate.mjs [--baseline <path>]
+ * 用法：node experiments/v3-code-architecture-poc/g0-gate.mjs [--baseline <读路径>]
+ *      [--anchor <读路径>] [--reanchor]
+ *      [--write-baseline [写路径]]  —— 基线写入通道（缺省写正源 BASELINE.json）：
+ *        工作树不干净 / 流不可解析 / 出现 skip ⇒ 拒写（临时路径同判据，见 `writeBaseline` 定义处注释）。
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { collectCauses, assessCauses, registeredCauses, causeKey } from './gate-causes.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const REPO = join(ROOT, '..', '..');
@@ -59,6 +65,19 @@ const baselinePath = argv.includes('--baseline')
 const anchorPath = argv.includes('--anchor')
   ? argv[argv.indexOf('--anchor') + 1]
   : join(ROOT, 'AUTHOR_ANCHOR.json');
+// —— 基线写入通道（第五轮收尾，父席指令：N5 的**配套**，不是可选项）——
+// 背景（第六席·席位 G6-A 登记，父席第五轮裁定转配套）：`--baseline <path>` 一直是**只读重定向**——基线重生成在门禁外
+// 用一次性脚本完成（历史上靠"干净 worktree"的口头纪律）。这意味着基线没有 `--reanchor`
+// 那种拒写护栏，且比作者锚更隐蔽：改完 attacks 随手重算，攻击编辑就蒸进「已知红」。
+// 现在写入走门禁本身并强制两条拒写判据（临时路径同判）：
+//   ① `git status --porcelain` 非空（跟踪面不干净）⇒ 拒写——基线只能记可复现的树；
+//   ② 审查方流不可解析 / 出现 skip ⇒ 拒写——skip 在基线里没有表示法，不许静默入册。
+// 作者锚的拒写条款（[2/3] 处）不在此重复：它判的是「测试流干净」，此处判的是「工作树干净」。
+const writeBaseline = argv.includes('--write-baseline')
+  ? (argv[argv.indexOf('--write-baseline') + 1] && !argv[argv.indexOf('--write-baseline') + 1].startsWith('--')
+    ? argv[argv.indexOf('--write-baseline') + 1]
+    : join(ROOT, 'attacks', 'BASELINE.json'))
+  : null;
 const fail = [];
 const note = (s) => console.log(s);
 
@@ -85,7 +104,13 @@ function runVitest(paths) {
   const start = out.indexOf('{');            // reporter=json 前可能混有 banner 行
   const failed = new Set();
   const passNames = new Set();   // G-2：通过项的身份也要留痕
-  const loadErrors = [];   // 收集/解析期失败：testResults 里有文件但没有断言 ⇒ 不是"已知断言红"
+  // N5（RE-REVIEW-G2-A §③ 裁定的实现，2026-10-31）：旧 loadErrors 判据
+  // 「failed && reds===0」把**吸收形**（同文件一条登记红 + afterAll 抛错）放成 PASS。
+  // 现在文件级失败一律提取**成因**（钩子异常/收集期错误/无法解释），连同运行级
+  // 未捕获异常一起交给 gate-causes 判「是否逐条登记在基线 file_causes」——
+  // **任何未登记成因一律红**；断言红不产出成因（名字核对归 failures/passes 集合管，
+  // vitest 实测：只有断言失败时文件级 message 为空 ⇒ 133 例基线零误报）。
+  let causes = [];
   let passed = 0;
   let skipped = 0;
   let success = false;   // 必须在 try 外声明：解析失败时也要能被判为 false
@@ -95,27 +120,19 @@ function runVitest(paths) {
     success = j.success === true;
     total = j.numTotalTests ?? 0;
     for (const f of j.testResults ?? []) {
-      // 外部复审第三轮：审查方流**允许**已知断言失败，但不允许"文件根本没跑起来"混在里面。
-      // 收集期/解析期崩溃的文件有 status=failed 却没有 assertionResults ⇒ 单独收集。
-      const reds = (f.assertionResults ?? []).filter((a) => a.status === 'failed').length;
-      // GT-1（席位 G1-A 实测）：原判据要求「该文件 0 条断言」，于是「断言全通过 + afterAll 抛错」
-      // 这类**清理期崩溃**被读成正常（vitest exit=1 / success=false，门禁仍 PASS）。
-      // 新判据：文件级失败但**没有任何一条已登记断言失败**能解释它 ⇒ 判收集/解析/清理期失败。
-      // 席位在现有 attacks 上实测零误报（命中其夹具 1 份，11 份已知红文件不误报）。
-      if ((f.status === 'failed' && reds === 0) || ((f.assertionResults ?? []).length === 0 && f.message)) {
-        loadErrors.push(`${String(f.name ?? '?').replace(REPO + '/', '')}：${String(f.message ?? '文件级失败但无一条断言失败可解释（清理/收集期崩溃）').split('\n')[0].slice(0, 160)}`);
-      }
       for (const a of f.assertionResults ?? []) {
         if (a.status === 'failed') failed.add(`${f.name.replace(REPO + '/', '')} > ${a.fullName}`);
         else if (a.status === 'passed') { passed += 1; passNames.add(`${f.name.replace(REPO + '/', '')} > ${a.fullName}`); }
         else skipped += 1;   // pending / skipped / todo —— 作者流里一条都不许有
       }
     }
+    causes = collectCauses(j, { status: r.status, totalReds: failed.size, totalSkipped: skipped,
+      stripPrefix: REPO + '/' });
   } catch {
-    return { failed: null, passNames: null, loadErrors: null, total: 0, passed: 0, skipped: 0,
+    return { failed: null, passNames: null, causes: null, total: 0, passed: 0, skipped: 0,
       status: r.status, success: false, raw: (out + (r.stderr ?? '')).slice(-800) };
   }
-  return { failed, passNames, loadErrors, total: total || (failed.size + passed + skipped),
+  return { failed, passNames, causes, total: total || (failed.size + passed + skipped),
     passed, skipped, status: r.status, success, raw: '' };
 }
 
@@ -194,27 +211,80 @@ else if (!/^[0-9a-f]{7,40}$/.test(anchor.generated_from_commit ?? '')) {
   + `skip=0，exit=0，success=true）`);
 
 note('[3/3] 审查方基线门（attacks/**：多一条要查，少一条也要查）');
-const b = JSON.parse(readFileSync(baselinePath, 'utf-8'));
-// P2-4（席位 A）：`generated_from_commit` 原先只是注释性字段，不参与校验 ⇒ 基线可以悄悄
-// 停在旧提交上，红条集合早已变化而门禁仍"完全相等"。现在要求它存在、且确实是 HEAD 的祖先。
-if (!/^[0-9a-f]{7,40}$/.test(b.generated_from_commit ?? '')) {
-  fail.push('BASELINE.json 缺 generated_from_commit 或不是提交号：基线来源不可追溯');
-} else {
-  const anc = spawnSync('git', ['merge-base', '--is-ancestor', b.generated_from_commit, 'HEAD'],
-    { cwd: REPO, encoding: 'utf-8' });
-  if (anc.status !== 0) fail.push(`BASELINE.json 的 ${b.generated_from_commit} 不是 HEAD 的祖先：`
-    + `基线来自分叉或已 rebase，须在其对应的干净 worktree 上重生成`);
+let b = null;
+let bErr = '';
+try {
+  b = JSON.parse(readFileSync(baselinePath, 'utf-8'));
+} catch (e) {
+  bErr = `BASELINE.json 缺失或不可解析（${String(e.message).split('\n')[0]}）`;
 }
-const known = new Set(b.failures);
 const v = runVitest([join(ROOT, 'attacks')]);
-if (v.failed === null) fail.push('审查方门无法解析 vitest 输出:\n' + v.raw);
-else if (v.status === 0 && v.passed === 0 && known.size > 0) fail.push('审查方门 0 通过且退出码 0：疑似整目录未被收集');
+if (writeBaseline !== null) {
+  // 写入模式（护栏见 writeBaseline 定义处注释）：拒写判据通过才落盘；与旧基线的差异只作
+  // 报告输出（写入本身就是「显式承认差异」的动作），不参与判定。
+  const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: REPO, encoding: 'utf-8' }).stdout.trim();
+  if (dirty !== '') {
+    fail.push('拒绝写基线：工作树不干净（`git status --porcelain` 非空）——基线只能从可复现的树写出；'
+      + `先提交或还原改动再重算。当前差异前 5 行：\n  ${dirty.split('\n').slice(0, 5).join('\n  ')}`);
+  } else if (v.failed === null) {
+    fail.push('拒绝写基线：审查方流不可解析（vitest 输出非 JSON）');
+  } else if (v.skipped > 0) {
+    fail.push(`拒绝写基线：审查方出现 ${v.skipped} 条 skip/pending——skip 在基线里没有表示法，不许静默入册`);
+  } else {
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf-8' }).stdout.trim();
+    const old = b && Array.isArray(b.failures) ? b : null;
+    writeFileSync(writeBaseline, JSON.stringify({
+      generated_from_commit: head,
+      total: v.total,
+      failures: [...v.failed].sort(),
+      passes: [...v.passNames].sort(),
+      file_causes: v.causes.map(causeKey).sort(),
+      note: '审查方实测基线（g0-gate --write-baseline 写出）。failures/passes 双向名集逐等（G-2）；'
+        + 'file_causes = 文件级失败成因登记（N5，gate-causes.mjs）：`<文件> | <成因类> | <归一签名>`，'
+        + '任何未登记成因一律红。签名不含用例名（用例名由名集判据管）；文件路径与钩子抛语参与签名'
+        + '⇒ 改这两者会红——**安全但吵**是有意的选择（攻击者可控的恰是文本），不是误报缺陷。',
+    }, null, 2) + '\n');
+    note(`  已写基线 ${writeBaseline}：红 ${v.failed.size} / 过 ${v.passNames.size} / 总 ${v.total} / `
+      + `成因 ${v.causes.length} @ ${head.slice(0, 7)}`);
+    if (old) {
+      const dFailAdd = [...v.failed].filter((x) => !new Set(old.failures).has(x)).sort();
+      const dFailGone = old.failures.filter((x) => !v.failed.has(x)).sort();
+      const dPassAdd = [...v.passNames].filter((x) => !new Set(old.passes ?? []).has(x)).sort();
+      const dPassGone = (old.passes ?? []).filter((x) => !v.passNames.has(x)).sort();
+      note(`  相对旧基线（读路径 ${baselinePath}）：红 +${dFailAdd.length}/-${dFailGone.length}，`
+        + `过 +${dPassAdd.length}/-${dPassGone.length}`);
+      for (const l of dFailAdd.map((x) => '  红+ ' + x).concat(dFailGone.map((x) => '  红- ' + x))
+        .concat(dPassAdd.map((x) => '  过+ ' + x)).concat(dPassGone.map((x) => '  过- ' + x))) note(l);
+    } else note('  （无旧基线可比对——首建形态）');
+  }
+} else if (bErr) fail.push(bErr);
+else {
+  // P2-4（席位 A）：`generated_from_commit` 原先只是注释性字段，不参与校验 ⇒ 基线可以悄悄
+  // 停在旧提交上，红条集合早已变化而门禁仍"完全相等"。现在要求它存在、且确实是 HEAD 的祖先。
+  if (!/^[0-9a-f]{7,40}$/.test(b.generated_from_commit ?? '')) {
+    fail.push('BASELINE.json 缺 generated_from_commit 或不是提交号：基线来源不可追溯');
+  } else {
+    const anc = spawnSync('git', ['merge-base', '--is-ancestor', b.generated_from_commit, 'HEAD'],
+      { cwd: REPO, encoding: 'utf-8' });
+    if (anc.status !== 0) fail.push(`BASELINE.json 的 ${b.generated_from_commit} 不是 HEAD 的祖先：`
+      + `基线来自分叉或已 rebase，须在其对应的干净 worktree 上重生成`);
+  }
+  const known = new Set(b.failures);
+  if (v.failed === null) fail.push('审查方门无法解析 vitest 输出:\n' + v.raw);
+  else if (v.status === 0 && v.passed === 0 && known.size > 0) fail.push('审查方门 0 通过且退出码 0：疑似整目录未被收集');
 else {
   // G-2（外部复审，2026-10-30）：只比失败集合会被**覆盖面缩水**骗过——
   // 原本通过的审查方测试被 describe.skip、被删文件、被改名时，失败集合可以一字不变，
   // 门禁照样报"与基线一致"。所以通过项的身份同样必须在基线里，且必须逐一对上。
-  if (v.loadErrors.length > 0) fail.push(`审查方收集期失败 ${v.loadErrors.length} 份文件 —— 这与"已知断言红"是两类事，`
-    + `不能因为失败集合没变就当没发生：\n  ${v.loadErrors.join('\n  ')}`);
+  // N5（吸收形修法，见 runVitest 头注与 gate-causes.mjs）：文件级失败（钩子异常/
+  // 收集期错误/无法解释/运行级未捕获）必须逐条登记在基线 `file_causes`
+  // （"<文件> | <成因类> | <归一签名>"）；**任何未登记成因一律红**——登记红的
+  // 名字**不解释**文件级成因，「同文件有一条已知红」不再是清理期崩溃的豁免书。
+  // GT-1 语义不回退：钩子异常没有任何登记红时同样在这里红（未登记 ⇒ 红）。
+  const unregisteredCauses = assessCauses(v.causes, registeredCauses(b));
+  if (unregisteredCauses.length > 0) fail.push(`审查方文件级失败成因 ${unregisteredCauses.length} 条未登记 —— `
+    + `「文件级失败必须有名」与「红条逐条定性」同构；断言红名不解释钩子/收集/未捕获成因：\n  `
+    + unregisteredCauses.map((c) => c.line).join('\n  '));
   if (v.skipped > 0) fail.push(`审查方出现 ${v.skipped} 条 skip/pending：被跳过的覆盖面必须显式入基线，不能静默消失`);
   if ((b.total ?? 0) > 0 && v.total !== b.total) fail.push(`审查方收集总数 ${v.total} ≠ 基线 ${b.total}：有文件没被收集或凭空多出一份`);
   if ((b.total ?? 0) === 0) fail.push('BASELINE.json 缺 total：收集总数变化无法被发现');
@@ -230,6 +300,7 @@ else {
   if (added.length) fail.push(`审查方新增红 ${added.length} 条（先定性再更新基线）：\n  ${added.join('\n  ')}`);
   if (gone.length) fail.push(`审查方红条消失 ${gone.length} 条 ⇒ 可能意味着洞已关闭，必须显式确认：\n  ${gone.join('\n  ')}`);
   if (!added.length && !gone.length) note(`  OK —— 与基线完全一致（${known.size} 条已知红，均已定性）`);
+  }
 }
 
 if (fail.length) {

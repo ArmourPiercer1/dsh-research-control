@@ -13,7 +13,7 @@ import { POC_DATA_DIR } from '../src/harness/paths.ts';
 import { openWorld, PRINCIPAL, type World } from '../src/harness/world.ts';
 import { Kernel, type NamespaceWriter, type UnitOfWork } from '../src/kernel/kernel.ts';
 import { SqlitePort } from '../src/storage-sqlite/sqlite-port.ts';
-import { asOid, asSpaceId } from '../src/contracts/index.ts';
+import { asOid, asSpaceId, type RawTx } from '../src/contracts/index.ts';
 import { CAP_OBJECT_MODEL, TEST_OBJECT_MODEL } from '../src/domains/test-object-model.ts';
 import { CAP_FACET, TEST_FACET_CALIB } from '../src/domains/test-facet.ts';
 
@@ -237,6 +237,53 @@ describe('D-24 write() 无歧义面与插件可见面证据', () => {
       }
       // Kernel 面上它确实存在（存在性 + 不可达性成对断言，缺一即假绿）
       expect(surface(w.kernel)).toContain('auditRequiredIntegrity');
+    } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 界外事实钉（第五轮裁定 2026-10-31，非「修法完成」——是把保证范围钉死，不假装闭合）。
+// D-23 已验证闭合的是 **Kernel 管理的 UoW 路径**（`Kernel.uow` 的 finally 记 `CLOSED_TX`）；
+// `SqlitePort.tx()` 本身仍把 `RawTx` 交给回调、**没有独立失效机制**。故一个**不经 Kernel.uow**、
+// 直接调 `port.tx` 并把句柄带出回调的消费者，其迟到写**不受 `CLOSED_TX` 约束**、按同一连接
+// autocommit 落库。这正是 G1-STORAGE-01（须把保证下沉为 StoragePort 层 TransactionLease）要防的
+// 「未来新增机制消费者时重现 D-23」——**此用例断言的是界外事实为真，不是断言已闭合。**
+describe('D-23 界外事实：SqlitePort.tx() 交出的 RawTx 在回调返回后仍可用（保证范围仅限 Kernel.uow 路径）', () => {
+  test('非 Kernel.uow 路径：带出 port.tx 回调的 RawTx 迟到写照常 autocommit 落库（钉界外，不假装已失效）', () => {
+    const dir = mkdtempSync(join(POC_DATA_DIR, 'd234-outside-'));
+    const port = new SqlitePort({ file: join(dir, 's.db') });
+    try {
+      let escaped: RawTx | undefined;
+      port.tx((raw) => {
+        // 界外消费者把守卫后的 RawTx 原样带出回调——StoragePort.tx 自身不记任何终结账。
+        escaped = raw;
+        raw.run(`insert into journal(tx_epoch, ns, oid, op) values(1,'dom_outside',null,'inside')`);
+      });
+      // 回调已返回、事务已提交；界外消费者此刻仍持有同一 RawTx 句柄。
+      expect(escaped, '句柄必须能被带出（StoragePort 无失效位，这是界外事实的前提）').toBeDefined();
+      // 迟到写：**没有** TX_CLOSED，按同一连接 autocommit 落库（对照装配路径应得的 TX_CLOSED）。
+      expect(code(() => escaped!.run(
+        `insert into journal(tx_epoch, ns, oid, op) values(2,'dom_outside',null,'late-outside')`,
+      ))).toBe('NO_REFUSAL');
+      const rows = port.read((r) => r.all<{ op: string }>(
+        `select op from journal where ns='dom_outside' order by tx_epoch`));
+      expect(rows.map((x) => x.op)).toEqual(['inside', 'late-outside']); // 迟到写真的进了库 = 界外洞仍在
+    } finally { port.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('同形经 Kernel.uow 路径 ⇒ TX_CLOSED（两条路径的不对称正是「保证范围=Kernel 管理路径」的实证）', () => {
+    const { dir, w } = open('d234-asym-');
+    try {
+      let heldWriter: NamespaceWriter | undefined;
+      let rawFromUow: unknown;
+      w.uow(ADM, (tx) => {
+        heldWriter = w.kernel.faceFor(CAP_FACET).writerFor(tx);
+        rawFromUow = tx; // Kernel 路径的事务本体在 finally 里进 CLOSED_TX
+      });
+      // Kernel 路径：终结账生效，迟到写被拒（与本文件 D-23① 各形态一致）。
+      expect(rawFromUow).toBeDefined();
+      expect(code(() => heldWriter!.write({ ns: 'dom_test_facet', oid: asOid('OBJ-SP-D234-9'), revision: 1,
+        payload: { late: true }, eventType: 'extension-registered' }))).toBe('TX_CLOSED');
     } finally { w.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 });

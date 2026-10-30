@@ -354,6 +354,17 @@ payload 形状校验（未知字段至少产出 INDETERMINATE）**。三者缺�
   为何不能只给 `UnitOfWork` 加 `closed` 实例位：`NamespaceWriter` 保留**同一个**底层句柄
   （`writerFor`/`#scoped` 都经模块级 `WeakMap` 取它），实例级失效只封得住半个入口（D-23 原文）。
   记账同样不用实例上的 TS `private`/参数属性（D-17/P2-2：运行时可枚举）。
+- **保证范围限定（外部复审第五轮裁定 2026-10-31，G6-A 收口；上两条与上方「一律拒绝」句均按本条
+  定界，旧句保留、以此条为准）**：已验证闭合的是 **Kernel 管理的 UoW 路径**——终结记账发生在
+  `Kernel.uow()` 的 `finally`，`UnitOfWorkImpl`、`NamespaceWriter`（含 `#scoped` 瞬时实例）与事后
+  `writerFor` 全部读同一本 `CLOSED_TX` 账；机制内三个路由写方（`setRouteEnabled`、`transferRoute`→
+  `reassignRouteInternal`、`uowFor` 领域路径）都经 `Kernel.uow` 开事务，故插件可达面闭合。**不是**
+  「StoragePort 的所有事务消费者都有同等保证」：`SqlitePort.tx()` 本身仍把 `RawTx` 交给回调、**没有
+  独立失效机制**——直接调 `port.tx` 的消费者（装配根、未来新增的机制消费者）把句柄带出回调，
+  `tx()` 返回后经它写入仍按同一连接 autocommit 落库，无 `TX_CLOSED` 回执。该界外事实由
+  `tests/d23-tx-lifecycle.test.ts`「界外事实钉」用例实测钉住，不假装已闭合。首版正式实现须把该保证
+  落实为 StoragePort 层的受限 `TransactionLease`（登记 `G1-RECONCILIATION-CHECKLIST.yaml`
+  G1-STORAGE-01），以防未来新增机制消费者时重现 D-23。
 - **提交期判据改为增量**：`checkRequiredRefs` 只验证**本事务**新增的 required 边（按底层句柄
   归账，`writer.linkOwned` 经瞬时实例写入的边同样入账）。**禁止**改回提交前全表重扫：一条存量
   损坏边会永久拒绝此后任何主体的任何提交，而 `ref_edge` 是 append-only（触发器删不掉）、重开库
@@ -492,7 +503,10 @@ REPLACE 在这三表上整行改写合法达成）；守卫归一化只剥**前�
   把回调体整个装进 `SqlitePort.tx` 的 `begin immediate → fn → commit / catch → rollback`；审计 insert
   与路由 update 拿的是同一条句柄（`RAW_OF_UOW.get(tx)` 即 `port.tx` 交进来的 `raw`）。**机制内不存在
   第二个事务边界**：不经 `tx()` 回调的写只有 `port.raw`（同一连接的 autocommit），那条面本来就是
-  已登记的运维后门——是明示的界外，不是隐蔽的第二边界。界外的幽灵形状被钉成显式断言（拆两条
+  已登记的运维后门——是明示的界外，不是隐蔽的第二边界。**（第五轮裁定 2026-10-31 定界：本句判的是
+  机制内路径，仍成立；但把它读成「StoragePort 层不存在第三条写路径」即越界——`port.tx` 的直接消费者
+  带出回调的 `RawTx` 在 `tx()` 返回后写入同样走 autocommit，`SqlitePort.tx()` 无独立失效机制，
+  保证范围见 §16.1「保证范围限定」条，界外事实钉在 `tests/d23-tx-lifecycle.test.ts`。）**界外的幽灵形状被钉成显式断言（拆两条
   autocommit「审计先落、变更被拒」⇒ H 留下从未生效的审计行，且 `ledger_no_delete` 连幽灵一起钉死、
   抹不掉）：机制内三形态（提交期注入失败 / 事务中途触发器 abort / scope-escape 先于任何写）实测
   **零残留、序号也不留 ghost**（`tests/d27-route-audit-gate.test.ts` D27-5），并把该原子性**架空**
@@ -700,6 +714,12 @@ mint 归零，裸面伪造从「随便一行即过」升级为「必须在见证
   `missingTriggers`（缺失优先于改体判定）。**一字自证**：`when new.value < old.value` 改成
   `>`（名字/排版全同、保护当场失效）重开必红点名；同体异形（仅换行缩进）不误伤
   （ST-E 把这两条都钉成测试）。
+  **登记上限（G6-A §④ :320-331 行裁定，非本包回归；第五轮裁定：不在 PoC 内继续加自证）**：
+  `expectedTriggerDigests` 与 `SCHEMA` 常量**同源**——「从 SCHEMA 源码删除触发器定义（连同
+  `REQUIRED_TRIGGERS` 名单项）」这一洗白形态**只被 `tests/**` 的 files_sha 身份锚 + 显式重锚挡住**，
+  digest 判据对它为设计外真空（与重建文件 :316-319 自述同界）。闭环修法=基准期望外置（锚文件记
+  digest 而非从 SCHEMA 现算），归正式 Schema 评审与独立基线负责——登记 `G1-STORAGE-02`，PoC 内
+  不再为此加机制或自证。
  - **`port.raw` 二选一：取守卫**。机制三面（tx / read / raw）一律拒多语句与注释伪装（剥注释归一同前）。
    `raw` 的拦截面按**可测三分法**钉死（逐形对应 `tests/g5a-n9-storage.test.ts` ST-D，不得含糊成「已守卫」）：
    ① **拦得住 ⇒ `RAW_SQL_REFUSED`**：DDL 全类（`drop/alter/create/attach/detach/vacuum/reindex/analyze`
@@ -708,9 +728,26 @@ mint 归零，裸面伪造从「随便一行即过」升级为「必须在见证
    放行）、**多语句**（`;` 后有实体即拒；尾分号放行）。由此承诺成立：**经 SqlitePort 交出的任何句柄
    都无法关闭 `recursive_triggers` 连接态，也无法经 raw 执行 DDL**。
    ② **放行（有意为之，各有锚）**：SELECT/WITH；DML 全类——REPLACE/upsert 放行**到触发器**受拒，
-   不拆「触发器不豁免写形」的既有锚；**PRAGMA 裸读形**（`pragma <name>` 无赋值无参数，n9 绿锚核对
-   连接态所赖）；**事务控制 `begin/commit/rollback`**（`tests/p1-storage-tx.test.ts` 第二连接写锁锚
+   不拆「触发器不豁免写形」的既有锚；**PRAGMA 无参透传形白名单**（见下段「类目更正」——旧口径为
+   「PRAGMA 裸读形（`pragma <name>` 无赋值无参数，n9 绿锚核对连接态所赖）」，**旧句保留于此、以更正段
+   为准**）；**事务控制 `begin/commit/rollback`**（`tests/p1-storage-tx.test.ts` 第二连接写锁锚
    所赖：界外面在自己的连接上开合事务不新增绕触发器通道——事务内触发器照火，且 DML 本就放行）。
+
+   **PRAGMA 类目更正与白名单收紧（F-G6A-1 修，席位 G6-A §①#14 裁定：「收紧白名单 + 纠正文档，
+   不应仅改一个常量名便声称已解决」）**：旧类目名 `BARE_PRAGMA_READ`（「裸读形」）**名不符实**——
+   `pragma optimize`（VACUUM+ANALYZE）与 `pragma wal_checkpoint` 是无参**写副作用**形，被旧判据按
+   「裸读」放行（G6A-A5-2 实测）。类目更名 `PRAGMA_FUNCTIONLESS_PASSTHROUGH`，承诺改写为：
+   **放行按词法形状、不按语义**——白名单只豁免可证无写副作用的**单结果查询形**（`journal_mode`、
+   `synchronous`、`user_version`、`schema_version`、`data_version`、`integrity_check`、
+   `foreign_key_check`、`table_info`、`compile_options`、`module_list`、`page_count`、
+   `freelist_count`，另加 `recursive_triggers`：ST-D/n9 核对连接态所赖的读锚，同为无写副作用的
+   单行查询形），可带 `schema.` 前缀、无参无赋值；**写副作用形一律拒**（`optimize`、`wal_checkpoint`）、
+   `foreign_keys` 一律拒（白名单外；其函数形本就因带参拒——表损坏检查虽属查询，宁可误杀）、
+   **赋值全形一律拒**（等号形/空格形/函数调用形/`schema.` 前缀各组合，逐形钉在
+   `tests/g6a-pragma-whitelist.test.ts`，原 G6A-A5-2 的耐久开关全拦对照一并转正）。
+   **残余如实登记**：白名单仍是**词法判据**——字符串字面量伪关键词、未来 SQLite 新增的 pragma 同义形
+   仍可能误判；误杀方向安全（拒而不放行），误放方向已由「耐久开关全在赋值形」的实测兜住（G6-A A5-2
+   对照段）。新增白名单条目必须逐条给「无写副作用」论证，不得成批扩列。
    ③ **拦不住（残余，登记不承诺）**：手工 `new DatabaseSync` / 裸文件域外（默认 `recursive_triggers=OFF`，
    关闸写入重开不可检出）；`raw` 的 DML 伪造数据行含伪造审计行与 `authority_basis` 见证列（G27-C 钉死，
    与 D-27 裸面边界同条）；**raw 是唯一不做驱动词汇翻译的面**——无事务时 `rollback` 之类以

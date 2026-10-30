@@ -489,11 +489,14 @@ export class SqlitePort implements StoragePort {
 
   /**
    * `port.raw`（装配根/运维/测试界外面）——**包 6 二选一裁决：取守卫**（CONTRACTS.md §16.3）。
-   * 拒绝 **PRAGMA 赋值形** / DDL / ATTACH 与多语句：`recursive_triggers` 连接态从此**经本 Port
-   * 交出的任何句柄都关不掉**（G5-A 新洞2：此前 raw 一条 `pragma recursive_triggers=off` 即拆掉
-   * 全部 REPLACE 系触发器防线，且关闸写入重开不可检出）。PRAGMA 裸读形（`pragma <name>`）
-   * 与 DML 放行——前者只读连接态，后者是界外面的本职（运维修复、审计夹具、攻击锚点）：
-   * REPLACE/upsert 仍**放行到触发器**受拒，「触发器不豁免写形」的既有锚不得被守卫截胡。
+   * 拒绝 **PRAGMA 赋值形 / 函数形 / 白名单外一切 PRAGMA** / DDL / ATTACH 与多语句：
+   * `recursive_triggers` 连接态从此**经本 Port 交出的任何句柄都关不掉**（G5-A 新洞2：此前 raw 一条
+   * `pragma recursive_triggers=off` 即拆掉全部 REPLACE 系触发器防线，且关闸写入重开不可检出）。
+   * **PRAGMA 无参透传形按白名单放行**（F-G6A-1 收紧，席位 G6-A §①#14：旧类目「裸读形=只读连接态」
+   * **不实**——`optimize`/`wal_checkpoint` 是无参写副作用形。白名单只收可证无写副作用的单结果查询形，
+   * **按词法形状放行、不按语义**，逐形钉在 `tests/g6a-pragma-whitelist.test.ts`）；DML 放行——
+   * 它是界外面的本职（运维修复、审计夹具、攻击锚点）：REPLACE/upsert 仍**放行到触发器**受拒，
+   * 「触发器不豁免写形」的既有锚不得被守卫截胡。
    * **如实边界（不写过头话）**：手工 `new DatabaseSync` / 裸文件不在任何承诺内（默认
    * `recursive_triggers=OFF`），关闸写入的数据重开不可检出；`raw` 的 DML 仍可伪造数据行
    * （含伪造审计行与见证列）。"存储不变量对持有裸文件者不设防"为真，登记为运维界。
@@ -598,18 +601,38 @@ function guardRead(raw: RawTx): RawTx {
 /**
  * `port.raw` 的边界守卫（包 6，G5-A 新洞2 修法「二选一取守卫」，CONTRACTS.md §16.3）。
  * 拒绝：**全部 DDL**（`FORBIDDEN_KEYWORD` 头部词表，与机制写句柄同源 + `normalizeSql` 剥注释）、
- * **PRAGMA 赋值形**（`pragma x = off` / `pragma x(v)`——关不变量的正是赋值）、多语句。
+ * **PRAGMA 白名单外一切形**（赋值形 `pragma x = off`、函数形 `pragma x(v)` 是 G5-A 新洞2 的原形；
+ * **F-G6A-1 收紧（席位 G6-A §①#14）后连白名单外的无参形也拒**——见 `PRAGMA_QUERY_ONLY_NAMES`）、
+ * 多语句。
  * 放行：DML（REPLACE/upsert 仍**到触发器**受拒，「触发器不豁免写形」的锚不得被这层截胡）
- * 与 **PRAGMA 裸读形**（`pragma <name>`，无赋值无参数——既有绿锚 n9 正是用它核对连接态；
- * 读不改状态，写才改）。误杀方向安全（拒而不放行）；词法边界与 D-30 登记同族。
+ * 与 **PRAGMA 无参透传形白名单**（下方 `PRAGMA_FUNCTIONLESS_PASSTHROUGH`）。误杀方向安全（拒而
+ * 不放行）；词法边界与 D-30 登记同族。
  */
-const BARE_PRAGMA_READ = /^pragma\s+[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?\s*$/i;
+/**
+ * F-G6A-1 白名单（席位 G6-A §①#14 裁定「不应仅改一个常量名便声称已解决」）：只收**可证无写副作用
+ * 的单结果查询形**。类目更名 `PRAGMA_FUNCTIONLESS_PASSTHROUGH`——旧名 `BARE_PRAGMA_READ`（「裸读形」）
+ * 名不符实：`pragma optimize`（VACUUM+ANALYZE）与 `pragma wal_checkpoint` 是**无参写副作用**形，
+ * 被旧判据按「裸读」放行（G6A-A5-2 实测）。**放行按词法形状、不按语义**（CONTRACTS.md §16.3）；
+ * 排除面：`optimize`、`wal_checkpoint`、`foreign_keys`（含函数形，宁可误杀）、一切赋值形
+ * （等号/空格/函数调用/`schema.` 前缀组合）。`recursive_triggers` 在列——它是 ST-D/n9 核对连接态
+ * 所赖的读锚，同为无写副作用的单行查询形。**残余如实**：词法判据仍可能被字面量伪关键词/未来同义形
+ * 误判，误杀方向安全；新增白名单条目必须逐条给「无写副作用」论证（CONTRACTS §16.3 类目更正段）。
+ * 逐形测试：`tests/g6a-pragma-whitelist.test.ts`（含原 G6A-A5-2 的耐久开关全拦对照转正）。
+ */
+const PRAGMA_QUERY_ONLY_NAMES = [
+  'journal_mode', 'synchronous', 'user_version', 'schema_version', 'data_version',
+  'integrity_check', 'foreign_key_check', 'table_info', 'compile_options', 'module_list',
+  'page_count', 'freelist_count', 'recursive_triggers',
+];
+const PRAGMA_FUNCTIONLESS_PASSTHROUGH = new RegExp(
+  `^pragma\\s+(?:[A-Za-z_][A-Za-z0-9_]*\\.)?(?:${PRAGMA_QUERY_ONLY_NAMES.join('|')})\\s*$`, 'i');
 function guardRawBoundary(raw: RawTx): RawTx {
   const check = (sql: string): void => {
     const head = normalizeSql(sql);
-    if (FORBIDDEN_KEYWORD.test(head) && !BARE_PRAGMA_READ.test(head)) {
+    if (FORBIDDEN_KEYWORD.test(head) && !PRAGMA_FUNCTIONLESS_PASSTHROUGH.test(head)) {
       throw new Refusal('RAW_SQL_REFUSED', {
-        reason: 'DDL / PRAGMA 赋值形 / ATTACH 不得经 port.raw 执行（包 6：经 Port 交出的句柄关不掉连接态不变量；裸读形放行）',
+        reason: 'DDL / PRAGMA（白名单外一切形：赋值、函数、写副作用查询）/ ATTACH 不得经 port.raw 执行'
+          + '（包 6：经 Port 交出的句柄关不掉连接态不变量；F-G6A-1：无参透传形按白名单放行，按词法不按语义）',
         sql: sql.slice(0, 60),
       });
     }

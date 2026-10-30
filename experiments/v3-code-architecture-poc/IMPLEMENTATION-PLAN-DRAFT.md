@@ -628,3 +628,21 @@ SCR-1 同轮已落地：根 `vitest.config.ts` 与 `tsconfig.json` 均排除 `.s
 **登记纪律**：`G1-RECONCILIATION-CHECKLIST.yaml` 现 17 条（13 open）。G1-a…G1-d 与 D-20 的两条新要求
 （正式接纳事件须经所属领域授权命令 Port；授权决定要有签发主体与规则版本、**不得事后按当前权限静默重解释历史**）
 在 G1-d 的校验器落地后一并入清单——**校验器之前不追加条目**，因为现在的 grep 判据无法证明新条目格式合法。
+
+## 16. 现行状态快照（锚定 `2e29e6b` + 本轮 HEAD；外部复审第五轮 G0 收口，2026-10-31）
+
+> 纪律：本节只记**事实与证据锚点**，不改写上文任何历史节（历史留在 §10–§15 与 REVIEW/EVIDENCE 原位）。
+> 本轮按裁定**未新起红队轮、未扩范围、未新造机制**（`--write-baseline` 护栏与成因判据是第五轮
+> 裁定的 N5 配套，非新攻面）。工作树改动按纪律未提交（禁 add/commit），本表即其事实锚。
+
+| 面 | 现行状态 | 证据锚 |
+| --- | --- | --- |
+| 门禁流 | [1/3] tsc 0；[2/3] 作者 `tests/**` 全绿且与身份锚四项逐等（锚本轮显式重锚一次）；[3/3] 审查方名集与 `attacks/BASELINE.json`（`7d61ec3`，33 红/100 过/总 133）**逐等，基线一字未动** | `node g0-gate.mjs` 全量输出（回报原文） |
+| N5（G2-A 遗留 P2） | **已修+常驻**：文件级失败一律提取成因（`gate-causes.mjs` 唯一实现），任何未登记成因红；两态实测（修前吸收形 PASS 复现 / 修后同形红）；基线写入改走 `--write-baseline` 且带「工作树不干净/不可解析/有 skip ⇒ 拒写」护栏 | `tests/n5-failure-cause-signature.test.ts`（吸收/钩子/对照/收集四形态）；一次性两态证据 `.scratch/n5-repro/{OLD,NEW}.out`；签名稳定性论证 `gate-causes.mjs` 头注；READINESS N5 行改判 |
+| D-23 保证范围 | **改判为「Kernel 管理的 UoW 路径已验证闭合」**（非 StoragePort 全消费者同等保证）；界外事实钉死：`SqlitePort.tx()` 交出的 `RawTx` 回调返回后仍可 autocommit 写入（现状为真、非修法完成） | `CONTRACTS.md` §16.1/§16.2 限定条；`tests/d23-tx-lifecycle.test.ts`「D-23 界外事实」describe；`G1-STORAGE-01`（TransactionLease 下沉） |
+| F-G6A-1（G6-A 遗留 P2） | **已修**：`BARE_PRAGMA_READ`→`PRAGMA_FUNCTIONLESS_PASSTHROUGH`，白名单按 §C.2 收紧（+`recursive_triggers` 读锚，理由逐条登记），放行按词法形状不按语义；穷举既有测试确认零基线翻转 | `src/storage-sqlite/sqlite-port.ts`；`tests/g6a-pragma-whitelist.test.ts`（G6A-A5-2 对照集逐字转正）；`CONTRACTS.md` §16.3 类目更正段（残余：词法判据、误杀方向安全） |
+| digest 判据登记上限 | SCHEMA-同源洗白形态只被 files_sha 身份锚挡住——**不再加 PoC 自证**（第五轮裁定），期望外置归正式 Schema 评审 | `CONTRACTS.md` §16.3 登记上限句；`G1-STORAGE-02` |
+| 攻击存量 | G6B-D27-4/G6B-D31-2 移植入作者面（断言一字未动，只改 import 深度）；历史漂移夹具为 **C.1 配方在 `d578208` 提取树的第二证据重建**（原件未随仓库保存），sha `6674e78e…` | `tests/g6a-d27-pk-rename-revive.test.ts`、`tests/g6a-d31-history-drift.test.ts`、`tests/fixtures/g6a-p5-drift.db` |
+| 正向零失败回归面 | **G2 正式 CI 种子 10 条**（每条注明原红队用例+报告小节）：D-23×3、D-27 预留、D-31×2、D-24 读面、D-21 预占、raw 守卫/PRAGMA、F5b 水位 | `tests/positive-regression-g2seed.test.ts`（对照表在其文件头） |
+| 内核/契约面哈希 | `KERNEL_SURFACE.sha256` **不变**（本轮改动只及 storage-sqlite 实现、门禁脚本、tests、文档；`src/kernel`、`src/contracts` 零字节） | 收尾对拍记录（回报）+ `tests/arch-independence.test.ts` SCR 面 |
+| G1 清单计数 | `G1-RECONCILIATION-CHECKLIST.yaml` 17→**19 条（open 13→15）**：新增 G1-STORAGE-01/02。这与 §15「校验器之前不追加条目」的登记纪律**有意偏离**——依据是第五轮裁定的显式登记指令；G1-d 校验器落地时这两条与 G1-a…d 一并过校验 | 清单文件 + `yaml.safe_load` 校验（收尾输出） |

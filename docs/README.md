@@ -120,10 +120,15 @@
 | `experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-R9-R12.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-ACCEPTANCE-MATRIX.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-ADJUDICATION-TABLE.md` | Unranked |
+| `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-COMMIT-SEQUENCE.md` | Unranked |
+| `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-DOMAIN-COMMAND.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET.md` | Unranked |
+| `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-IDEMPOTENCY.md` | Unranked |
+| `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-IDENTITY-GRAMMAR.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RECONCILIATION.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.md` | Unranked |
+| `experiments/v3-code-architecture-poc/g1/G1-FREEZE-CRITERIA.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-REMAINING-USER-DECISIONS.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-UNIFIED-CONTRACTS.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G2-DEV-PLAN.md` | Unranked |

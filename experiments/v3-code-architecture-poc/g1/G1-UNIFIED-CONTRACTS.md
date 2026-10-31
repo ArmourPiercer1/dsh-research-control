@@ -20,6 +20,11 @@ R-1…R-6 裁决并落地——这正是「再裁决权在父席」的行使，�
    （各自自称管辖面内为准：事件命名与签发归 EA、挂载与双身份归 FM、重定位归 RL）。
 3. `CONTRACTS.md`（含 §16/§16.1/§16.2/§16.3）——已落地契约事实与收口纪律（§14.2 封闭集纪律、包 3/5/6 先例）。
 4. `G1-RECON-PR47.md`——**台账不是裁决**（其 C1–C8 的处置以 ADJ 对应行为准；台账行按记账纪律不动）。
+   【2026-11-01 交叉收编注｜本文件新增权威说明】本文件同日新增的 §2.11（专题①×② 联合规范句）、
+   §7.4（跨专题字面冲突登记）与 P4/P5/P6/P7/P9 的类型换轨，其裁决授权 = **父席 2026-11-01 交叉收编
+   任务指令**（「①②③④ 的成果必须在统一合同里联合审查、发现字面冲突就登记并给出裁决」）；裁决**内容**
+   全部取材于已入库专题文书的既裁结论（CS/IDC/DC/IG/ADJ X-5/X-9），本节未发明新裁决；凡两侧原文
+   冲突处一律两侧并列进 §7.4，**不抹平**。
 5. `G0-R-CLOSURE.md`——范围与去向（G1 冻结 **NO-GO** 是现状；本文件是契约文书，不充当冻结通过证据；
    G1-* 残余项去向按 G0 残余表执行，本文件不新增去向项）。
 
@@ -47,7 +52,7 @@ R-1…R-6 裁决并落地——这正是「再裁决权在父席」的行使，�
 | 事件属主 Capability | `appendAuthoritativeEvent`（窄门；入参封闭面） | 自己登记的事件类型（归属账 `lookup`） | 已登记 `eventType` 的事件行——目标**可为他人拥有的对象**（事件类型归属 ≠ 对象归属，两根轴，§16.2/FM-9） | 同上同形 | 全形信封 + `replayAuthorityEvidence` 三态可复算（EA-4.6）；禁止按当前配置回算历史行授权（C-18） |
 | 原始材料入口主体（持空间写权者） | `declareRawIntake`（唯一入口，EA-1.3；scoped 与 assembly 可达） | 无（raw 行不进业务读面；引用与抽取走授权通道） | 仅 `raw-record-declared` 固定名行；原文与来源**完整保存**，永不冒充五类（C-04/C-09） | 无写权 ⇒ 连 Raw Intake 也完全拒绝、四表零变化，与「有写权但类型不认识」的收取**不可差分**（B-4/B-1） | 每次尝试（输入/解析结局 `intakeNotes.parseAttempt`）新增记录（#44 §7.2 承接） |
 | Facet 挂载方能力 | `FacetMountPort`（五成员，FM-6；PluginFace 扩一个具名成员，无通用通道等价物） | `mountState`/`listOwnMounts`：**仅本能力自己的登记**（FM-2.4） | 挂载登记行（`FM-<seq>`）+ 扩展记录（`FR-<seq>`，按挂载登记为键）；核心表/核心边**类型面上无写点**（FM-5.1） | 非己挂载与不存在同形（`mountState` ⇒ null）；「目标的挂载方列表」读面**不存在**（FM-2.4/FM-8） | `facet-mounted`/`facet-unlinked` 机制见证（全形信封，轴 `facet-mount`，`authorized=1` 必成立——判定输入型不落未生效行，FM-2.2 如实限定） |
-| Application 用例层 | `UseCaseDelegation.writerOwningKind(kind, tx)`（交出的是**对象拥有者的作用域端口**）；机制台账 `appendLedger` 按 `D-19c-ALLOWED` 行标记 | 无独立特权读面 | 同一条事务内经委派的作用域端口跨归属写（**不存在第二个权威**，Q40 不破）；不得直接持有 `createObject/revise/linkRef` 通用面（§16 D-19c） | 同形 | `appendLedger` 出现次数 == 签字次数双判据逐条签字（行标记可被下标写法绕过，计数补洞，§16） |
+| Application 用例层 | `UseCaseDelegation.writerOwningKind(kind, tx)`（交出的是**对象拥有者的作用域端口**）；机制台账 `appendLedger` 按 `D-19c-ALLOWED` 行标记【2026-11-01 取代标注（DC R-1 + ADJ X-5）：本列左半「交出对象拥有者的作用域端口」这条许可路径**已被收紧为命令 Port**——Application 面自 G2 起**不再取得**他人领域的 `NamespaceWriter`，`writerOwningKind/writerOf` 从 Application 可见面退役（DC-2，判据 = DC S1 可达性扫描）；「交出作用域端口」与「只调命令 Port」两句**并存于本节即两侧原文**（本行左半保留为登记原文，不抹平），现行规范读法 = 右起第三列注 + P4 收紧注 + DC §1/§3】 | 无独立特权读面 | 同一条事务内经委派的作用域端口跨归属写（**不存在第二个权威**，Q40 不破）；不得直接持有 `createObject/revise/linkRef` 通用面（§16 D-19c）【2026-11-01 取代标注（DC R-1）：「经委派的作用域端口跨归属写」整体失效——跨归属写唯一通道 = `tx` 上调被调域的具名命令 Port（X-5/DC-1）；协调权 ≠ 写权（DC-3：保留排序权/事务句柄/多拥有者编排，不保留任何物理写方法）；`appendLedger` 不进 Application 面（EA-2.2）】 | 同形 | `appendLedger` 出现次数 == 签字次数双判据逐条签字（行标记可被下标写法绕过，计数补洞，§16） |
 | 装配根（`scope='assembly'`） | `Kernel.uow`（通用事务面）、`RelocationPorts`、`setRouteEnabled`、`transferRoute`、`auditRequiredIntegrity`、`EventOwnershipRegistry.snapshot` | 机制面全表（不受插件读面判据约束，但受呈现纪律约束） | 跨域原子提交（Q40）；路由启停/移交（**不携 ns**，D-31）；重定位五要素事务（RL-1.3） | —（非插件可达面；插件面成员零增删由 `arch-independence.test.ts` 面锚对拍） | 五机制审计名预留 + `route_change_guarded` 核机制落账见证（actor 非空 + `axis='capability-admin'` + `authorized=1`，§16.3 包 6） |
 | 运维 / `capability-admin` 主体 | `assertAuthority` 断言先于一切写；移交/启停/重定位提案与批准 | 运维报告面（打开期点名、隔离姿态、`verifyRelocation` 结果） | `capability_route` 三元组（不含 ns）；重定位提案/批准（批准人 ≠ 提案人，RL-3.3②）；修复提案需 `operationGrant` 在场 | 不参读面；空空间同形负例钉「不得泄漏跨空间存在性」（包 6 三码同规） | `capability-enabled/disabled/transferred`、`ns-relocated` 全部带 `capability-admin` 轴全形信封；账步 `proposedBy/approvedBy` 异体 |
 | 审计者（装配根/运维授权） | 内部审计查询通道（EA-7.4 通道封闭、FM-3.1(b) 判定复算面、RL-8.2 drift 两维） | **完整区分**：真因（UNMOUNTED/NO_RIGHT/OWNER_OK/MOUNT_ACTIVE）、遮蔽计数、drift{routeDirMismatchCount, relocationGapCount}、复算三态 | 零写（只读）；`integrity-audit-recorded`/`read-shadow-recorded` 行由**机制**落账 | 不适用（此面**就是**审计面本身） | 自身即审计留存面；`ns-relocated` 伪造痕迹不可删（H append-only），处置归运维/审计（RL-6.5a 界外层） |
@@ -78,6 +83,10 @@ FM-3.1(b)）。现状 `NAMESPACE_ESCAPE` 显式拒读形态按 C1 裁决**让位
 
 「interface SpaceContext {
    readonly spaceId: SpaceId;               // 取值文法 = 我方契约层新命名（ADJ D1-a/T-GAP-09 自认延后交 B；四契约均未落文法，见 §7 M-4）
+                                            // 【2026-11-01 状态更新（IG R-① 承接）：「四契约均未落文法」作废——文法本体已落
+                                            // IG-1 机读块。**指针（R-7 纪律：只指针引用、零复制文法正文）** =
+                                            // `g1/G1-CONTRACT-IDENTITY-GRAMMAR.md` IG-1（§1.1 机读块）+ IG-4（校验点序）；
+                                            // 本行旧句保留不删】
    readonly principal: VerifiedPrincipal;   // 装配根注入；宿主身份真实性未在本 PoC 证明（§10）
    readonly requires?: readonly AuthorityResource[];  // 业务授权轴（不透明串，SP-09 两分，CP-7）
  }」
@@ -98,6 +107,9 @@ R-5 后扩至：机制提案名未入账期间其机制内部直写通道装配�
 ### P2 ObjectRef / RevisionRef
 
 「type ObjectOid = string;   // 不透明（条件式 SF-20 同向，ADJ D1-a 已裁我方文法权）；禁含空间分量与任何路由事实
+                            // 【2026-11-01（IG R-① 承接，R-7 指针纪律）：oid 引用面**卫生文法** = IG-3.2、
+                            //   `record_id` 取值文法本体 = IG-2 机读块、两文法与校验点序的**唯一正所** =
+                            //   `g1/G1-CONTRACT-IDENTITY-GRAMMAR.md`（IG-1/IG-2/IG-4）；本节零复制文法正文】
  interface ObjectRef    { readonly oid: ObjectOid }                          // 可导航、浮动
  interface RevisionRef  { readonly oid: ObjectOid; readonly revision: number } // 精确；正式引用位唯一形态（RD-05/F-09）」
 
@@ -143,10 +155,25 @@ R-5 后扩至：机制提案名未入账期间其机制内部直写通道装配�
   契约形状（示意）：「interface FactDesignationCommandPort {
      designate(a: { readonly targetOid: ObjectOid; readonly revision: number;
                     readonly payload: unknown }): { readonly witnessSeq: CommitSequence };
+                    // 【2026-11-01 换轨（CS BF-02/BF-12）：witnessSeq 类型名 → LedgerEventSequence（语义 = 见证事件行的号，
+                    //   CS-2.5；命令入参字段集封闭、无字段可携见证的条款不变，DC-7）。旧类型名保留为登记原文；
+                    //   跨专题登记见 §7.4 J-5。】
    }」——实现内部只许消费：自己的 `createOwned/reviseOwned`、自己的 `appendAuthoritativeEvent`、
    挂载内 `writeFacetRecord`；**不得**取通用 UoW/raw SQL/重取 face（四禁，ADJ D4-d + X-7 可信绑定 G1-BIND-02）。
 - **Application 层只做跨域事务协调**：经 `writerOwningKind` 在调用方同一条事务内完成跨归属写；Q40
   （单 Space 原子事务，全成全回滚）**不破且永不破**（裁决 §5 未重开清单）。
+  【2026-11-01 收紧（DC R-1 承接；**两侧原文并列、不抹平**）：
+  ▸ 本行原文（**保留为登记原文**）：「Application 层只做跨域事务协调：经 `writerOwningKind` 在调用方同一条
+    事务内完成跨归属写；Q40 不破且永不破。」
+  ▸ 现行读法（X-5 已裁 + DC-1/DC-2/DC-3 收紧，**取代上句的许可面**）：跨归属写**唯一**通道 = 同一条事务内
+    在 `tx` 上调被调域的**具名命令 Port**（四段链「Application → Owner Domain Command Port →
+    Capability-scoped Storage Port → Kernel」，段间不得跨段）；`UseCaseDelegation.writerOwningKind/writerOf`
+    自 G2 起从 Application 可见面退役（DC-2，判据 = DC S1 可达性扫描，G2 落点 = `G2-DEV-PLAN.md` PR-11）；
+    「归属正确」不得再被当作「领域前置已过」（DC §0 真库实测：拥有者规则拒、旁门直写成功 = 洞在条文，
+    DC 夹具 T-N1 判别力对照 `legacyContrast()` 必须放行）。Q40 全成/全回滚由命令 Port 链**原样承载**（DC-3/DC-4）。
+  ▸ 取代关系：裁决源 = ADJ X-5 行（「是——裁决已定」，命令 Port 唯一入口）；本节与 §1.1 Application 行是
+    被取代的许可文书，旧句原位保留不删；条文正源 = `g1/G1-CONTRACT-DOMAIN-COMMAND.md`（DC 夹具 52 项
+    exit 0；R-7 同型纪律：本节只指针引用，零复制 DC 条文正文）。】
 - 墙 > 网：运行时作用域上界是墙，源码扫描是网（§16 判据强度次序，防倒置）。
 
 错误模型：`CAPABILITY_SCOPE_ESCAPE`（归属核对；墙实测守住拼接成员名/`getPrototypeOf`/`Reflect.get|apply`/
@@ -162,6 +189,20 @@ R-5 后扩至：机制提案名未入账期间其机制内部直写通道装配�
    readonly payload: unknown;
    readonly describedAt?: unknown;      // 所述对象时间（与 recorded_at 分槽，D2-a）
  }): CommitSequence」
+ // 【2026-11-01 换轨（CS BF-01/BF-02）：返回值类型名 → LedgerEventSequence——它返回的是**事件行**的号
+ //   （现网实值 `nextLedgerSeq()`，kernel.ts:467，CS §5 发号行），不是提交序；旧类型名保留为登记原文，
+ //   登记冲突 §7.4 J-5。信封联动见下条。】
+
+- **信封轴归属裁定（2026-11-01 交叉收编，CS C-17 → 本席落笔；EA 侧回填义务已登记）**：
+  `AuthorizationContext.txSeq`（EA-4.2 九字段之一，EA.md:341 注释「同事务内登记序」）**取值面 = 事件序轴**
+  （`ledger.seq` 形态，每次登记 +1），CS-1.4 禁令 2 下**不得**再以 `CommitSequence` 为名——本契约显式规定：
+  该字段**重定义**为「`eventSeq: LedgerEventSequence`（线名 `tx_seq` 不变，同事务内**事件登记序**）」，
+  即**选「重定义 + 类型名换轨」而非改线名**，理由逐条：① 九字段名单与 JSON 线名不变是 EA-4.4 已裁事实
+  （「增 `actor`，不动 DDL 不推 `SCHEMA_VERSION`」），改线名 = 持久化格式变更、须走冻结流程，收益为零；
+  ② 类型名换轨即可消灭「`CommitSequence` 这个名字承载事件序」的复发形态（CS §10 纪律 2：两轴不得再合并
+  为一个品牌）；③ TS 属性名 `txSeq`→`eventSeq` 的更名是 G2 代码批**可选项**（零字节影响面，CS BF-01 建议形）。
+  **EA 侧回填义务（EA 是禁改面，登记不代改）**：EA-4.2 字段类型名 + EA-4.6 全形闸类型判据 + EA 夹具 S 组
+  同步重锚（CS BF-01 去向「跨席契约类型名换轨」）；矩阵 §4 已开专行、清单 G1-EVT-01 evidence 已加注。
 
 - `EventOwnershipEntry` / `EventOwnershipRegistry`（EA-3.1 形状原样：`eventType/ownerCapability/
   requiresAuthority/truthSource/interpretationRuleSetVersion/contractVersion/approval/retired?`；
@@ -205,7 +246,9 @@ R-5 后扩至：机制提案名未入账期间其机制内部直写通道装配�
 
 ### P6 Raw Intake
 
-`declareRawIntake(a: RawIntakeEnvelope): CommitSequence`（唯一入口；EA-1.3 为形状全文锚，本汇编不复制全形：
+`declareRawIntake(a: RawIntakeEnvelope): CommitSequence`
+【2026-11-01 换轨（CS BF-01/BF-02）：返回值类型名 → `LedgerEventSequence`（EA:117 现网返回事件行号）；旧类型名保留为登记原文，§7.4 J-5】
+（唯一入口；EA-1.3 为形状全文锚，本汇编不复制全形：
 要点 = `declaredType`（`null` 或 `^[A-Za-z0-9][A-Za-z0-9.:+/-]{0,127}$`，形状卫生**不是**含义判断；畸变 ⇒
 置 null + `parseAttempt:'PARSE_FAILED'` **整封照常接收**）+ 原文与来源必存 + `intakeNotes` 三值
 `{UNPARSEABLE, PARSE_FAILED, STRUCTURED_INVALID}`；`declaredType` **三不参与**：不进授权、不进路由、不进索引，
@@ -220,6 +263,7 @@ oracle」钉成必红）。
 FM-6 形状原文承接（逐字见 FM §6，此处列操作集与判据锚）：
 `declareMount{targetOid, binding} → {mountId, witnessSeq}`（FM-2.2 判据序 ①写权→②激活→③`facet-mount`
 轴取证→④目标解析→⑤绑定形态→⑥审计先行同事务落账）；`unlinkMount{mountId} → CommitSequence`
+【2026-11-01 换轨（CS BF-02）：→ `LedgerEventSequence`（见证类返回值）；`declareMount` 回执的 `witnessSeq` 同理；旧类型名保留为登记原文，§7.4 J-5】
 （≠卸载实现 ≠移交，FM-4 三操作分轨；主体变更 = unlink+declare 两次登记）；`mountState` / `listOwnMounts`
 （仅本能力行）；`writeFacetRecord{mountId, boundRevisionRef?, payload} → {facetRecordId, facetRevision,
 targetRevisionAtRecord}`（PINNED 必填且 = 挂载钉修订；机制写快照，入参无位）。挂载行无 ns 列（逻辑身份，
@@ -273,6 +317,9 @@ LEDGER_SEQ_CONFLICT`（RL-11.1 复用表）；**新增恰一枚** `RELOCATION_PR
   「interface ValidationReportSubmission {
      submitReport(a: Omit<CheckReportRecord, 'reportId'|'recordedAt'>):
        { readonly reportId: string; readonly recordedAt: CommitSequence };
+       // 【2026-11-01 换轨 + D-5 收口（CS BF-02，P9 行）：`recordedAt` 现载**事件行号**（一值两名正身，CS §5）
+       //   ⇒ 类型改 `LedgerEventSequence`（建议同步改名 `eventSeq`）；墙钟另立 `recordedAtMs: number` 槽，
+       //   与序号分轴（`recordReport` 同判）。旧类型名保留为登记原文，§7.4 J-5。】
    }」——领域服务不持 UoW（D-22；兼容路径 = 模块级具名适配器 `adaptLegacyValidationWiring`，
   可达性零由攻击性测试钉死）；报告签发资格 = 登记校验器身份（归属账 + 机制取证，requiresAuthority 同族）；
   **科研正式采纳权不进机制**（机制只做不透明业务轴取证；采纳权委托 = 用户决策既有项）。
@@ -302,6 +349,45 @@ LEDGER_SEQ_CONFLICT`（RL-11.1 复用表）；**新增恰一枚** `RELOCATION_PR
 | 领域侧 reason_code 封闭四值（科研词表，**不进**机制 RefusalCode） | `WITHHELD_REFERENCE / CHECKER_UNAVAILABLE / DEPENDENCY_MISSING / RULE_UNREGISTERED`（SCR-11 条件式，ADJ D4-a 采认） | 4 |
 | 乐观并发过渡形 | X-3：`expected_head_revision` 缺省/失配在接口层临时按 `TOOL_INPUT + detail.serviceCode` 回显（A-01 blob 原文码；**不自造** `F-*` 名） | ADJ X-3 |
 
+### 2.11 专题①×② 联合规范句（提交边界 × 唯一发号点：**同一条规范**，2026-11-01 交叉收编）
+
+> **为什么存在**：远程审查裁定「历史提交序（CS）、幂等账（IDC）、领域命令接口（DC）三项必须在最终统一
+> 合同里**联合审查**，不能各自证明局部正确就结束」。IDC 契约以 `DEP-①-1/2/3` 登记对 CS 的三条依赖、
+> CS 以 C-18/CS-2.5 声明「在 CS-1.4、CS-3.1、CS-2.5 兑现」——**两条互相指认不构成一条规范**。本节把
+> 二者合成为一条；两侧原文一律保留在各自契约原位（本节是合成不是改写，字面冲突登记 §7.4 J-1/J-2 并给出
+> 本席裁决）。
+
+**JC-1（唯一规范句）** 持有幂等键的领域写命令，其幂等回执行与全部领域效果落在**同一次 ResearchSpace
+原子提交**（同一 Space 文件、同一 SQLite 写事务）内，事务内顺序与取值通道**唯一**如下：
+
+1. **开事务**（装配层经 Kernel UoW 打开本次领域写事务，`BEGIN IMMEDIATE`，IDC-1）。
+2. **幂等判定**（装配层，同事务内、持写锁窗口内）：四元组键 `⟨actor_ref, space_id, operation,
+   client_request_id⟩` 等值命中 → 摘要等值 → 命中走重放支（第 6 步）/ 异体走拒绝支（零写、`TX_ABORTED`
+   语义，X-2/IDC-5）；未命中继续。`actor_ref` 不可可信绑定 ⇒ 不入账按新请求（IDC-5 步 2）。
+3. **发号点**（机制单点，CS-1.4）：判定通过之后、**第一次权威写之前**，`nextCommitSequence` 预留 c1
+   （`meta.commit_sequence + 1`）并同事务插入提交账行 `commit_record(c1, ledgerEventSeqFrom..To,
+   commitRecordedAtMs)`；本事务后续所有写复用 c1，**不再发号**；回滚 ⇒ 键、回执、c1 账行、领域效果
+   **同生同灭**，零 ghost（CS-1.2/CS-1.3；I-1 等号不变量）。**顺序钉死**：判定在发号之前——若第 2 步
+   判为重放/拒绝，事务零权威写 ⇒ CS 不分配不占号（CS-1.4「无历史写的事务不分配」），无「已占号未判定」窗口。
+4. **写回执行**（装配层，同事务）：`IdempotencyReceipt.commitSequence` 的取值 = **c1，且读自本事务已插入的
+   `commit_record(c1)` 行**（提交账是取值正所）——**不是**写回执回传、**不是** `meta` 水位、**不是**
+   预留后自增前比较（CS-2.5/IDC-9 读法 A；夹具 MUT-IDEM-1/2 封死两段提交与事务外查键两种架空形）。
+   回执行写入者 = 接口/宿主工具装配层（X-1/IDC-2/INV-4，机制码零触碰回执表；裁决见 §7.4 J-2）。
+5. **领域写与事件**：领域效果与权威事件同事务落库；权威事件见证/信封 `txSeq` 为**事件轴**
+   `LedgerEventSequence`（P5 换轨注），与 c1 无涉。
+6. **重放支（无墙钟重算）**：直接返回 c1 截点上的首次结果**逐字节**（IDC-5 步 1：禁 `Date.now()`、禁重执行）；
+   呈现**不做 `recorded_at` 截点重算**（DEP-①-2 ↔ D2-c/CS-3.3：截点比较只走提交轴，提交墙钟一事务一枚）；
+   「键已提交但效果不在」的混合态**不在任何可达状态集**（IDC-6，单提交前提）。
+7. **可解析性**：`resultRef@c1` 永久可解析 = 提交账 + append-only 历史面的既有承诺（DEP-①-3 ↔ CS I-3/I-6/§1.7；
+   历史不可读 ⇒ `HISTORY_SNAPSHOT_REQUIRED` fail-loud，禁静默空结果冒充重放，IDC-11）；快照归档时随
+   `commit_record` + c1 前缀史一并归档（IDC-11）。
+
+**依赖闭合声明**：DEP-①-1 由第 3/4 步闭合、DEP-①-2 由第 6 步闭合、DEP-①-3 由第 7 步闭合；
+**本句即闭合面**——此后任何一侧契约再引用这三条，指向本节，不再互相指认。① 的发号点定义与 ② 的
+同事务要求**核冲结果**：无实质冲突（顺序可钉死，见第 3 步），但存在**两处字面冲突**（P5「同形返回」
+读法、回执行写入者主语），登记 §7.4 J-1/J-2 并已裁决。DC（专题③）接合点：命令 Port 链（P4 收紧注）
+与 JC-1 第 4/5 步同事务共存——幂等判定在装配层、领域前置在命令 Port 内（DC-4 ⑦ 步），两根轴不互斥。
+
 ## 3. Schema 与迁移设计（交付物 3；逻辑形状 + 索引建议 + 打开期判据；物理 DDL 归 G2，D5-b）
 
 **3.0 总纪律**：本组全部表形为**契约形状**；「形状/判据 G1 冻结、列布局与索引物理形态 G2 落地」
@@ -320,7 +406,11 @@ LEDGER_SEQ_CONFLICT`（RL-11.1 复用表）；**新增恰一枚** `RELOCATION_PR
 | `facet_mount` | `(mount_id, gen)` | `op, facet_capability, target_oid（逻辑身份，无 ns 列）, binding, snapshot_revision, witness_seq` | 只 INSERT；UPDATE/DELETE ⇒ `MOUNT_ROW_FROZEN`；`facet_mount_insert_guarded`（须有 `ledger.seq=witness_seq`、事件名合 op、全形信封、echo 相符，否则 `MOUNT_AUDIT_REQUIRED`）；「当前态 = 最大 gen 行」 | `(target_oid)`、`(facet_capability, target_oid)`（写判据热路径）、`(witness_seq)`（对账） | FM-2.5 |
 | `namespace_relocation` | `(relocation_id, step_seq)` | `capability, fromNs, toNs, provenance, state, proposalDigest, approvalDigest, checklistDigest, contentDigest, auditLedgerSeq, repairEvidence, proposedBy, approvedBy, createdAtMs` | UPDATE/DELETE ⇒ `RELOCATION_LEDGER_FROZEN`；**信任方向写死**：工作流账**不是**读归属链源，链源唯一 = H 内 `ns-relocated` 行（RL-2.1）；账被改写改变不了任何读判定 | `(capability, step_seq)`；「同 capability 无非终态在途」= gate 8 判据查询 | RL-2.1/RL-4 |
 
-辅助载体：`meta`（`ledger_seq`、`ns_epoch`）；`domain_state` PK=`(ns,oid,revision)`（ns=物理位置键，
+辅助载体：`meta`（`ledger_seq`、`ns_epoch`；【2026-11-01 专题① 收编（指针，CS-1.2/1.3/1.6）：提交轴另立
+种子键 `commit_sequence` + 提交账 `commit_record`——逻辑列、唯一发号点、打开期不变量 I-1…I-6 的**正所** =
+`g1/G1-CONTRACT-COMMIT-SEQUENCE.md` §1，本节零复制；物理 DDL/触发器摘要重锚/迁移 = CS BF-07（G2 实施批，
+含「DELETE 守卫对第三计数器键现状不拦」的实测缺口）；事件轴 `meta.ledger_seq` 保名，两键禁混用】）；
+`domain_state` PK=`(ns,oid,revision)`（ns=物理位置键，
 RL-6.1 列语义表：身份/内容/时刻/版本四类列重定位逐字节不变）；`RELOCATABLE_NS_KEYS` = 构建期封闭清单
 （现形 `{domain_state}`；构建判据「列名=ns 的表 ⊆ 清单 ∪ 逐表论证的显式豁免集」）——RL 把「挂载登记/
 扩展记录表」预列入清单，而构建判据按「有 ns 列」扫描、`facet_mount` 无 ns 列：登记 §7 I-3，两源待对齐。
@@ -484,6 +574,21 @@ EA/FM 各注「未取得项：无」）；② 机制事件命名——#47 无辖
 | M-1 | `ACTIVATION_IMPOSSIBLE` 被 FM-7 用于「挂载名未入封闭名单时装配挂载 Port」——原语义（必需依赖缺失/成环）的用途扩展，复用理由属「名册缺项=装配红」同族，但 §11 表未登记此用途扩展。【2026-11-01 注】R-5/R-3 后该码在 **EA 机制内部直写通道**（提案名未入账期）与 **RL 重定位落账**又各复用一次（第 3、4 次复用，「名册缺项 = 装配红」同族），对账席**反向加重**了该复用并如实上报：登记义务落点 = `CONTRACTS.md` §5 CP-2（对账席禁改面），见 `G1-CONTRACT-RECONCILIATION.md` §8 M-1 处置 | FM-7 vs CONTRACTS §5 CP-2；R-5 后 + EA-2.4 / RL 落账 |
 | M-2 | PluginFace 新增具名成员（`FacetMountPort`）触碰「插件可见成员名集零增删」面锚——`arch-independence.test.ts` 重锚义务在 FM 只隐含、未登记为显式重锚条目（RL/FM 各自对拍旧/新面锚的口径需一张统一的重锚清单） | FM-6 vs RL §3 首段/§16.3 重锚纪律 |
 | M-3 | 报告钉住集**形态闸拒绝**的对外响应码未命名（域侧 `F-*` 表不在本层；临时 `TOOL_INPUT+detail.serviceCode` 是 X-3 同族过渡形） | ADJ D4-b 落点缺码位 |
-| M-4 | `space_id`/`record_id` 取值文法：ADJ D1-a/D5-a 裁「文法权在我方契约层」，四契约与 ADJ 均未落文法本体（RL 只给了 ns 文法 `^[a-z0-9][a-z0-9._-]{0,63}$` 的同族先例） | 全部输入文件的共同空白面 |
+| M-4 | `space_id`/`record_id` 取值文法：ADJ D1-a/D5-a 裁「文法权在我方契约层」，四契约与 ADJ 均未落文法本体（RL 只给了 ns 文法 `^[a-z0-9][a-z0-9._-]{0,63}$` 的同族先例） | 全部输入文件的共同空白面。【**2026-11-01 状态位（IG §6.2 R-① 回填义务由本席履行）**：「文法本体未落」半边**闭合**——本体已落 `g1/G1-CONTRACT-IDENTITY-GRAMMAR.md` IG-1（`space_id`）/ IG-2（`record_id`）/ IG-3（与 oid/RPT-/FM-/FR-/NSR- 的映射）/ IG-4（校验点序），IG 夹具 38 项 exit 0（2026-11-01 本席复跑实测）。**R-7 同型纪律：本节与 §2 各 Port 行只指针引用，零复制文法正文**（正所唯一 = IG 机读块）。**未闭合半边（保留本行不销项）**：① 保留前缀全集语义/域保留申请/发号区间 namespace 化 = G1-LINK-01 既有去向未裁（IG R-③ 不代裁）；② `src` 实现批文法闸 = IG R-④；③ 本行观察项身份不变——文法落盘不等于 G1-LINK-01 闭合】 |
 | M-5 | 宿主「目标→挂载方列表」导航读面：FM-2.4 默认不提供、确需暴露走呈现裁定通道；该暴露形态 = G1-READ-02 复核范围，四契约均未写该面本身 | FM-2.4 → 既有去向 |
 
+
+### 7.4 注册表 D——2026-11-01 交叉收编：跨专题字面冲突（**两侧原文并列，不抹平**）
+
+> 纪律同 §7.2：登记不删、只给状态；「裁决」列的授权 = 父席 2026-11-01 交叉收编指令（§0.1 收编注），
+> 裁决内容取材于各专题既裁结论。I-1…I-6 是**分契约 vs 分契约**旧账；本表是**专题①②③④ ↔ 汇编层/EA/裁决表**
+> 的新账，两套编号不互并。
+
+| # | 冲突（字面） | 两侧位置 | 影响 | 裁决 / 状态（2026-11-01） |
+| --- | --- | --- | --- | --- |
+| J-1 | ② DEP-①-1 括注「回执行 `commitSequence` = 专题①唯一发号点产出（**P5 `appendAuthoritativeEvent` 返回 `CommitSequence` 同形**）」——预设值经 **P5 返回值**流转且 P5 返回提交轴；① 判 P5 返回值 = **事件轴** `LedgerEventSequence`，且「需要提交点须另开显式字段、不得由写回执回传预留值」 | `G1-CONTRACT-IDEMPOTENCY.md` :107-108（DEP-①-1）/:78（IDC-4 字段注）vs `G1-CONTRACT-COMMIT-SEQUENCE.md` CS-2.5/BF-02（本文件 P5 换轨注同源） | 按 ② 原句实现会（a）把事件序当提交序落回执行、或（b）逼 P5 返回第二轴——两头都是 CS §10 纪律 2 禁止的「两轴合并」复发形态 | **采 ① 侧**（P5 返回值 = `LedgerEventSequence`，CS-2.5 为事实判据不是偏好）；「P5 同形返回」读法**就地被取代**；回执行 c1 的取值通道重规范为「同事务读 `commit_record(c1)`」（§2.11 JC-1 第 4 步）。IDC 原文保留不删（禁改面），取代关系以本行为准 |
+| J-2 | ① CS-2.5「回执行 `commitSequence` 由**机制**在提交账预留点同事务写入派生的提交账值」——主语是机制；② IDC-2/INV-4 + X-1「回执行表主/写者/读者都在**接口/宿主工具装配层**，机制码路径零读写、零解释回执行」 | `G1-CONTRACT-COMMIT-SEQUENCE.md` CS-2.5 vs `G1-CONTRACT-IDEMPOTENCY.md` IDC-2/INV-4 + ADJ X-1 行 | 两句直读互斥（谁写回执行）；不裁则实现必违一侧 | **裁决（本席，父席授权）**：CS-2.5 的「机制…写入」指的是**值的来源与事务内位置**（机制保证其账行与领域效果同事务同生死），**不是**写入者主语；回执行的**写入者恒 = 装配层**（X-1/IDC-2 不变），机制码对回执表仍零读写。「机制替装配层写回执行」的任何读法违 INV-4 判红。JC-1 第 4 步为唯一规范形 |
+| J-3 | ①↔② 顺序面：② 判定点 = 「打开事务后、同一条事务内先做幂等判定、后追加回执行」；① 发号点 = 「第一次权威写**之前**」。两句各自成立，但**交集顺序未写**时存在「先占号后判定」的合法读法（回滚不留 ghost，不违不变量，但规范句出现双读） | `G1-CONTRACT-IDEMPOTENCY.md` IDC-2/IDC-7 vs `G1-CONTRACT-COMMIT-SEQUENCE.md` CS-1.4 分配点行 | 低危（无不变量破损），但「同一条规范」必须单读 | **非硬冲突，登记 + 顺序钉死**：JC-1 第 2→3 步写死「判定在发号之前」；重放/拒绝支零权威写 ⇒ 不占号（CS-1.4 既有句），两语义合成单读 |
+| J-4 | 裁决表 §2.0 命名表 `commit_sequence` 行写「PoC 物理载体 = `meta.ledger_seq` 事务内计数器（CONTRACTS ST-4）」——把提交轴键名钉在**事件轴载体**上；CS C-15 判该半行**作废**（CS 原话「是缺陷的登记处本身」）并开 BF-00（去向 = 「裁决表命名表修订（我方契约层）」，且要求**补一行** `LedgerEventSequence`/`ledger_event_seq`）——CS 本席无权改裁决表，本席 2026-11-01 开工前实测 §2.0 仍为旧载体形 | `G1-ADJUDICATION-TABLE.md` §2.0 对应表 vs `G1-CONTRACT-COMMIT-SEQUENCE.md` C-15/§6 行 0/BF-00 | 命名表是「先于全表」的声明面；旧载体句一日不改，「唯一快照边界 = 已提交事务的序」在裁决表内就仍被自家命名表反驳 | **已就地落地（本席，裁决表在允许改面内，2026-11-01）**：① §2.0 行旧半句原位保留 + 取代注（`meta.commit_sequence` + 提交账 `commit_record`，指 CS-1.2/1.3 正所，R-7 零复制）；② BF-00 要求的 `ledger_event_seq` **新增行已补入**同表（#47 零命中、无领域阅读名两栏按 CS §2.2 同口径填）；物理 DDL/触发器重锚 = CS BF-07（G2 实施批）。BF-00 在裁决表面自此闭合 |
+| J-5 | 汇编层 §2 全部「见证/登记类返回值 : CommitSequence」与信封 `txSeq: CommitSequence`（「同事务内登记序」）vs ① CS-2.5 封闭判据「写回执只发事件轴号；`CommitSequence` 只许出现在提交轴位置」 | 本文件 P4/P5/P6/P7/P9（换轨注在位）+ `G1-CONTRACT-EVENT-AUTHORITY.md` :341/:117 vs `G1-CONTRACT-COMMIT-SEQUENCE.md` CS-2.5/BF-01/BF-02 | 不换轨则「按类型名扫轴」的静态判据（CS BF-03）永远扫不红——名字说提交、值走事件 | **已落地半边 + 登记半边**：汇编层四处签名（P4/P5/P6/P7/P9）已换 `LedgerEventSequence`（原位保留旧名注）；**EA :341/:117 为禁改面，回填义务已登记**（本文件 P5 信封轴归属裁定 + 矩阵 §4 专行 + 清单 G1-EVT-01 evidence 注）；DC :174/:221 同理（CS BF-12，DC 禁改面，义务登记于 CS 原位） |
+| J-6 | ③ DC R-8 要求「把 R-4/R-5 挂进 PR 依赖图（**PR-2 ↔ PR-11**）」——双向边读法；但 PR-2 的既有义务（`synth:raw-intake` 登记 + 记录域 `RawIntakeCommandPort` 改道，R-9 提前）**不依赖** PR-11，反向边无实体 | `G1-CONTRACT-DOMAIN-COMMAND.md` R-8 行 vs `G2-DEV-PLAN.md` PR-2 卡（R-9 提前条）| 按字面双向排期 = 依赖图成环（PR-2 → PR-11 → PR-2），PR-2 永远进不了场 | **裁决（本席，任务点 7 明文环检查）**：反向边不实，**收成单边 PR-2 → PR-11**；PR-2 侧的措辞改写（「协调台账行改走 `writerOwningKind`」→「改走记录域 `RawIntakeCommandPort`」）由 PR-2 落地时**自改自批同 commit**（其卡内已就地标注，取代关系不依赖 PR-11 存在）；最终图 DAG 成立（`G2-DEV-PLAN.md` §1 W11 注 + §3.2 新增行 + PR-11 卡「环检查」条三处同口径） |

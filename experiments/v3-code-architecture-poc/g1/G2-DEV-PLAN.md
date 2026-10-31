@@ -73,6 +73,15 @@
 （游标要 PR-3 冻结的可见性谓词），「W3 ∥ W4」与本图的依赖边**直接冲突**——按旧句排期恰好会把
 「把 oracle 形态编进工具面」（W4 行自陈的理由、`D6-b` ②/`E-01` 教训）变成现实。串行原因全文见 §3.2。
 
+**★ 交叉收编（2026-11-01，任务点 7）：新增工作块 W11 = PR-11（拥有者侧真实前置点 → Application 写面
+清零与命令 Port 改道收口，DC R-4/R-5/R-6 的落码承载）。** 依赖边：**W11 ← W2**（PR-2 的 `synth:raw-intake`
+登记 + 记录域 `RawIntakeCommandPort` 诞生是 W11 唯一硬前序）；**W10 ← W11**（PR-10 退出判据「每个跨领域写
+= 一个拥有者命令端口调用」的静态集合相等门实现体在 W11——旧句「W10 依赖 W1–W6」**保留、并读补 W11**）。
+与 W3–W9 无依赖边（可并行），但文件互斥见 §3.3 补行。**环检查**：W11 只引入两条边（出边 W2→W11、
+入边 W11→W10），W2 在图中不依赖 W10/W11 ⇒ 图仍为 DAG；DC R-8 原文「PR-2 ↔ PR-11」双向读会造出
+W2→W11→W2 假环，反向边经逐边核实**不成立**（PR-2 的登记+改道是自身义务，见其卡内就地取代注），
+裁决 = 单边 W2→W11，登记 `G1-UNIFIED-CONTRACTS.md` §7.4 J-6。W1–W10 行不重编号（同上轮纪律）。
+
 ---
 
 ## 2. 首批 PR 拆分（11 个：PR-0 + PR-1..PR-10；每个都可独立评审、可判定退出）
@@ -80,6 +89,9 @@
 > **★ 卡数更新（专题⑤，2026-11-01）**：插入 **PR-6b**（首条端到端最小纵向切片）后，本文 §2 实际是
 > **12 张卡**。标题里的「11 个」保留以示演化，不做静默改写；**卡数一律以 §2 实际卡片为准**。
 > 编号是**依赖序**不是密度：PR-6b 插在 PR-6 之后、PR-7 之前，不改动其余编号。
+> **★ 卡数再更新（交叉收编席，2026-11-01；上段保留）**：新增 **PR-11**（拥有者侧前置点 → Application
+> 写面清零，DC R-4/R-5 落码承载）后，本文 §2 实际是 **13 张卡**；PR-11 是**编号追加、执行位在 PR-2 之后**
+> （编号仍表依赖语义的追加序，不插位、不重排，环检查见该卡与 §3.2 新增行）。
 
 > **对「建议 6–10 个」的偏离说明（一条）**：实际给 11 个，多出的是 **PR-0（门禁身份前置）**。不把它并进功能 PR 的理由：`G1-GATE-01` 的三条洗白链（GT-2/GT-3/GT-4）修的是**尺子**，与功能改动同 PR 会让「尺子变了」和「行为变了」两件事在同一次绿里混在一起说不清 —— 这正是 G0-R 第七轮点名的失效形态。功能 PR 本身是 10 个，落在建议区间内。
 
@@ -100,6 +112,12 @@ node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            #
 node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.fixtures.mjs  # 51 PASS / 0 FAIL，exit 0（领域复审轮复跑值；沿革 35→48→51）
 node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET.fixtures.mjs           # 35 PASS / 0 FAIL，exit 0（复跑值；旧基线 29）
 node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.fixtures.mjs      # 60 PASS / 0 FAIL，exit 0（R-8 轮复跑值：+T-N22/S16/MUT-11；沿革 42→57→60）
+# ↓ 2026-11-01 交叉收编补：四个补正专题夹具同列通用退出门禁（收编前基线实测 CS 50 / IDEM 29 / IG 38 / DC 52，
+#   全 exit 0，终态记录见矩阵 §0 第三轮回填块；任一红 = 相应专题判据面被回退，PR 不得退出）
+node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-COMMIT-SEQUENCE.fixtures.mjs   # CS 50 PASS / 0 FAIL，exit 0（专题①；含真库用例与常驻架空变异 MUT-1..5）
+node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-IDEMPOTENCY.fixtures.mjs       # IDEM 29 PASS / 0 FAIL，exit 0（专题②；kill 点穷举为模型形，真库对应物 = DEP-PR9-1）
+node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-IDENTITY-GRAMMAR.fixtures.mjs  # IG 38 PASS / 0 FAIL，exit 0（专题④文法；三方逐等 + MUT-1..6）
+node experiments/v3-code-architecture-poc/g1/G1-CONTRACT-DOMAIN-COMMAND.fixtures.mjs    # DC 52 PASS / 0 FAIL，exit 0（专题③；PR-11 改道后其静态块 S1/S2 另有真库对应物）
 node experiments/v3-code-architecture-poc/g0-gate.mjs                          # 三条流逐等：本席位实测 exit 0
 npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json                   # 本席位实测 exit 0（零诊断）
 pnpm run check:types                                                            # 本席位实测 exit 0，但输出自带限定：
@@ -217,7 +235,13 @@ pnpm run docs:check                                                             
   `appendAuthoritativeEvent` 入参字段集封闭（类型面 + 运行时白名单守卫双向，`EA-4.3`）；
   `AuthorizationContext` 九字段落 `ledger.authority_basis`（**增 `actor`，不动 DDL 不推 `SCHEMA_VERSION`**，`EA-4.4`）；
   `gateFullShape` 全形闸（`EA-4.5`）+ `replayAuthorityEvidence` 三态（`EA-4.6`）；
-  通用 `appendLedger` 收敛为机制内部原语 + 协调台账行改走 `writerOwningKind` 委派（`EA-2.2`，**Q40 不破**）；
+  通用 `appendLedger` 收敛为机制内部原语 + 协调台账行改走 `writerOwningKind` 委派（`EA-2.2`，**Q40 不破**）
+  【**2026-11-01 就地取代（DC R-8；旧措辞原位保留不删）**：「改走 `writerOwningKind` 委派」已被 X-5/DC-2
+  作废——本行正读 = 「协调台账行改走**记录域 `RawIntakeCommandPort`**」，与本卡下方「`synth:raw-intake`
+  登记 + 命令 Port 改道（R-9 从 PR-10 提前）」条**同批同 commit**（「登记与改道拆两 PR 即 fail-closed
+  断链」的先例形态见 `G1-CONTRACT-DOMAIN-COMMAND.md` §4.3）；Application 剩余写面清零与拥有者侧前置点 =
+  **PR-11**（R-4/R-5；DC R-8 原文写的依赖边「PR-2 ↔ PR-11」按字面双向读**会成环**，收编裁决 = **单向
+  PR-2 → PR-11**，PR-2 侧的文案改写由 PR-2 自己完成——环检查记录见 PR-11 卡「环检查」条与 §3.2 新增行】；
   `integrity-audit-recorded` / `read-shadow-recorded` 落账（`EA-7.1/7.2`，**K = 32 常量不变**——R-1 只改
   出口不改算法；两名为 EA §2.4 **提案未入账**名，进入门禁见下）+ 非 oracle 三条（`EA-7.4`，R-1 形：
   调用方 echo 面**零 `hiddenBy*` 键**，计数只进内部审计）；
@@ -483,12 +507,67 @@ pnpm run docs:check                                                             
   （G3）；不把 `experiments/**` 当测试面（切片测试**进正式测试面**）。
 - **进入门禁**：PR-0..PR-9 全绿；**`raw-record-declared` 人工 `Approved-By` 已落地**（§2.0 表第 1 行，逐名具名；切片首环 Raw Intake
   的台账行用该提案名——R-5 fail-closed：未入账期间直写装配红，进入门禁，见 `G1-CONTRACT-RECONCILIATION.md` §7-4）。
+  【**2026-11-01 交叉收编补（任务点 7）**：**另加 PR-11 exit 0**——本 PR 退出判据第一条「该路径上每个跨领域写
+  都是一个拥有者命令端口调用（`D-19c′` 静态集合相等核对通过）」今天**无人产出**「静态集合相等」这道门，
+  该门的实现体（DC S1/S2 静态判据）落在 PR-11；旧句「PR-0..PR-9 全绿」保留、按此并读。台账标注迁移（R-7）
+  也在本 PR：`src/contracts/index.ts` 的 `D-19c-ALLOWED` 注释改写为指向 `RawIntakeCommandPort` + PR 号
+  （历史标记不删，改「已迁移」注）。】
 - **退出门禁（切片出口判据，原文可执行形态）**：该路径上**每个跨领域写都是一个拥有者命令端口调用**
   （`D-19c′` 静态集合相等核对通过）∧ 切片全程在**一条**事务内提交（Q40）∧ 切片测试在 `tests/**` 而非 `experiments/**`；
   夹具世界迁移后 `EA` 夹具与真库名单对账 exit 0（R1/R2 双向零违规）。
 - **验收测试要求**：「绕开拥有者端口直接写」的新形态必红（词法网 + 作用域墙双钉，墙失效才算洞）。
 - **依赖前序**：PR-0..PR-9。
 - **冻结面**：迁移本身不动冻结面；`attacks/**` 迁移后基线重生成须走 §4.2 的外部身份流程。
+
+### PR-11 `app: 拥有者侧真实前置点 → Application 写面清零与命令 Port 改道收口（R-4/R-5；编号追加、执行位在 PR-2 之后）`
+
+> **为什么新立（2026-11-01 交叉收编，DC R-4/R-5/R-1/R-2/R-3/R-6 的落码承载）**：X-5 裁了「正式 Use-case
+> 必须调拥有者命令接口」，但**拥有者侧今天没有可跑的规则**（`src/domains/test-object-model.ts` 只有
+> `ownsKinds` 清单，零规则；接纳判据住在**另一个能力**的 `IntakePolicy`）——「只把直写改道成命令 Port」
+> 而不先让拥有者长出**非空**前置点，等于把空壳换个名字（DC §0 事实 3）。**顺序写死：先有前置点（R-5），
+> 再改道（R-4），同一提交内完成；缺前置点就改道 = 把拒绝从领域推给无人执行的死方法（DC §4.3）。**
+
+- **范围**（一条原子提交，缺一即整批不合入）：
+  ① **拥有者侧前置点（R-5）**：`test-records` 的 `IntakePolicy.accept()` 扩为可传载荷、真判据；
+     新增 `test-object-model` 的领域前置模块——`synth.claim` 的接纳判据（**非空**：至少承载记录域
+     `IntakePolicy` 现有同族判据，先例 = 测试世界既有码「缺 `text` 的修订不可接纳」）+ 一条政策类
+     （接纳窗口开关，证「政策也在拥有者」）；命令入口调用它；**本步单独可先合一版**（只新增能力，
+     无调用方改变，作者套件零新红）。
+  ② **改道 + 写面清零（R-4/R-1/R-2/R-3）**：`src/app/intake-use-case.ts:99-101` 跨归属直写
+     （`#writeOwned` 经 `writerOwningKind` 以对象模型 kind 造 claim）改走记录域
+     `RawIntakeCommandPort.declareAndAdmit(...)`；`#writeOwned` 及任何「以他人 kind 取端口」形态删除；
+     `UseCaseDelegation.writerOwningKind/writerOf` 从 Application 可见面退役（运行时拒绝 + 类型面移除；
+     字面 `writerOwningKind` 在 `src/app/**` 只允许出现在**注释**中且逐处写明责任 PR）；
+     `UnitOfWork` 接口面上物理写方法清零（DC S2 等值表）；`D-19c-ALLOWED` 标记随之退役——**不删历史标记，
+     改为「已迁移」注**（R-7 纪律）。
+  ③ **静态判据（R-6，防再发）**：DC S1（可达性：`src/app/**` 图遍历可达成员 ∩
+     `[DC-BANNED-WRITE-METHODS]` = ∅，含 `createOwned/reviseOwned/linkOwned/writeOwned/appendLedger`
+     与退役名）+ S2 + S3 落进构建/测试门；回归测试钉住 DC 夹具 T-N1 形状（旧旁门必红、
+     `legacyContrast()` 式对照在夹具世界放行）+ B1b（载荷不合法 ⇒ 命令 Port 拒 ⇒ 零残留）。
+- **不做什么**：不裁具体业务接纳规则（**领域面**，DC R-10 留给领域席位；① 的判据取「同族搬入 + 一条
+  政策开关」是最小非空证明，不是最终政策）；不迁台账标注格式（R-7 → PR-10）；不裁跨域编排是否允许
+  拥有者间调用（DC R-11）；不新增拒绝码（DC-9 零扩张，新增码走 §14.2 封闭集流程）。
+- **进入门禁**：**PR-2 exit 0**（唯一硬前序——`synth:raw-intake` 登记 + 记录域 `RawIntakeCommandPort`
+  诞生在 PR-2，见 PR-2 卡就地取代注；DC-3 要求改道「在调用方同一条事务内调用被调域命令 Port」，端口
+  不存在时无路可改）；① 与 ② 同批 = 本卡内部顺序门禁（W5 前置点缺失门禁的 Application 对应物）。
+- **退出门禁**：DC 夹具 `node g1/G1-CONTRACT-DOMAIN-COMMAND.fixtures.mjs` exit 0（现基线 52 项全过）；
+  新增静态门（S1/S2 形态）exit 0 **且其架空变异必红**（§4.1 纪律：把扫描根换成 `src/**` 全量 ⇒ 红；
+  从名单删 `writerOwningKind` ⇒ 红）；`tests/p3-intake-validation.test.ts` 作者套件**无新红**（改道后
+  同载荷仍成功；**不许改成接受拒写**——通用退出门禁铁律）；`g0-gate.mjs` exit 0。
+- **依赖前序**：**PR-2**（单向；见下「环检查」）。可并行带：与 PR-3..PR-9 无依赖边，但互斥文件
+  `src/contracts/index.ts`（PR-3/PR-4/PR-5/PR-9 都碰）与 `src/kernel/kernel.ts`（PR-3/PR-4/PR-8 都碰，
+  本卡删 `uow.createObject` 触其调用面）⇒ **排期上不得与这四者同窗口**（§3.3 互斥清单同步补行）。
+- **环检查（2026-11-01 交叉收编，任务点 7 明文要求）**：DC R-8 原文「把 R-4/R-5 挂进 PR 依赖图
+  （**PR-2 ↔ PR-11**）」按字面双向读 = **环**（PR-2 → PR-11 → PR-2）。逐边核：PR-11 依赖 PR-2 = 真
+  （改道目标 Port 由 PR-2 产出）；**PR-2 依赖 PR-11 = 假**——PR-2 只依赖「台账行改走记录域命令 Port」
+  这一**自身义务**（R-9 P1-3 已把登记+改道收进 PR-2），不依赖 Application 面清零。收编裁决 = **单边
+  PR-2 → PR-11**，PR-2 侧的措辞改写由 PR-2 落地时自改（其卡内已就地标注，无需回头改 PR-11）；
+  最终图无环：拓扑序 …→ PR-2 →（PR-11 ∥ PR-3..PR-9 互斥窗口调度）→ PR-10。此环与裁决登记为
+  跨专题字面冲突 **J-6**（`G1-UNIFIED-CONTRACTS.md` §7.4）。
+- **冻结面**：**是**（权限面：Application 可见成员名集变化 + 运行时拒形扩展）⇒ PR body 写
+  `Frozen-Face-Review: <日期> <批准人>`；`arch-independence.test.ts` 面锚重锚义务同 FM/M-2 先例
+  （「插件可见成员名集零增删」面锚**不受本卡影响**——退役的是 Application/assembly 可见面成员，
+  PluginFace 成员零增删判据照旧，PR 内须给出两者区分的断言）。
 
 ---
 
@@ -519,11 +598,15 @@ pnpm run docs:check                                                             
 | **入账（锚文件独立提交）→ 消费该名的 Port 落地** | `EA-2.4` 步骤 3「独立提交、与实现代码不同提交」+ `R4` 同提交耦合拒 ⇒ **同 PR 允许、同 commit 禁止**，且顺序固定 |
 | **触发器体改造 → `SCHEMA_VERSION` 推进 → 打开判据同批** | `RL-5.2` 头注三件套；漏一步 = 旧库静默过闸 |
 | **`G1-GATE-01` 机械防线（PR-0）→ 一切依赖「基线逐等」的护栏主张** | GT-2/GT-3/GT-4 未闭合前，「Q45 护栏在 passes 里」不构成持续否证（矩阵 §4 末行） |
+| **【2026-11-01 交叉收编新增】PR-2 → PR-11 → PR-10（退出判据半边）** | 三段同一条链：① **PR-2 → PR-11**——改道目标 `RawIntakeCommandPort` 由 PR-2 的「`synth:raw-intake` 登记 + 命令 Port 改道（R-9 提前）」产出，端口不存在时 Application 无路可改（DC-3 要求同事务调被调域命令 Port）；② **PR-11 内部硬序**——拥有者侧**非空**前置点（R-5）先于/同提交于改道（R-4），「只有改道没有前置点」是把拒绝推给无人执行的死方法（DC §4.3，夹具削弱自验 W5 拆掉这句必红）；③ **PR-11 → PR-10**——PR-10 退出判据「每个跨领域写 = 一个拥有者命令端口调用」的静态集合相等门（DC S1/S2）实现体在 PR-11，倒序则 PR-10 判据无人产出。**环检查**：DC R-8 的「PR-2 ↔ PR-11」双向读会造出 PR-2→PR-11→PR-2 环；反向边不实（PR-2 的登记+改道是自身义务，不依赖 Application 面清零），裁决 = 单边 PR-2 → PR-11（登记 `G1-UNIFIED-CONTRACTS.md` §7.4 J-6；PR-11 卡「环检查」条）|
 | **同一文件的门禁脚本与基线产物** | **不得并行**（`§6.1` 末行 + `§6.2` 纪律：并发工作树上生成的基线会把别人的中间态固化成权威） |
 
 ### 3.3 文件互斥清单（同文件即互斥，登记给排期人）
 
-`src/kernel/kernel.ts`（`routeNs` 单点：PR-3/PR-4/PR-8 都碰）· `src/storage-sqlite/sqlite-port.ts`
+`src/kernel/kernel.ts`（`routeNs` 单点：PR-3/PR-4/PR-8 都碰；**2026-11-01 交叉收编补：PR-11 亦碰**——
+写回执换轴与物理写方法退役触其写点/`uow` 面）· `src/app/intake-use-case.ts`（**2026-11-01 交叉收编新增行：
+PR-2/PR-11 都碰**——PR-2 的 `synth:raw-intake` 改道与 PR-11 的跨归属直写清零同文件，两者**必须按依赖序
+串行合入**（PR-2 → PR-11），同窗口并发即互斥）· `src/storage-sqlite/sqlite-port.ts`
 （SCHEMA + 触发器：PR-2/PR-5/PR-7/PR-8 都碰）· `g1/EVENT-CONTRACT-LEDGER.json`（**★ 专题⑤：正式承载面裁定后，互斥面移到 `contracts/event-registry/EVENT-CONTRACT-LEDGER.json`；侧车若仍被触碰，只许是指针/镜像且不得被生产读面引用**）（PR-1/2/7/8 都碰，
 **必须按名分独立提交**）· `attacks/BASELINE.json` + `AUTHOR_ANCHOR.json`（只由门禁在干净树写，见 §4.2）·
 根 `vitest.config.ts` / `tsconfig.json`（PR-0 独占；**必须保留** `references/**`、`tests/deepseek-harness/**`、

@@ -15,7 +15,9 @@
 > 含真库用例与常驻架空判据变异）。§6 表与夹具 id **双向逐等**（S6 机验）。
 > **路径约定**：不带前缀的路径（`g1/…`、`src/…`、`tests/…`、`CONTRACTS.md`、`READINESS.md`）相对本侧车根
 > `experiments/v3-code-architecture-poc/`；`docs/**`、`schema/**`、8 份根文档相对仓库根。
-> **工作树**：分支 `g1/contracts-20261031`，HEAD `079b69f`（本席全程未做任何 git 写操作）。
+> **工作树**：分支 `g1/contracts-20261031`；本席落笔时 HEAD `079b69f`，两份文书随后由并行席位随提交
+> `744f777` 入库、`docs/README.md:123` 已由 `docs:sync`（`6e23f34`）收录索引行（**本席全程未做任何 git 写操作**，
+> 提交与索引动作均非本席所为，此处如实记）。
 
 ---
 
@@ -143,7 +145,7 @@ old.value` 的**泛化形**，无需新写；真库复核 T-P3）。**DELETE 支
    `AsOf` 之外的整数一律不是截点。
 2. **谓词形状**：可见性谓词**只许**一种形状：`row.commit_sequence <= <已解析提交截点>`。
    形如 `recorded_seq <= <任意入参>` / `l.seq <= <任意入参>` 的过滤形态**一律非法**（现状
-   `read-context.ts:100-103`，C-19，即被禁形态；夹具 MUT-1 用现网逐字 SQL 做架空判据必红）。
+   `read-context.ts:100-101`，C-19，即被禁形态；夹具 MUT-1 用现网逐字 SQL 做架空判据必红）。
 3. **回显封闭**：截点位置的回显只发提交轴（CS-2.3）。事件序**不得**出现在 `resolved_*` 任何键里。
 4. **游标/水位封闭**：游标的**截点分量**只许是提交序；派生面/投影/`CoverageReport` 的**水位**只许是提交序
    （CS-2.7）。游标的**页内位置分量**可含事件序（CS-2.6），二者不得混名。
@@ -545,7 +547,7 @@ exit 0
 | BF-03 | `src/contracts/index.ts:43`（品牌）、`:181`（`ReadContextSpec.recordedAsOf`）、`:273`（`recordedAt`） | 新增 `LedgerEventSequence` 品牌；`recordedAsOf?: CommitSequence` → `asOf?: AsOf`；逐使用点重判轴归属 | G2 代码批（PR-4） |
 | BF-04 | `CONTRACTS.md` §16.3 / EA-7.2 的 **echo 键集附件**（现状声明见 `read-context.ts:41`「echo 键集保持不变（冻结裁决附件钉着它）」） | echo 键集增四键 `as_of_input/resolved_cutoff/resolved_at_ms/cutoff_defaulted`；`usedRecordedAsOf` 退役；扩键的登记义务同 §14.2 先例 | 键集冻结附件 + 登记义务 |
 | BF-05 | `src/kernel/kernel.ts:663`（`get head`）、`:738`/`:727`（`uow`/`uowFor`） | 拆 `committedHead()`/`ledgerEventWatermark()`；`uow` 内新增提交序预留单点 + COMMIT 前落提交账行（`tx.checkRequiredRefs()` 之后、commit 之前是自然插入点） | G2 代码批 |
-| BF-06 | `src/kernel/kernel.ts:1377`（`recordReport` 返回 `recordedAt: seq`）、`:467/:895/:995/:1180/:1218/:1265/:1339/:1416`（各写点） | 写回执换事件轴；每事务一次提交序预留，禁止在写点内二次发提交号 | G2 代码批 |
+| BF-06 | `src/kernel/kernel.ts:1377`（`recordReport` 返回 `recordedAt: seq`）、8 处写点 `:467/:895/:995/:1180/:1218/:1265/:1339/:1416`、取时点 `:478/:905/:1001/:1187/:1231/:1297/:1351/:1424` | 写回执换事件轴；每事务一次提交序预留，禁止在写点内二次发提交号；**提交墙钟一事务一枚**（在预留点取一次 `Date.now()` 供 `commit_record.commit_recorded_at_ms`），各行的 `ledger.recorded_at` 保持现状但不再参与截点解析（CS-3.3） | G2 代码批 |
 | BF-07 | `src/storage-sqlite/sqlite-port.ts:17-18`（`meta` 种子键）、`:28-30`（DELETE 守卫只钉 `ledger_seq`）、`:292`（`SCHEMA_VERSION=7`）、`:408-419`（F5b）、`:223-263`（迁移器复用同一计数器） | 种子键加 `commit_sequence`；**DELETE 守卫对第三计数器键现状不拦 ⇒ 缺口**（本席实测：夹具 S12）；`commit_record` 表 + 归属列 ⇒ `SCHEMA_VERSION` 推进 + 触发器 sha256 重锚；打开期加 I-1（等号）/I-3/I-4/I-5；迁移器写事务同过分配点 | 存储面（含一个真实守卫缺口） |
 | BF-08 | 观察项（不改条文）：缺省截点回显恒等于当时 head | D-12 已登记该泄露面；D1-d/SI-13 的交叠处需一次统一裁（本席不新裁，避免与他席抢判） | 观察项（M-系列同形态） |
 | BF-09 | `G1-ADJUDICATION-TABLE.md` D2-b/c/d/e 行（C-16） | §4 表中各行的「需回填的具体文字」（定义域换轨、事件序合法排序、P1/P2/P3 + CS-3.2、补录推导键、游标分量分轴） | 裁决表正文修订 |

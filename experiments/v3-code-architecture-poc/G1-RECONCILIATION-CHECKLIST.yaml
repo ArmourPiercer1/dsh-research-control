@@ -103,7 +103,7 @@ items:
     owner: "UNASSIGNED"
     status: open
     freeze_tier: "A"
-    evidence: "IMPLEMENTATION-PLAN-DRAFT.md §2-G1 ③ 已把三层分开定义；正式契约文本未定"
+    evidence: "IMPLEMENTATION-PLAN-DRAFT.md §2-G1 ③ 已把三层分开定义；正式契约文本未定。【2026-11-01 交叉收编席加注（CS §8 BF-11 指定由汇编/矩阵席执行；旧文保留）：三件事的**载体级判据已定**——`g1/G1-CONTRACT-COMMIT-SEQUENCE.md`（专题①，夹具 50 项 exit 0）：CS-1.4 截点唯一合法载体 = 已提交事务前缀（事件序禁作截点，禁令 2）+ 禁令 1–4 封闭判据；CS-2.1/2.2 入参两支封闭 + 解析单点；D-5「recordedAt 与 seq 一值两名」由 CS-2.5 写回执分轴收口（见证只发 `LedgerEventSequence`）。仍 open 如实：owner 未指派、G2 落码（BF-03/PR-4）未做、ADJ D2 六行的文字修订（CS BF-09）留裁决表席——本条 status 不变】"
 
   - id: G1-TIME-02
     topic: "外部 `recorded_as_of`（墙钟）→ `CommitSequence` 的确定性映射，含「同一毫秒多次提交」与「该时刻无提交」两个分支"
@@ -113,7 +113,7 @@ items:
     owner: "UNASSIGNED"
     status: open
     freeze_tier: "A"
-    evidence: "两分支的确定取值未定义 ⇒ 同一查询两次结果可能不同，属正确性而非风格问题"
+    evidence: "两分支的确定取值未定义 ⇒ 同一查询两次结果可能不同，属正确性而非风格问题。【2026-11-01 交叉收编席加注（CS BF-11；旧文保留）：两分支取值**已定义**——`g1/G1-CONTRACT-COMMIT-SEQUENCE.md` CS-3.1 运行最大前缀界 `cutoff(t)=max{c∈committed∪{0}: M(c)≤t}`（空 ⇒ c=0 空视图）+ CS-3.2「已解析截点固定」（一次逻辑读入口解析一次、游标自包含、禁二次解析/回落当前时间）+ CS-3.3 只消费提交账 `commit_recorded_at_ms`（一提交一枚墙钟，禁逐行取 `ledger.recorded_at`）；T-GAP-13 两分支（该毫秒无提交 / 该毫秒多提交）由 CS-3.2 六情形封闭表给确定取值（同毫秒 = 该毫秒最后一个**提交**，不是最后一个事件）；夹具 CS 50 项 exit 0 含时钟回拨语料（T-P6/T-P7/T-P8/T-P9）。仍 open 如实：owner 未指派、`commit_record` 物理表 = G2（CS BF-07）、ADJ D2-b/c/d 行文字修订（CS BF-09）未执行——本条 status 不变】"
 
   # ---------- 写权限与领域权威 ----------
   - id: G1-OWN-01
@@ -138,7 +138,7 @@ items:
     owner: "UNASSIGNED"
     status: open
     freeze_tier: "A"
-    evidence: "两种形状的机验代价不同；本文判据已按 D-19c′ 静态集合相等核对改写，但契约文本未冻结；机制现状 = CONTRACTS §16 两层写面（领域侧 + 用例侧 writerOwningKind 同事务委派，Q40 正例护栏在 tests/capability-scope.test.ts 与 use-case-write-path）"
+    evidence: "两种形状的机验代价不同；本文判据已按 D-19c′ 静态集合相等核对改写，但契约文本未冻结；机制现状 = CONTRACTS §16 两层写面（领域侧 + 用例侧 writerOwningKind 同事务委派，Q40 正例护栏在 tests/capability-scope.test.ts 与 use-case-write-path）。【2026-11-01 交叉收编席更新（任务点 4；旧文保留不删）：契约文本**已冻结**——专题③ 条文在盘 g1/G1-CONTRACT-DOMAIN-COMMAND.md（DC-1…DC-13 + 附录 A 两侧原文对照），夹具 g1/G1-CONTRACT-DOMAIN-COMMAND.fixtures.mjs 实测 52 项全过 exit 0（T-N1 负例 + legacyContrast 判别力对照 + 真库探针 DC §0.1，构成见其 §11.2）；裁决面 = g1/G1-ADJUDICATION-TABLE.md X-5 行（已裁）；许可面收编 = g1/G1-UNIFIED-CONTRACTS.md P4/§1.1 取代注 + §7.4 J-6；落码 = g1/G2-DEV-PLAN.md PR-11（2026-11-01 新立，依赖 PR-2，环检查在卡内）。仍 open 的缺口如实：① owner 待用户/父席指派（权威归属命名非本席权限）；② resolution 需 owner 具名后由条目责任者填写（三件套不齐不 flip，纪律原句）；③ 实现半边（S1/S2 静态门 + 改道）在 PR-11，属判据件 §3 的 B 类尾巴挂本 A 层条目——本行 status 不变】"
 
   - id: G1-OWN-03
     topic: "`eventsOf()` 跨能力读授权（默认拒读，装配根显式 grant）是否即为正式形态"
@@ -351,7 +351,7 @@ items:
     owner: "UNASSIGNED"
     status: open
     freeze_tier: "A"
-    evidence: "①②：「今天没洞只因触发器恰好不依赖这两个名」——没洞是巧合不是设计（RE-REVIEW-G6-A 1c 行原话）；③：actor 只核非空未修（READINESS.md:243）；④：机制侧已有双向钉 tests/n1-authorization-evidence.test.ts（自称 v2 走旧判据不可达 + 无见证历史行按当时版本计入），G1 关的是契约文本而非机制本体"
+    evidence: "①②：「今天没洞只因触发器恰好不依赖这两个名」——没洞是巧合不是设计（RE-REVIEW-G6-A 1c 行原话）；③：actor 只核非空未修（READINESS.md:243）；④：机制侧已有双向钉 tests/n1-authorization-evidence.test.ts（自称 v2 走旧判据不可达 + 无见证历史行按当时版本计入），G1 关的是契约文本而非机制本体。【2026-11-01 交叉收编席加注（任务点 2；旧文保留）：EA 侧回填义务登记——CS 专题① 实测 `g1/G1-CONTRACT-EVENT-AUTHORITY.md:341` 的 `AuthorizationContext.txSeq: CommitSequence`（注释「同事务内登记序」）与 :117 `declareRawIntake` 返回值**承载的是事件序**，与 ① 的新定义语义冲突；统一契约已显式规定「重定义为 `eventSeq: LedgerEventSequence`（线名 `tx_seq` 不动、九字段名单不变，选重定义不改线名，三条理由在文）」= `g1/G1-UNIFIED-CONTRACTS.md` P5 条 + §7.4 J-5；EA 为禁改面，EA-4.2 类型名 + EA-4.6 全形闸类型判据 + EA 夹具 S 组同步重锚由 EA 席执行（义务源 CS BF-01）；矩阵 §4 有专行。本条 status 不因本加注变化】"
 
   - id: G1-ROUTE-01
     topic: "停用复活·PK 改名链——方向判据③的三元组名单缺「capability 主键出现/消失」这一维；route_insert_guarded 对新生行也须随附审计（首登记 bootstrap 另立界），墓碑行纳入巡检（F-G6A-3）"

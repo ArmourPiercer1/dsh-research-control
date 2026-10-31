@@ -5,7 +5,22 @@
 > **G0-R 限定范围 PASS；G1 立即冻结 = NO-GO；G2 = NO-GO；PR #48 不合并**（`G0-R-CLOSURE.md:14-18`，
 > 实测清单计数 27/open 23 ⇒ `--require-clear` exit 1）。本计划的作用是：**让「解除 NO-GO」之后
 > 的第一周就有可执行的命令与可判定的退出门禁**，而不是届时再排。
-> **配套**：条款级验收与缺口见《G1-ACCEPTANCE-MATRIX.md》（下称矩阵），本文用「矩阵 §x 行」引用它。
+> **授权边界两类（专题⑤，2026-11-01；上面那段旧文逐字有效，此处只澄清它管什么、不管什么）**：
+> 「G2 的进入条件」这句话此前被读成两种互斥的意思，本轮把两类工作**明文分开**，两处矛盾表述就地作废：
+> - **甲类 = 合同准备 / 夹具 / 门禁与判据工务（非 DDL、非生产机制代码）**：清单条目关闭、裁决与对账文书、
+>   机制事件名单锚文件的物化与异源对账脚本、门禁机械防线、`g1/**` 夹具与自验、本计划自身。
+>   **G1 未冻结期即可做**，且其产物**不得**包含生产 DDL、`capability_route` 演进、Schema 迁移器或
+>   `src/**` 生产判据——甲类的边界就是它的定义，越界即自动变成乙类。
+> - **乙类 = 正式生产机制代码开发**（PR-2 起所有改 `src/**`、`tests/**` 生产判据、`schema/**`、DDL 的 PR）：
+>   仍须 **① G1 冻结（`--require-clear` exit 0，按《G1-FREEZE-CRITERIA.md》的 A 层口径判定）+ ② 用户开工授权**
+>   两条门，一条都不能少。
+>   **注意顺序**：`--require-clear` 绿是「可以谈冻结」的条件，用户授权才是「可以开工」的条件，
+>   本文任何 PR 卡写「G1 冻结已获用户授权」处均指**两条门同时成立**。
+> **被本次澄清作废的旧表述（就地标注，不删）**：① §0 硬事实 2 末句「因此本文把所有动表形的 PR 排到 §3 的
+> 第 5 位之后，前四位只动判据与装配」——「前四位」的划分**只排依赖顺序，不表达授权**；PR-2/PR-3/PR-4 是
+> 乙类，未获开工授权不得动手。② §3.1 并行带「G1 清单条目关闭 ∥ PR 实施」——**并行只对甲类成立**。
+> **配套**：条款级验收与缺口见《G1-ACCEPTANCE-MATRIX.md》（下称矩阵），本文用「矩阵 §x 行」引用它；
+> 冻结判据两层口径见《G1-FREEZE-CRITERIA.md》（下称判据件），本文的「冻结」一律按其 A 层口径读。
 > **禁改面**：本计划不改 `experiments/v3-code-architecture-poc/**` 的夹具与门禁脚本本体（见 §5 禁止项）。
 > **锚点纪律 / 行号漂移限定（P2-3，2026-11-01 工程审查；形照矩阵头注同款免责段）**：本文引用他文时
 > 以「**文件 + 小节名 + 判据文字**」为准，`:nnn` 行号只是辅助注且**默认已漂移**（实测两次：EA
@@ -25,7 +40,11 @@
    先做 Facet 会造出一个「挂载 Port 装配红 forever」的中间态（`ACTIVATION_IMPOSSIBLE`，FM-7）。
 2. **真实 DDL 只能出现在冻结之后**：`IMPLEMENTATION-PLAN-DRAFT.md §2-G1`「未完成时禁止启动」原文
    —— 禁止 G2 的真实 DDL、`capability_route` 演进、Schema 迁移器（会基于错误的时间/所有权模型固化）。
-   因此本文把**所有动表形的 PR 排到 §3 的第 5 位之后**，前四位只动判据与装配。
+   因此本文把**所有动表形的 PR 排到 §3 的第 5 位之后**，前四位只动判据与装配。**★ 本句的授权含义作废
+   （专题⑤，2026-11-01；判据本身照旧）**：「排在第 5 位之前」说的是**物理依赖顺序**，不是「前四位已获授权」。
+   甲类/乙类的分界见文头「授权边界两类」——PR-1 属甲类（锚文件 + 对账脚本 + 夹具，零生产代码），
+   **PR-2/PR-3/PR-4 属乙类**，虽然它们在依赖图上早于第一张 DDL，同样不得先于「冻结 + 开工授权」动手。
+   本条真正禁止的是：把「因为排得早」误读成「因为可以提前做生产代码」。
 3. **无 CI ⇒ 每个 PR 的退出门禁必须是本地可复跑命令**：`G0-R-CLOSURE.md §5` 明示「所有绿灯均无 CI 背书，
    不构成 CI 验收」。故 §4 的门禁全部写成「命令 + 期望退出码」，且**新/改门禁必须自带架空式变异**
    （`IMPLEMENTATION-PLAN-DRAFT.md §7` 流程规则：不贴红色输出不算完成）。
@@ -48,6 +67,7 @@
 | W10 | **纵向切片（G2 收尾，非并行加速）**：`Raw Intake → Entity 登记 → 有来源的 Association → PropositionRevision → S-L1 CheckReport → 历史读取` | W1–W6 | `§6.1′` 原文理由：D-19 正是「机制接口全绿但领域对象无法不绕过接口实现」的现实例子，串行到 G3 才发现就是把这个教训再买一次单 | 否 |
 
 **图的一句话读法**：`W1 → W2 → W3 → W4 → W5 → {W6 ∥ W7} → W8 → W9 → W10`。
+**★ 专题⑤（2026-11-01）插入点**：**PR-6b（首条端到端最小纵向切片）= W6 的下游验收，插在 W6 之后、W7/W8 之前**（读法改写成 `… → W5 → W6 → PR-6b → {W7} → W8 → …`；W7 与它的并行带让位于切片先行，若排期资源允许，W7 可与 PR-6b 并行推进但**不得取代**它）。W10 的定位同轮改写为**完整纵向验收**（第一条切片已提前，见 PR-6b / PR-10 两张卡）。本表 W1–W10 的行**不重编号**，避免既有引用漂移。
 `W6 ∥ W7` 是**仅有的**一处可并行带，互斥点见 §3。旧句「`W3 ∥ W4`、`W6 ∥ W7` 是仅有的两处可并行带」
 作废（P2-2 串行修正，2026-11-01 工程审查）：本表 W4 行的「依赖前序」栏自己写着 **W2、W3**
 （游标要 PR-3 冻结的可见性谓词），「W3 ∥ W4」与本图的依赖边**直接冲突**——按旧句排期恰好会把
@@ -56,6 +76,10 @@
 ---
 
 ## 2. 首批 PR 拆分（11 个：PR-0 + PR-1..PR-10；每个都可独立评审、可判定退出）
+
+> **★ 卡数更新（专题⑤，2026-11-01）**：插入 **PR-6b**（首条端到端最小纵向切片）后，本文 §2 实际是
+> **12 张卡**。标题里的「11 个」保留以示演化，不做静默改写；**卡数一律以 §2 实际卡片为准**。
+> 编号是**依赖序**不是密度：PR-6b 插在 PR-6 之后、PR-7 之前，不改动其余编号。
 
 > **对「建议 6–10 个」的偏离说明（一条）**：实际给 11 个，多出的是 **PR-0（门禁身份前置）**。不把它并进功能 PR 的理由：`G1-GATE-01` 的三条洗白链（GT-2/GT-3/GT-4）修的是**尺子**，与功能改动同 PR 会让「尺子变了」和「行为变了」两件事在同一次绿里混在一起说不清 —— 这正是 G0-R 第七轮点名的失效形态。功能 PR 本身是 10 个，落在建议区间内。
 
@@ -87,6 +111,44 @@ pnpm run lint                                                                   
 pnpm run docs:check                                                             # 期望 exit 0（只在提交态可信，§4.3）
 ```
 
+### 2.0 六个待批准机制名 —— 统一登记表与审批范围声明（专题⑤，2026-11-01）
+
+> **为什么要有一张统一的表**：待批准机制名此前散在四处（PR-2 进入门禁、PR-7 进入门禁、PR-8 进入门禁、
+> PR-10 进入门禁，以及 §3.2 的人工批准带），且**三处写着「4 个」**——那是 R-5 时点按 EA-2.4 四个提案名写的，
+> FM-9 的两个挂载名与 RL-2.2 的 `ns-relocated` 分头登记，没有人把它们加总过。
+> 结果：一次「批准这四个名字」的签字会**静默漏掉**另两个，而夹具与对账脚本按六名判红——
+> 批准面与机验面对不上，红会被当成误报消掉。本表是**唯一登记位**，四处门禁只允许指回这里。
+
+| # | 机制事件名 | 提案出处（契约条文） | 账本状态标记 | 消费该名的 PR | 该 PR 的门禁位置 | 未入账期间的行为 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `raw-record-declared` | `G1-CONTRACT-RELOCATION.md` RL-2.2（Raw Intake 声明面） | `PLANNED-PENDING`（EA-2.4 两态） | PR-10（切片首环）；其运行时占位在 PR-2 | PR-10 进入门禁 | 直写通道装配红；通用 mint 通道判红 |
+| 2 | `integrity-audit-recorded` | `G1-CONTRACT-EVENT-AUTHORITY.md` EA-7.1 | `PLANNED-PENDING` | **PR-2** | PR-2 进入门禁 | 同上 |
+| 3 | `read-shadow-recorded` | `G1-CONTRACT-EVENT-AUTHORITY.md` EA-7.2 | `PLANNED-PENDING` | **PR-2** | PR-2 进入门禁 | 同上 |
+| 4 | `ns-relocated` | `G1-CONTRACT-RELOCATION.md` RL-2.2 / RL-9（命名空间重定位） | `PLANNED-PENDING` | **PR-8** | PR-8 进入门禁 | 同上 |
+| 5 | `facet-mounted` | `G1-CONTRACT-FACET.md` FM-9（挂载登记入账） | `planned`（FM-9 三态） | **PR-7** | PR-7 进入门禁 | 挂载 Port 装配红（`ACTIVATION_IMPOSSIBLE`，FM-7） |
+| 6 | `facet-unlinked` | `G1-CONTRACT-FACET.md` FM-9（解链登记入账） | `planned`（FM-9 三态） | **PR-7** | PR-7 进入门禁 | 同上 |
+
+**分布合计：6 个 = PR-2 两名 + PR-7 两名 + PR-8 一名 + PR-10 一名。**
+（前四名 = `EA-2.4` 的 `PLANNED-PENDING` 族；后两名 = `FM-9` 的 `planned` 族。两态词汇不互推，
+入账时的字段名以各自契约为准，但**批准面同一套三要素**，见下。）
+
+**审批范围声明（写死，供批准方与本仓评审共同引用）**：
+
+1. **批准按名生效，不按集合生效。** 若一次动作批准多个名字，批准文书必须**逐名点名**——
+   每个名字各有一行可追溯的 `Approved-By: <署名>（<日期>）`，且 PR body / 提交信息里的
+   `Event-Name-Review: <事件名>` trailer **逐名各出现一次**。
+   「批准上述全部提案名」「同意 EA-7 两条」这类**集合式签字不构成任何一名批准**：
+   机验面（名单锚文件的逐名 entry + `gated_by`）无法从中还原出「谁批准了哪一个」。
+2. **一名一 entry，不共享批准。** 锚文件（正式落点见 PR-1；`EA-6.1` 形状）里每个名字是独立 entry，
+   带自己的 `Approved-By` 溯源与 `gated_by`；**禁止**把多名合并成一个 entry 或让一名复用另一名的批准。
+3. **批准只解除「该名的直写通道装配红」，不解除任何其它门禁。** 批准不是 PR 开工授权，
+   也不改变 G1 冻结状态（文头「授权边界两类」乙类门照旧）。
+4. **批准面的残余是人认边界**：机器能验「签字在位、形态合法、签字人≠作者」，
+   验不了「签字人真读懂了该名的写站点与不变量」——同 `EA-6.1` / `RL-8.4` / `--require-clear` 三处
+   既有边界，本表不假装能机验它（本文「诚实残余」段已含）。
+5. **本表与门禁的一致性由人核对 + 夹具兜底**：三夹具对「六个 planned 名在通用 mint 通道 mint」逐个判红
+   （R-5/T-N13 的对应物），因此**若将来出现第 7 个待批准名而未进本表**，夹具红会先于评审发现它。
+
 ### PR-0 `gate: 基线身份与重锚纪律机械防线`（**解除 NO-GO 后第一个 PR**）
 
 - **范围**：把 `G0-R-CLOSURE.md §7` 三条洗白链的机械防线落进门禁 —— ① `attacks/**` 基线逐条记
@@ -109,7 +171,13 @@ pnpm run docs:check                                                             
 ### PR-1 `events: 机制事件封闭名单锚文件 + 异源对账构建判据（R1–R4）`
 
 - **范围**：物化 `g1/EVENT-CONTRACT-LEDGER.json`（形状按 `EA-6.1`：`schemaVersion/approved[]/entries[]`，
-  含 `writeSites` glob、`planned`、`gated_by`、`interpretationRuleSetVersion`）；**名单内容按 R-5 后的新形状写
+  含 `writeSites` glob、`planned`、`gated_by`、`interpretationRuleSetVersion`）；
+  **★ 承载面已裁（专题⑤，2026-11-01 架构裁决 P2-③；旧句保留）**：锚文件的**正式落点 =
+  `contracts/event-registry/EVENT-CONTRACT-LEDGER.json`**（正式仓内版本化、机器可读、单一正源、独立批准），
+  这是**架构决策**、不是待用户指名的开放项；**实验侧车 `g1/EVENT-CONTRACT-LEDGER.json` 永久不是生产名单
+  来源**——它可以作为物化过程中的工作副本存在，但任何「生产读名单」的实现只许读正式路径，
+  对账脚本（R1–R4）的期望集也**只**读正式路径。EA §6.1「G2 前以本侧车为工作正源」那句在正式文件
+  落地当日失效（该契约文本本席位禁改，同步义务登记在本卡片末行）。**名单内容按 R-5 后的新形状写
   （2026-11-01 回填；旧句「首批 10 个 mechanism 名 + ns-relocated/facet-mounted/facet-unlinked 三名 planned
   占位」作废——它把三个提案未入账名算进了已批准面）**：已入账 **7 名** = 锚文件 `class:'mechanism' ∧
   planned:false` 全集（capability-enabled/-disabled/-transferred、object-registered、check-report-recorded、
@@ -123,13 +191,24 @@ pnpm run docs:check                                                             
   期望集**只**读锚文件）实现 R1 `EVENT_RECON_ORPHAN` / R2 `…_STALE` / R3 `…_SAMESOURCE` / R4 `…_COUPLING`。
 - **不做什么**：不改运行时写面判据（那是 PR-2）；不给任何领域名入账；不把锚文件放进 8 根文档或
   `schema/**`（承载面 = 用户决策 4，未决前**留侧车**，`EA-9.4` 原文「G2 前以本侧车为工作正源」）。
+  **★ 括号内那半句的授权含义作废（专题⑤ P2-③）**：承载面**已定** = `contracts/event-registry/`
+  （见上行），「放哪里」不再是用户决策 4 的内容；仍然成立的是**不放进 8 根文档、不放进 `schema/**`**
+  ——那条禁令与承载面裁定不冲突。用户决策 4 的残余只剩「名单**入账**的 `Approved-By` 由谁签」，
+  而它已在 `EA-2.4` 步骤 2 里有答案。EA §6.1 / §9.4 U-1 与矩阵 §4 的旧措辞同步义务登记在本卡片末行。
 - **进入门禁**：PR-0 exit 0 全套；`EA` 夹具 exit 0（实测）。
 - **退出门禁**：`node <对账脚本>` ⇒ exit 0；**四条 R 判据各配一条架空形，实测各自非 0**（§4.1）；
   R3 脚本 import 图静态检查（不得 import `src/kernel/**`）exit 0；R4 用一次性双文件提交样本验证 ⇒ 构建红。
+  **★ 承载面相关的两条退出门禁（专题⑤ P2-③新增，与上面几条同批全绿才算 PR-1 完成）**：
+  ① `test -f contracts/event-registry/EVENT-CONTRACT-LEDGER.json` ⇒ exit 0，且对账脚本的期望集
+  **只**从该正式路径读取（脚本里出现读 `g1/EVENT-CONTRACT-LEDGER.json` 作为期望源 = 评审红）；
+  ② **既有判据「物化后 S 组自动升三方」生效**：夹具 S 组对锚文件存在与否分支渲染，物化当日
+  「两方逐等（two-party）」自述必须翻成「三方逐等」，S1c 的四方对齐（S 组自述 ↔ 实际比对行为 ↔
+  锚文件存在性 ↔ EA §6.2 两态句）必须**当场跟着翻面**——翻不过去就是物化没做到位，
+  不许靠改夹具文案把它说绿（P2-1 的反自欺判据原样适用）。
 - **验收测试要求**：删定义形态（名单与写点同时抹）⇒ 异源点名、同源失明（`MUT-3` 同族，不许只跑异源那条）；
   `planned` 名不得进运行时名单（夹具 S2 已在，真库侧另配）。
 - **依赖前序**：PR-0。
-- **冻结面**：否（新增侧车）。**若**用户决策 4 选择「进冻结面 / 进 `schema/**`」⇒ 本 PR 拆出子提交走
+- **冻结面**：否（新增侧车）。**★ 专题⑤：承载面已裁为 `contracts/event-registry/`（见「范围」行），该处不在 8 根文档、也不在 `schema/**` ⇒ 本 PR 不触发冻结面**；下面那句「若用户决策 4 选择…」保留作演化，它描述的是一个已被本次裁定排除的分支。**若**用户决策 4 选择「进冻结面 / 进 `schema/**`」⇒ 本 PR 拆出子提交走
   `snapshot:update` + `Frozen-Face-Review`。
 
 ### PR-2 `events: 归属账扩形 + 唯一签发 Port + 全形信封 + 审计复算（deny-by-default 落地）`
@@ -158,14 +237,15 @@ pnpm run docs:check                                                             
 - **进入门禁**：PR-1 exit 0；**`G1-EVT-01` / `G1-AUDIT-01` 已在清单进入 `assigned` 且 owner 为三源之一**
   （人工核对，机验只判非空/非 UNASSIGNED）；**`integrity-audit-recorded` / `read-shadow-recorded` 两名的
   人工 `Approved-By` 标记 + `Event-Name-Review:` trailer 已落地（R-5：4 个提案名人工批准是依赖写面 PR 的
-  进入门禁——未入账期间机制内部直写装配红 `ACTIVATION_IMPOSSIBLE`，本 PR 的落账功能不可能绿，
+  **进入门禁**——旧计数作废：统一登记为 **6 个待批准机制名（按消费者 PR 分布，见 §2.0）**，本 PR 消费其中
+  `integrity-audit-recorded` / `read-shadow-recorded` 两名，批准须**逐名**具名（§2.0 审批范围声明第 1 条）——未入账期间机制内部直写装配红 `ACTIVATION_IMPOSSIBLE`，本 PR 的落账功能不可能绿，
   故不许写成「先落码后补批准」的退出门禁）**。
 - **退出门禁**：`g0-gate.mjs` exit 0 且**基线红/绿名集无漂移**（Q45 护栏仍在 passes）；
   `EA` 夹具 exit 0；**`tests/p3-intake-validation.test.ts` 的 intake 落账成功例无新红**——必须经
   「`synth:raw-intake` 登记 + 命令 Port 改道」转绿，**不许改写成接受拒写**（R-9；改测试接受
   `UNREGISTERED_EVENT` 违 Q37/B-1 的 Raw Intake 容错，见通用退出门禁铁律）；异源对账 R1/R2
   确认 `synth:raw-intake` 为**已登记**名（归属账比机制名单零违规，夹具世界的该名字不再是豁免窗）；（`tests/g5a-d27-audit-reserve.test.ts` 同族扩到全部
-  **已入账 7 名**；4 个提案名在通用通道 mint 同判红，未入账期间其直写通道装配红——R-5/T-N13 的真库对应物；
+  **已入账 7 名**；4 个提案名在通用通道 mint 同判红（**★ 专题⑤：mint 负例覆盖全部 6 个待批准名，「4 个」是 R-5 时点基数，见 §2.0**），未入账期间其直写通道装配红——R-5/T-N13 的真库对应物；
   旧句「扩到全部 10 名」为 R-5 前名单基数，作废）；
   `arch-independence.test.ts` 运行时面对拍「插件可见成员名集零增删」exit 0。
 - **验收测试要求**：T-N2（自带见证）/T-N3/T-N4（分类）/T-N6/T-N7（双认领装配红零副作用）/T-P4（有写权无业务轴
@@ -222,7 +302,7 @@ pnpm run docs:check                                                             
   **SQLite 备份/恢复正确性**（先于任何读面加速）。
 - **不做什么**：**完整 PITR 不作为所有读面开发前置**（`§2-G2 收窄①` 原文）；不做 backfill 补造（`RL-8.4` 默认禁止，
   迁移器**无权**补造「当时合法迁移」）；不在本 PR 落 `ns` 链判据（属 PR-8）。
-- **进入门禁**：PR-4 exit 0；**G1 冻结已获用户授权**（否则本 PR 起即违 `§2-G1`「未完成时禁止启动」）；
+- **进入门禁**：PR-4 exit 0；**G1 冻结已获用户授权**（否则本 PR 起即违 `§2-G1`「未完成时禁止启动」）；**★ 本句按文头「授权边界两类」读作两条门同时成立**：① `--require-clear` 按《G1-FREEZE-CRITERIA.md》A 层口径判绿；② 用户对本 PR（**乙类**，本 PR 起含真实 DDL）的开工授权。**「已获开工授权」不得从「PR-1..PR-4 已合并」反推**——那四张卡含甲类工务，做了不等于乙类开门；
   `node scripts/snapshot-release.mjs` ⇒ exit 0（本席位实测 0：31 canonical files match）。
 - **退出门禁**：`pnpm run build` exit 0 且 `pnpm run check:freshness` exit 0（`CONTRACT_DRIFT` 即红）；
   `pnpm run snapshot:update` 后**契约与清单同一提交**（评审要求，非命令）；`pnpm run pack:verify` exit 0；
@@ -249,6 +329,59 @@ pnpm run docs:check                                                             
 - **依赖前序**：PR-2（签发资格）、PR-4（截点回显）。
 - **冻结面**：否。
 
+### PR-6b `slice-min: 首条端到端科研切片（提前到 PR-6 之后；架构裁决 2026-11-01 专题⑤ P2-①）`
+
+> **为什么要插在这里（一句话）**：远程审查点名的 P2 是「纵向可跑性被排到最后一个 PR，前面 9 个 PR 都在
+> 赌它最后能串起来」。**最小事务（PR-5）与最小检查能力（PR-6）一旦就绪，端到端路径就已经具备了全部
+> 前提**——再把它押到 PR-10，等于让 PR-7/PR-8/PR-9 三个动表形、动挂载、动宿主装配的 PR 在
+> 「没人验证过整条链」的状态下叠加。本卡片把**第一条**切片提前，PR-10 相应改为**完整纵向验收**
+> （旧句「PR-10 = 纵向功能切片」的含义作废，见 PR-10 卡片头的就地标注）。
+> **编号说明**：架构裁决文书里写作「PR-5b」，本文按依赖序编号为 **PR-6b**（进入门禁含 PR-6 exit 0，
+> 叫 PR-5b 会被读成「可在 PR-6 之前做」）。两个编号指同一件事，对拍时按同一 PR 处理。
+
+- **范围（四步，一步不多）**：**登记对象 → 修订 → 检查报告 → 读回**——真实五类对象里的最小一条链，
+  经拥有者命令端口登记一个对象（`object-registered`）、经同一端口产生第二个修订
+  （`object-revised`）、经 PR-6 的对外 Check Request 落一份带四要素绑定的 `CheckReport`
+  （`check-report-recorded`）、再用只读面把这三步**读回**（历史 + 报告可见性从被检对象派生）。
+  写在这里的每一个事件名都**必须在已入账 7 名之内**（见 §2.0 名单表）——本 PR **零待批准名依赖**，
+  这正是它能提前于 PR-7/PR-8 的原因。
+- **不做什么**：不含 Raw Intake 信封环（`raw-record-declared` 未入账，进入门禁会当场红，见 PR-10）；
+  不含挂载（`facet-mounted`/`facet-unlinked`）、不含重定位（`ns-relocated`）、不含工具面（PR-9）；
+  **不新增第六类对象、不新增第四套认识系统、不新增事件名**；不在 `experiments/**` 里做切片测试。
+- **进入门禁（全部命令化，逐条贴退出码）**：
+  ```sh
+  node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs                # 期望 0
+  node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test    # 期望 0（判据工具先自证）
+  node experiments/v3-code-architecture-poc/g0-gate.mjs                              # 期望 0（三条流）
+  npx tsc -p experiments/v3-code-architecture-poc/tsconfig.json                      # 期望 0
+  pnpm run build && pnpm run check:freshness                                         # 期望 0（PR-5 的表形在位）
+  node <PR-1 的事件名单异源对账脚本>                                                  # 期望 0：R1/R2 零违规
+  npx vitest run tests/p3-intake-validation.test.ts                                   # 期望 0（R-9 义务在场，见下）
+  ```
+  **R-9 义务是在场检查、不是押后清单**：`synth:raw-intake` 的登记与 `HsrRawIntakeCommandPort` 改道
+  已随 PR-2 落地（`tests/p3-intake-validation.test.ts` 钉「未注册类型的声明也被接受 + ledger 写入成功」，
+  `tests/workspace-seed.test.ts:154` 钉 `ledgerRowCount('workspace.provisioned') === 1`）——
+  上面那条 vitest 跑绿即证明**没有任何人把这条义务又押回 PR-10**；跑红说明 PR-2 的登记/改道被回退了，
+  本 PR 不得开工（**禁止用「改测试让它接受拒写」消缝**，通用退出门禁铁律）。
+- **退出门禁（切片出口判据，全部可复跑）**：
+  ```sh
+  npx vitest run tests/vertical-slice-min.test.ts                        # 期望 0（新增切片测试，落正式测试面）
+  node experiments/v3-code-architecture-poc/g0-gate.mjs                  # 期望 0（作者套件无新红 + 基线/身份锚逐等）
+  node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs     # 期望 0
+  node <PR-1 的异源对账脚本>                                             # 期望 0：切片未引入名单外事件名
+  ```
+  三条判定式（缺一不算绿）：① 该路径上**每个跨领域写都是一个拥有者命令端口调用**
+  （`D-19c′` 静态集合相等核对通过）；② 切片全程在**一条**事务内提交（Q40 不破）；
+  ③ 切片测试在 `tests/**` 而非 `experiments/**`。
+- **验收测试要求**：「绕开拥有者端口直接写」的新形态必红（词法网 + 作用域墙双钉，墙失效才算洞）；
+  「报告缺四要素之一 ⇒ 直接拒」的负例；「检查器不可用 ⇒ 落 INDETERMINATE 报告且响应仍成功」的降级正例
+  （把 PR-6 的判据真正走一遍端到端，而不是只在夹具里）；**读回必须走只读面**，禁止测试用裸 SQL 抄近路。
+- **依赖前序**：PR-5（最小事务/表形）、PR-6（检查报告与降级）。
+- **冻结面**：否（不改 `schema/**`；若切片落码过程中发现必须动表形 ⇒ 说明 PR-5 的表形不完备，
+  **按缺陷回到 PR-5 补**，不在本 PR 夹带 DDL）。
+- **为什么它必须先于 PR-7/PR-8/PR-9**：这三张卡各自都写了「依赖 PR-5」，但都没有验证过整条链能串起来；
+  提前一条窄路径，等于把「架构能不能跑通」这个问题的发现时间从第 10 个 PR 挪到第 7 个之前。
+
 ### PR-7 `facet: 双身份 + 挂载登记 + 两个 planned 名入账（D-24 完整修法）`
 
 - **范围**：`FacetMountPort` 五成员（`FM-6`）；`facet_mount` 表 + 两触发器（`MOUNT_ROW_FROZEN` /
@@ -264,7 +397,7 @@ pnpm run docs:check                                                             
 - **不做什么**：**不打死 Q45 护栏**——`attacks/review/g1a-regression.test.ts` 该条只允许**加一步 `declareMount`**，
   三条断言（成功码 / 扩展按自身修订可读 / 核心 payload 逐字段不变）**一字不改**（`FM-3.2`）；
   不提供「目标的挂载方列表」读面（`FM-2.4`）；不新增核心改写通道（`FM-5.1` 类型面无写点）。
-- **进入门禁**：PR-1/PR-2/PR-5 exit 0；**两个机制名已入账（锚文件 `planned:false` + 批准标记齐形）**——
+- **进入门禁**：PR-1/PR-2/PR-5 exit 0；**两个机制名已入账（锚文件 `planned:false` + 批准标记齐形）**——即 §2.0 表第 5、6 行 `facet-mounted` / `facet-unlinked`，**逐名** `Approved-By`（集合式签字不构成批准，§2.0 第 1 条）；
   未入账即提交挂载 Port = 装配红，PR 自身不可能绿，故把入账写进进入门禁而非退出门禁。
 - **退出门禁**：`FM` 夹具 exit 0；`attacks` 基线 passes **不含** Q45 护栏条目的移除（名集逐等，`g0-gate` exit 0）；
   插件可见成员名集零增删对拍 exit 0；`MUT-1/2/3` 三条常驻判别的**真库对应物**各一条（矩阵 §2 缺口列）。
@@ -289,7 +422,7 @@ pnpm run docs:check                                                             
 - **不做什么**：**不撤销 `TRANSFER_NS_DRIFT`**、不把移交改回携 ns（`RL-5.3`）；不解冻 `dir.ns`（`RL-1.4` B2 弃案维持）；
   **不承诺检出裸面伪造链**（`RL-6.5a` 界外 = 登记边界；文档/实现把「检测」写成「防御」即违例，`RL-13 T-N16` 钉两侧）；
   不做跨进程主动失效（既有 G1 余项，不新立项）。
-- **进入门禁**：PR-5、PR-7 exit 0；**`ns-relocated` 已入账 = 人工 `Approved-By` + `Event-Name-Review:`
+- **进入门禁**：PR-5、PR-7 exit 0；**`ns-relocated` 已入账 = 人工 `Approved-By`（§2.0 表第 4 行，逐名具名） + `Event-Name-Review:`
   trailer 两处同现、锚 `planned:false`（R-5：提案文书≠批准；标记未落地时 execute 在落账那一步拒签、
   整笔回滚（T-N20），本 PR 不可能绿——进入门禁，不是退出门禁）**；`G1-NS-01` 清单条目 `assigned`。
 - **退出门禁**：`RL` 夹具 exit 0；**故障矩阵 18 条中 F-04 由「G2 故障注入验收」补上**（夹具列现为「—」，
@@ -331,6 +464,15 @@ pnpm run docs:check                                                             
 
 ### PR-10 `slice: 纵向功能切片 + 迁移工务（G2 收尾判据）`
 
+> **★ 定位改写（专题⑤，2026-11-01 架构裁决 P2-①；下面的范围/门禁原文一律保留）**：本 PR 由
+> 「**第一条**端到端纵向切片」改为「**完整纵向验收**」——第一条切片已提前到 **PR-6b**（见该卡片）。
+> 于是本 PR 剩下的正是只有「全部机制都落地」之后才做得动的部分：**五个机制同时在场的**全链路验收
+> （Raw Intake 信封 + 挂载 + 重定位 + 工具面都装完之后）、夹具世界迁移、`D-19c-ALLOWED` 重排、
+> 三条架构门与 `attacks/**` 迁入正式测试面。**这不是把切片做两遍**：PR-6b 验的是「链能不能跑通」，
+> 本 PR 验的是「链在全部机制叠加后仍然跑通，且迁移工务没留豁免窗」。
+> 因此本 PR 的进入门禁里「PR-0..PR-9 全绿」**不变**，但额外要求 **PR-6b 的切片测试仍在 `tests/**` 常绿**
+> （不许被后续 PR 改道或删掉——切片测试是 G2 出口的常驻判据，不是阶段性脚手架）。
+
 - **范围**：`Raw Intake → Entity 登记 → 有来源的 Association → PropositionRevision → S-L1 CheckReport →
   历史读取` 一条端到端窄路径（真实五类对象，**不得**新增第六类对象或第四套认识系统）；
   **PoC 夹具世界迁移**（域内自用事件名全部登记或改走 Raw 信封，不留豁免窗，`EA-9.2-②`；
@@ -339,7 +481,7 @@ pnpm run docs:check                                                             
   `D-19c-ALLOWED` 签字清单重排（`EA-2.2`，登记为实施批义务）；三条架构门与 `attacks/**` 迁入正式测试面。
 - **不做什么**：**不是提前做完 G3** —— 切片只跑一条窄路径（`§6.1′` 原话）；不引入领域校验规则的科研正当性
   （G3）；不把 `experiments/**` 当测试面（切片测试**进正式测试面**）。
-- **进入门禁**：PR-0..PR-9 全绿；**`raw-record-declared` 人工 `Approved-By` 已落地**（切片首环 Raw Intake
+- **进入门禁**：PR-0..PR-9 全绿；**`raw-record-declared` 人工 `Approved-By` 已落地**（§2.0 表第 1 行，逐名具名；切片首环 Raw Intake
   的台账行用该提案名——R-5 fail-closed：未入账期间直写装配红，进入门禁，见 `G1-CONTRACT-RECONCILIATION.md` §7-4）。
 - **退出门禁（切片出口判据，原文可执行形态）**：该路径上**每个跨领域写都是一个拥有者命令端口调用**
   （`D-19c′` 静态集合相等核对通过）∧ 切片全程在**一条**事务内提交（Q40）∧ 切片测试在 `tests/**` 而非 `experiments/**`；
@@ -359,7 +501,7 @@ pnpm run docs:check                                                             
 | **G1 取证 ∥ G0-R 修复** | 契约对账取证不依赖机制修复结果（`§6.1′` 第 1 行） | 已在执行（本轮即此形态） |
 | **PR-6 ∥ PR-7** | 检查器降级与挂载互不消费对方新面 | PR-5 已合并 |
 | **`attacks/**` 扩充 ∥ 功能实现** | 不同文件所有权（`§6.1` 可并行条） | 审查方文件作者不改写；基线重生成只能一人做 |
-| **G1 清单条目关闭 ∥ PR 实施** | 条目关闭是对账面，不锁代码 | 关闭三件套（owner/evidence/resolution）由条目责任者执行 |
+| **G1 清单条目关闭 ∥ PR 实施** | 条目关闭是对账面，不锁代码 | 关闭三件套（owner/evidence/resolution）由条目责任者执行。**★ 专题⑤限定：本行的「∥」只对甲类成立**（清单关闭、裁决文书、锚文件物化、门禁与夹具工务可与条目推进并行）；**乙类（生产机制代码）不与「G1 未冻结」并行**，它等的是「冻结 + 开工授权」两条门（文头授权边界两类） |
 
 > **旧表曾有「PR-3 ∥ PR-4（前提：PR-2 已合并；不得同时改 `ReadContext`）」一行，本轮删除**
 > （P2-2 串行修正，2026-11-01 工程审查）：它与 §1 图的 W4 依赖列（W2、W3）、PR-4 自身进入门禁
@@ -372,7 +514,7 @@ pnpm run docs:check                                                             
 | --- | --- |
 | **PR-3 → PR-4** | **旧 §3.1 表曾声明「PR-3 ∥ PR-4（前提：PR-2 已合并）」，该行作废（P2-2 串行修正，2026-11-01 工程审查）**。三条硬证据：① §1 图 W4 行「依赖前序」栏自写 **W2、W3**（「游标要冻结的可见性谓词」）；② PR-4 自己的进入门禁写着「PR-3 exit 0」、依赖前序「PR-2、PR-3」——旧并行行与同文档两处直接矛盾；③ 「两个正交谓词面」论证不成立：**正交 ≠ 非消费**，分页游标（PR-4 产物）消费的正是 PR-3 要裁的 refuse/withhold 呈现形态（`E-01`/`D6-b` ②「晚做会把 oracle 形态编进工具面」——并行 = 让该教训按排期发生）。可并行的仅剩 `PR-6 ∥ PR-7`（§3.1） |
 | **PR-1 → PR-2 → PR-5 → PR-7 → PR-8** | 名单/归属账是所有写面判据的输入；表形（PR-5）先于挂表（PR-7）；联动接口**旧句「挂载表进 `RELOCATABLE_NS_KEYS` 是唯一联动接口」已按 R-3 作废**——现为「物理有无 `ns` 位置列」类别谓词逐项归位（挂载账不入清单、零搬迁；扩展记录行随 `domain_state` 搬），倒序仍造出「ns-keyed 表漏登记 ⇒ 只搬一半」的漂移，且正向半边无对象可核 |
-| **4 个提案名的 `Approved-By` 落地（人工，用户/指名代表）→ 消费该名的写面 PR**（PR-2：`integrity-audit-recorded`/`read-shadow-recorded`；PR-8：`ns-relocated`；PR-10：`raw-record-declared`） | R-5 fail-closed：批准标记未落地期间，相应写面（含机制内部直写）装配红 `ACTIVATION_IMPOSSIBLE`、重定位在落账那一步整笔回滚——**这是设计后果不是缺陷**；因此 4 个 `Approved-By` 是各消费 PR 的**进入门禁**（`G1-CONTRACT-RECONCILIATION.md` §5/§7-4），不许按「先落码后补批准」排期 |
+| **4 个提案名的 `Approved-By` 落地（人工，用户/指名代表）→ 消费该名的写面 PR**（PR-2：`integrity-audit-recorded`/`read-shadow-recorded`；PR-8：`ns-relocated`；PR-10：`raw-record-declared`）——**★ 专题⑤：本行漏了 PR-7 的两个挂载名；统一登记为 6 个待批准机制名（PR-2×2 / PR-7×2 / PR-8×1 / PR-10×1），逐名具名批准见 §2.0 登记表与审批范围声明** | R-5 fail-closed：批准标记未落地期间，相应写面（含机制内部直写）装配红 `ACTIVATION_IMPOSSIBLE`、重定位在落账那一步整笔回滚——**这是设计后果不是缺陷**；因此 4 个 `Approved-By` 是各消费 PR 的**进入门禁**（`G1-CONTRACT-RECONCILIATION.md` §5/§7-4），不许按「先落码后补批准」排期 |
 | **G1 正式冻结 → PR-5 起的所有真实 DDL** | `§2-G1`「未完成时禁止启动」原文：会基于错误的时间/所有权模型固化 |
 | **入账（锚文件独立提交）→ 消费该名的 Port 落地** | `EA-2.4` 步骤 3「独立提交、与实现代码不同提交」+ `R4` 同提交耦合拒 ⇒ **同 PR 允许、同 commit 禁止**，且顺序固定 |
 | **触发器体改造 → `SCHEMA_VERSION` 推进 → 打开判据同批** | `RL-5.2` 头注三件套；漏一步 = 旧库静默过闸 |
@@ -382,7 +524,7 @@ pnpm run docs:check                                                             
 ### 3.3 文件互斥清单（同文件即互斥，登记给排期人）
 
 `src/kernel/kernel.ts`（`routeNs` 单点：PR-3/PR-4/PR-8 都碰）· `src/storage-sqlite/sqlite-port.ts`
-（SCHEMA + 触发器：PR-2/PR-5/PR-7/PR-8 都碰）· `g1/EVENT-CONTRACT-LEDGER.json`（PR-1/2/7/8 都碰，
+（SCHEMA + 触发器：PR-2/PR-5/PR-7/PR-8 都碰）· `g1/EVENT-CONTRACT-LEDGER.json`（**★ 专题⑤：正式承载面裁定后，互斥面移到 `contracts/event-registry/EVENT-CONTRACT-LEDGER.json`；侧车若仍被触碰，只许是指针/镜像且不得被生产读面引用**）（PR-1/2/7/8 都碰，
 **必须按名分独立提交**）· `attacks/BASELINE.json` + `AUTHOR_ANCHOR.json`（只由门禁在干净树写，见 §4.2）·
 根 `vitest.config.ts` / `tsconfig.json`（PR-0 独占；**必须保留** `references/**`、`tests/deepseek-harness/**`、
 `tests/dsh-homes/**` 三条排除，`AGENTS.md §2`）。
@@ -481,6 +623,16 @@ pnpm run test:e2e:v2:bootstrap && pnpm run test:e2e:v2   # 现行 V2 验收入�
    标识符或对 `kind`/`role` 做值判定（`M-1`，新结构门 `M-2` 属 G2 交付）。
 6. **禁止修改 PR #42 已裁定语义**；发现冲突**提出并指向 Q 编号**，不自行重开（`§9` 条 3）。
    `G1-ADJUDICATION-TABLE.md §5` 已核：全表未重开任何 Q1–Q45。
+8. **禁止为了「让清单清零 / 让 `--require-clear` 变绿」而提前实施 B 层义务**（专题⑤，2026-11-01；
+   判据件《G1-FREEZE-CRITERIA.md》§3 的反向纪律在此复述为禁止项，因为它是最容易被「好意推进」踩到的）：
+   B 层条目（`freeze_tier: "B"`）在冻结时**允许是 `open`**，前提只是它有归属（owner 非空非 UNASSIGNED）。
+   若为了让终局门变绿而**先**去做强制门落码、真实 DDL、触发器摘要外置、计数器持久化、Schema 迁移器
+   ——那不是推进，是**用违 `IMPLEMENTATION-PLAN-DRAFT.md §2-G1`「未完成时禁止启动」换一次绿灯**，
+   而且换到的绿灯是假的：它掩盖的是「判据还没裁完就先固化了错误的时间/所有权模型」。
+   判别方法（评审可直接用）：某条 B 层条目的关闭提交**早于** `--require-clear` 判绿 ⇒ 默认按违规处理，
+   除非该提交属于本卡片明列的甲类工务（无 `src/**`、无 `schema/**`、无 DDL、无生产判据）。
+   **反向同样禁止**：不得为了「避免被指提前实现」而把本该 A 层的条目降标到 B——分层判据与降级留痕
+   要求见判据件 §4（机器面 `FREEZE-TIER` / `FREEZE-TIER-BASIS` 两条规则 + 自验 M27–M31 常驻）。
 7. **禁止用「门禁绿」冒充「CI 验收」或「安全保证」**：`G0-R-CLOSURE.md §5` 「所有绿灯均无 CI 背书，
    不构成 CI 验收」；33 条审查方红条是**已定性的已知项**，不是「产品通过」。
 
@@ -490,12 +642,13 @@ pnpm run test:e2e:v2:bootstrap && pnpm run test:e2e:v2   # 现行 V2 验收入�
 
 | 阶段界 | 命令 | 期望退出码 |
 | --- | --- | --- |
-| **G1 申请冻结（唯一的放行命令）** | `node …/g1-checklist-validate.mjs --self-test` 然后 `… --require-clear` | **0 然后 0**（当前实测 0 与 **1** ⇒ NO-GO） |
+| **G1 申请冻结（唯一的放行命令）** | `node …/g1-checklist-validate.mjs --self-test` 然后 `… --require-clear` | **0 然后 0**（当前实测 0 与 **1** ⇒ NO-GO）。**★ 终局门按《G1-FREEZE-CRITERIA.md》两层口径判定：A 层必须全闭、B 层必须有归属；命令面与退出码语义不变** |
 | G1 冻结批准 | 人工：非作者审查者具名结论 + 用户授权（`--require-clear` 的 `supersession_review` 字符串**不代替**证据） | — |
 | **G2 进入** | 上一行完成 + 用户批准工程基线（分支 / PR / train pin） | — |
 | 每个 PR（含 PR-0） | §2 的「通用退出门禁」五条命令 | 各 0 |
 | PR-5 起 | `pnpm run build` / `pnpm run check:freshness` / `pnpm run pack:verify` | 各 0 |
-| **G2 出口** | `pnpm run check:types` / `pnpm run lint` / `pnpm run build` / `pnpm test`（**根门禁，非侧车**）+ 三条架构门**各有变异验证记录** + Kernel 科研词表扫描为空 + `M-2` 结构门通过 + PR-10 切片三条出口判据 | 各 0 |
+| **PR-6b（首条端到端切片，专题⑤插入）** | PR-6b 卡片的进入/退出门禁命令组（含 `npx vitest run tests/vertical-slice-min.test.ts` 与「切片测试常驻 `tests/**`」判据） | 各 0 |
+| **G2 出口** | `pnpm run check:types` / `pnpm run lint` / `pnpm run build` / `pnpm test`（**根门禁，非侧车**）+ 三条架构门**各有变异验证记录** + Kernel 科研词表扫描为空 + `M-2` 结构门通过 + PR-10 切片三条出口判据（**★ 专题⑤：PR-10 = 完整纵向验收，另加一条常驻判据——PR-6b 的最小切片测试 `tests/vertical-slice-min.test.ts` 必须仍然在 `tests/**` 常绿，不许被后续 PR 改道或删除**） | 各 0 |
 | G3 进入 | G2 出口全绿 + **Q12 写权限模型已由 D-19 修复落地** + 对象契约（字段/状态机）已冻结 | — |
 
 **G2 明确不做（防范围蔓延）**：科研五类对象的字段/状态机/接纳判据（G3）；完整 PITR 作为所有读面前置

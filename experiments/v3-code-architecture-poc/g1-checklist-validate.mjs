@@ -23,6 +23,12 @@
  *   - `DONE-EVIDENCE`   **done 必须有非空 evidence 且含可定位锚点**（提交号 / 带扩展名的
  *                       文件路径〔可带 :行号〕）。这是 GT 系列教训的直接迁移：
  *                       「已修」不许是自我声明——没有锚 = 红。
+ *                       **锚点真值（P1-2 修复，2026-11-01，RE-REVIEW-G1-ENG §E4）**：形态合规
+ *                       不再是终点——锚里的提交号必须 `git cat-file -e <sha>^{commit}` 通过、
+ *                       路径必须存在（提交判据照 g0-gate 基线 `generated_from_commit` 的祖先判据
+ *                       先例，路径判据照本文件 PLAN-PATH「对账对象不许是幽灵路径」先例）；
+ *                       假提交号 / 幽灵路径 ⇒ 本规则红。边界如实：机器证的是「锚点存在」，
+ *                       **不证**「锚点内容支持该条结论」——后者仍是人工审查（见「已知边界」）。
  *   - `DONE-RESOLUTION` **done 必须有非空 resolution**（第六轮裁定：关闭态三件套
  *                       = 权威 owner + 可定位 evidence + 明确 resolution，缺一即红。
  *                       owner 的「权威」语义仍是人工判据，见「已知边界」）
@@ -33,10 +39,23 @@
  *                       与「指向 open 的甩锅链」——链上每步 superseded_by 都必须可解析，
  *                       成环或终点非 done ⇒ 红）
  *   - `SUPERSESSION-REASON`   **status=superseded 必须有非空 supersession_reason 且含可定位
- *                       锚点**（锚点判据与 DONE-EVIDENCE 同：提交号 / 带扩展名文件路径。
- *                       空占位红；「被裁定取代」式结论词无锚 = 红——替代理由不许是自我声明）
+ *                       锚点**（锚点判据与 DONE-EVIDENCE 同**形态段**：提交号 / 带扩展名文件路径。
+ *                       空占位红；「被裁定取代」式结论词无锚 = 红——替代理由不许是自我声明。
+ *                       **真值段只判 supersession_evidence**：reason 是叙事文本，证据锚的真值
+ *                       由 SUPERSESSION-EVIDENCE 把门，分工写死在代码注释）
  *   - `SUPERSESSION-EVIDENCE` **status=superseded 必须有非空 supersession_evidence 且含
- *                       可定位锚点**（同上判据；缺证据的「已被取代」= 换皮的未完成）
+ *                       可定位锚点**（同上判据，**含锚点真值**——假提交号/幽灵路径 = 红；
+ *                       缺证据的「已被取代」= 换皮的未完成）
+ *   - `FREEZE-TIER`     **每条条目必须有 freeze_tier，取值闭集 {A, B}**（专题⑤，2026-11-01；
+ *                       判据全文 `g1/G1-FREEZE-CRITERIA.md` §4）。缺失、空占位、词表外取值一律红。
+ *                       **故意不设缺省层级**：缺省成 A ⇒ 既有清单形态突然全红（误伤闸，第二天就被绕过）；
+ *                       缺省成 B ⇒ 「不写分层」自动等于「不计入冻结阻塞」，冻结面当场腾空（洗白闸）。
+ *                       两头都是失效，所以只给点名（自验 M27 缺字段红 / M28 取值漂移红）。
+ *   - `FREEZE-TIER-BASIS` **freeze_tier=B 必须有 tier_basis 且含可定位锚点，并过锚点真值**
+ *                       （与 DONE-EVIDENCE 同一真值判据、同一个 anchor 工厂）。理由：B 层免检的是
+ *                       「完成」，所以「把条目移出冻结阻塞面」这个动作必须留痕——它与替代关系同级，
+ *                       都是判据面变更，不许是自我声明（自验 M29 无留痕红 / M30 带真锚的整体降级
+ *                       由**谓词**的「A 层非空」项拦住，见 clearBlockers）。
  *   - `UNKNOWN-FIELD`   条目字段封闭集之外 = 红（防漂移：新字段先改校验器再进清单）。
  *                       **旧字段名 `supersedes` 是点名禁止字段**：出现即红并给出方向说明
  *                       （防新旧混用，见下方「字段方向」段；自验 M16 钉死复活、M17 钉死
@@ -68,8 +87,10 @@
  *     （SUPERSESSION-REASON / SUPERSESSION-EVIDENCE）+ 合法继任链（SUPERSEDED-CHAIN）——
  *     「指向任意一条 done」不再能洗白整片 open（第七轮点名的终局洗白反例，自验 M14/M15）。
  *   - 人工确认层（仅 --require-clear 拦，日常不阻塞推进）：每条 superseded 必须有
- *     `supersession_review: "REVIEW: <YYYY-MM-DD> <非作者审查者>"`，**缺失或审查者==owner
- *     ⇒ 终局谓词判红**——替代关系等同性由人签字，机器只核对签字存在、形态合法且非本人。
+ *     `supersession_review: "REVIEW: <YYYY-MM-DD> <非作者审查者>"`，**缺失、形态不合法、日期
+ *     不是真实历法日期（第八轮收紧：`9999-99-99`、`2026-02-30` 形合而历法不存在，不算签字），
+ *     或审查者==owner ⇒ 终局谓词判红**——替代关系等同性由人签字，机器只核对签字存在、形态
+ *     合法、日子真存在且非本人。闰日（如 `2024-02-29`）是真日子，必须放行（自验 M24 防误伤）。
  *
  * 已知边界（如实，不做超出裁定的事）：
  *   - 「id 不复用」只能靠 git diff 评审（删除条目会显示在 diff 里）；「不重排语义」同理。
@@ -77,6 +98,11 @@
  *     机验语义），本文书 §2-G1 保留该人工条款；校验器只判非空 / 非 UNASSIGNED。
  *   - `supersession_review` 的「非作者」同理是人工判据：机器能钉的是**形态合法且审查者
  *     与 owner 不同名**；「签名的两个人是否真有权威」不在机验面（与 owner 权威性同一边界）。
+ *   - **锚点真值的边界（P1-2，2026-11-01 补）**：机器能证「锚点存在」——提交号在 git 仓里
+ *     解析为 commit、路径能落到真实文件；机器**不能**证「锚点内容支持该条结论」——真提交可以
+ *     不相关、真文件可以没讲这件事、「锚点空转」仍是人工审查面（与「批准者是否真读了 diff」
+ *     同一人认边界）。自验 M18/M19/M21 把「假锚」钉死为红，钉不住「真锚空转」，不许把
+ *     M20 判绿误读成「内容过审」。
  *
  * 用法与谓词语义（写死，别让下一个读者猜——父代理 2026-10-31 点名的三态澄清；
  * **第六轮修订**，外部复审点名 G1 门禁 P1：旧 `--require-clear` 数的是 open/unassigned，
@@ -96,10 +122,34 @@
  *       谓词只判剩余面。
  *       G1 未完成阶段它红是**预期状态**（G1 NO-GO），不是判据坏死——所以它进 §2-G1
  *       放行判据，不进日常门。
+ *       **两层口径（专题⑤，2026-11-01；上面那段旧描述逐字有效，此处只登记唯一一处收窄）**：
+ *       `open`/`assigned` 的**终局阻塞面从「全局」收窄到「A 层」**——B 层是纯 G2/G3 实施与验证义务，
+ *       它的 open 是排期事实不是合同缺口（判据件 §1：单层口径的两个失效形态之一正是「为清零提前做实现」）。
+ *       其余四项**一字未动**：违规==0、全局 `unassigned==0`（这一项顺带就是「B 层必须有归属」）、
+ *       `supersededUnreviewed==0`（替代关系的人工确认门与层级无关）。新增一项 **A 层非空**：
+ *       A 层被整体抽空时「A 层全闭」是真空真，谓词会自己变成洗白通道，故必须独立拦住
+ *       （自验 M30 钉死：全量降级 + 每条真锚留痕 + owner 全填，仍须因「A 层被抽空」判红）。
+ *       谓词实现收敛进 `clearBlockers()` 单一函数——主流程与自验读同一份，不许各写一遍。
  *   node g1-checklist-validate.mjs --max-open <N>
  *       进度护栏：违规==0 且 open<=N。评审期可断言「open 面不扩大」，不要求清零。
- *   node g1-checklist-validate.mjs --self-test      # 变异自验（架空而非删除，见 MUTANTS）
+ *   node g1-checklist-validate.mjs --self-test      # 变异自验（架空而非删除，见 MUTANTS；
+ *       锚点真值族 M18（假提交号红）/M19（幽灵路径红）/M20（真锚绿，防空转）/M21（§E4 终局洗白
+ *       全形常驻回归）为 P1-2 修复的复现-修复证据；第八轮补 M22（签字日期 9999-99-99 红）/
+ *       M23（2026-02-30 红）/M24（闰日 2024-02-29 绿，防误伤）/M25（裸位置参数必非 0）/
+ *       M26（--file 正常形态必 exit 0，防把 fail-loud 修成死闸），条数以本行运行输出为准）
+ *       专题⑤（2026-11-01）分层族五补：**M27**（缺 freeze_tier 红）/ **M28**（取值漂移红）/
+ *       **M29**（A 层全量降级为 B 且不补 tier_basis ⇒ FREEZE-TIER-BASIS 红）/
+ *       **M30**（**谓词型**：全量降级 + 每条真锚留痕 + owner 全填 ⇒ 违规面全过，仍必须因
+ *       「A 层被抽空」判红，红因点名才算捕获）/ **M31**（**正向防死闸**：A 层全闭 + B 层仍 open
+ *       且已指名归属 ⇒ 终局门必须判绿——没有正向条的分层判据就是死闸，与「谓词永远红」同一种失效）。
  *   node g1-checklist-validate.mjs --file <path>    # 指定清单路径（自验与排查用）
+ *
+ * 参数面 fail-loud（第八轮，验席挖出的第 2 处小口，写死）：**只认** `--file` / `--require-clear`
+ * / `--max-open` / `--self-test` 四个 flag；未知参数、裸位置参数（如把清单路径直接甩在命令行上）、
+ * flag 缺值、flag 重复 ⇒ 打印一行说明 + **exit 2**。理由不是洁癖：旧实现用 `includes`/`indexOf`
+ * 读参数，**其余静默忽略**——`node g1-checklist-validate.mjs 某清单.yaml` 会被丢掉路径后去校验
+ * **默认主清单**并 exit 0，调用者以为验绿的是自己指定的那份。校验器报「绿」的对象必须与调用者
+ * 指的对象一致，否则门禁的绿就是假的（自验 M25/M26 两侧常驻）。新 flag 先进 parseArgs 再谈使用。
  *
  * 为什么不存在「清单永远不可能 clear」的死判据：**open 不要求 UNASSIGNED**——
  * UNASSIGNED 只是 open 条目**被允许**的取值，任何状态都可以（也应该）指名 owner；而
@@ -110,9 +160,11 @@
  * 放宽时，放行谓词不会静默跟着松）。superseded 路径「齐形可绿」不是纸面声明：全形夹具
  * （载荷齐 + review 齐）实测 --require-clear 判绿、去 review / 审查者==owner 两种减法
  * 实测判红，第七轮实测记录见 READINESS.md 第七轮节与 G0-R-CLOSURE.md。
- * 退出码：0 无违规（且给定谓词满足）；1 任何违规 / 谓词未满足 / 变异未被捕获。
+ * 退出码：0 无违规（且给定谓词满足）；1 任何违规 / 谓词未满足 / 变异未被捕获；
+ * 2 用法错误（未知参数 / 裸位置参数 / flag 缺值或非法值 / flag 重复）——用法错误不去猜校验对象。
  */
 import { readFileSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -297,7 +349,14 @@ const TOP_KEYS = new Set(['schema_version', 'plan', 'revision', 'items']);
 const ITEM_KEYS = new Set([
   'id', 'topic', 'spec', 'sources', 'owner', 'status', 'evidence', 'resolution',
   'superseded_by', 'supersession_reason', 'supersession_evidence', 'supersession_review',
+  // 专题⑤（2026-11-01）冻结分层：freeze_tier = 每条必填的 A/B 层标记；tier_basis = B 层的降级留痕。
+  // 字段先在这里进封闭集，再进清单（既有纪律「新字段先改校验器再进清单」）。
+  'freeze_tier', 'tier_basis',
 ]);
+// 冻结分层的取值闭集（专题⑤；判据见 g1/G1-FREEZE-CRITERIA.md §4）。**没有缺省值**：
+// 「缺字段算 A 还是算 B」这个问题本身就是洗白通道——缺省成 A 会让旧清单形态突然全红，
+// 缺省成 B 直接把冻结面腾空。故缺失即红，取值漂移即红，两条都有常驻变异（M27 / M28）。
+const FREEZE_TIERS = new Set(['A', 'B']);
 // 禁止字段（第七轮）：旧字段名不许复活——ADR-0003 的 `supersedes` 方向是取代者→被取代者，
 // 与本清单 `superseded_by`（被取代者→取代者）相反，混用一次判据就判反方向（见头注「字段方向」）。
 const BANNED_KEYS = new Map([
@@ -306,14 +365,88 @@ const BANNED_KEYS = new Map([
 const STATUSES = new Set(['open', 'assigned', 'done', 'superseded']);
 const ID_RE = /^G1-[A-Z][A-Z0-9]*-\d{2}$/;
 // 人工确认替代关系的形态（第七轮，仅 --require-clear 拦）：REVIEW: <YYYY-MM-DD> <审查者>
+// **第八轮收紧（验席挖出的第 1 处小口）**：正则只证「长得像日期」，`9999-99-99`、`2026-02-30`
+// 这类**形合但不可能存在**的串同样命中——而签字日期是替代关系的时间锚，不可能日期等于没锚
+// （要骗过机器的人不会写一个语法错的日期，只会写一个语法对的假日期）。故形态段之后再加
+// **真实历法日期**判据：月须 01–12、日须落在该月实际天数内（闰年 2-29 合法，防误伤）。
+// 零外部依赖：只用 `Date` 往返判等（见 isRealIsoDate）。判红位置照旧在**谓词面**（与「缺
+// review / 形态不符 / 审查者==owner」同一门），日常推进形态照旧不拦——收紧的是终局放行。
 const REVIEW_RE = /^REVIEW:\s*(\d{4}-\d{2}-\d{2})\s+(\S.*?)\s*$/;
+// 真实历法日期判据（形态已由 REVIEW_RE 保证是 4-2-2 位数字，这里只判「这个日子存在吗」）：
+// Date.UTC 会把越界的月/日**进位**（2026-02-30 → 2026-03-02），所以「往返后各字段是否仍等于
+// 字面值」就是「该月有没有这一天」的判据；不引任何外部日期库。
+function isRealIsoDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1) return false;      // 月 01–12、日至少存在到 1（00 日不存在）
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (y <= 99) dt.setUTCFullYear(y);                  // Date.UTC 把 0–99 映射到 1900–1999，回拨以核对 4 位字面年份
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
 // 可定位锚点：git 提交号（7–40 位十六进制）或带扩展名的文件路径（可带 :行号）。
 const COMMIT_RE = /\b[0-9a-f]{7,40}\b/;
 const FILE_RE = /[\w./-]+\.(?:md|ts|tsx|mjs|cjs|json|ya?ml|sql|db|jsonl)\b/i;
 
+// ---------- 锚点真值（P1-2 修复，2026-11-01；RE-REVIEW-G1-ENG §E4） ----------
+// 旧 DONE-EVIDENCE / SUPERSESSION-* 只判**形态**：形态合规的假锚（不存在的提交号 + 不存在的
+// 路径）把 27 条全 done 的伪造清单洗成 `--require-clear` exit 0（审查席实测；本仓复现同形，
+// 复现即自验 M21 常驻）。补**存在性**半边，两条判据都走同仓既有先例、零新依赖：
+//   - 提交号：`git cat-file -e <sha>^{commit}` 必须通过（g0-gate 基线 generated_from_commit
+//     用 `git merge-base --is-ancestor` 判真祖先，同一「git 即锚点仓库」先例）；
+//   - 路径：existsSync——先按「清单目录 / 仓根」两候选根，都落空再退到 `git ls-files *basename`
+//     后缀匹配（现存合法形态：G1-DONE-04 的 evidence 以裸 basename 引用 tests/ 下的夹具；
+//     幽灵 basename 在 git 索引里也是空集 ⇒ 照红）。PLAN-PATH「对账对象不许是幽灵路径」同族。
+// 边界（写进头注「已知边界」）：机器证的是**锚点存在**，不证**锚点内容支持该条结论**——
+// 「真锚点 + 空转结论」仍是人工审查面。git 不可用 / 清单在 git 树外 ⇒ fail-closed：
+// 提交锚一律点名（本门禁是仓门禁，不是通用 YAML 工具，宁可红不可盲）。
+const COMMIT_RE_G = /\b[0-9a-f]{7,40}\b/g;
+const FILE_RE_G = /[\w./-]+\.(?:md|ts|tsx|mjs|cjs|json|ya?ml|sql|db|jsonl)\b/gi;
+function makeAnchorChecker(checklistPath) {
+  const baseDir = checklistPath ? dirname(checklistPath) : HERE;
+  const top = spawnSync('git', ['-C', baseDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  const repoRoot = top.status === 0 && top.stdout.trim() ? top.stdout.trim() : null;
+  const bases = repoRoot ? [baseDir, repoRoot] : [baseDir];
+  const commitCache = new Map();
+  const pathCache = new Map();
+  const commitOk = (sha) => {
+    if (!commitCache.has(sha)) {
+      let ok = false;
+      if (repoRoot) ok = spawnSync('git', ['-C', repoRoot, 'cat-file', '-e', `${sha}^{commit}`], { stdio: 'ignore' }).status === 0;
+      commitCache.set(sha, ok);
+    }
+    return commitCache.get(sha);
+  };
+  const pathOk = (raw) => {
+    if (!pathCache.has(raw)) {
+      const p = raw.replace(/:\d+(?:-\d+)?$/, '');
+      let ok = p.startsWith('/') ? existsSync(p) : bases.some((b) => existsSync(join(b, p)));
+      if (!ok && repoRoot) {
+        const base = p.split('/').pop();
+        const r = spawnSync('git', ['-C', repoRoot, 'ls-files', '--', `*${base}`], { encoding: 'utf8' });
+        ok = r.status === 0 && r.stdout.split('\n').some((rel) => rel.trim() !== '' && existsSync(join(repoRoot, rel.trim())));
+      }
+      pathCache.set(raw, ok);
+    }
+    return pathCache.get(raw);
+  };
+  const problemsOf = (text) => {
+    const out = [];
+    for (const m of String(text).matchAll(COMMIT_RE_G))
+      if (!commitOk(m[0])) out.push(`锚点提交号「${m[0]}」在 git 仓库不存在（git cat-file -e ${m[0]}^{commit} 未通过）——形态合规的假提交号`);
+    for (const m of String(text).matchAll(FILE_RE_G))
+      if (!pathOk(m[0])) out.push(`锚点路径「${m[0]}」不存在（清单目录/仓根两候选根未命中，git ls-files 后缀匹配亦空）——幽灵路径`);
+    return out;
+  };
+  return { problemsOf, repoRoot };
+}
+
 function validate(text, checklistPath) {
   const violations = [];
   const V = (rule, id, line, why) => violations.push({ rule, id, line, why });
+  const anchor = makeAnchorChecker(checklistPath);   // P1-2：锚点真值（存在性），形态合规之后的第二道
   let parsed;
   try {
     parsed = parseChecklist(text);
@@ -372,6 +505,30 @@ function validate(text, checklistPath) {
     if (status !== null && !STATUSES.has(status))
       V('STATUS-VOCAB', id, f.status.line, `status=「${status}」不在封闭集 {open, assigned, done, superseded}（v1 词 resolved 已迁移为 done，见文件头）`);
 
+    // —— 冻结分层（专题⑤，2026-11-01；判据全文见 g1/G1-FREEZE-CRITERIA.md §4/§6）——
+    // 缺失即红、漂移即红：**故意不给缺省值**。缺省成 A 会让既有清单形态突然全红（误伤闸，
+    // 第二天就被绕过），缺省成 B 直接把冻结面腾空（洗白闸）。两个方向都不给，只给点名。
+    const tierRaw = f.freeze_tier ? (typeof f.freeze_tier.value === 'string' ? f.freeze_tier.value.trim() : null) : null;
+    if (!f.freeze_tier)
+      V('FREEZE-TIER', id, line, '缺 freeze_tier——每条条目必须显式声明冻结分层 A|B；「缺省算哪一层」这个问题不许存在（缺省成 B 腾空冻结面、缺省成 A 误伤旧形态，两头都是失效）');
+    else if (tierRaw === null || tierRaw === '')
+      V('FREEZE-TIER', id, f.freeze_tier.line, 'freeze_tier 是空占位（取值闭集 {A, B}）');
+    else if (!FREEZE_TIERS.has(tierRaw))
+      V('FREEZE-TIER', id, f.freeze_tier.line, `freeze_tier=「${tierRaw}」不在封闭集 {A, B}（A = 关键基础合同，冻结前必须闭合；B = 纯 G2/G3 实施与验证义务，不计入冻结阻塞但必须有归属）`);
+    // B 层免检「完成」，所以降级必须留痕：tier_basis 必填 + 含可定位锚点 + 过锚点真值（与
+    // DONE-EVIDENCE 真值段同判据、同一 anchor 工厂）。A 降 B 是**判据面变更**，与替代关系同级。
+    if (tierRaw === 'B') {
+      const tb = f.tier_basis ? (typeof f.tier_basis.value === 'string' ? f.tier_basis.value.trim() : '') : null;
+      if (!f.tier_basis)
+        V('FREEZE-TIER-BASIS', id, line, 'freeze_tier=B 但没有 tier_basis——把条目移出冻结阻塞面是判据面变更，必须写明「依据哪份在位裁定/条文，本条判据已闭合、剩余只有实施」（与替代关系同级，不许自我声明）');
+      else if (tb === '')
+        V('FREEZE-TIER-BASIS', id, f.tier_basis.line, 'tier_basis 是空占位');
+      else if (!COMMIT_RE.test(tb) && !FILE_RE.test(tb))
+        V('FREEZE-TIER-BASIS', id, f.tier_basis.line, 'tier_basis 缺可定位锚点（提交号 / 带扩展名的文件路径〔可带 :行号〕）——「我认为这条只剩实现」不许是自我声明');
+      else for (const bad of anchor.problemsOf(tb))
+        V('FREEZE-TIER-BASIS', id, f.tier_basis.line, `锚点真值未过：${bad}（与 DONE-EVIDENCE 真值段同判据；降级留痕的锚不许是假锚）`);
+    }
+
     const owner = f.owner ? (typeof f.owner.value === 'string' ? f.owner.value.trim() : '') : null;
     if (!f.owner) V('OWNER-RULE', id, line, '缺 owner');
     else if (owner === '') V('OWNER-RULE', id, f.owner.line, 'owner 为空');
@@ -384,6 +541,9 @@ function validate(text, checklistPath) {
       if (ev === null) V('DONE-EVIDENCE', id, line, 'status=done 但没有 evidence——「已修」不许是自我声明');
       else if (!COMMIT_RE.test(ev) && !FILE_RE.test(ev))
         V('DONE-EVIDENCE', id, f.evidence.line, 'evidence 缺可定位锚点（提交号 / 带扩展名的文件路径〔可带 :行号〕）——只写「经审查确认」不算证据');
+      // P1-2 真值段：形态过了不等于锚存在。假提交号 / 幽灵路径逐锚点名（判据与先例见工厂注释）。
+      else for (const bad of anchor.problemsOf(ev))
+        V('DONE-EVIDENCE', id, f.evidence.line, `锚点真值未过：${bad}（「形态合规≠锚存在」由 RE-REVIEW-G1-ENG P1-2 定案；自验 M18/M19/M21 钉死，正向 M20 防空转）`);
       // 第六轮裁定：done 三件套 = 权威 owner（OWNER-RULE 判非空/非 UNASSIGNED，权威性仍人工）
       // + 可定位 evidence（DONE-EVIDENCE）+ 明确 resolution（本条）。「已解决」不含
       // 「谁让位、依据什么」= 结论词自我声明，GT 系列的同款教训。
@@ -419,6 +579,11 @@ function validate(text, checklistPath) {
         else if (v === '') V(rule, id, f[key].line, `${key} 是空占位`);
         else if (!COMMIT_RE.test(v) && !FILE_RE.test(v))
           V(rule, id, f[key].line, `${key} 缺可定位锚点（提交号 / 带扩展名的文件路径〔可带 :行号〕）——结论词不能充当替代理由/证据（锚点判据与 DONE-EVIDENCE 同）`);
+        // P1-2 真值段：只判 supersession_evidence（替代关系的**证据**锚）——reason 是叙事文本，
+        // 其锚点只判形态（判据分工写进头注），证据锚造假已由本规则码点名。
+        else if (key === 'supersession_evidence')
+          for (const bad of anchor.problemsOf(v))
+            V(rule, id, f[key].line, `锚点真值未过：${bad}（与 DONE-EVIDENCE 真值段同判据；自验 M18/M19/M21 同族）`);
       }
     }
   });
@@ -472,9 +637,37 @@ function validate(text, checklistPath) {
   // **日常判据不拦**（缺 review 不记违规，不阻塞推进）；只在此计数，供 --require-clear 拦。
   let supersededUnreviewed = 0;
   const unreviewedDetail = [];
+  // —— 冻结分层计数（专题⑤，2026-11-01；判据全文见 g1/G1-FREEZE-CRITERIA.md）——
+  // **从严规则**：freeze_tier 缺失或取值非法（FREEZE-TIER 已各自红）的条目，此处在谓词面**一律按 A 层计**——
+  // 「层级不明」绝不允许被当成「不阻塞冻结」，否则「删掉 freeze_tier 行」就是最省事的降级手法。
+  // B 层的「有归属」= owner 非空且非 UNASSIGNED；这一项由**全局 unassigned** 承担（旧谓词那一项一字不动
+  // ⇒ B 层免检的是**完成**，不免**归属**）。
+  const tierOf = (it) => {
+    const t = it.__fields.find((x) => x.key === 'freeze_tier')?.value;
+    return typeof t === 'string' && FREEZE_TIERS.has(t.trim()) ? t.trim() : 'A';
+  };
+  const tierA = { items: 0, open: 0, assigned: 0, done: 0, superseded: 0, supersededUnreviewed: 0 };
+  const tierB = { items: 0, open: 0, assigned: 0, done: 0, superseded: 0, unowned: 0 };
   for (const it of items) {
     const g = (k) => it.__fields.find((x) => x.key === k)?.value;
     const st = typeof g('status') === 'string' ? g('status') : '';
+    const tier = tierOf(it);
+    const own = typeof g('owner') === 'string' ? g('owner').trim() : '';
+    if (tier === 'A') {
+      tierA.items++;
+      if (st === 'open') tierA.open++;
+      else if (st === 'assigned') tierA.assigned++;
+      else if (st === 'done') tierA.done++;
+      else if (st === 'superseded') tierA.superseded++;
+    } else {
+      tierB.items++;
+      if (st === 'open') tierB.open++;
+      else if (st === 'assigned') tierB.assigned++;
+      else if (st === 'done') tierB.done++;
+      else if (st === 'superseded') tierB.superseded++;
+      if (own === '' || own === 'UNASSIGNED') tierB.unowned++;
+    }
+    const unrevBefore = supersededUnreviewed;
     if (st === 'open') open++;
     else if (st === 'assigned') assigned++;
     else if (st === 'done') done++;
@@ -490,20 +683,112 @@ function validate(text, checklistPath) {
       } else if (!m) {
         supersededUnreviewed++;
         unreviewedDetail.push(`${idOf}：supersession_review 形态不合法「${rv.slice(0, 60)}」（须为 REVIEW: <YYYY-MM-DD> <审查者>）`);
+      } else if (!isRealIsoDate(m[1])) {
+        // 第八轮：形合的不可能日期（9999-99-99 / 2026-02-30）不再充当签字日期——正则过了
+        // 历法不过，同样算未经确认。闰年真实日期（2024-02-29）必须放行，常驻变异 M24 防误伤。
+        supersededUnreviewed++;
+        unreviewedDetail.push(`${idOf}：supersession_review 日期「${m[1]}」不是真实历法日期（月须 01–12、日须在该月实际天数内，含闰年 2 月 29 日）——形态合规的不可能日期不算签字`);
       } else if (m[2].trim() === ownerOf) {
         supersededUnreviewed++;
         unreviewedDetail.push(`${idOf}：supersession_review 审查者与 owner 同名「${m[2].trim()}」——自己确认自己的替代关系不算确认`);
       }
     }
+    if (tier === 'A' && supersededUnreviewed > unrevBefore) tierA.supersededUnreviewed++;
     if (typeof g('owner') === 'string' && g('owner').trim() === 'UNASSIGNED') unassigned++;
   }
-  return { violations, counts: { items: items.length, open, assigned, done, superseded, unassigned, supersededUnreviewed }, unreviewedDetail, parsed };
+  return {
+    violations,
+    counts: {
+      items: items.length, open, assigned, done, superseded, unassigned, supersededUnreviewed,
+      tierA, tierB,
+    },
+    unreviewedDetail,
+    parsed,
+  };
+}
+
+// ---------- 终局放行谓词（第六/七/八轮的旧谓词 + 专题⑤两层口径，2026-11-01） ----------
+// **旧谓词原文（保留以示演化，逐项对照）**：
+//   违规==0 ∧ open==0 ∧ assigned==0 ∧ unassigned==0 ∧ supersededUnreviewed==0
+// **现行谓词（本函数）**：
+//   违规==0 ∧ A 层非空 ∧ A 层 open==0 ∧ A 层 assigned==0 ∧ unassigned==0 ∧ supersededUnreviewed==0
+// 相对旧谓词**只收窄一项**：`open`/`assigned` 的终局阻塞面从「全局」收窄到「A 层」——B 层是纯 G2/G3
+// 实施与验证义务，它的 open/assigned 是排期事实不是合同缺口（判据件《g1/G1-FREEZE-CRITERIA.md》§1）。
+// 其余四项**一字未动**：`unassigned==0` 顺带就是「B 层必须有归属」，`supersededUnreviewed==0` 不分层
+// （替代关系的人工确认门与层级无关）。新增项「A 层非空」拦的是把分层整体抽空——A 层为空时
+// 「A 层全闭」是真空真，会让谓词自己变成洗白通道。
+// 返回**阻塞原因数组**（空数组 = 放行）：调用方（主流程 / 自验的 CLEAR、PREDICATE 判据）读同一个函数，
+// 不许在两处各写一遍谓词——「两个判据不得看到不同事实」是第六轮裁定的老纪律。
+function clearBlockers(c) {
+  if (!c) return ['清单解析失败（counts 为空），终局谓词无从判定'];
+  const b = [];
+  if (c.tierA.items === 0)
+    b.push('A 层条目数 = 0（分层被整体抽空：没有任何「关键基础合同」条目，「A 层全闭」就成了真空真）');
+  if (c.tierA.open !== 0) b.push(`A 层未闭合 open=${c.tierA.open}（期望 0——A 层是冻结前置）`);
+  if (c.tierA.assigned !== 0) b.push(`A 层仍是推进态 assigned=${c.tierA.assigned}（期望 0——「有人认领」不放行）`);
+  if (c.unassigned !== 0)
+    b.push(`owner=UNASSIGNED ${c.unassigned} 条（期望 0——含 B 层：B 层免检的是完成，不免归属）`);
+  if (c.supersededUnreviewed !== 0)
+    b.push(`superseded 未经人工确认 ${c.supersededUnreviewed} 条（期望 0——终局面需合法 supersession_review 且审查者≠owner）`);
+  return b;
 }
 
 // ---------- 变异自验（架空，不是删除） ----------
 // 每个变异都是在**真实清单文本**上做最小「洗白形」改写——仿照审查方会用来骗过校验器的
 // 形态（关闭无证据、指向幽灵 id、塞未知字段、重号、旧词复活、空口关闭）。
 // 判据：对应规则码必须出现 = 被捕获；任何一个变异活下来 ⇒ 校验器自身失效 = exit 1。
+// 第八轮日期变体的共用夹具：一条**除日期外全部齐形**的 superseded 条目（id 合法、owner 有主、
+// 继任链到达 done、reason/evidence 都带真实可定位锚、审查者≠owner）。齐形是刻意的——若其余角
+// 有缺口，红就可能是别的规则顺带命中（错误原因通过），日期判据本身根本没被检验。
+// 唯一变量是 supersession_review 里的日期字符串。
+function supersededWithReview(id, iso, reviewer) {
+  return '\n  - id: ' + id + '\n'
+    + '    topic: "变异夹具：supersession_review 日期判据（除日期外全齐形，不落主清单）"\n'
+    + '    owner: "Q40（夹具归属）"\n'
+    + '    status: superseded\n'
+    // 分层字段必须给：缺失本身就是 FREEZE-TIER 红，日期族变异要求违规==0 才算「红因是日期判据」，
+    // 不给这一行会让四条日期变异全部因错误原因通过（专题⑤加字段时同步补齐，旧断言一字未动）。
+    + '    freeze_tier: "A"\n'
+    + '    superseded_by: "G1-DONE-01"\n'
+    + '    supersession_reason: "g1-checklist-validate.mjs:1（夹具锚：演示日期判据专用）"\n'
+    + '    supersession_evidence: "g1-checklist-validate.mjs:1（夹具锚）"\n'
+    + '    supersession_review: "REVIEW: ' + iso + ' ' + reviewer + '"\n';
+}
+
+// 日期族变体的判据（谓词面）：红/绿都不在 violations 里（人工确认门只作用于 --require-clear），
+// 判据 = supersededUnreviewed 计数 + 点名到该条目的细节文本；违规必须仍为 0，否则红是别的规则
+// 顺带挡的、日期判据本身没被检验（错误原因通过）。
+function dateRedCheck(mu) {
+  return (res) => {
+    const detail = (res.unreviewedDetail ?? []).find((d) => d.startsWith(`${mu.id}：`));
+    const hit = res.violations.length === 0 && res.counts !== null
+      && res.counts.supersededUnreviewed > 0 && /真实历法日期/.test(detail ?? '');
+    return {
+      hit,
+      verdict: hit
+        ? `捕获（违规=0 前提下终局门判红：superseded_unreviewed=${res.counts.supersededUnreviewed}｜点名：${detail}）`
+        + `｜不可能日期「${mu.iso}」不得充当签字日期`
+        : `**存活**（期望违规=0 且日期「${mu.iso}」被历法判据点名；实际违规=${res.violations.length} `
+          + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'} 点名=${detail ?? '无'}）`,
+    };
+  };
+}
+// 正向侧（真闰日必须放行）：除这条夹具外主清单没有 superseded ⇒ superseded==1 且未确认计数==0。
+function dateGreenCheck(mu) {
+  return (res) => {
+    const hit = res.violations.length === 0 && res.counts !== null
+      && res.counts.superseded === 1 && res.counts.supersededUnreviewed === 0;
+    const detail = (res.unreviewedDetail ?? []).find((d) => d.startsWith(`${mu.id}：`));
+    return {
+      hit,
+      verdict: hit
+        ? `捕获（真闰日不误伤：违规=0、superseded=1、superseded_unreviewed=0 ⇒「REVIEW: ${mu.iso}」被接受）`
+        : `**存活**（期望真日期「${mu.iso}」放行；实际违规=${res.violations.length} `
+          + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'} 点名=${detail ?? '无'}）`,
+    };
+  };
+}
+
 const MUTANTS = [
   {
     name: 'M1-done-无证据（把 DONE-01 的 evidence 整行摘掉，其余一字不动）',
@@ -527,6 +812,7 @@ const MUTANTS = [
         '    topic: "变异夹具：指向幽灵 id 的取代声明"\n' +
         '    owner: "Q40"\n' +
         '    status: superseded\n' +
+        '    freeze_tier: "A"\n' +
         '    evidence: "g1-checklist-validate.mjs"\n' +
         '    superseded_by: "G1-NOPE-99"\n'
       );
@@ -613,9 +899,9 @@ const MUTANTS = [
     apply(text) {
       return text +
         '\n  - id: G1-MUTA-90\n    topic: "变异夹具：superseded 环 A 侧"\n    owner: "Q40"\n' +
-        '    status: superseded\n    superseded_by: "G1-MUTA-91"\n' +
+        '    status: superseded\n    freeze_tier: "A"\n    superseded_by: "G1-MUTA-91"\n' +
         '  - id: G1-MUTA-91\n    topic: "变异夹具：superseded 环 B 侧"\n    owner: "Q40"\n' +
-        '    status: superseded\n    superseded_by: "G1-MUTA-90"\n';
+        '    status: superseded\n    freeze_tier: "A"\n    superseded_by: "G1-MUTA-90"\n';
     },
   },
   {
@@ -723,25 +1009,304 @@ const MUTANTS = [
       // 两条——若把其余角也摘掉，双红可能只是别的原因顺带命中（错误原因通过）。
       return text +
         '\n  - id: G1-MUTA-97\n    topic: "变异夹具：旧字段切断链尝试（只写旧名指向存在 done）"\n' +
-        '    owner: "Q40"\n    status: superseded\n    supersedes: "G1-DONE-01"\n' +
+        '    owner: "Q40"\n    status: superseded\n    freeze_tier: "A"\n    supersedes: "G1-DONE-01"\n' +
         '    supersession_reason: "g1-checklist-validate.mjs（夹具锚：演示形态不落主清单）"\n' +
         '    supersession_evidence: "g1-checklist-validate.mjs:1（夹具锚）"\n';
     },
   },
+  // ——— P1-2（RE-REVIEW-G1-ENG §E4，2026-11-01）：锚点真值的四条形变 ———
+  // 先复现后修的复现记录：修**前**（只判形态）用同一构造跑 `--file fake.yaml --require-clear`
+  // 实测 **exit 0**（27/27 done、违规=0；`git cat-file -t abcdef0` = 128、幽灵路径 ls = 2，
+  // 两个锚都不存在却被判绿）。修**后** M18/M19/M21 全红、M20 保持绿——四侧钉死，
+  // 「假锚洗白终局放行谓词」这条路从此常驻有守门员。
+  {
+    name: 'M18-done+假提交号（把 DONE-01 的 evidence 换成「abcdef0 见 真实文件」：abcdef0 形态合规'
+      + '（COMMIT_RE 命中）但 git cat-file 无此提交——修前该形态判绿（§E4 反例的 done 侧），修后必红'
+      + '（真值段的提交半边））',
+    expect: 'DONE-EVIDENCE',
+    apply(text) {
+      const m = text.match(/^ {4}evidence: "CONTRACTS\.md:277-288[^"]*"$/m);
+      if (!m) throw new Error('变异夹具失配：找不到 DONE-01 的 evidence 行');
+      return text.replace(m[0], '    evidence: "abcdef0 见 g1-checklist-validate.mjs:1"');
+    },
+  },
+  {
+    name: 'M19-done+不存在路径（evidence 换成 ghost-evidence-does-not-exist.md：FILE_RE 形态命中、'
+      + '两候选根 existsSync 与 git ls-files 后缀匹配三面全空——真值段的路径半边必红）',
+    expect: 'DONE-EVIDENCE',
+    apply(text) {
+      const m = text.match(/^ {4}evidence: "CONTRACTS\.md:277-288[^"]*"$/m);
+      if (!m) throw new Error('变异夹具失配：找不到 DONE-01 的 evidence 行');
+      return text.replace(m[0], '    evidence: "ghost-evidence-does-not-exist.md"');
+    },
+  },
+  {
+    name: 'M20-done+真提交+真路径（正向防空转：HEAD 实测提交号 + 本校验器路径，形态与真值两面'
+      + '全过 ⇒ 必须判绿——真值校验若把真锚也判红就是误伤闸，第二天就会被绕过）',
+    expect: 'CLEAN',
+    apply(text) {
+      const head = spawnSync('git', ['-C', HERE, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+      if (!/^[0-9a-f]{7,40}$/.test(head)) throw new Error('变异构造失败：取不到 HEAD 提交号');
+      const m = text.match(/^ {4}evidence: "CONTRACTS\.md:277-288[^"]*"$/m);
+      if (!m) throw new Error('变异夹具失配：找不到 DONE-01 的 evidence 行');
+      return text.replace(m[0], `    evidence: "${head} 见 g1-checklist-validate.mjs:1"`);
+    },
+  },
+  {
+    name: 'M21-终局洗白全形常驻回归（RE-REVIEW-G1-ENG §E4 的**原反例**：27 条全改 done + owner 伪造'
+      + '归属 + 每条 evidence 同一条假锚「abcdef0 见 ghost-evidence-does-not-exist.md」+ resolution'
+      + ' 形合文本——修前该文本 --require-clear exit 0（今天实测的绿，登记为常驻回归）；修后 DONE-EVIDENCE'
+      + ' 逐条点名真值违规，放行谓词必红）',
+    expect: 'DONE-EVIDENCE',
+    apply(text) {
+      let t = text
+        .replace(/^    status: open$/gm, '    status: done\n    resolution: "形合文本：经审查已解决（伪造）"')
+        .replace(/^    owner: "UNASSIGNED"$/gm, '    owner: "Q40（伪造归属）"')
+        .replace(/^    evidence: ".*"$/gm, '    evidence: "abcdef0 见 ghost-evidence-does-not-exist.md"');
+      // 原本没有 evidence 行的条目补假锚行——洗白场景不限于「已有锚」的条目（照 §E4 复现脚本同构）
+      t = t.split(/(?=^  - id: )/m).map((c) =>
+        (/^    status: done$/m.test(c) && !/^    evidence: /m.test(c)
+          ? c.replace(/^  - id: (G1-[A-Z0-9-]+)\n/, '  - id: $1\n    evidence: "abcdef0 见 ghost-evidence-does-not-exist.md"\n')
+          : c)).join('');
+      if (!/^    owner: "Q40（伪造归属）"/m.test(t)) throw new Error('变异未生效：洗白形未构造成功');
+      return t;
+    },
+  },
+  // ——— 第八轮（验席挖出的两处校验器小口，2026-11-01）：日期真值 + 参数 fail-loud ———
+  // 两侧都留常驻变异：不可能日期必红、闰年真实日期必绿；裸位置参数必非 0、--file 必正常。
+  // 只测反例的判据工具已被打过两次（M20/M21 同族教训），正向侧不是可选项。
+  {
+    name: 'M22-supersession_review 不可能日期「9999-99-99」（REGEX 形合但历法不存在：修前 REVIEW_RE'
+      + ' 命中即算已确认，一条从没存在过的日子就能给替代关系签字；修后历法判据必红，且红因'
+      + '必须是日期而非别的角——夹具除日期外全齐形）',
+    expect: 'REVIEW-DATE-RED',
+    id: 'G1-MUTA-96', iso: '9999-99-99',
+    apply(text) {
+      const out = text + supersededWithReview('G1-MUTA-96', '9999-99-99', 'M22 变异：非owner审查者');
+      if (!out.includes('REVIEW: 9999-99-99')) throw new Error('变异未生效：不可能日期夹具未追加');
+      return out;
+    },
+  },
+  {
+    name: 'M23-supersession_review 历法不存在日期「2026-02-30」（月对日错：2 月没有 30 日，旧实现'
+      + '的 \\d{2} 一视同仁放行——日期真值不是只查月；夹具同 M22 全齐形，红因只许是日期）',
+    expect: 'REVIEW-DATE-RED',
+    id: 'G1-MUTA-95', iso: '2026-02-30',
+    apply(text) {
+      const out = text + supersededWithReview('G1-MUTA-95', '2026-02-30', 'M23 变异：非owner审查者');
+      if (!out.includes('REVIEW: 2026-02-30')) throw new Error('变异未生效：2026-02-30 夹具未追加');
+      return out;
+    },
+  },
+  {
+    name: 'M24-supersession_review 闰年真实日期「2024-02-29」（**正向防误伤**：收紧历法判据若把'
+      + '闰日也判红，第二天就会有人把日期写成 2 月 28 日糊弄过去——真日子必须照常放行；'
+      + '夹具其余角与 M22/M23 逐字同形，唯一差别就是这个日子真存在）',
+    expect: 'REVIEW-DATE-GREEN',
+    id: 'G1-MUTA-94', iso: '2024-02-29',
+    apply(text) {
+      const out = text + supersededWithReview('G1-MUTA-94', '2024-02-29', 'M24 变异：非owner审查者');
+      if (!out.includes('REVIEW: 2024-02-29')) throw new Error('变异未生效：闰日夹具未追加');
+      return out;
+    },
+  },
+  {
+    name: 'M25-裸位置参数被静默忽略（CLI 型：把清单路径当裸位置参数传进去。修前旧实现丢掉它、'
+      + '转去校验**默认主清单**并 exit 0——调用者以为绿的是自己指定的那份，这是「换个对象变绿」'
+      + '不是「少报一个参数」；修后必非 0 且打印一行用法说明）',
+    expect: 'CLI-FAIL-LOUD',
+    run({ target }) {
+      const bad = runSelf([target]);
+      const out = `${bad.stdout ?? ''}${bad.stderr ?? ''}`.trim();
+      const first = out.split('\n')[0] ?? '';
+      const hit = bad.status !== null && bad.status !== 0 && /用法错误/.test(out);
+      return {
+        hit,
+        verdict: hit
+          ? `捕获（裸位置参数 exit=${bad.status}，一行说明：${first}）`
+          : `**存活**（期望非 0 + 一行用法说明；实际 exit=${bad.status} 首行「${first || '无输出'}」——`
+            + '裸路径被静默忽略就是校验对象错位）',
+      };
+    },
+  },
+  {
+    name: 'M26-「--file <路径>」正向防误伤（同一份清单以 --file 传入必须照常校验并 exit 0：'
+      + 'fail-loud 若顺手把合法形态也拦掉，就把门禁换成了死闸，与「谓词永远红」同一种失效）',
+    expect: 'CLI-OK',
+    run({ target }) {
+      const ok = runSelf(['--file', target]);
+      const out = `${ok.stdout ?? ''}${ok.stderr ?? ''}`.trim();
+      const hit = ok.status === 0 && /结论：绿/.test(out);
+      return {
+        hit,
+        verdict: hit
+          ? `捕获（--file 正常工作：exit=0，输出「${out.split('\n').pop()}」）`
+          : `**存活**（期望 --file 正常 exit 0；实际 exit=${ok.status} 输出「${out.split('\n').slice(0, 2).join(' / ') || '无输出'}」）`,
+      };
+    },
+  },
+  // ——— 专题⑤（2026-11-01）冻结分层族：A/B 两层判据的常驻守卫 ———
+  // 分层把「B 层的 open/assigned」移出终局阻塞面，等于**新开了一条降级洗白路**：
+  // 「这条不算冻结阻塞」一旦可以随口宣称，清单清零就重新变成可实现的目标（正是判据件 §1 过松的一端）。
+  // 所以这条新通道开通的同一轮，就给它配常驻守卫：缺字段、取值漂移、无留痕降级、
+  // **带真锚的整体降级**（谓词面）、以及正向防死闸（A 层全闭 + B 层仍开放必须判绿）。
+  {
+    name: 'M27-分层字段缺失（把 G1-TIME-01 的 freeze_tier 整行摘掉：缺失若被缺省成 A，既有清单形态'
+      + '突然全红（误伤闸）；被缺省成 B 就直接把冻结面腾空（洗白闸）——两头都不许发生，只能点名）',
+    expect: 'FREEZE-TIER',
+    apply(text) {
+      const parts = text.split(/(?=^  - id: )/m);
+      let touched = false;
+      const out = parts.map((c) => {
+        if (!touched && /^  - id: G1-TIME-01$/m.test(c)) {
+          touched = true;
+          return c.replace(/^ {4}freeze_tier: "A"\n/m, '');
+        }
+        return c;
+      }).join('');
+      if (!touched || out === text) throw new Error('变异未生效：找不到 G1-TIME-01 的 freeze_tier 行');
+      return out;
+    },
+  },
+  {
+    name: 'M28-分层取值漂移（G1-TIME-01 的 freeze_tier 写成「C」：分层是判据面不是自由文本，'
+      + '词表外的取值既不属 A 也不属 B，必须点名而不是替调用者挑一个默认层）',
+    expect: 'FREEZE-TIER',
+    apply(text) {
+      const parts = text.split(/(?=^  - id: )/m);
+      let touched = false;
+      const out = parts.map((c) => {
+        if (!touched && /^  - id: G1-TIME-01$/m.test(c)) {
+          touched = true;
+          return c.replace(/^ {4}freeze_tier: "A"$/m, '    freeze_tier: "C"');
+        }
+        return c;
+      }).join('');
+      if (!touched || out === text) throw new Error('变异未生效：改不动 G1-TIME-01 的 freeze_tier 行');
+      return out;
+    },
+  },
+  {
+    name: 'M29-降级无留痕（把 A 层的 freeze_tier 全改成 B 且不补 tier_basis：「这条不算冻结阻塞」'
+      + '若是随口宣称，清单清零立刻重新变成可实现的目标——判据件 §1 过松的那一端）',
+    expect: 'FREEZE-TIER-BASIS',
+    apply(text) {
+      const out = text.replace(/^ {4}freeze_tier: "A"$/gm, '    freeze_tier: "B"');
+      const n = (out.match(/^ {4}freeze_tier: "B"$/gm) ?? []).length;
+      if (n <= 7) throw new Error(`变异未生效：降级条数 ${n} 未覆盖 A 层面（期望 > 7）`);
+      return out;
+    },
+  },
+  {
+    name: 'M30-整体降级且**带真锚留痕**（谓词型，最硬的一条：全部 A→B + 每条补一条真实在盘的 '
+      + 'tier_basis 锚 + owner 全部伪装成有主 ⇒ 违规面全过、unassigned 归零，「A 层全闭」成了真空真。'
+      + '此时唯一还拦得住的是谓词里的「A 层非空」项——它必须独立成立，且红因必须点名到 A 层被抽空）',
+    expect: 'TIER-WASH',
+    apply(text) {
+      let t = text.replace(/^ {4}freeze_tier: "A"$/gm, '    freeze_tier: "B"');
+      // 每条缺 tier_basis 的 B 层条目补一条**真锚**（g1/G1-FREEZE-CRITERIA.md 实测在盘）：
+      // 真值段不得成为红因，否则这条变异验的是锚点校验，不是谓词。
+      t = t.split(/(?=^  - id: )/m).map((c) =>
+        (/^ {4}freeze_tier: "B"$/m.test(c) && !/^ {4}tier_basis: /m.test(c)
+          ? c.replace(/^ {4}freeze_tier: "B"\n/m,
+              '    freeze_tier: "B"\n    tier_basis: "g1/G1-FREEZE-CRITERIA.md:1（变异夹具：真实在盘的锚，用来证明红因不是假锚）"\n')
+          : c)).join('');
+      t = t.replace(/^    owner: "UNASSIGNED"$/gm, '    owner: "M30 变异：伪装权威归属"');
+      const basisCount = (t.match(/^ {4}tier_basis: /gm) ?? []).length;
+      if (basisCount <= 7) throw new Error(`变异未生效：补留痕条数 ${basisCount} 异常`);
+      return t;
+    },
+  },
+  {
+    name: 'M31-B 层开放但已指名归属（正向防死闸：A 层全部关闭 + B 层仍是 open 且 owner 已指名 ⇒ '
+      + '终局门必须判绿。没有正向条的分层判据就是死闸——「永远红」与「永远绿」是同一种失效；'
+      + '它同时钉住「B 层免检完成、不免归属」这一刀在实现上没有反噬）',
+    expect: 'TIER-CLEAR',
+    apply(text) {
+      const t = text.split(/(?=^  - id: )/m).map((c) => {
+        if (!/^    status: open$/m.test(c)) return c;
+        if (/^    freeze_tier: "A"$/m.test(c)) {
+          let d = c.replace(/^    status: open$/m,
+            '    status: done\n    resolution: "形合文本：经审查已解决（正向夹具）"');
+          if (/^    evidence: .*$/m.test(d))
+            d = d.replace(/^    evidence: .*$/m, '    evidence: "g1/G1-FREEZE-CRITERIA.md:1（正向夹具锚）"');
+          else
+            d = d.replace(/^  - id: (G1-[A-Z0-9-]+)\n/, '  - id: $1\n    evidence: "g1/G1-FREEZE-CRITERIA.md:1（正向夹具锚）"\n');
+          return d.replace(/^    owner: "UNASSIGNED"$/m, '    owner: "Q40（正向夹具）"');
+        }
+        // B 层：刻意**保持 open**（这就是「B 层开放不阻塞冻结」的正面形态），只把归属补齐
+        return c.replace(/^    owner: "UNASSIGNED"$/m, '    owner: "Q40（正向夹具：B 层已指名）"');
+      }).join('');
+      if (!/^    status: open$/m.test(t)) throw new Error('变异失效：B 层没有留下 open 条目，正向面根本没被检验');
+      if (/^    owner: "UNASSIGNED"$/m.test(t)) throw new Error('变异失效：仍有条目无归属，正向面根本没被检验');
+      return t;
+    },
+  },
 ];
 
-function main() {
-  const argv = process.argv.slice(2);
-  const selfTest = argv.includes('--self-test');
-  const requireClear = argv.includes('--require-clear');
-  const maxOpenIdx = argv.indexOf('--max-open');
-  const maxOpen = maxOpenIdx >= 0 ? Number(argv[maxOpenIdx + 1]) : null;
-  if (maxOpenIdx >= 0 && (!Number.isInteger(maxOpen) || maxOpen < 0)) {
-    console.log(`--max-open 需要非负整数，收到「${argv[maxOpenIdx + 1]}」`);
-    process.exit(2);
+// ---------- 命令行参数解析（第八轮改为 fail-loud） ----------
+// 旧实现只 `includes`/`indexOf` 自己认得的三个 flag，**其余参数静默忽略**。后果不是「报得难看」
+// 而是**判错对象**：`node g1-checklist-validate.mjs 某清单.yaml` 里的路径被丢掉，脚本转去校验
+// **默认主清单**并 exit 0——调用者以为绿的是自己指定的那份。这类「静默换个对象变绿」比红危险
+// 得多（与本文件「不许把未验证的东西报成绿」同一条底线），故现在：未知参数 / 裸位置参数 /
+// flag 缺值 / flag 重复 ⇒ 打印一行说明 + exit 2（沿用 --max-open 非法值既有的用法错误码）。
+const USAGE = '用法：node g1-checklist-validate.mjs [--file <清单路径>] [--require-clear] [--max-open <N>] [--self-test]';
+function failUsage(why) {
+  console.log(`用法错误：${why}——静默忽略参数会让人以为校验的是自己指定的清单（${USAGE}）`);
+  process.exit(2);
+}
+function parseArgs(argv) {
+  const out = { selfTest: false, requireClear: false, maxOpen: null, file: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    switch (a) {
+      case '--self-test':
+        if (out.selfTest) failUsage('「--self-test」重复给出');
+        out.selfTest = true;
+        break;
+      case '--require-clear':
+        if (out.requireClear) failUsage('「--require-clear」重复给出');
+        out.requireClear = true;
+        break;
+      case '--max-open': {
+        if (out.maxOpen !== null) failUsage('「--max-open」重复给出');
+        const v = argv[i + 1];
+        if (v === undefined || v.startsWith('--')) failUsage('「--max-open」缺少参数值（须为非负整数）');
+        if (!Number.isInteger(Number(v)) || Number(v) < 0) failUsage(`「--max-open」需要非负整数，收到「${v}」`);
+        out.maxOpen = Number(v);
+        i++;
+        break;
+      }
+      case '--file': {
+        if (out.file !== null) failUsage('「--file」重复给出（两份清单要分两次跑，别指望一次验两份）');
+        const v = argv[i + 1];
+        if (v === undefined || v.startsWith('--')) failUsage('「--file」缺少参数值（须为清单路径）');
+        out.file = resolve(v);
+        i++;
+        break;
+      }
+      default:
+        if (a.startsWith('-'))
+          failUsage(`未知参数「${a}」（只认 --file / --require-clear / --max-open / --self-test；新 flag 须先改进本解析器）`);
+        else
+          failUsage(`不接受裸位置参数「${a}」，指定清单请写「--file ${a}」`);
+    }
   }
-  const fileIdx = argv.indexOf('--file');
-  const target = fileIdx >= 0 ? resolve(argv[fileIdx + 1]) : DEFAULT_CHECKLIST;
+  return out;
+}
+
+// CLI 型变体的执行器（M25/M26）：用当前 node 跑**本文件自身**——判据是真实退出码与输出文本，
+// 这正是「校验器作为命令行门禁」的对外契约面，进程内 validate() 摸不到。子进程不带 --self-test
+// ⇒ 不会递归。
+const SELF_PATH = fileURLToPath(import.meta.url);
+function runSelf(args) {
+  return spawnSync(process.execPath, [SELF_PATH, ...args], { encoding: 'utf8', cwd: HERE });
+}
+
+function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  const { selfTest, requireClear, maxOpen } = opts;
+  const target = opts.file ?? DEFAULT_CHECKLIST;
 
   const text = readFileSync(target, 'utf8');
 
@@ -758,30 +1323,74 @@ function main() {
     for (const mu of MUTANTS) {
       let verdict;
       try {
+        // CLI 型变体（M25/M26）判的是进程行为（退出码 + 输出），validate() 摸不到，故由 run()
+        // 自跑子进程自报命中；文本型变体走原路。
+        if (typeof mu.run === 'function') {
+          const r = mu.run({ target, text });
+          if (!r.hit) failed++;
+          console.log(`${mu.name}\n  ⇒ ${r.verdict}`);
+          continue;
+        }
         const mutated = mu.apply(text);
         const res = validate(mutated, target);
         let hit;
-        if (mu.expect === 'CLEAR') {
+        if (mu.expect === 'REVIEW-DATE-RED' || mu.expect === 'REVIEW-DATE-GREEN') {
+          // 第八轮日期族：判据在**谓词面**（人工确认门只作用于 --require-clear），不在 violations 里。
+          const r = (mu.expect === 'REVIEW-DATE-RED' ? dateRedCheck : dateGreenCheck)(mu)(res);
+          hit = r.hit;
+          verdict = r.verdict;
+        } else if (mu.expect === 'CLEAR') {
           // 正向形状：**只有**违规==0 且终局谓词真绿才算捕获——谓词在合法全清形态上必须放行，
           // 否则门禁成死闸（「永远红」与「永远绿」是同一种失效）。
-          hit = res.violations.length === 0 && res.counts !== null
-            && res.counts.open === 0 && res.counts.assigned === 0 && res.counts.unassigned === 0
-            && res.counts.supersededUnreviewed === 0;
+          // 专题⑤起读**同一个** clearBlockers()：自验与主流程不许各持一份谓词副本。
+          const blockers = clearBlockers(res.counts);
+          hit = res.violations.length === 0 && blockers.length === 0;
           verdict = hit
             ? `捕获（全清形态下 --require-clear 判绿：items=${res.counts.items} done=${res.counts.done} 违规=0）`
             : `**存活**（期望全清判绿；实际违规=${res.violations.length} `
               + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'}`
+              + `阻塞=[${blockers.join(' ｜ ') || '无'}]`
               + `${res.violations.length ? ` 首条=[${res.violations[0].id}] ${res.violations[0].why}` : ''}）`;
         } else if (mu.expect === 'PREDICATE') {
           // 谓词型变异：**只有**在「日常判据无违规」前提下 --require-clear 仍红才算捕获。
           // 若它同时制造了违规，红就是违规挡的，谓词有没有洞根本没被检验——错误原因通过。
-          hit = res.violations.length === 0 && res.counts !== null
-            && (res.counts.open !== 0 || res.counts.assigned !== 0 || res.counts.unassigned !== 0
-              || res.counts.supersededUnreviewed !== 0);
+          const blockers = clearBlockers(res.counts);
+          hit = res.violations.length === 0 && res.counts !== null && blockers.length > 0;
           verdict = hit
             ? `捕获（违规=0 前提下 --require-clear 判红：open=${res.counts.open} assigned=${res.counts.assigned} unassigned=${res.counts.unassigned} superseded_unreviewed=${res.counts.supersededUnreviewed}）`
+              + `｜阻塞=${blockers.join(' ｜ ')}`
             : `**存活**（期望违规=0 且谓词红；实际违规=${res.violations.length} `
               + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'}）`;
+        } else if (mu.expect === 'TIER-WASH') {
+          // 分层洗白的谓词面专项（M30）：违规必须为 0——否则红是规则挡的，谓词的洞没被检验；
+          // 且红因必须**点名到「A 层被抽空」**，靠别的面红不算捕获（错误原因通过）。
+          const blockers = clearBlockers(res.counts);
+          const named = blockers.find((b) => /A 层条目数 = 0/.test(b));
+          hit = res.violations.length === 0 && res.counts !== null && named !== undefined;
+          verdict = hit
+            ? `捕获（违规=0、unassigned=${res.counts.unassigned}、B 层 items=${res.counts.tierB.items} 全降级之后，`
+              + `终局门仍因「A 层被抽空」判红）｜阻塞=${blockers.join(' ｜ ')}`
+            : `**存活**（期望违规=0 且红因点名「A 层条目数 = 0」；实际违规=${res.violations.length} `
+              + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'} 阻塞=[${blockers.join(' ｜ ') || '无'}]）`;
+        } else if (mu.expect === 'TIER-CLEAR') {
+          // 正向防死闸（M31）：A 层全闭 + **B 层仍 open 但已指名归属** ⇒ 谓词必须判绿，
+          // 且必须**真的**留有 B 层 open 条目（否则这条变异什么都没验——空转的正向条等于没有正向条）。
+          const blockers = clearBlockers(res.counts);
+          hit = res.violations.length === 0 && res.counts !== null
+            && blockers.length === 0 && res.counts.tierB.open > 0 && res.counts.tierB.unowned === 0;
+          verdict = hit
+            ? `捕获（A 层 items=${res.counts.tierA.items} 全闭、B 层 open=${res.counts.tierB.items === 0 ? 0 : res.counts.tierB.open} 条仍开放`
+              + ` 且归属齐 ⇒ --require-clear 判绿；全局 open=${res.counts.open} 证明「清零」不再是冻结前置）`
+            : `**存活**（期望违规=0、B 层有开放条目且无缺席归属、谓词绿；实际违规=${res.violations.length} `
+              + `计数=${res.counts ? JSON.stringify(res.counts) : '解析失败'} 阻塞=[${blockers.join(' ｜ ') || '无'}]`
+              + `${res.violations.length ? ` 首条=[${res.violations[0].id}] ${res.violations[0].why}` : ''}）`;
+        } else if (mu.expect === 'CLEAN') {
+          // 真值正向型（M20）：done + **真提交 + 真路径**必须判绿——真值校验不得变成只会被动的
+          // 误伤闸；「假锚红、真锚绿」两侧都有常驻变异，判据才不是单向的。
+          hit = res.violations.length === 0;
+          verdict = hit
+            ? '捕获（真提交+真路径判绿：违规=0，真值段不误伤）'
+            : `**存活**（期望违规=0；实际违规=${res.violations.length} 首条=[${res.violations[0].id}] ${res.violations[0].why}）`;
         } else {
           // expect 允许单规则或规则数组（数组=每条都必须命中——M17 的「禁止字段+缺继任」双红，
           // 只命中其一都是错误原因通过）。
@@ -815,22 +1424,31 @@ function main() {
     console.log(`计数 items=${counts.items} open=${counts.open} assigned=${counts.assigned} `
       + `done=${counts.done} superseded=${counts.superseded} unassigned=${counts.unassigned} `
       + `superseded_unreviewed=${counts.supersededUnreviewed} 违规=${violations.length}`);
+    // 分层计数行（专题⑤新增；上面那行**逐字保留**，矩阵/计划引用的旧口径不受影响）：
+    // A 层 = 冻结前置；B 层 = 实施义务（open 不阻塞，unowned 阻塞）。
+    console.log(`分层 A：items=${counts.tierA.items} open=${counts.tierA.open} assigned=${counts.tierA.assigned} `
+      + `done=${counts.tierA.done} superseded=${counts.tierA.superseded} `
+      + `superseded_unreviewed=${counts.tierA.supersededUnreviewed} ｜ `
+      + `B：items=${counts.tierB.items} open=${counts.tierB.open} assigned=${counts.tierB.assigned} `
+      + `done=${counts.tierB.done} superseded=${counts.tierB.superseded} unowned=${counts.tierB.unowned}`);
   }
-  // 终局放行谓词（第六轮改写，G1 门禁 P1 的修复点；第七轮补 superseded 人工确认门）：
-  // open/assigned 都算「未了结」；superseded 未经人工确认（缺/畸形 supersession_review，
-  // 或审查者==owner）同样不放行。链合法性与替代载荷由 SUPERSEDED-CHAIN /
-  // SUPERSESSION-REASON / SUPERSESSION-EVIDENCE 违规在上方判红，谓词只在 违规==0 的
-  // 前提下数剩余面。
-  if (requireClear && counts
-    && (violations.length !== 0 || counts.open !== 0 || counts.assigned !== 0 || counts.unassigned !== 0
-      || counts.supersededUnreviewed !== 0)) {
-    console.log('G1 终局放行谓词未满足（NO-GO 阶段的预期红，见头注语义说明）：'
-      + `未了结工作项 open=${counts.open}、assigned=${counts.assigned}（期望均为 0——assigned 是推进态不是终局态，`
-      + '「有人认领」不放行）；owner=UNASSIGNED '
-      + `${counts.unassigned}（期望 0）；superseded 未经人工确认 ${counts.supersededUnreviewed} 条`
-      + `（期望 0——终局面上 superseded 需合法 supersession_review 且审查者≠owner，「被替代」不是免检通道）；`
-      + `违规=${violations.length} 条（期望 0——含 DONE-RESOLUTION/SUPERSEDED-CHAIN/SUPERSESSION-REASON/SUPERSESSION-EVIDENCE，`
-      + 'done 三件套、继任链闭合与替代载荷都在此闸）');
+  // 终局放行谓词（第六轮改写，G1 门禁 P1 的修复点；第七轮补 superseded 人工确认门；
+  // 专题⑤ 2026-11-01 改两层口径：`open`/`assigned` 的阻塞面收窄到 A 层，其余四项一字未动，
+  // 并新增「A 层非空」。判据全文 = clearBlockers() 的注释 + g1/G1-FREEZE-CRITERIA.md §6。
+  // 链合法性与替代载荷仍由 SUPERSEDED-CHAIN / SUPERSESSION-REASON / SUPERSESSION-EVIDENCE
+  // 违规在上方判红，谓词只在 违规==0 的前提下数剩余面。）
+  if (requireClear && counts && (violations.length !== 0 || clearBlockers(counts).length !== 0)) {
+    const blockers = clearBlockers(counts);
+    console.log('G1 终局放行谓词未满足（NO-GO 阶段的预期红，见头注语义说明与 g1/G1-FREEZE-CRITERIA.md）：'
+      + `A 层未闭合 open=${counts.tierA.open}、assigned=${counts.tierA.assigned}（期望均为 0——A 层是冻结前置；`
+      + 'assigned 是推进态不是终局态，「有人认领」不放行）；'
+      + `A 层条目数=${counts.tierA.items}（=0 即分层被抽空，同样不放行）；owner=UNASSIGNED `
+      + `${counts.unassigned}（期望 0——含 B 层，B 层免检的是完成、不免归属）；`
+      + `superseded 未经人工确认 ${counts.supersededUnreviewed} 条（期望 0——终局面上 superseded 需合法 `
+      + 'supersession_review 且审查者≠owner，「被替代」不是免检通道）；'
+      + `违规=${violations.length} 条（期望 0——含 DONE-RESOLUTION/SUPERSEDED-CHAIN/SUPERSESSION-REASON/`
+      + 'SUPERSESSION-EVIDENCE/FREEZE-TIER/FREEZE-TIER-BASIS，done 三件套、继任链闭合、替代载荷与分层标注都在此闸）');
+    for (const b of blockers) console.log(`  阻塞项：${b}`);
     for (const d of unreviewedDetail) console.log(`  未经确认的 superseded：${d}`);
     process.exit(1);
   }

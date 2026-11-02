@@ -272,3 +272,52 @@ export interface CheckReportRecord {
   readonly declaredGaps: readonly string[];
   readonly recordedAt: CommitSequence;
 }
+
+// ---------------------------------------------------------------------------
+// 领域命令 Port（DC-* / R-9）：**一个业务动作一个方法**，命令判别式是字面量。
+//
+// 为什么不是通用 `run(name, payload)`：判别式写成字面量后，命令名册在类型层就是封闭的；
+// 通用入口会把「哪个领域能写什么」重新变回运行期字符串比较，等于把授权面交还给调用方。
+//
+// 记录域 Raw Intake（DC-11 容错通道）：`unparseable` 是**载荷字段**，不是闸门——
+// 解析失败是数据事实，不是拒绝理由；把它做成闸门会让「无法解析的原文」永远进不了账，
+// 恰恰违背原始记录必须先落地的目的。
+// ---------------------------------------------------------------------------
+
+/** 命令 Port 的统一回执（DC-7）：机制在**入口内**签发登记序，调用方不得自行编造。 */
+export interface CommandReceipt {
+  readonly oid: ObjectOid;
+  readonly revision: number;
+  /** 该权威事件行的号（CS-2.5）。不返回信封对象——回执不是授权证据。 */
+  readonly witnessSeq: CommitSequence;
+}
+
+export interface DeclareRawIntakeCommand {
+  readonly command: 'test.records:declareRawIntake';
+  readonly recordId: string;
+  readonly text: string;
+  readonly sourceRef: string;
+  /** 载荷字段：原文是否可解析。缺省视为可解析；`true` 不构成拒绝理由（DC-11）。 */
+  readonly unparseable?: boolean;
+}
+
+/**
+ * 端口实现所依赖的事务面（**结构最小集**，刻意不 import `kernel.ts` 的 `UnitOfWork`）：
+ * 契约层反向依赖内核实现会形成 kernel → contracts → kernel 的循环。实现侧传入真实的
+ * `UnitOfWork`（结构兼容即通过），因此这里只声明端口真正用到的成员——多声明一个成员，
+ * 就等于给未来实现多开一条未经契约裁定的能力。
+ */
+export interface RawIntakeTransaction {
+  appendAuthoritativeEvent(a: {
+    readonly eventType: string;
+    readonly objectId?: ObjectOid;
+    readonly revision?: number;
+    readonly payload: unknown;
+    readonly describedAt?: number;
+  }): CommitSequence;
+}
+
+/** 拥有者导出、装配根注入。记录域的原始入口**只有这一个方法**（唯一入口）。 */
+export interface RawIntakeCommandPort {
+  declare(tx: RawIntakeTransaction, cmd: DeclareRawIntakeCommand): CommandReceipt;
+}

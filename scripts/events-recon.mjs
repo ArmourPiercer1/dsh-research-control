@@ -99,8 +99,19 @@ function verifyApprovals(doc, repoRoot) {
     let text;
     try { text = readFileSync(abs, 'utf8'); } catch { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `批准锚指向的文件不存在：${src}` }); continue; }
     const line = `Approved-By: ${on} ${by}`;
-    if (!text.includes(line)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `${src} 里没有逐字批准行「${line}」——锚与签字须同源` }); continue; }
-    if (!text.includes(name)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `${src} 未提及被批准的名字 ${name}` }); continue; }
+    // 签名块：fenced code block（```…```）**且**块内含逐字 `Approved-By: <日期> <批准人>` 行。
+    // 只认块内逐名出现——「文书里别处提到该名 + 挡了另一个名字的签字行」不算批准
+    // （第二轮复审：`ns-relocated` 被文书明确写「不入本批」，却能被这种拼法签上）。
+    const blocks = [...text.matchAll(/```[\s\S]*?```/g)].map((m) => m[0]).filter((b) => b.includes(line));
+    if (blocks.length === 0) {
+      problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `${src} 里没有含逐字批准行「${line}」的签名块——锚与签字须同源` });
+      continue;
+    }
+    const nameInBlock = blocks.some((b) => new RegExp(`(^|[^a-z0-9-])${name}([^a-z0-9-]|$)`, 'm').test(b));
+    if (!nameInBlock) {
+      problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `${src} 的签名块内没有逐名列出 ${name}——「文书里别处提到过」不等于批准了它` });
+      continue;
+    }
     approved.add(name);
   }
   return { approved, problems };
@@ -357,7 +368,9 @@ function checkCoupling(sha, cwd = REPO) {
   const git = (...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const files = git('show', '--name-only', '--format=', sha).split('\n').filter(Boolean);
   const touchesLedger = files.includes(LEDGER_REL);
-  const writeModules = files.filter((f) => /^src\/kernel\//.test(f) || /^src\/storage-sqlite\//.test(f));
+  // PR-1..PR-10 的真实代码在 `experiments/<pkg>/src/{kernel,storage-sqlite}/**`（生产根迁移前），
+  // 只认 `src/**` 会让「名单语义行 + 真实写点同提交」在迁移窗口内全绿——第二轮复审 P1-3。
+  const writeModules = files.filter((f) => /^(?:experiments\/[^/]+\/)?src\/(?:kernel|storage-sqlite)\//.test(f));
   const hits = [];
   const push = (detail) => hits.push({ code: 'EVENT_RECON_COUPLING', msg: `提交 ${sha.slice(0, 7)} 同时改了名单语义行与写点模块（${writeModules.slice(0, 3).join(', ')}…）：${detail}` });
   if (!touchesLedger) return hits;
@@ -369,10 +382,24 @@ function checkCoupling(sha, cwd = REPO) {
   const after = readAt(sha);
 
   if (!after) { push('提交后的名单不可解析——格式损坏不能换豁免'); return hits; }
+  // 顶层键集合与其中非 entries/approved 的值（schemaVersion / interpretationRuleSetVersion / writeSites …）
+  // 变化同样是语义行：改 schemaVersion 就能让读面按另一套规则解释，那不是格式化。
+  const top = (o) => Object.keys(o).filter((k) => k !== 'entries' && k !== 'approved').sort();
+  const tBefore = top(before); const tAfter = top(after);
+  if (tBefore.join(',') !== tAfter.join(',')) push(`顶层键集合变化：${tBefore.join(',')} → ${tAfter.join(',')}`);
+  else for (const k of tAfter) {
+    if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) push(`顶层字段 ${k} 变化`);
+  }
 
   // EA-2.4 两处同现的**提交侧**：任何新增批准记录的提交都必须带 trailer——
   // 与「是否同提交改了写点」无关（锚文件的独立性正体现于此，独立审查 P1-3 的修法）。
-  const approvedAdded = (after.approved ?? []).length - (before.approved ?? []).length;
+  // multiset 差（不是长度差）：删 1 加 1 长度为 0，但来源已被改写——那不是「没新增」。
+  const key = (a) => JSON.stringify([a?.approvedBy, a?.approvedOn, a?.anchor]);
+  const beforeBag = new Map(); for (const a of before.approved ?? []) { const k = key(a); beforeBag.set(k, (beforeBag.get(k) ?? 0) + 1); }
+  const afterBag = new Map(); for (const a of after.approved ?? []) { const k = key(a); afterBag.set(k, (afterBag.get(k) ?? 0) + 1); }
+  const approvedAdded = [...afterBag].reduce((n, [k, c]) => n + Math.max(0, c - (beforeBag.get(k) ?? 0)), 0);
+  const approvedRemoved = [...beforeBag].reduce((n, [k, c]) => n + Math.max(0, c - (afterBag.get(k) ?? 0)), 0);
+  if (approvedRemoved > 0) push(`批准记录被删除/改写 ${approvedRemoved} 条（approval 只许追加）`);
   if (approvedAdded > 0) {
     const msg = git('show', '--format=%B', '-s', sha);
     if (!/^Event-Name-Review:\s*\d{4}-\d{2}-\d{2}\s+\S+/m.test(msg)) {
@@ -381,6 +408,8 @@ function checkCoupling(sha, cwd = REPO) {
   }
 
   if (writeModules.length === 0) return hits;
+  // EA-2.4 步骤 3：批准记录必须**独立于**写点提交——带 trailer 也不能与写点同提交。
+  if (approvedAdded > 0) push(`批准记录追加与写点同提交（批准须独立提交，trailer 不代替独立性）`);
 
   const mapOf = (d) => new Map((d.entries ?? []).map((e) => [e.eventType, e]));
   const b = mapOf(before); const a = mapOf(after);
@@ -527,7 +556,14 @@ function selfTest() {
     const ghost = verifyApprovals({ ...baseDoc, approved: [{ approvedBy: 'someone', approvedOn: '2026-11-03', anchor: 'legacy:NOPE#x-y' }] }, D);
     emit('MUT-APPROVAL 未登记 legacy 锚', 'R2', ghost.approved.size === 0, `approved=${ghost.approved.size}（期望 0）`);
     mkdirSync(join(D, 'docs'), { recursive: true });
-    writeFileSync(join(D, 'docs/x.md'), '# approvals\n\nApproved-By: 2026-11-03 reviewer-b\n\n- x-y\n');
+    writeFileSync(join(D, 'docs/x.md'),
+      '# approvals\n\n说明文字里提到 x-z 不算批准。\n\n```\nApproved-By: 2026-11-03 reviewer-b\n  x-y   —— 批准理由\n```\n');
+    // 对照（负）：同一文件、同一批准行，但名字只在**块外**出现 ⇒ 必须不算批准
+    const outsideBlock = verifyApprovals({ ...baseDoc, approved: [
+      { approvedBy: 'reviewer-b', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-y' },
+      { approvedBy: 'reviewer-b', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-z' },
+    ] }, D);
+    emit('MUT-APPROVAL 名字只在签名块外出现', 'R2', outsideBlock.approved.size === 1, `approved=${outsideBlock.approved.size}（期望 1，仅 x-y）`);
     const good = verifyApprovals({ ...baseDoc, approved: [{ approvedBy: 'reviewer-b', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-y' }] }, D);
     emit('对照3：锚文件存在 + 逐字批准行 ⇒ 通过', 'R2', good.approved.size === 1, `approved=${good.approved.size}（期望 1）`);
 
@@ -597,14 +633,16 @@ try {
 
   if (argv.includes('--commit')) {
     const sha = opt('--commit');
-    const bad = checkCoupling(sha);
+    const bad = checkCoupling(sha, resolve(REPO, opt('--impl-root', '.')));
     if (bad.length) { for (const b of bad) console.error(`FAIL [${b.code}] ${b.msg}`); process.exit(1); }
     console.log(`PASS [EVENT_RECON_COUPLING] 提交 ${sha.slice(0, 7)} 未同时改动名单语义行与写点模块`);
     process.exit(0);
   }
 
   const implRoot = resolve(REPO, opt('--impl-root', '.'));
-  const r = run({ implRoot });
+  // `--anchor` 必须真正生效（第二轮复审 P1-1：声明了却没接线 = 静默 no-op，比没有更坏）
+  const anchorPath = resolve(REPO, opt('--anchor', ANCHOR_PATH));
+  const r = run({ implRoot, anchorPath });
   if (flag('--json')) console.log(JSON.stringify(r, null, 2));
   else {
     console.log(`扫描：impl-root=${r.implRoot} 文件=${r.scannedFiles} 期望=${r.expected}（planned=${r.planned}） 事实=${r.facts}`);

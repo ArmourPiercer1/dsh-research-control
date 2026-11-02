@@ -334,6 +334,16 @@ pnpm run docs:check                                                             
    `pnpm run check:types`（`scripts/tsc-gate.mjs`）按诊断身份比对来「不新增债务」，本来就不要求编译器零错误。
    写成「raw tsc 期望 0」按字面必红，且会诱导解历史债或放宽基线。
 
+**⚠ 本门自身会命中仓级冻结面（2026-11-03 核对 `dev/engineering/doc-ownership.yaml`）**：
+`scripts/**|dev/**|.github/**` 与 `package.json|tsconfig.json|vitest.config.ts|tsdown.config.ts` 的
+`risk: blocking`。因此 Bootstrap 第一提交若改 `.github/workflows/ci.yml`（触发面）或 `package.json`（files/构建面），
+**该 PR body 必须含 `Frozen-Face-Review: <YYYY-MM-DD> <批准人>`**，且 `批准人` 是**人**（用户或其人类代表）——
+这是仓级「人工批准的机验标记」（`docs/development.md`「冻结变更的机器门」），**不由实现者填写**。
+两条合规路径（二选一，由用户定）：① 用户为 Bootstrap PR 签标记；② Bootstrap 只落 `src/**`/`tests/**`/
+`tsconfig.kernel.json`（新文件不命中 `tsconfig.json` 精确 glob），把 `ci.yml`/`package.json` 的改动并入 **PR-2**
+（该 PR 本就要签 `Frozen-Face-Review`），代价是 Bootstrap 阶段的投票只能走既有 `main` 触发面。
+**禁止**为绕过标记而把 CI 改动静默塞进非 blocking 路径。
+
 **退出判据**：上述五条全绿 ∧ `src/kernel/**` 与 `src/storage-sqlite/**` 已被 `tsconfig`/构建面收入 ∧
 `tests/kernel-bootstrap.test.ts` 在 CI 投票路径上跑过（附 run URL 或 job 日志片段）∧ 该测试**零**
 `experiments/**` 导入（import 断言）。

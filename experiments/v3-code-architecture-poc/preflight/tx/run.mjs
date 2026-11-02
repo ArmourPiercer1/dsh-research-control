@@ -322,7 +322,7 @@ check('IDEM-3', '首次提交后撤销访问权 ⇒ 零新领域效果；披露�
   w.grant(ADMIN.actorId, 'space-write');
   eq(gate, 'NO_SPACE_WRITE', '撤写权后的守卫码');
 
-  // ② 写权在、读权撤：允许进入事务，但披露被当前授权拒（REPLAY_ACCESS_DENIED）
+  // ② 写权在、读权撤：允许进入事务，但披露被当前授权拒（既有码 AUTHORITY_REQUIRED）
   if (!canRead(ADMIN.actorId)) throw new Error('前置：调用者应有读权');
   w.revoke(ADMIN.actorId, 'space-read');
   const code = refusal(() => submit({ clientRequestId: 'idem-a', body: { x: 1 }, replayAuthCheck: canRead }));

@@ -29,7 +29,7 @@ CS 分配点/持久化位置/与 commit 的先后、IDC 写入时点 + IDC-12）
 | TX-4（负例） | 按旧顺序插占位区间 → 执行后想对齐真实区间 ⇒ 必撞 `HISTORY_IMMUTABLE`，事务回滚零残留 | PASS（旧顺序被否证） |
 | IDEM-1 | 首次提交 c1 后插入其他提交，再重放首次请求 ⇒ 返回 **c1**（不随 head），响应逐字节等 | PASS |
 | IDEM-2 | 同键异体 ⇒ `IDEMPOTENCY_KEY_REUSED`，零新提交/零新事件，既有回执不改写 | PASS |
-| IDEM-3 | 撤写权 ⇒ `NO_SPACE_WRITE`（UoW 守卫更早）；仅撤读权 ⇒ `REPLAY_ACCESS_DENIED`（零新领域效果）；恢复 ⇒ 正常重放 | PASS |
+| IDEM-3 | 撤写权 ⇒ `NO_SPACE_WRITE`（UoW 守卫更早）；仅撤读权 ⇒ `AUTHORITY_REQUIRED`（零新领域效果，detail 无结果引用）；恢复 ⇒ 正常重放 | PASS |
 
 ## 2. 对契约的修订（同步落点）
 
@@ -38,7 +38,7 @@ CS 分配点/持久化位置/与 commit 的先后、IDC 写入时点 + IDC-12）
 2. **CS**（`G1-CONTRACT-COMMIT-SEQUENCE.md`）：分配点只推水位；持久化位置标注两处同事务但时点不同；
    「与 commit 的先后」改为「预留水位 → 领域写与事件 → 落提交账 → COMMIT」。
 3. **IDC**（`G1-CONTRACT-IDEMPOTENCY.md`）：回执写入时点写明（结果存在之后、`commit_record` 之后）；
-   新增 **IDC-12**（重放披露按当前授权；不重执行历史前置；`NO_SPACE_WRITE` 与 `REPLAY_ACCESS_DENIED`
+   新增 **IDC-12**（重放披露按当前授权；不重执行历史前置；`NO_SPACE_WRITE` 与 `AUTHORITY_REQUIRED`
    是两级不同守卫，不得混记）。
 
 **取值通道与时钟（复核后补强）**：回执的 `commitSequence`/`recordedAtMs` **读自刚插入的 `commit_record` 行**

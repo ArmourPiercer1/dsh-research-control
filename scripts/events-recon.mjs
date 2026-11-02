@@ -54,6 +54,49 @@ function loadExpected(anchorPath = ANCHOR_PATH) {
   return { doc, byName, names: [...byName.keys()] };
 }
 
+/**
+ * 批准三要素机验（EA-6.1「两处同现」的**文件侧**那一处；trailer 那一处在 `--commit` 里查）。
+ *
+ * 独立审查 P1-3 的修法：`anchor` 只当字符串后缀用过等于「谁都能自签」。这里要求：
+ *   ① 非 legacy 锚 = 「仓内**已存在**文件路径 + `#<eventType>`」；
+ *   ② 该文件里必须有 `Approved-By: <approvedOn> <approvedBy>` 原文行（日期/人逐字对齐条目）；
+ *   ③ 该文件必须提到这个名字（覆盖关系不是凭空后缀）；
+ *   ④ 批准者不得是实现者形态（`implementer`/`author`/`self` 等；④是**形态拦截**，真身份属人工面）。
+ * legacy 锚（本仓无 `CONTRACTS.md` 的既有评审事实）走显式白名单，必须逐条写明理由。
+ */
+const LEGACY_ANCHOR_WHITELIST = new Map([
+  ['legacy:C-19', 'C-19 既有评审事实（CONTRACTS.md §16.3 / D-27；该文件不在本仓，锚以事实标识字符串表达）'],
+  ['legacy:EA-5.2', 'EA-5.2 存量升格就地（G1-CONTRACT-EVENT-AUTHORITY.md 表内批准事实）'],
+]);
+const APPROVER_DENY = /implementer|implementor|author|self|the-same/i;
+
+function verifyApprovals(doc, repoRoot) {
+  const approved = new Set();
+  const problems = [];
+  for (const a of doc.approved ?? []) {
+    const anchor = String(a?.anchor ?? '');
+    const by = String(a?.approvedBy ?? '').trim();
+    const on = String(a?.approvedOn ?? '').trim();
+    const m = /^(.+)#([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/.exec(anchor);
+    if (!by || !on) { problems.push({ code: 'EVENT_RECON_UNPROVED', name: m?.[2] ?? anchor, msg: `批准记录缺 approvedBy/approvedOn：${anchor}` }); continue; }
+    if (!m) { problems.push({ code: 'EVENT_RECON_UNPROVED', name: anchor, msg: `批准锚形状非法（须为 <路径或 legacy:id>#<eventType>）：${anchor}` }); continue; }
+    const [, src, name] = m;
+    if (APPROVER_DENY.test(by)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `批准者形态不可接受（${by}）：批准者必须是独立于实现者的人` }); continue; }
+    if (src.startsWith('legacy:')) {
+      if (!LEGACY_ANCHOR_WHITELIST.has(src)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `未登记的 legacy 锚：${src}（legacy 锚进显式白名单才有效）` }); continue; }
+      approved.add(name); continue;
+    }
+    const abs = join(repoRoot, src);
+    let text;
+    try { text = readFileSync(abs, 'utf8'); } catch { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `批准锚指向的文件不存在：${src}` }); continue; }
+    const line = `Approved-By: ${on} ${by}`;
+    if (!text.includes(line)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `${src} 里没有逐字批准行「${line}」——锚与签字须同源` }); continue; }
+    if (!text.includes(name)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `${src} 未提及被批准的名字 ${name}` }); continue; }
+    approved.add(name);
+  }
+  return { approved, problems };
+}
+
 /* ------------------------------------------------------------------ 事实集（TS AST 扫描） */
 
 function walkFiles(root, globs) {
@@ -90,27 +133,64 @@ function walkFiles(root, globs) {
   return out;
 }
 
-/** 从一个文件里抽出「写点事件名」字面量集合 */
+/**
+ * 从一个文件里抽出「写点事件名」集合。
+ *
+ * 反盲区（PR-1 独立审查 P1-4 修复）：
+ * - **形状违规名不丢弃**：`eventType: 'evil:colon'` 这类不合名单文法的名字也要报出来（否则换个
+ *   形状就能从 R1 的视野里消失）。返回 `invalid` 供 R1 以 detail 说明其违规形态。
+ * - **常量间接解析**：`const EVT = 'x'; appendLedger({eventType: EVT})` 与 `insert ... run(..., EVT)`
+ *   必须在同文件内解析到字面量；解析不到（函数返回/外部 import/拼接）⇒ 记 `unresolved`，R1 报红
+ *   （「无法证明它写的是名单内名字」不等于「它写的是名单内名字」）。
+ */
 function factsFromFile(abs) {
   const text = readFileSync(abs, 'utf8');
   const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true, abs.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const names = new Map(); // name -> first line
+  const invalid = [];      // {text, line}
+  const unresolved = [];   // {expr, line}
+  const relays = [];       // {expr, line} —— 转发形写点（名字来自调用方）
+  const lineOf = (n) => sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
   const add = (lit, node) => {
-    if (!NAME_RE.test(lit)) return;
-    const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+    const line = lineOf(node);
+    if (!NAME_RE.test(lit)) { invalid.push({ text: lit, line }); return; }
     if (!names.has(lit)) names.set(lit, line);
   };
   const litText = (n) => (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) ? n.text : null);
+
+  // 同文件 const/let 字面量表（只取单次赋值、初始化即字面量的形）
+  const consts = new Map();
+  const collectConsts = (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      const t = litText(n.initializer);
+      if (t !== null) consts.set(n.name.text, t);
+    }
+    ts.forEachChild(n, collectConsts);
+  };
+  collectConsts(sf);
+
+  /** 把一个表达式解析成事件名字面量；解析不到就记 unresolved */
+  const resolveName = (expr) => {
+    const t = litText(expr);
+    if (t !== null) { add(t, expr); return; }
+    if (ts.isIdentifier(expr) && consts.has(expr.text)) { add(consts.get(expr.text), expr); return; }
+    if (ts.isParenthesizedExpression(expr)) { resolveName(expr.expression); return; }
+    // 转发形：`a.eventType` / `e.eventType` 这类成员访问没有名字本体，值由调用方给。
+    // 它不是「名字事实」，但**必须**在同文件里有归属/名单核对（`formalEventOwner` /
+    // `registry.*` 之类），否则就是一条无从证明的通用写点（独立审查 P1-4 的同族盲区）。
+    if (ts.isPropertyAccessExpression(expr)) { relays.push({ expr: expr.getText(sf), line: lineOf(expr) }); return; }
+    if (ts.isTemplateExpression(expr)) { unresolved.push({ expr: expr.getText(sf), line: lineOf(expr) }); return; }
+    if (ts.isConditionalExpression(expr)) {
+      resolveName(expr.whenTrue); resolveName(expr.whenFalse); return;
+    }
+    unresolved.push({ expr: expr.getText(sf).slice(0, 80), line: lineOf(expr) });
+  };
 
   const visit = (node) => {
     // (a) 属性 eventType: '<lit>'（appendLedger({eventType}) 形）
     if (ts.isPropertyAssignment(node)) {
       const key = node.name && (ts.isIdentifier(node.name) ? node.name.text : ts.isStringLiteral(node.name) ? node.name.text : '');
-      if (key === 'eventType') {
-        const direct = litText(node.initializer);
-        if (direct) add(direct, node);
-        else collectLits(node.initializer, (l, n) => add(l, n));
-      }
+      if (key === 'eventType') resolveName(node.initializer);
     }
     // (b) 含 `insert into ledger(...)` 的 SQL 调用：**只取 event_type 列对应的实参**（不是所有 args）
     if (ts.isCallExpression(node)) {
@@ -126,7 +206,7 @@ function factsFromFile(abs) {
         const idx = ledgerCols(args.map(sqlOf).find((t) => t && /insert\s+into\s+ledger/i.test(t)));
         if (idx == null) return;
         const value = args[idx + 1];        // args[0] = SQL；第 k 个占位符 = args[k]
-        if (value) collectLits(value, (l, n) => add(l, n));
+        if (value) resolveName(value);
       };
       const direct = node.arguments.map(sqlOf).find((t) => t && /insert\s+into\s+ledger/i.test(t));
       if (direct) fromArgs(node.arguments);
@@ -139,16 +219,8 @@ function factsFromFile(abs) {
     }
     ts.forEachChild(node, visit);
   };
-  const collectLits = (node, cb) => {
-    const walk = (n) => {
-      const t = litText(n);
-      if (t) { cb(t, n); return; }
-      ts.forEachChild(n, walk);
-    };
-    walk(node);
-  };
   visit(sf);
-  return names;
+  return { names, invalid, unresolved, relays };
 }
 
 function collectFacts(implRoot, byName) {
@@ -156,19 +228,46 @@ function collectFacts(implRoot, byName) {
   for (const e of byName.values()) for (const g of e.writeSites ?? []) globs.add(g);
   const files = walkFiles(implRoot, [...globs]);
   const facts = new Map(); // name -> {file, line}
+  const invalid = [];
+  const unresolved = [];
+  const relays = [];
   for (const f of files) {
-    for (const [n, line] of factsFromFile(f)) {
-      if (!facts.has(n)) facts.set(n, { file: relative(implRoot, f).split(sep).join('/'), line });
+    const rel = relative(implRoot, f).split(sep).join('/');
+    const r = factsFromFile(f);
+    for (const [n, line] of r.names) if (!facts.has(n)) facts.set(n, { file: rel, line });
+    for (const x of r.invalid) invalid.push({ ...x, file: rel });
+    for (const x of r.unresolved) unresolved.push({ ...x, file: rel });
+    if (r.relays.length) {
+      // 同文件必须出现归属/名单核对（真新点判据：转发写点 = 必须在核对之后）
+      const guarded = /formalEventOwner|registry\s*\.\s*(?:lookup|formal|capability|ownsEvent)|MECHANISM_AUDIT_EVENT_TYPES/.test(readFileSync(f, 'utf8'));
+      for (const x of r.relays) relays.push({ ...x, file: rel, guarded });
     }
   }
-  return { files, facts };
+  return { files, facts, invalid, unresolved, relays };
 }
 
 /* ------------------------------------------------------------------ 判据 */
 
-function checkR1(facts, byName) {
+/** 契约块声明的 gated_by 闭集（EA §2.4 四门 + FM §9 FM-9 一门）。新增门控必须同批改这里与夹具。 */
+const GATED_BY_CLOSED = new Set(['EA-1.2.3', 'EA-7.1', 'EA-7.2', 'G1-NS-01', 'G1-FACET-01']);
+
+function checkR1(facts, byName, scan) {
   const bad = [...facts.entries()].filter(([n]) => !byName.has(n));
-  return bad.map(([n, loc]) => ({ code: 'EVENT_RECON_ORPHAN', name: n, ...loc, msg: `写点出现名单外事件名 ${n}（${loc.file}:${loc.line}）` }));
+  const out = bad.map(([n, loc]) => ({ code: 'EVENT_RECON_ORPHAN', name: n, ...loc, msg: `写点出现名单外事件名 ${n}（${loc.file}:${loc.line}）` }));
+  for (const x of scan.invalid) {
+    out.push({ code: 'EVENT_RECON_ORPHAN', name: x.text, file: x.file, line: x.line,
+      msg: `写点事件名 ${JSON.stringify(x.text)} 不符合名单文法（${x.file}:${x.line}）——形状违规名同样不得静默放过` });
+  }
+  for (const x of scan.relays ?? []) {
+    if (x.guarded) continue;
+    out.push({ code: 'EVENT_RECON_ORPHAN', name: x.expr, file: x.file, line: x.line,
+      msg: `转发形写点（${x.expr}）所在文件没有归属/名单核对：名字来自调用方且无从证明已过名单（${x.file}:${x.line}）` });
+  }
+  for (const x of scan.unresolved) {
+    out.push({ code: 'EVENT_RECON_ORPHAN', name: x.expr, file: x.file, line: x.line,
+      msg: `写点事件名无法静态解析（${x.file}:${x.line} ${x.expr}）——不能证明它来自名单，按违规处理` });
+  }
+  return out;
 }
 
 function checkR2(facts, byName, approvedSet) {
@@ -184,8 +283,13 @@ function checkR2(facts, byName, approvedSet) {
   for (const [n, e] of byName) {
     if (e.class !== 'mechanism') continue;
     if (approvedSet.has(n)) continue;
-    if (e.planned === true && typeof e.gated_by === 'string' && e.gated_by) continue;
-    bad.push({ code: 'EVENT_RECON_UNPROVED', name: n, msg: `机制条目 ${n} 缺 Approved-By 覆盖（anchor 需以 #${n} 结尾），且非带 gated_by 的 planned 条目` });
+    // planned:true 只允许「提案未入账 + 门控锚 ∈ 契约声明闭集」这一种免批准形态；
+    // 任意非空串（`G1-OTHER`）不再被当作有效门控（独立审查 P2-1）。
+    if (e.planned === true && typeof e.gated_by === 'string' && GATED_BY_CLOSED.has(e.gated_by)) continue;
+    bad.push({ code: 'EVENT_RECON_UNPROVED', name: n,
+      msg: e.planned === true
+        ? `机制条目 ${n} planned:true 但 gated_by=${JSON.stringify(e.gated_by ?? null)} 不在契约声明闭集内（${[...GATED_BY_CLOSED].join('/')}）`
+        : `机制条目 ${n} 缺 Approved-By 覆盖（anchor 需为「仓内已存在文件 + Approved-By: <日期> <批准人>」并指向本名）` });
   }
   return bad;
 }
@@ -193,10 +297,17 @@ function checkR2(facts, byName, approvedSet) {
 function checkR3(scriptPath = import.meta.filename) {
   const src = readFileSync(scriptPath, 'utf8');
   const bad = [];
-  // 不得 import src/** 或 experiments/** 的写点模块
-  for (const m of src.matchAll(/^\s*import[^;]*?from\s+['"]([^'"]+)['"]/gm)) {
-    if (/(^|\/)(src|experiments)\//.test(m[1])) bad.push({ code: 'EVENT_RECON_SAMESOURCE', msg: `脚本 import 了写点/实验模块：${m[1]}` });
-  }
+  // 不得 import src/** 或 experiments/** 的写点模块——四种形态都要查（独立审查 P2-3）：
+  // 具名/默认 import、side-effect import、动态 import()、createRequire/require
+  const isForbidden = (spec) => /(^|\/)(src|experiments)\//.test(spec);
+  for (const m of src.matchAll(/^\s*import[^;]*?from\s+['"]([^'"]+)['"]/gm))
+    if (isForbidden(m[1])) bad.push({ code: 'EVENT_RECON_SAMESOURCE', msg: `脚本 import 了写点/实验模块：${m[1]}` });
+  for (const m of src.matchAll(/^\s*import\s+['"]([^'"]+)['"]/gm))
+    if (isForbidden(m[1])) bad.push({ code: 'EVENT_RECON_SAMESOURCE', msg: `side-effect import 了写点/实验模块：${m[1]}` });
+  for (const m of src.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]/g))
+    if (isForbidden(m[1])) bad.push({ code: 'EVENT_RECON_SAMESOURCE', msg: `动态 import 了写点/实验模块：${m[1]}` });
+  for (const m of src.matchAll(/\b(?:createRequire|require)\s*\(\s*['"]([^'"]+)['"]/g))
+    if (isForbidden(m[1])) bad.push({ code: 'EVENT_RECON_SAMESOURCE', msg: `require 了写点/实验模块：${m[1]}` });
   // 期望集只读锚文件：不得出现第二个 JSON 读取路径作为期望源
   const jsonReads = [...src.matchAll(/readFileSync\(\s*([A-Za-z_$][\w$]*|['"][^'"]+['"])/g)].map((m) => m[1]);
   const allowed = new Set(['anchorPath', 'raw', 'abs', 'f', 'scriptPath', 'p', 'file']);
@@ -208,40 +319,85 @@ function checkR3(scriptPath = import.meta.filename) {
 
 const LEDGER_REL = 'contracts/event-registry/EVENT-CONTRACT-LEDGER.json';
 
+const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
+  ? Object.fromEntries(Object.keys(x).sort().map((key) => [key, x[key]])) : x));
+
+/**
+ * R4 单提交耦合检查（**按语义比，不按行子串**）。
+ *
+ * 独立审查 P1-1 的修法：旧实现「diff 行里出现 planned/approvedBy/anchor 就豁免」有两个实测绕过
+ * （把名单压成单行 JSON ⇒ 整段豁免；同提交改 approvedBy + 改写点 ⇒ 豁免）。改为解析 `sha^` 与 `sha`
+ * 两份 JSON 逐 entry 比字段：
+ *   - entries：按 eventType 建表；**新增/删除条目 = 语义行**（删名会让 R1/R2 失明，新增名是名单扩形）；
+ *     已有条目只允许 `planned` 由 true→false 一种变化（EA-2.4 步骤 3），其余任何字段变化 = 语义行；
+ *   - approved：只允许**追加**（既有条目逐字保留，multiset 子集），删除/改写 = 语义行；
+ *   - 解析失败（格式坏了）= 语义行（不能以「解析不了」换豁免）；
+ *   - 同一提交里出现新增批准记录 ⇒ 必须带 `Event-Name-Review:` trailer（EA-2.4 两处同现的提交侧）。
+ */
 function checkCoupling(sha, cwd = REPO) {
-  const git = (...a) => execFileSync('git', a, { cwd, encoding: 'utf8' });
+  const git = (...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const files = git('show', '--name-only', '--format=', sha).split('\n').filter(Boolean);
   const touchesLedger = files.includes(LEDGER_REL);
   const writeModules = files.filter((f) => /^src\/kernel\//.test(f) || /^src\/storage-sqlite\//.test(f));
-  if (!touchesLedger || writeModules.length === 0) return [];
-  const diff = git('show', '--format=', sha, '--', LEDGER_REL);
-  const changed = diff.split('\n').filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l));
-  const exempt = (l) => {
-    const body = l.slice(1).trim();
-    if (!body || body === ',' || body === '{' || body === '}' || body === '[' || body === ']') return true;
-    if (/"approvedBy"|"approvedOn"|"anchor"/.test(body)) return true;            // approved[] 追加（EA-2.4 步骤 3）
-    if (/"planned"\s*:\s*(true|false)/.test(body)) return true;                  // planned 翻转（R4 豁免）
-    return false;
+  const hits = [];
+  const push = (detail) => hits.push({ code: 'EVENT_RECON_COUPLING', msg: `提交 ${sha.slice(0, 7)} 同时改了名单语义行与写点模块（${writeModules.slice(0, 3).join(', ')}…）：${detail}` });
+  if (!touchesLedger) return hits;
+
+  const readAt = (rev) => {
+    try { return JSON.parse(git('show', `${rev}:${LEDGER_REL}`)); } catch { return null; }
   };
-  const semantic = changed.filter((l) => !exempt(l));
-  return semantic.length
-    ? [{ code: 'EVENT_RECON_COUPLING', msg: `提交 ${sha.slice(0, 7)} 同时改了名单语义行与写点模块（${writeModules.slice(0, 3).join(', ')}…）：语义行须与写点分居两提交`, lines: semantic.slice(0, 5) }]
-    : [];
+  const before = readAt(`${sha}^`) ?? { entries: [], approved: [] };
+  const after = readAt(sha);
+
+  if (!after) { push('提交后的名单不可解析——格式损坏不能换豁免'); return hits; }
+
+  // EA-2.4 两处同现的**提交侧**：任何新增批准记录的提交都必须带 trailer——
+  // 与「是否同提交改了写点」无关（锚文件的独立性正体现于此，独立审查 P1-3 的修法）。
+  const approvedAdded = (after.approved ?? []).length - (before.approved ?? []).length;
+  if (approvedAdded > 0) {
+    const msg = git('show', '--format=%B', '-s', sha);
+    if (!/^Event-Name-Review:\s*\d{4}-\d{2}-\d{2}\s+\S+/m.test(msg)) {
+      hits.push({ code: 'EVENT_RECON_UNSIGNED', msg: `提交 ${sha.slice(0, 7)} 新增了 ${approvedAdded} 条批准记录但提交信息缺 Event-Name-Review trailer（EA-2.4 两处同现）` });
+    }
+  }
+
+  if (writeModules.length === 0) return hits;
+
+  const mapOf = (d) => new Map((d.entries ?? []).map((e) => [e.eventType, e]));
+  const b = mapOf(before); const a = mapOf(after);
+  for (const [name, oldE] of b) {
+    const newE = a.get(name);
+    if (!newE) { push(`删除条目 ${name}（删名会让 R1/R2 失明）`); continue; }
+    const { planned: oldP, ...oldRest } = oldE;
+    const { planned: newP, ...newRest } = newE;
+    if (canon(oldRest) !== canon(newRest)) { push(`条目 ${name} 的语义字段变化`); continue; }
+    if (oldP !== newP && !(oldP === true && newP === false)) push(`条目 ${name} 的 planned 变化方向非法（只许 true→false）`);
+  }
+  for (const name of a.keys()) if (!b.has(name)) push(`新增条目 ${name}`);
+
+  const approvedBefore = (before.approved ?? []).map(canon);
+  const approvedAfter = (after.approved ?? []).map(canon);
+  const pool = new Map();
+  for (const x of approvedAfter) pool.set(x, (pool.get(x) ?? 0) + 1);
+  for (const x of approvedBefore) {
+    const n = pool.get(x) ?? 0;
+    if (n === 0) { push('删除或改写了既有批准记录'); break; }
+    pool.set(x, n - 1);
+  }
+  return hits;
 }
 
 /* ------------------------------------------------------------------ 主流程 */
 
-function run({ implRoot }) {
-  const { doc, byName } = loadExpected();
-  const approvedSet = new Set();
-  for (const a of doc.approved) {
-    const m = /#([a-z][a-z0-9-]*)$/.exec(String(a.anchor ?? ''));
-    if (m) approvedSet.add(m[1]);
-  }
-  const { files, facts } = collectFacts(implRoot, byName);
+function run({ implRoot, anchorPath = ANCHOR_PATH }) {
+  const { doc, byName } = loadExpected(anchorPath);
+  const { approved: approvedSet, problems: approvalProblems } = verifyApprovals(doc, REPO);
+  const scan = collectFacts(implRoot, byName);
+  const { files, facts } = scan;
   const problems = [
-    ...checkR1(facts, byName),
+    ...checkR1(facts, byName, scan),
     ...checkR2(facts, byName, approvedSet),
+    ...approvalProblems,
     ...checkR3(),
   ];
   return {
@@ -250,6 +406,7 @@ function run({ implRoot }) {
     expected: byName.size,
     planned: [...byName.values()].filter((e) => e.planned === true).length,
     facts: facts.size,
+    relayed: (scan.relays ?? []).filter((r) => r.guarded).length,
     problems,
     counts: {
       R1: problems.filter((p) => p.code === 'EVENT_RECON_ORPHAN').length,
@@ -291,30 +448,98 @@ function selfTest() {
     // 架空形 D：同提交改名单语义行 + 写点模块 ⇒ R4 必须红（一次性临时仓）
     const D = join(dir, 'd');
     mkdirSync(D, { recursive: true });
-    const g = (...args) => execFileSync('git', args, { cwd: D, encoding: 'utf8' });
+    const g = (...args) => execFileSync('git', args, { cwd: D, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     g('init', '-q'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't');
     mkdirSync(join(D, 'src/kernel'), { recursive: true });
     mkdirSync(join(D, 'contracts/event-registry'), { recursive: true });
+    const writeLedger = (obj) => writeFileSync(join(D, LEDGER_REL), JSON.stringify(obj, null, 2));
+    const baseLedger = { schemaVersion: 1, approved: [], entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] };
     writeFileSync(join(D, 'src/kernel/k.ts'), `export const a = 1;\n`);
-    writeFileSync(join(D, LEDGER_REL), JSON.stringify({ schemaVersion: 1, approved: [], entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] }, null, 2));
-    g('add', '.');
-    g('commit', '-qm', 'coupled');
-    const sha = g('rev-parse', 'HEAD').trim();
-    const d = checkCoupling(sha, D);
-    emit('MUT-R4 同提交耦合', 'R4', d.length === 1, `R4=${d.length}（期望 1）`);
+    writeLedger(baseLedger);
+    g('add', '.'); g('commit', '-qm', 'base');
+    const commit = (msg) => { g('add', '.'); g('commit', '-qm', msg); return g('rev-parse', 'HEAD').trim(); };
+    const coupled = (sha) => checkCoupling(sha, D).length;
 
-    // 对照 1：只改名单（approved 追加 + planned 翻转），不动写点模块 ⇒ 不算耦合（防误报）
-    writeFileSync(join(D, LEDGER_REL), JSON.stringify({ schemaVersion: 1, approved: [{ approvedBy: 'x', approvedOn: 'y', anchor: 'z#x-y' }], entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] }, null, 2));
-    g('add', '.'); g('commit', '-qm', 'ledger-only');
-    const e = checkCoupling(g('rev-parse', 'HEAD').trim(), D);
-    emit('对照1：只改名单（approved 追加/planned 翻转）不算耦合', 'R4', e.length === 0, `R4=${e.length}（期望 0）`);
+    writeLedger({ ...baseLedger, entries: [{ eventType: 'x-z', class: 'mechanism', planned: false }] });
+    writeFileSync(join(D, 'src/kernel/k.ts'), `export const a = 2;\n`);
+    emit('MUT-R4 语义行（eventType 更名）+ 写点同提交', 'R4', coupled(commit('coupled')) >= 1, `hits=${coupled('HEAD')}（期望 ≥1）`);
 
-    // 对照 2：同提交改名单语义行（eventType 更名）+ 写点 ⇒ 仍须红（防豁免过宽）
-    writeFileSync(join(D, LEDGER_REL), JSON.stringify({ schemaVersion: 1, approved: [{ approvedBy: 'x', approvedOn: 'y', anchor: 'z#x-y' }], entries: [{ eventType: 'x-z', class: 'mechanism', planned: false }] }, null, 2));
+    // 审查 P1-1 绕过形 1：把名单压成**单行 JSON** 再改名 ⇒ 旧实现整段豁免而绿，必须仍红
+    writeFileSync(join(D, LEDGER_REL), JSON.stringify({ ...baseLedger, entries: [{ eventType: 'x-w', class: 'mechanism', planned: false }] }));
     writeFileSync(join(D, 'src/kernel/k.ts'), `export const a = 3;\n`);
-    g('add', '.'); g('commit', '-qm', 'semantic-coupled');
-    const f = checkCoupling(g('rev-parse', 'HEAD').trim(), D);
-    emit('对照2：语义行（eventType 更名）+ 写点同提交仍红', 'R4', f.length === 1, `R4=${f.length}（期望 1）`);
+    emit('MUT-R4 单行压缩 + 改名 + 写点（旧绕过形）', 'R4', coupled(commit('oneline')) >= 1, `hits=${coupled('HEAD')}（期望 ≥1）`);
+
+    // 审查 P1-1 绕过形 2：同提交把 approvedBy 改成实现者 + 改写点 ⇒ 必须红
+    writeLedger({ ...baseLedger, approved: [{ approvedBy: 'the-implementer', approvedOn: '2026-11-03', anchor: 'x#x-y' }], entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] });
+    writeFileSync(join(D, 'src/kernel/k.ts'), `export const a = 4;\n`);
+    emit('MUT-R4 改写 approvedBy + 写点（旧绕过形）', 'R4', coupled(commit('selfsigned')) >= 1, `hits=${coupled('HEAD')}（期望 ≥1）`);
+
+    // 审查 P1-1 绕过形 3：planned false→true + 同提交删写点 ⇒ 必须红
+    writeLedger({ ...baseLedger, entries: [{ eventType: 'x-y', class: 'mechanism', planned: true }] });
+    writeFileSync(join(D, 'src/kernel/k.ts'), `export const a = 5;\n`);
+    emit('MUT-R4 planned false→true + 写点同提交', 'R4', coupled(commit('flipbad')) >= 1, `hits=${coupled('HEAD')}（期望 ≥1）`);
+
+    // 对照 1：只改名单（approved 追加 + planned 翻转）+ 带 trailer ⇒ 不算耦合
+    writeLedger({ ...baseLedger, approved: [{ approvedBy: 'independent-review-seat', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-y' }], entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] });
+    emit('对照1：approved 追加 + planned 翻转不算耦合', 'R4', coupled(commit('ledger-only\n\nEvent-Name-Review: 2026-11-03 independent-review-seat')) === 0, `hits=${coupled('HEAD')}（期望 0）`);
+
+    // 架空形：新增批准记录但缺 Event-Name-Review trailer ⇒ 必须红（两处同现的提交侧）
+    writeLedger({ ...baseLedger, approved: [
+      { approvedBy: 'independent-review-seat', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-y' },
+      { approvedBy: 'independent-review-seat', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-z' },
+    ], entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] });
+    const unsigned = commit('unsigned-approval');
+    emit('MUT-R4 新增批准缺 trailer', 'R4', checkCoupling(unsigned, D).some((h) => h.code === 'EVENT_RECON_UNSIGNED'), `codes=${checkCoupling(unsigned, D).map((h) => h.code).join(',')}`);
+
+    // 对照 2：纯格式变化（缩进/排序）+ 写点 ⇒ 不算语义行
+    writeFileSync(join(D, LEDGER_REL), JSON.stringify({ ...baseLedger, approved: [
+      { approvedBy: 'independent-review-seat', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-y' },
+      { approvedBy: 'independent-review-seat', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-z' },
+    ], entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] }));
+    writeFileSync(join(D, 'src/kernel/k.ts'), `export const a = 6;\n`);
+    emit('对照2：纯格式变化（单行压缩）不算语义行', 'R4', coupled(commit('format-only\n\nEvent-Name-Review: 2026-11-03 x')) === 0, `hits=${coupled('HEAD')}（期望 0）`);
+
+    // 架空形 E：批准三要素——空路径自签 / 批准者形态是实现者 / legacy 未登记 ⇒ 都要红
+    const baseDoc = { schemaVersion: 1, approved: [], entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] };
+    const selfSigned = verifyApprovals({ ...baseDoc, approved: [{ approvedBy: 'someone', approvedOn: '2026-11-03', anchor: '#x-y' }] }, D);
+    emit('MUT-APPROVAL 空路径自签锚', 'R2', selfSigned.approved.size === 0, `approved=${selfSigned.approved.size}（期望 0）`);
+    const implementer = verifyApprovals({ ...baseDoc, approved: [{ approvedBy: 'the-implementer', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-y' }] }, D);
+    emit('MUT-APPROVAL 批准者形态=实现者', 'R2', implementer.approved.size === 0, `approved=${implementer.approved.size}（期望 0）`);
+    const ghost = verifyApprovals({ ...baseDoc, approved: [{ approvedBy: 'someone', approvedOn: '2026-11-03', anchor: 'legacy:NOPE#x-y' }] }, D);
+    emit('MUT-APPROVAL 未登记 legacy 锚', 'R2', ghost.approved.size === 0, `approved=${ghost.approved.size}（期望 0）`);
+    mkdirSync(join(D, 'docs'), { recursive: true });
+    writeFileSync(join(D, 'docs/x.md'), '# approvals\n\nApproved-By: 2026-11-03 reviewer-b\n\n- x-y\n');
+    const good = verifyApprovals({ ...baseDoc, approved: [{ approvedBy: 'reviewer-b', approvedOn: '2026-11-03', anchor: 'docs/x.md#x-y' }] }, D);
+    emit('对照3：锚文件存在 + 逐字批准行 ⇒ 通过', 'R2', good.approved.size === 1, `approved=${good.approved.size}（期望 1）`);
+
+    // 架空形 F：R1 盲区——形状违规名 / 常量间接 / 无法解析
+    const F = join(dir, 'f');
+    mkdirSync(join(F, 'src/kernel'), { recursive: true });
+    writeFileSync(join(F, 'src/kernel/bad-shape.ts'),
+      `declare function appendLedger(a: { eventType: string }): void;\nappendLedger({ eventType: 'evil:colon-name' });\n`);
+    const f1 = run({ implRoot: F });
+    emit('MUT-R1 形状违规名不再静默丢弃', 'R1', f1.counts.R1 >= 1, `R1=${f1.counts.R1}（期望 ≥1）`);
+    const G = join(dir, 'g');
+    mkdirSync(join(G, 'src/kernel'), { recursive: true });
+    writeFileSync(join(G, 'src/kernel/indirect.ts'),
+      `declare function appendLedger(a: { eventType: string }): void;\nconst EVT = 'smuggled-mechanism-name';\nappendLedger({ eventType: EVT });\n`);
+    const f2 = run({ implRoot: G });
+    emit('MUT-R1 常量间接写点被解析出来', 'R1', f2.counts.R1 >= 1 && f2.facts === 1, `R1=${f2.counts.R1} 事实=${f2.facts}（期望 ≥1 / 1）`);
+    const H = join(dir, 'h');
+    mkdirSync(join(H, 'src/kernel'), { recursive: true });
+    writeFileSync(join(H, 'src/kernel/unres.ts'),
+      `declare function appendLedger(a: { eventType: string }): void;\ndeclare function pick(): string;\nappendLedger({ eventType: pick() });\n`);
+    const f3 = run({ implRoot: H });
+    emit('MUT-R1 无法解析的事件名按违规处理', 'R1', f3.counts.R1 >= 1, `R1=${f3.counts.R1}（期望 ≥1）`);
+
+    // 架空形 I：gated_by 不在契约闭集 ⇒ UNPROVED
+    const I = join(dir, 'i');
+    mkdirSync(join(I, 'src/kernel'), { recursive: true });
+    const anchorI = join(I, 'ledger.json');
+    writeFileSync(anchorI, JSON.stringify({ schemaVersion: 1, approved: [], entries: [{ eventType: 'p-q', class: 'mechanism', planned: true, gated_by: 'G1-OTHER', writeSites: ['src/kernel/**'] }] }, null, 2));
+    const i1 = run({ implRoot: I, anchorPath: anchorI });
+    emit('MUT-R2 gated_by 不在闭集', 'R2', i1.counts.R_APPROVED === 1, `UNPROVED=${i1.counts.R_APPROVED}（期望 1）`);
+
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

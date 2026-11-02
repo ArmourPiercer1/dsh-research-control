@@ -328,8 +328,14 @@ pnpm run docs:check                                                             
                                                  #   （该 tsconfig 由本提交新增：include 仅两目录、strict、不继承债务 allowlist）
                                                  #   （独立 tsconfig，strict；不继承历史债的 allowlist）
    npx vitest run tests/kernel-bootstrap.test.ts  # 期望 0（含回滚负例）
-   node scripts/events-recon.mjs                  # 期望 0（R1–R4 对**生产根**跑：Kernel 落地后 7 名才可能有写点；
-                                                 #   本命令是 PR-1 脚本的生产侧投票点，迁移前只作证据跑）
+   node scripts/events-recon.mjs                  # **Bootstrap 完成后**期望 0（R1–R4 对生产根跑）。
+                                                 #   Bootstrap 之前它必然 exit 1（R2=7：入账名尚无写点）——那不是回归，
+                                                 #   是「未落地」的如实读数；PR-1 阶段的证据跑一律带
+                                                 #   `--impl-root experiments/v3-code-architecture-poc`（已实测 exit 0）。
+   node scripts/events-recon.mjs --self-test      # 期望 0（架空形全捕获）
+   for c in $(git rev-list <G2 起点>..HEAD -- src/kernel src/storage-sqlite contracts/event-registry); do
+     node scripts/events-recon.mjs --commit "$c" || exit 1   # R4：逐提交查「名单语义行 ↔ 写点」耦合 + 批准 trailer
+   done
    pnpm run build && pnpm run check:freshness    # 期望 0（契约校验对新增目录无漂移）
    node scripts/<异源对账>.mjs                   # 期望 0（事件名单零违规，若已在 PR-1 落地）
    ```

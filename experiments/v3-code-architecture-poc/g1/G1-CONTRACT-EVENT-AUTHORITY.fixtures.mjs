@@ -463,6 +463,10 @@ function anchorPendingByGates(gates) {
 const anchorPendingEa = LEDGER_ANCHOR ? anchorPendingByGates(EA_GATES) : null;
 const anchorPendingFm = LEDGER_ANCHOR ? anchorPendingByGates(FM_GATES) : null;
 const anchorPendingAll = LEDGER_ANCHOR ? anchorPendingByGates([...EA_GATES, ...FM_GATES]) : null;
+/** 锚文件里计划位的**全集**（不经任何 gate 过滤）——分组完整性的判据对象。 */
+const anchorPlannedUniverse = LEDGER_ANCHOR && Array.isArray(LEDGER_ANCHOR.entries)
+  ? LEDGER_ANCHOR.entries.filter(e => e && e.class === 'mechanism' && e.planned === true).map(e => e.eventType)
+  : null;
 const s1bLabel = 'S1b 提案未入账块' + RECON_WORD + '逐等（' + RECON_TAG + '，契约 §2.4 R-5 段（EA 组）↔ 夹具 PENDING 模型）';
 check(s1bLabel,
   Array.isArray(PENDING_DOC) && PENDING_DOC.length === PENDING_MODEL.length && PENDING_DOC.every((n, i) => n === PENDING_MODEL[i])
@@ -485,8 +489,12 @@ const s1dLabel = 'S1d FM 侧 planned 名' + RECON_WORD + '逐等（' + RECON_TAG
 check(s1dLabel,
   Array.isArray(FM_PLANNED) && FM_PLANNED.length === FM_EXPECT.length && FM_PLANNED.every((n, i) => n === FM_EXPECT[i])
   && (LEDGER_ANCHOR ? (anchorEq(anchorPendingFm, FM_EXPECT)
-      // 分组完整性：EA 组 ∪ FM 组 == planned 全集（漏一组即红）
-      && anchorPendingAll.length === anchorPendingEa.length + anchorPendingFm.length) : true),
+      // 分组完整性（PR-1 独立审查 P2-2 修复）：断言对象是**锚文件 planned 全集本身**，
+      // 不是「同一个 filter 的两半相加」——后者恒真，组外的 planned 名会静默漏检。
+      && Array.isArray(anchorPlannedUniverse)
+      && anchorPlannedUniverse.length === anchorPendingAll.length
+      && anchorPendingAll.every(n => anchorPlannedUniverse.includes(n))
+      && anchorPlannedUniverse.length === anchorPendingEa.length + anchorPendingFm.length) : true),
   FM_PLANNED ? FM_PLANNED.join(',') : '未找到 FM-9 PLANNED-MOUNT-LIST 块标记');
 
 // S1c（P2-1 新增机验）：夹具自述与实际读取源一致——独立重探锚文件，与 S1/S1b 实际渲染的标签、

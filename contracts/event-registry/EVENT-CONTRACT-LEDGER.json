@@ -4,62 +4,62 @@
     {
       "approvedBy": "legacy:C-19",
       "approvedOn": "pre-freeze",
-      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#capability-enabled"
+      "anchor": "legacy:C-19#capability-enabled"
     },
     {
       "approvedBy": "legacy:C-19",
       "approvedOn": "pre-freeze",
-      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#capability-disabled"
+      "anchor": "legacy:C-19#capability-disabled"
     },
     {
       "approvedBy": "legacy:C-19",
       "approvedOn": "pre-freeze",
-      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#capability-transferred"
+      "anchor": "legacy:C-19#capability-transferred"
     },
     {
       "approvedBy": "legacy:C-19",
       "approvedOn": "pre-freeze",
-      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#object-registered"
+      "anchor": "legacy:C-19#object-registered"
     },
     {
       "approvedBy": "legacy:C-19",
       "approvedOn": "pre-freeze",
-      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#check-report-recorded"
+      "anchor": "legacy:C-19#check-report-recorded"
     },
     {
       "approvedBy": "legacy:EA-5.2",
       "approvedOn": "pre-freeze",
-      "anchor": "G1-CONTRACT-EVENT-AUTHORITY.md §EA-5.2（存量升格就地）#object-revised"
+      "anchor": "legacy:EA-5.2#object-revised"
     },
     {
       "approvedBy": "legacy:EA-5.2",
       "approvedOn": "pre-freeze",
-      "anchor": "G1-CONTRACT-EVENT-AUTHORITY.md §EA-5.2（存量升格就地）#record-backfilled"
+      "anchor": "legacy:EA-5.2#record-backfilled"
     },
     {
       "approvedBy": "independent-review-seat",
       "approvedOn": "2026-11-03",
-      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#integrity-audit-recorded"
+      "anchor": "experiments/v3-code-architecture-poc/g1/EVENT-NAME-APPROVALS-20261103.md#integrity-audit-recorded"
     },
     {
       "approvedBy": "independent-review-seat",
       "approvedOn": "2026-11-03",
-      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#read-shadow-recorded"
+      "anchor": "experiments/v3-code-architecture-poc/g1/EVENT-NAME-APPROVALS-20261103.md#read-shadow-recorded"
     },
     {
       "approvedBy": "independent-review-seat",
       "approvedOn": "2026-11-03",
-      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#facet-mounted"
+      "anchor": "experiments/v3-code-architecture-poc/g1/EVENT-NAME-APPROVALS-20261103.md#facet-mounted"
     },
     {
       "approvedBy": "independent-review-seat",
       "approvedOn": "2026-11-03",
-      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#facet-unlinked"
+      "anchor": "experiments/v3-code-architecture-poc/g1/EVENT-NAME-APPROVALS-20261103.md#facet-unlinked"
     },
     {
       "approvedBy": "independent-review-seat",
       "approvedOn": "2026-11-03",
-      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#raw-record-declared"
+      "anchor": "experiments/v3-code-architecture-poc/g1/EVENT-NAME-APPROVALS-20261103.md#raw-record-declared"
     }
   ],
   "entries": [

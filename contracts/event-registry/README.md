@@ -53,7 +53,7 @@ EA-6.1 的 `approved[]` 形状只有 `{approvedBy, approvedOn, anchor}` 三个�
 | `approved[]` 追加 | R4 **豁免**，但必须独立于写点提交（EA-2.4 步骤 3），且提交信息带 `Event-Name-Review:` trailer |
 | `planned:true` 条目 | 必须带 `contractRef: "<仓内路径>#<gate-id>"`：路径须存在（只查存在性，不解析正文——recon 不得有第二个读取源），gate-id 须与 `gated_by` 一致且 ∈ 闭集 |
 | 批准锚路径变更 | 仅**已登记搬迁根**（`experiments/v3-code-architecture-poc/`）与 `legacy:<id>` 规范化放行，其余须 `Event-Name-Review:` trailer。**已知残余（未闭合，登记在案）**：①「前缀嵌套」——先提交 `docs/mine/docs/a.md`（该步不受闸门管辖），再把锚改成它，`endsWith('/'+旧路径)` 会放行；②「legacy → 自撰文书」——旧锚不可解析时任意父提交已存在路径被当作「规范化」。两条均需先埋一份文书，修法已由复核席给出（收紧 `legitReanchor` 两处），**尚未落地** |
-| 自验条数 | `EXPECTED_MUTANTS` 下界只防「判据在重建时静默丢失」，**不防有意弱化**（把某条断言改成 `true \|\| …` 条数不变、闸门仍绿）。最终仍靠评审看 diff |
+| 自验名单 | `EXPECTED_MUTANT_NAMES` 是架空间标题的**集合等值**断言（不是计数下界）：删一条、改名一条、两条合并成一条都会红。**仍不防有意弱化**（把某条断言改成 `true \|\| …`，名字不变、闸门仍绿）——那一层最终只能靠评审看 diff |
 | 注释/排序/格式化 | 豁免（**按解析后的 JSON 判定**：`sha^` 与 `sha` 两份文档逐 entry 深度相等即视为纯格式变化） |
 
 > R4 的判定**不按 diff 行文子串**（把名单压成单行 JSON 就能让整段豁免——那是已修掉的绕过形）：

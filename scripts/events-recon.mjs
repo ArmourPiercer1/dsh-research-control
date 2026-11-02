@@ -290,7 +290,39 @@ function collectFacts(implRoot, byName) {
 /** 契约块声明的 gated_by 闭集（EA §2.4 四门 + FM §9 FM-9 一门）。新增门控必须同批改这里与夹具。 */
 // 判据条数下界（防「重建时判据静默丢失」）：任何人删掉/弄丢一条判据，架空间条数会掉到
 // 这个下界以下而自验变红。新增判据必须同时上调此值并新增对应架空间。
-const EXPECTED_MUTANTS = 29;
+// 架空间标题**集合**（终局复核条件 2）：计数下界只防删除，不防弱化/合并凑数。
+// 任何人改动这张表都会在 diff 里显形；改名、合并、删条都必须同步改这里。
+const EXPECTED_MUTANT_NAMES = [
+  "MUT-R1 名单外写点",
+  "MUT-R2 入账名无写点",
+  "MUT-R3 同源 import",
+  "MUT-R4 语义行（eventType 更名）+ 写点同提交",
+  "MUT-R4 单行压缩 + 改名 + 写点（旧绕过形）",
+  "MUT-R4 改写 approvedBy + 写点（旧绕过形）",
+  "MUT-R4 planned false→true + 写点同提交",
+  "对照1：approved 追加 + planned 翻转不算耦合",
+  "MUT-R4 新增批准缺 trailer",
+  "对照2：纯格式变化（单行压缩）不算语义行",
+  "MUT-APPROVAL 空路径自签锚",
+  "MUT-APPROVAL 批准者形态=实现者",
+  "MUT-APPROVAL 未登记 legacy 锚",
+  "MUT-APPROVAL 名字只在签名块外出现",
+  "对照3：锚文件存在 + 逐字批准行 ⇒ 通过",
+  "MUT-R1 形状违规名不再静默丢弃",
+  "MUT-R1 常量间接写点被解析出来",
+  "MUT-R1 无法解析的事件名按违规处理",
+  "MUT-APPROVAL legacy 锚给新名自签",
+  "MUT-R1 转发写点仅注释提到核对",
+  "对照4：转发写点 + 真核对调用 ⇒ 通过",
+  "MUT-R2 planned 名出处不可核（路径不存在）",
+  "MUT-R2 planned 名出处不可核（gate 与 gated_by 不一致）",
+  "MUT-R2 planned 名出处不可核（缺 contractRef）",
+  "MUT-R4 改锚到作者新建文书（无 trailer）",
+  "MUT-R2 contractRef 指向非指定契约（EVENT-CONTRACT-LEDGER.json#EA-7.1）",
+  "MUT-R2 contractRef 指向非指定契约（events-recon.mjs#EA-7.1）",
+  "MUT-R1 哑元核对 + 转发写点",
+  "MUT-R2 gated_by 不在闭集",
+];
 
 const GATED_BY_CLOSED = new Set(['EA-1.2.3', 'EA-7.1', 'EA-7.2', 'G1-NS-01', 'G1-FACET-01']);
 // gate-id → 契约正文路径的**静态映射**：只查「文件存在」等于让作者自证（锚自指 / 自建文件 /
@@ -777,9 +809,14 @@ function selfTest() {
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  [${r.phase}] ${r.name} —— ${r.extra}`);
   const failed = results.filter((r) => !r.ok);
   // 判据清单覆盖检查：清单里每条都必须在架空间标签中出现过，否则视为「判据静默丢失」。
-  if (results.length < EXPECTED_MUTANTS) {
-    failed.push({ name: `架空间条数 ${results.length} < 下界 ${EXPECTED_MUTANTS}`, ok: false,
-      detail: '判据疑似在重建/重构中丢失（每条判据都应有对应架空间）' });
+  // 标题集合等值：不只看条数，还看**哪些**条。弱化一条断言（`true || ...`）不会改变名字，
+  // 但合并两条、改名一条、删一条都会在这里显形；弱化本身仍只能靠 diff 审阅发现。
+  const gotNames = results.map((r) => r.name);
+  const missing = EXPECTED_MUTANT_NAMES.filter((n) => !gotNames.includes(n));
+  const extra = gotNames.filter((n) => !EXPECTED_MUTANT_NAMES.includes(n));
+  if (missing.length || extra.length) {
+    failed.push({ name: `架空间名单不符（缺 ${missing.length} / 多 ${extra.length}）`, ok: false,
+      detail: `缺：${missing.slice(0, 5).join(' / ') || '无'}；多：${extra.slice(0, 5).join(' / ') || '无'}` });
   }
   console.log(failed.length ? `\n自验失败：${failed.length} 条判据的架空形未被捕获` : `\n自验通过：${results.length}/${results.length} 条架空形均被对应判据捕获。`);
   return failed.length ? 1 : 0;

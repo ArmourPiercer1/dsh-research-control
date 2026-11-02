@@ -408,7 +408,9 @@ function ledgerRewriteAttempt() { return { refusal: 'TRIGGER_UPDATE_REFUSED' }; 
 // 第三方位 = 锚文件 g1/EVENT-CONTRACT-LEDGER.json（EA §6.1 冻结路径；§9.4 U-1 登记实施批首项，
 // 当下不存在）。两态纪律：**锚缺失 ⇒ S 组只执行两方（two-party）逐等并在检查名里如实报两方，
 // 禁止静默当三方绿；锚在位 ⇒ 第三方位实读比对，不一致 = 红**。自述与实际读取源的一致性由 S1c 机验。
-const LEDGER_ANCHOR_PATH = join(HERE, 'EVENT-CONTRACT-LEDGER.json'); // 与 R4 模型的路径常量 LEDGER_FILE 同一文件（两处同指 §6.1 位置）
+// 2026-11-03 PR-1：锚文件正式落点已裁为 `contracts/event-registry/EVENT-CONTRACT-LEDGER.json`（专题⑤ P2-③），
+// 夹具读**正式路径**——物化当日 S 组自动升三方（本行是那次「翻面」的机验起点，不再读 g1/ 侧车）。
+const LEDGER_ANCHOR_PATH = join(HERE, '..', '..', '..', 'contracts', 'event-registry', 'EVENT-CONTRACT-LEDGER.json');
 function readLedgerAnchor() {
   try { return JSON.parse(readFileSync(LEDGER_ANCHOR_PATH, 'utf8')); } catch { return null; }
 }
@@ -445,12 +447,55 @@ function docPendingList() {
 }
 const PENDING_DOC = docPendingList();
 const PENDING_MODEL = [...MODEL_PENDING_APPROVAL.map(p => p.eventType), ...MODEL_PLANNED.map(p => p.eventType)];
-const anchorPending = LEDGER_ANCHOR ? anchorMechanismNames(true) : null;
-const s1bLabel = 'S1b 提案未入账块' + RECON_WORD + '逐等（' + RECON_TAG + '，契约 §2.4 R-5 段 ↔ 夹具 PENDING 模型）';
+// 2026-11-03 PR-1：锚文件是**全仓机制名单**（EA 侧 4 名 + FM 侧 2 名），而 §2.4 R-5 块只列 EA 侧 4 名。
+// 因此逐等必须**按 gated_by 归属分组**：S1b 比 EA 组（契约 §2.4 ↔ 锚 ↔ 夹具 PENDING 模型），
+// S1d 比 FM 组（FM §9 FM-9 占位块 ↔ 锚 ↔ 名字集）。分组是语义修正，不是把比较放宽——两组的并集仍必须
+// 等于锚文件 planned 全集（下条断言），否则「漏一组」会静默通过。
+const EA_GATES = ['EA-1.2.3', 'EA-7.1', 'EA-7.2', 'G1-NS-01'];
+const FM_GATES = ['G1-FACET-01'];
+function anchorPendingByGates(gates) {
+  if (!LEDGER_ANCHOR || !Array.isArray(LEDGER_ANCHOR.entries)) return null;
+  anchorParticipated = true;
+  return LEDGER_ANCHOR.entries
+    .filter(e => e && e.class === 'mechanism' && e.planned === true && gates.includes(e.gated_by))
+    .map(e => e.eventType);
+}
+const anchorPendingEa = LEDGER_ANCHOR ? anchorPendingByGates(EA_GATES) : null;
+const anchorPendingFm = LEDGER_ANCHOR ? anchorPendingByGates(FM_GATES) : null;
+const anchorPendingAll = LEDGER_ANCHOR ? anchorPendingByGates([...EA_GATES, ...FM_GATES]) : null;
+/** 锚文件里计划位的**全集**（不经任何 gate 过滤）——分组完整性的判据对象。 */
+const anchorPlannedUniverse = LEDGER_ANCHOR && Array.isArray(LEDGER_ANCHOR.entries)
+  ? LEDGER_ANCHOR.entries.filter(e => e && e.class === 'mechanism' && e.planned === true).map(e => e.eventType)
+  : null;
+const s1bLabel = 'S1b 提案未入账块' + RECON_WORD + '逐等（' + RECON_TAG + '，契约 §2.4 R-5 段（EA 组）↔ 夹具 PENDING 模型）';
 check(s1bLabel,
   Array.isArray(PENDING_DOC) && PENDING_DOC.length === PENDING_MODEL.length && PENDING_DOC.every((n, i) => n === PENDING_MODEL[i])
-  && (LEDGER_ANCHOR ? anchorEq(anchorPending, PENDING_MODEL) : true),
+  && (LEDGER_ANCHOR ? anchorEq(anchorPendingEa, PENDING_MODEL) : true),
   PENDING_DOC ? PENDING_DOC.join(',') : '未找到 PLANNED-PENDING 块标记');
+
+// S1d（PR-1 新增）：FM 侧 planned 名（`facet-mounted`/`facet-unlinked`）的三方逐等 + 分组完整性
+const FM_CONTRACT_PATH = join(HERE, 'G1-CONTRACT-FACET.md');
+function fmPlannedBlock() {
+  try {
+    const d = readFileSync(FM_CONTRACT_PATH, 'utf8');
+    const m = d.match(/<!-- FM-9 PLANNED-MOUNT-LIST-BEGIN -->([\s\S]*?)<!-- FM-9 PLANNED-MOUNT-LIST-END -->/);
+    if (!m) return null;
+    return m[1].replace(/[「」]/g, '').split(/[·\s]+/).map(x => x.trim()).filter(x => /^[a-z][a-z0-9-]*$/.test(x));
+  } catch { return null; }
+}
+const FM_PLANNED = fmPlannedBlock();
+const FM_EXPECT = ['facet-mounted', 'facet-unlinked'];
+const s1dLabel = 'S1d FM 侧 planned 名' + RECON_WORD + '逐等（' + RECON_TAG + '，FM §9 FM-9 占位块 ↔ 锚文件，分组完整性）';
+check(s1dLabel,
+  Array.isArray(FM_PLANNED) && FM_PLANNED.length === FM_EXPECT.length && FM_PLANNED.every((n, i) => n === FM_EXPECT[i])
+  && (LEDGER_ANCHOR ? (anchorEq(anchorPendingFm, FM_EXPECT)
+      // 分组完整性（PR-1 独立审查 P2-2 修复）：断言对象是**锚文件 planned 全集本身**，
+      // 不是「同一个 filter 的两半相加」——后者恒真，组外的 planned 名会静默漏检。
+      && Array.isArray(anchorPlannedUniverse)
+      && anchorPlannedUniverse.length === anchorPendingAll.length
+      && anchorPendingAll.every(n => anchorPlannedUniverse.includes(n))
+      && anchorPlannedUniverse.length === anchorPendingEa.length + anchorPendingFm.length) : true),
+  FM_PLANNED ? FM_PLANNED.join(',') : '未找到 FM-9 PLANNED-MOUNT-LIST 块标记');
 
 // S1c（P2-1 新增机验）：夹具自述与实际读取源一致——独立重探锚文件，与 S1/S1b 实际渲染的标签、
 // 实际发生的比对行为、以及契约 §6.2 更正段的两态句在位性四方对齐；任何一环不一致 = 夹具红。
@@ -459,9 +504,12 @@ const docSpaced = doc.replace(/\s+/g, ' ');
 check('S1c S 组自述与实际读取源一致（P2-1：锚缺失 ⇒ 如实报两方/two-party，静默当三方绿即违例；锚在位 ⇒ 第三方位必须实际参与比对；§6.2 两态句与旧句保留一并核对）',
   anchorProbeNow === (LEDGER_ANCHOR !== null)
   && (anchorProbeNow
-    ? (RECON_WORD === '三方' && s1Label.includes('三方逐等') && s1bLabel.includes('三方逐等') && anchorParticipated === true)
+    ? (RECON_WORD === '三方' && s1Label.includes('三方逐等') && s1bLabel.includes('三方逐等')
+      && s1dLabel.includes('三方逐等') && anchorParticipated === true)
     : (RECON_WORD === '两方' && s1Label.includes('两方逐等') && s1bLabel.includes('两方逐等')
-      && !s1Label.includes('三方逐等') && !s1bLabel.includes('三方逐等') && anchorParticipated === false))
+      && s1dLabel.includes('两方逐等')
+      && !s1Label.includes('三方逐等') && !s1bLabel.includes('三方逐等') && !s1dLabel.includes('三方逐等')
+      && anchorParticipated === false))
   && docSpaced.includes('夹具 S 组结构校验 就是这三方的当场执行器')   // 旧句保留原位（不静默删）
   && docSpaced.includes('现在时断言作废')                            // 就地作废标注在位
   && docSpaced.includes('（two-party）逐等')                         // 两态句的物化前一态成文

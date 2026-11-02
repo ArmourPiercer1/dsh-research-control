@@ -247,7 +247,7 @@ items:
     topic: "契约版本只有写入侧与读侧判定，无 v2→v3 回填迁移器（D-6）"
     sources:
       - "READINESS.md:30-35"
-    owner: "RL-8.4 回填禁令裁定（判据面，g1/G1-CONTRACT-RELOCATION.md）+ g1/G2-DEV-PLAN.md PR-5/PR-8（实施载体）"
+    owner: "RL-8.4 回填禁令裁定（判据面，g1/G1-CONTRACT-RELOCATION.md）+ g1/G2-DEV-PLAN.md PR-5/PR-7（实施载体；2026-11-03 改锚：P-NS=PASS_STABLE_NS ⇒ PR-8 DEFERRED，迁移器与版本化读者归 PR-5/PR-7）"
     status: open
     freeze_tier: "B"
     tier_basis: "分层依据：回填禁令已裁（g1/G1-CONTRACT-RELOCATION.md 的 RL-8.4 行「默认禁止补造，唯一合法入账 = 显式修复」）；剩余只有迁移器/显式修补通道落码（g1/G1-FREEZE-CRITERIA.md §5 行 G1-VER-03；VER-01 裁定若变，本条层级须按 g1/G1-FREEZE-CRITERIA.md §4 重判）"
@@ -271,7 +271,7 @@ items:
     sources:
       - "experiments/v3-code-architecture-poc/CONTRACTS.md §16.3（登记上限段）"
       - "attacks/review/RE-REVIEW-G6-A.md §④ :320-331 行裁定 + 附录 C.3 第 1 句"
-    owner: "第五轮裁定（独立基线登记位，g1/G1-ADJUDICATION-TABLE.md）+ g1/G2-DEV-PLAN.md PR-5/PR-8（实施载体：digest 外置）"
+    owner: "第五轮裁定（独立基线登记位，g1/G1-ADJUDICATION-TABLE.md）+ g1/G2-DEV-PLAN.md PR-5（实施载体：digest 外置；2026-11-03 去掉 PR-8——digest 外置与重定位无关）"
     status: open
     freeze_tier: "B"
     tier_basis: "分层依据：第五轮裁定「不在 PoC 内继续加自证，归正式 Schema 评审与独立基线」已入 evidence；本条即那个独立基线登记位，剩余只有 digest 外置落码（g1/G1-FREEZE-CRITERIA.md §5 行 G1-STORAGE-02）"

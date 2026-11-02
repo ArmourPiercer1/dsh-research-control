@@ -6,7 +6,7 @@
 > **状态（2026-11-01 收口后更新）**：G1-RECON-01 已闭（#47 全文对账完工，父席核验）；
 > `g1-checklist-validate.mjs --require-clear` **exit 0**（A 层 20/20 done、B 层 7 全归属、违规 0，
 > 父席实测）。甲类工务（PR-0/PR-1）可开工；
-> 乙类（PR-2 起）的清单机验门已绿；仍待 G1 非作者冻结复核、2026-11-03 §0bis 两项有界 PoC 与可信部署范围对账、用户对 G1 冻结及 G2 乙类开工的明确批准。
+> 乙类（PR-2 起）的清单机验门已绿；2026-11-03 §0bis 三项已收口（P-NS/P-EXT/T-SEC，见 `g1/G2-CLOSEOUT-REPORT-20261103.md`），非作者冻结复核已出结论（复验无阻塞，原文归档 `g1/G1-FREEZE-REVIEW-20261103-SEAT.md`）；**仍待用户对 G1 冻结及 G2 乙类开工的明确批准**（开发批准）；科研采纳权另属业务权限（见 `g1/G1-TRUSTED-PROFILE-DELTA.md §4`）。
 
 ## 1. 权威序（冲突时上位压低位，就地标注是演化证据不是现行判据）
 
@@ -41,7 +41,7 @@
   在位条目：PR-0（门禁机械防线）、PR-1（事件名单锚文件 + 异源对账 R1–R4）、本收口工单类。
 - **乙类**（PR-2 起所有改 `src/**` 生产判据 / `schema/**` / DDL）：**双门同时成立**才开工：
   ① `g1-checklist-validate.mjs --require-clear` exit 0（A 层口径）；② 用户对本 PR 的开工授权。
-  当前：**① 清单机验已过**（`b2dd09f` 记录 exit 0；不等于已冻结）；非作者复核和最新 §0bis 合同适用范围对账未完成；**② 用户乙类开工授权未取得**。
+  当前：**① 清单机验已过**（`01db6f6` 记录 exit 0；不等于已冻结）；非作者冻结复核已完成（两轮：2 BLOCKER → 复验无阻塞）；§0bis 三项对账已完成并已按外部审查 P1 意见修正迁移形态（`preflight/ns/VERDICT.md` §0/§2）；**② 用户乙类开工授权未取得**。
 - **唯一最新实施计划补充**：见 `g1/G2-DEV-PLAN.md §0bis（2026-11-03）`：P-NS（稳定 ns/重定位必要性）、P-EXT（Kernel 扩展缝）、T-SEC（可信部署范围）均属甲类；P-NS `PASS_STABLE_NS` 时 PR-8 DEFERRED，`RELOCATION_REQUIRED` 时走原 PR-8。PoC 不授权乙类，安全条款范围变化需按高位合同流程同步，不得以本入口覆盖上位契约。
 - 禁止面（不变）：整体合并 #48/#49 不授权；正式 DDL / 存量数据迁移不做；
   8 根文档 + `schema/**` 冻结面不走流程不动；Q1–Q45 不重开；E2-VERDICT §8 ①④⑤⑥ 属 G2 后议题，
@@ -73,9 +73,9 @@
 | --- | --- | --- |
 | G1-BIND-03 | PR-6 | ADJ C5/D4-a 行 + G2-DEV-PLAN PR-6 |
 | G1-READ-02 | PR-3 | ADJ C1/D1-c 行 + G2-DEV-PLAN PR-3 |
-| G1-VER-03 | PR-5/PR-8 | RL-8.4 回填禁令 + G2-DEV-PLAN PR-5/PR-8 |
+| G1-VER-03 | PR-5/PR-7（PR-8 DEFERRED 后由其承接；2026-11-03 改锚） | RL-8.4 回填禁令 + G2-DEV-PLAN PR-5/PR-7 |
 | G1-STORAGE-01 | PR-5 | 第五轮裁定 D-23 行族 + G2-DEV-PLAN PR-5（TransactionLease） |
-| G1-STORAGE-02 | PR-5/PR-8 | 第五轮裁定 + G2-DEV-PLAN PR-5/PR-8（digest 外置） |
+| G1-STORAGE-02 | PR-5（2026-11-03 去掉 PR-8：digest 外置与重定位无关） | 第五轮裁定 + G2-DEV-PLAN PR-5（digest 外置） |
 | G1-AUDIT-01 | PR-2 | EA-7.1/7.2 + R-1 行 + G2-DEV-PLAN PR-2（两名批准 = 进入门禁） |
 | G1-OWN-01 | PR-11（判据面 X-5 已 done 于 A 层） | Q12（既有 owner 不变） |
 

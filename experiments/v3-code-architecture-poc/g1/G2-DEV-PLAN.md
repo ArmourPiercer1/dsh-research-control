@@ -374,14 +374,16 @@ pnpm run docs:check                                                             
 ### PR-5 `schema: 四层版本轴 + storage_schema_version 登记 + 打开判据序 + TransactionLease`
 
 - **范围**：五层版本轴表落文档与代码（`D3-a`，**禁互相冒充**）；`storage_schema_version` 按
-  `(space_id × capability_id)` 复合键登记（`D3-c`）；打开判据序实现（`RL-8.1` 步 1/2/3/5 先落，步 4 随 PR-8）；
+  `(space_id × capability_id)` 复合键登记（`D3-c`）；打开判据序实现（`RL-8.1` 步 1/2/3/5 先落；**步 4 的重定位专属三项
+  （`relocationGapCount`/链终态/见证）随 PR-8，`PASS_STABLE_NS` 分支下不落**，其余漂移项本 PR 落）；
   触发器体摘要期望值**外置锚文件**（`G1-STORAGE-02`）；`StoragePort` 层受限 `TransactionLease`
   （`G1-STORAGE-01`：PoC 保证范围仅「Kernel 管理的 UoW 路径」，`SqlitePort.tx()` 交出的 `RawTx` 回调返回后
   仍可 autocommit 写入是**已登记界外事实**）；墙的可解释性边界三规则（`D3-b`：墙只拒「不可安全读」且不得销毁原字节 /
   版本钉 + 旧解释器 / 冲突时墙让位为「可旧读 + 标注」，**永不以改写历史记录实现**）；Schema 迁移器 +
   **SQLite 备份/恢复正确性**（先于任何读面加速）。
 - **不做什么**：**完整 PITR 不作为所有读面开发前置**（`§2-G2 收窄①` 原文）；不做 backfill 补造（`RL-8.4` 默认禁止，
-  迁移器**无权**补造「当时合法迁移」）；不在本 PR 落 `ns` 链判据（属 PR-8）。
+  迁移器**无权**补造「当时合法迁移」）；不在本 PR 落 `ns` 链判据（属 PR-8；**`PASS_STABLE_NS` 分支下该链判据
+  整体 DEFERRED，本 PR 亦不等待它**）。
 - **进入门禁**：PR-4 exit 0；**G1 冻结已获用户授权**（否则本 PR 起即违 `§2-G1`「未完成时禁止启动」）；**★ 本句按文头「授权边界两类」读作两条门同时成立**：① `--require-clear` 按《G1-FREEZE-CRITERIA.md》A 层口径判绿；② 用户对本 PR（**乙类**，本 PR 起含真实 DDL）的开工授权。**「已获开工授权」不得从「PR-1..PR-4 已合并」反推**——那四张卡含甲类工务，做了不等于乙类开门；
   `node scripts/snapshot-release.mjs` ⇒ exit 0（本席位实测 0：31 canonical files match）。
 - **退出门禁**：`pnpm run build` exit 0 且 `pnpm run check:freshness` exit 0（`CONTRACT_DRIFT` 即红）；

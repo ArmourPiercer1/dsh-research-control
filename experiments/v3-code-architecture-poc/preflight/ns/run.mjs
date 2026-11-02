@@ -276,8 +276,19 @@ check('P-NS-2', '只升级一个 Space（v1→v2 离线迁移 + 重启），另�
   eq(bRead.payload, { v: 'B-third' }, 'SP-B 升级后新提交');
 
   wA.close();   // 后续检查在关库窗口内做副本/迁移（WAL 副本须 checkpoint）
+  // 负例（按库而非按 Space 迁移的耦合形态）：若迁移器不按 ns 作用域、把 B 的行也盖到 v2（路由仍 v1），
+  // B 在自己路由下立刻读不出——这正是「另一空间仍可运行」被打破的形态，也说明该保证不是自动成立的。
+  const over = join(dir, 'space-b-overstamped.db');
+  cleanCopy(fileB, over);
+  const overStamped = migrateOffline(over, NS, 'v1', 'v2');
+  const wOver = openWorld({ file: over, space: 'SP-B', grants: GRANTS, plugins: [TEST_OBJECT_MODEL] });
+  const overLoud = refusal(() => wOver.readObject(oidB));
+  wOver.close();
+  if (overStamped < 1) throw new Error(`误盖负例夹具未生效：盖戳 ${overStamped} 行`);
+  if (overLoud !== 'SCHEMA_INCOMPATIBLE') throw new Error(`误盖后 B 读面应 fail-loud(SCHEMA_INCOMPATIBLE)，实际 ${overLoud}`);
+
   return `SP-A：未迁移 fail-loud=${preCode} → 盖戳 ${stamped} 行 → v2；SP-B 仍 v1（路由 ${bRoute.contractVersion}、行 v1）且新提交可读；`
-    + `负例：两库独立，A 的升级未波及 B`;
+    + `负例：按库误盖 B 的 ${overStamped} 行 ⇒ B 读面 ${overLoud}（打破 ② 的耦合形态实测）`;
 });
 
 // ───────────────────── P-NS-3：持久 ns/owner 不变 + 缺旧解释器 fail-loud ─────────────────────
@@ -344,6 +355,7 @@ check('P-NS-4', '离线 Schema 升级的注入崩溃全回滚、重启后可恢�
   const child = spawnSync(process.execPath,
     ['--experimental-transform-types', '--no-warnings', SELF, '--crash-child', crashDb, NS, 'v1', 'v2'],
     { encoding: 'utf8' });
+  if (child.status !== 9) throw new Error(`事务内崩溃子进程应以 exit 9 结束，实际 ${child.status}`);
   const afterCrash = rawSnap(crashDb, NS);
   eq([...new Set(afterCrash.state.map((r) => r.contract_version))], ['v1'], '事务内崩溃后的行版本（应全量回滚）');
   eq(afterCrash.triggers, ['domain_state_no_delete', 'domain_state_no_update'], '崩溃后触发器（应随事务回滚而保留）');
@@ -371,6 +383,7 @@ check('P-NS-4', '离线 Schema 升级的注入崩溃全回滚、重启后可恢�
   const childBad = spawnSync(process.execPath,
     ['--experimental-transform-types', '--no-warnings', SELF, '--crash-child', badDb, NS, 'v1', 'v2', '--no-tx'],
     { encoding: 'utf8' });
+  if (childBad.status !== 9) throw new Error(`非事务崩溃子进程应以 exit 9 结束，实际 ${childBad.status}`);
   const mixed = rawSnap(badDb, NS);
   const mixedVersions = [...new Set(mixed.state.map((r) => r.contract_version))].sort();
   if (mixedVersions.length < 2) throw new Error(`非事务负例应留下混合态，实际 ${JSON.stringify(mixedVersions)}`);
@@ -419,10 +432,12 @@ const inputs = [
   'src/domains/test-object-model.ts', 'src/domains/test-facet.ts',
 ].map((rel) => `${rel} sha256=${sha256(join(POC, rel)).slice(0, 16)}`);
 const head = spawnSync('git', ['-C', POC, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() ?? '(unknown)';
+// HEAD 只报「运行时刻的工作树指向」，不承担证据锚职责（提交本文件会改变 HEAD）；判据输入以 src sha256 为准。
+const dirty = (spawnSync('git', ['-C', POC, 'status', '--porcelain', '--', 'src'], { encoding: 'utf8' }).stdout ?? '').trim();
 
 log('\n════════ 汇总 ════════');
 for (const r of results) log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.id}${r.ok ? '' : `  ${r.detail}`}`);
-log(`输入：HEAD=${head}`);
+log(`输入：HEAD=${head}（工作树 src 面 ${dirty ? `有未提交改动 ${dirty.split('\n').length} 项` : '干净'}；HEAD 不承担锚职责，判据以 src sha256 为准）`);
 for (const i of inputs) log(`输入：${i}`);
 
 const allPass = results.length === 5 && results.every((r) => r.ok);

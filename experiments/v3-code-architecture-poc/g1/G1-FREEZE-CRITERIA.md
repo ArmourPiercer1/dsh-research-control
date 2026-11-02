@@ -148,7 +148,7 @@ A 层成员（三者取并集，逐条以清单 `freeze_tier: "A"` 为准）：
 | G1-BIND-03 | B | 冲突账本 C5 / 裁决表 D4-a 已裁「采 SI-23、抛错不落报告让位」；剩余是 PR-6 落码 | PR-6；退出 = 三形各一（恒空/抛异常/真实不可用）+ 旧 PASS 不变，`tests/edges-view-unavailable.test.ts` 族无新红 |
 | G1-BIND-04 | A | 已 `done`（A 层已闭合项，不阻塞） | — |
 | G1-READ-01 | A | 「对外读接口开放前必须裁」——可枚举 + 计数差分尚无裁定 | — |
-| G1-READ-02 | B | 冲突账本 C1 / D1-c 已裁「采 #47 同形，现状让位，内部审计保留真因」；剩余是呈现落码 | PR-3；退出 = 两世界逐字节同形探针 exit 0 ∧ `tests/events-of-scope.test.ts` 按新形态 repin |
+| G1-READ-02 | B | 冲突账本 C1 / D1-c 已裁「采 #47 同形，现状让位，内部审计保留真因」；剩余是呈现落码 | PR-3；退出 = 两世界逐字节同形探针 exit 0 ∧ `tests/events-of-scope.test.ts` 按新形态 repin。**【2026-11-03 T-SEC 适用范围】** 该「逐字节同形探针」归敌对 Profile（P-A），不作首版退出门；首版退出 = **字段级同形**（键集/码/detail，D1-c）＋零 `hiddenBy*`＋计数审计面可回看，对账见 `g1/G1-TRUSTED-PROFILE-DELTA.md`；探针与夹具保留、重挂 P-A |
 | G1-VER-01 | A | 正式建库前的版本记录方式未定（连带 D-6 回填债） | — |
 | G1-VER-02 | A | v2/v3 混存的历史正源未裁（含用户决策面 X-8） | — |
 | G1-VER-03 | B | `RL-8.4` 已裁 backfill 默认禁止、唯一合法入账 = 显式修复；剩余是迁移器/修补通道落码 | PR-5/PR-8；退出 = 「旧库打开 ⇒ `SCHEMA_UPGRADE_REQUIRED` ∧ 原字节零改写」断言 exit 0 |

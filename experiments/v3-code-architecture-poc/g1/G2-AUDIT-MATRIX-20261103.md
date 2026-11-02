@@ -40,8 +40,11 @@
 | D15 | PR-2/PR-3 落地顺序倒置＋`p3-intake-validation` 无投票载体（R6 P1-1） | P1 | `G2-DEV-PLAN` **Bootstrap Gate**（落点 `src/kernel/**`、骨架、`tests/kernel-bootstrap.test.ts`、测试迁入根 `tests/`、CI 触发面、五条命令门禁） | 实施基线 §2、根 `vitest.config.ts` 排除 `experiments/**` | PR-2 第一提交 | Bootstrap 尚未执行（G2 开工后第一件事）；CI 触发面仍是实施前阻塞 |
 | D16 | 四个新错误信号绕过封闭码治理（R6 P1-2） | P1 | `g1/G1-ERROR-MODEL-RECONCILIATION.md`（四信号逐一归类；封闭集净扩张 0）；JC-1/IDC-12/基线/tx 实验改用既有载体并实跑 | §2.10、`RefusalCode` 联合、ADJ X-2/X-3 | PR-3/PR-9（正式负例与宿主映射） | `AUTHORITY_REQUIRED`/`CONTEXT_INCOMPLETE` 的新用法负例待补 |
 | D17 | PR-6b 保证 A 未要求两个**不同** Capability（R6 P2-1） | P2 | 保证 A 加严（双 Capability 正负例；单域「创建+修订」不算通过）；tx VERDICT 明示该实验不冒充跨域 | PLAN PR-6b | PR-6b | 跨域具名命令协同仍待正式实现验证 |
-| D18 | 基线 Git 起点三义（R6 P2-2） | P2 | 基线 §2 唯一化：`db27ad2` + `g2/impl` + 首批引入封闭清单 + 沿革仅备查 | 实施基线 §2 | 第一个实施 PR | 分支尚未创建（开工时按命令建） |
+| D18 | 基线 Git 起点三义（R6 P2-2；R7 再修：`db27ad2` 已落后两次提交） | P2 | 基线 §2：起点 = **冻结 tip（≥ `5a451e6`）**；`g2/impl` 从冻结 tip 建；新增 §2.4 选择性收编（base = `main`、白/黑名单、逐 PR 文件清单核对） | 实施基线 §2/§2.4 | 第一个实施 PR | 分支与收编 PR 尚未创建（开工时按命令执行） |
 | D19 | 采纳权引用错误项号（R6 P2-3） | P2 | DELTA §4 改「项 1」并注明项 4 是事件名单签署人 | `G1-REMAINING-USER-DECISIONS` 项 1 | —（文书） | 无 |
+| D20 | Bootstrap 要求原始 `tsc` 零错误（与 19 条已登记债务冲突） | P1 | 改为 `pnpm run check:types`（诊断身份不新增债务）+ 新增 `tsconfig.kernel.json` 只检新面 | `dev/engineering/tsc-debt.ids`、`scripts/tsc-gate.mjs` | PR-2 Bootstrap | `tsconfig.kernel.json` 需随第一提交落地 |
+| D21 | Bootstrap 提前要求双序号分离（依赖倒置复发） | P1 | 改为最小提交环（提交/读回/回滚）；双轴归 PR-4/PR-5；测试夹具须自足（禁 import `experiments/**`） | PLAN PR-4/PR-5 | PR-2 / PR-4 / PR-5 | `tests/helpers/kernel-harness.ts` 随第一提交落地 |
+| D22 | 生产收编方式可能把叠层实验历史并入主线 | P1 | 基线 §2.4：收编 PR base = `main`，白/黑名单 + `git diff --stat` 逐 PR 核对；`g2/impl → #49` 仅开发期可见性，不是发布路径 | 既有「禁止整体合并 PoC 分支」纪律 | 第一个收编 PR | 收编 PR 尚未创建 |
 
 ## 2. 未修但已定归属（不在本轮，不需要新 PoC）
 
@@ -52,6 +55,7 @@
 | 具名命令端口的跨域扩展性 | PR-11 + PR-6b | P-EXT 已收窄到基础机制 |
 | 五类对象正式字段/状态机/接纳规则 | G3 | G2 只验机制兼容性 |
 | D-1 空间粒度 | 用户裁决 | 本矩阵不裁决；映射规则可替换 |
+| 双轴（提交序/事件序）完整验收 | PR-4 + PR-5 | Bootstrap 只验最小提交环，不提前要求双轴（否则依赖倒置复发） |
 | 首版 5 个待消费事件名的 `Approved-By`（PR-2 两名、PR-7 两名、PR-10 一名） | **用户指派独立批准者** | 既定流程逐名办理；不重开架构讨论，也不由作者自批 |
 | P-A 敌对 Profile（恒时/逐字节/穷尽侧信道） | 未来敌对部署立项 | 已按 T-SEC 降级为可选加固 |
 

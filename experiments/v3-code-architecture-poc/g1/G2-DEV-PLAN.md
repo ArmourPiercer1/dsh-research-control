@@ -294,15 +294,20 @@ pnpm run docs:check                                                             
 
 **落点（固定，不再讨论）**：正式 Kernel 落 **`src/kernel/**`**（单包，不拆 `packages/*`）。理由：#44 的
 `packages/kernel` 建议需要改 workspace 布局与发布面，收益不抵风险；先落 `src/kernel/**` 使 `tsconfig`/`tsup`/
-`packages.json.files` 的最小改动即可编译，PR-3 若确需拆包再单独提案。存储 Port 落 `src/storage-sqlite/**`。
+`package.json.files` 的最小改动即可编译。**本决定不再保留 `packages/*` 备选**：若未来确需拆包，走独立提案，
+不把它作为 Bootstrap 的分支条件。存储 Port 落 `src/storage-sqlite/**`，同样在 Bootstrap 落骨架。
 
 **Bootstrap 第一提交必须交付（缺一不算过门）**：
 
 1. **最小可编译骨架**：`src/kernel/**` 的 `Kernel`（`uow`/`uowFor`/`head` 最小面）、`NamespaceWriter`（最小读写面）、
    Capability Registry（`register`/`activate`）、`src/storage-sqlite/sqlite-port.ts`（`StoragePort.tx` 骨架）——
    从 PoC **逐文件**迁移，每个文件在提交信息里写「来源路径 + 差异说明」；禁止整目录 `git mv` 后顺手清理。
-2. **一条生产级测试进投票路径**：`tests/kernel-bootstrap.test.ts` 覆盖「开 UoW → 写一条权威事件 → 提交 →
-   读回」，断言 `CommitSequence` 与事件序各一轴；随 `pnpm test` 跑。
+2. **一条生产级测试进投票路径**：`tests/kernel-bootstrap.test.ts` 覆盖**最小提交环**——开 UoW → 写一条权威事件
+   → 提交 → 读回 → 注入失败回滚（四者都真实落库）。**不**断言「`CommitSequence` 与事件序两轴分离」：
+   双轴完整验收归 **PR-4（提交序/事件序分离）** 与 **PR-5（提交账持久化）**——Bootstrap 若先要求双轴，
+   就等于「为让前置门禁通过而提前实现后续 PR」，是同一依赖倒置的复发形。
+   **测试夹具必须自足**：新增 `tests/helpers/kernel-harness.ts`（临时目录建库 + 装配最小 Kernel），
+   **不得**从 `experiments/**` 导入任何装配代码（`grep`/import 断言钉死），否则「正式测试」仍寄生在实验区。
 3. **`p3-intake-validation` 落点修复**：把
    `experiments/v3-code-architecture-poc/tests/p3-intake-validation.test.ts` 的等价测试迁入根 `tests/`
    （`tests/p3-intake-validation.test.ts`），或由 PR-2 明确写出替代载体并说明为什么等价。
@@ -311,14 +316,23 @@ pnpm run docs:check                                                             
    或新增一个只跑 gate 的 workflow；job 打印 `GITHUB_SHA`，使结果绑定到具体提交。
 5. **门禁命令化（逐条贴退出码）**：
    ```sh
-   npx tsc -p tsconfig.json                     # 期望 0（新增目录不引入新债；若触达已知债须逐条登记）
-   npx vitest run tests/kernel-bootstrap.test.ts # 期望 0
+   pnpm run check:types                          # 期望 0：诊断身份比对（dev/engineering/tsc-debt.ids 19 条已知债
+                                                 #   必须逐条复现、不得新增；**不要**用原始 tsc 零错误当门禁，
+                                                 #   那 19 条历史债不在 Bootstrap 的解债范围内）
+   npx tsc --noEmit -p tsconfig.kernel.json      # 期望 0：仅检查 src/kernel/** + src/storage-sqlite/** 新增面
+                                                 #   （该 tsconfig 由本提交新增：include 仅两目录、strict、不继承债务 allowlist）
+                                                 #   （独立 tsconfig，strict；不继承历史债的 allowlist）
+   npx vitest run tests/kernel-bootstrap.test.ts  # 期望 0（含回滚负例）
    pnpm run build && pnpm run check:freshness    # 期望 0（契约校验对新增目录无漂移）
    node scripts/<异源对账>.mjs                   # 期望 0（事件名单零违规，若已在 PR-1 落地）
    ```
+   **为什么不是 `tsc -p tsconfig.json` 期望 0**：仓库已登记 19 条已知 TypeScript 错误，正式类型门禁
+   `pnpm run check:types`（`scripts/tsc-gate.mjs`）按诊断身份比对来「不新增债务」，本来就不要求编译器零错误。
+   写成「raw tsc 期望 0」按字面必红，且会诱导解历史债或放宽基线。
 
 **退出判据**：上述五条全绿 ∧ `src/kernel/**` 与 `src/storage-sqlite/**` 已被 `tsconfig`/构建面收入 ∧
-`tests/kernel-bootstrap.test.ts` 在 CI 投票路径上跑过（附 run URL 或 job 日志片段）。
+`tests/kernel-bootstrap.test.ts` 在 CI 投票路径上跑过（附 run URL 或 job 日志片段）∧ 该测试**零**
+`experiments/**` 导入（import 断言）。
 **不满足 ⇒ PR-2 不得开始**（不是「可以先做再补」）；Bootstrap 与 PR-2 的功能实现可在同一 PR 的两个提交内完成，
 但**第一个提交必须让骨架 + 测试先绿**。
 

@@ -28,16 +28,17 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 
 | 项 | 值 |
 | --- | --- |
-| 目标分支（G2 开发分支） | `g2/impl`（由第一个实施 PR 创建：`git switch -c g2/impl db27ad2`） |
-| **基线 SHA（唯一固定起点）** | **`db27ad2`**（本文件所在提交；G1 机制契约 + P0/P1/P2 修订 + R4/R5 复验的最终受审 tip） |
-| 合并去向 | `g2/impl` → `g1/contracts-20261031`（#49 分支）→ `main`；**#48/#49 不整体合并**，只按 §2.3 三类收编 |
+| 目标分支（G2 开发分支） | `g2/impl`，**从 G1 冻结放行时 `g1/contracts-20261031` 的 tip 创建**：`git switch -c g2/impl $(git rev-parse g1/contracts-20261031)` |
+| **基线 SHA** | **冻结 tip**（冻结时抄录实际值写入本节与首个实施 PR 描述；**不得低于** `5a451e6`——该提交之后才含 Bootstrap Gate 与错误模型对账；冻结前的最后一次已知修订即本节所在提交） |
+| 合并去向（两级，不可混） | **① 开发**：`g2/impl` 自由推进；**② 生产收编**：`main` ← **以 `main` 为起点的选择性收编 PR**（见 §2.4），**不是** `g2/impl` 或 `#49` 的普通分支合并 |
 | 正式生产码现状 | `src/**`（`host`/`client`/`shared` 等）；**无** `src/kernel/**`／`packages/kernel/**` |
 | 新 Kernel 可运行实现现状 | `experiments/v3-code-architecture-poc/src/**`（**仅作证据与回归基线**） |
-| 依赖 PR（Draft，按 head SHA 锁定读法） | #42 `0369c3196cec` · #47 `37de107ed529` · #44 `5ec38974fca4` · #48 `d2f19cc16f22` · #49 `db27ad2`（本分支） |
+| 依赖 PR（Draft，按 head SHA 锁定读法） | #42 `0369c3196cec` · #47 `37de107ed529` · #44 `5ec38974fca4` · #48 `d2f19cc16f22` · #49 `5a451e6`（本分支，冻结时以 tip 为准） |
 
 **历史修订沿革（仅备查，不是起点）**：`7b3315a`（基线）→ `71fa972`（§0bis 三项）→ `4e30c18`（R1 阻塞）→
 `01db6f6`（结项报告）→ `e3e8eb5`（R2 P1）→ `36501d2`（R3 P0）→ `53f3329`（R4 收口）→ `db27ad2`（R5 收口）。
-**只有 `db27ad2` 是可开工起点**——从更早的 SHA 开工必然拿到被否证的 JC-1 旧序。
+**只有冻结 tip 是可开工起点**——`db27ad2` 只含 R5 收口，缺 `e9e4a77`（Bootstrap Gate + 错误模型对账）与
+`5a451e6`（错误载体清理）；从更早 SHA 开工必然拿到被否证的 JC-1 旧序或缺失的门禁。
 
 **收编原则（不变）**：禁止整体合并 PoC 分支（`#48`/`#49` 不整体合并）。按三类分别收编：
 
@@ -57,8 +58,8 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 
 | PoC 路径 | 正式目标 | 首个落地 PR |
 | --- | --- | --- |
-| `experiments/v3-code-architecture-poc/src/kernel/**` | `packages/kernel/src/**`（#44 §建议布局；若最终不拆包则 `src/kernel/**`，由 PR-3 定） | PR-3 |
-| `…/src/storage-sqlite/**` | 同上，存储适配层（Port 实现） | PR-5 |
+| `experiments/v3-code-architecture-poc/src/kernel/**` | **`src/kernel/**`（已定，单包；Bootstrap Gate 落点，不拆 `packages/*`）** | **PR-2 第一提交（Bootstrap）** |
+| `…/src/storage-sqlite/**` | `src/storage-sqlite/**`（Port 骨架随 Bootstrap 入，完整表形/触发器在 PR-5） | PR-2 Bootstrap / PR-5 |
 | `…/src/contracts/**`（类型与拒绝码） | `src/contracts/**`（生产类型面）+ 事件名单锚文件 | PR-1/PR-2 |
 | `…/src/harness/world.ts` | 装配根（Adapter 侧），不进 Kernel 包 | PR-9 |
 | `…/src/domains/test-*.ts` | **不迁移**（合成测试域，仅作夹具） | — |
@@ -67,6 +68,20 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 
 **允许迁移的实验代码范围**：仅上表「正式目标」列非空的条目；迁移时必须**逐文件**说明来源与差异，
 不得 `git mv` 整个目录后「顺手清理」。任何把 PoC 的合成域、实验夹具、证据报告带进生产包的迁移，一律拒。
+
+### 2.4 进入 `main` 的方式：选择性收编 PR（非分支合并）
+
+既有纪律「禁止整体合并 PoC 分支」在 Git 操作层的落地：
+
+1. **收编 PR 的 base 是 `main`**（不是 `g2/impl`、不是 `g1/contracts-20261031`）。在该分支上**重新落文件**
+   （`git checkout <g2/impl> -- <path>` 后逐文件提交，或 `git cherry-pick -x`），绝不 `git merge g2/impl`。
+2. **允许进入的路径（白名单）**：`src/**`（生产机制码）、`tests/**`（正式测试）、`scripts/**`（门禁脚本）、
+   `docs/**`（若该 PR 涉及）、冻结面 8 根文档 + `schema/**`（仅在走完冻结变更流程时）。**逐 PR 附文件清单**。
+3. **不得进入的路径（黑名单）**：`experiments/**`、`.scratch/**`、`.poc-data/**`、`references/**`、
+   `tests/deepseek-harness/**`、任何 `.env`/本地状态。实验证据留在 #49/#48 分支与 PR 历史里。
+4. **合并前核对**：`git diff --stat main...<收编分支>` 必须等于该 PR 声明的文件清单；多一个文件即拒。
+5. 因此 `g2/impl → g1/contracts-20261031` 只用于**开发期的依赖可见性**（可选），**不是**发布路径；
+   `#49` 保持 Draft，冻结后其契约文书按 §2.4 白名单逐个收编，不做分支合并。
 
 ## 3. 每个 PR 的正式测试与 CI 入口
 
@@ -97,5 +112,6 @@ PoC 侧车健康检查是 `continue-on-error: true`（**advisory，非投票**�
 ## 5. 未决与升级路径
 
 - D-1 空间粒度：未决（本文件不选，只禁推导）。
-- `packages/kernel` 是否真的拆包：由 PR-3 定；本文件只要求「映射表 + 逐文件说明」。
+- `packages/kernel` 拆包：**已定不拆**（Bootstrap Gate 落 `src/kernel/**`）；若未来确需拆包，走独立提案，
+  不作为任何 PR 的分支条件。
 - CI 触发面调整涉及 `.github/**`（非冻结面，但属工程配置）：由第一个实施 PR 一并提交，附本文件 §4 引用。

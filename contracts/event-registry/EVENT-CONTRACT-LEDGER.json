@@ -1,0 +1,216 @@
+{
+  "schemaVersion": 1,
+  "approved": [
+    {
+      "approvedBy": "legacy:C-19",
+      "approvedOn": "pre-freeze",
+      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#capability-enabled"
+    },
+    {
+      "approvedBy": "legacy:C-19",
+      "approvedOn": "pre-freeze",
+      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#capability-disabled"
+    },
+    {
+      "approvedBy": "legacy:C-19",
+      "approvedOn": "pre-freeze",
+      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#capability-transferred"
+    },
+    {
+      "approvedBy": "legacy:C-19",
+      "approvedOn": "pre-freeze",
+      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#object-registered"
+    },
+    {
+      "approvedBy": "legacy:C-19",
+      "approvedOn": "pre-freeze",
+      "anchor": "CONTRACTS.md §16.3/D-27（C-19 既有评审事实）#check-report-recorded"
+    },
+    {
+      "approvedBy": "legacy:EA-5.2",
+      "approvedOn": "pre-freeze",
+      "anchor": "G1-CONTRACT-EVENT-AUTHORITY.md §EA-5.2（存量升格就地）#object-revised"
+    },
+    {
+      "approvedBy": "legacy:EA-5.2",
+      "approvedOn": "pre-freeze",
+      "anchor": "G1-CONTRACT-EVENT-AUTHORITY.md §EA-5.2（存量升格就地）#record-backfilled"
+    },
+    {
+      "approvedBy": "independent-review-seat",
+      "approvedOn": "2026-11-03",
+      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#integrity-audit-recorded"
+    },
+    {
+      "approvedBy": "independent-review-seat",
+      "approvedOn": "2026-11-03",
+      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#read-shadow-recorded"
+    },
+    {
+      "approvedBy": "independent-review-seat",
+      "approvedOn": "2026-11-03",
+      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#facet-mounted"
+    },
+    {
+      "approvedBy": "independent-review-seat",
+      "approvedOn": "2026-11-03",
+      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#facet-unlinked"
+    },
+    {
+      "approvedBy": "independent-review-seat",
+      "approvedOn": "2026-11-03",
+      "anchor": "g1/EVENT-NAME-APPROVALS-20261103.md#raw-record-declared"
+    }
+  ],
+  "entries": [
+    {
+      "eventType": "capability-enabled",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": false
+    },
+    {
+      "eventType": "capability-disabled",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": false
+    },
+    {
+      "eventType": "capability-transferred",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": false
+    },
+    {
+      "eventType": "object-registered",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": false
+    },
+    {
+      "eventType": "check-report-recorded",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": false
+    },
+    {
+      "eventType": "object-revised",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": false
+    },
+    {
+      "eventType": "record-backfilled",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": false
+    },
+    {
+      "eventType": "raw-record-declared",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": true,
+      "gated_by": "EA-1.2.3"
+    },
+    {
+      "eventType": "integrity-audit-recorded",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": true,
+      "gated_by": "EA-7.1"
+    },
+    {
+      "eventType": "read-shadow-recorded",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": true,
+      "gated_by": "EA-7.2"
+    },
+    {
+      "eventType": "ns-relocated",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": true,
+      "gated_by": "G1-NS-01"
+    },
+    {
+      "eventType": "facet-mounted",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": true,
+      "gated_by": "G1-FACET-01"
+    },
+    {
+      "eventType": "facet-unlinked",
+      "class": "mechanism",
+      "truthSource": "ledger-payload",
+      "interpretationRuleSetVersion": "g1/fa3b892",
+      "writeSites": [
+        "src/kernel/**",
+        "src/storage-sqlite/**"
+      ],
+      "planned": true,
+      "gated_by": "G1-FACET-01"
+    }
+  ]
+}

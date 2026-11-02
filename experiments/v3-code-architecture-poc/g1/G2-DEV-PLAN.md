@@ -328,6 +328,8 @@ pnpm run docs:check                                                             
                                                  #   （该 tsconfig 由本提交新增：include 仅两目录、strict、不继承债务 allowlist）
                                                  #   （独立 tsconfig，strict；不继承历史债的 allowlist）
    npx vitest run tests/kernel-bootstrap.test.ts  # 期望 0（含回滚负例）
+   node scripts/events-recon.mjs                  # 期望 0（R1–R4 对**生产根**跑：Kernel 落地后 7 名才可能有写点；
+                                                 #   本命令是 PR-1 脚本的生产侧投票点，迁移前只作证据跑）
    pnpm run build && pnpm run check:freshness    # 期望 0（契约校验对新增目录无漂移）
    node scripts/<异源对账>.mjs                   # 期望 0（事件名单零违规，若已在 PR-1 落地）
    ```

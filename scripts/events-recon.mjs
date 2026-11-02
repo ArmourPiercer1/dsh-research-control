@@ -402,7 +402,10 @@ function checkCoupling(sha, cwd = REPO) {
   const touchesLedger = files.includes(LEDGER_REL);
   // PR-1..PR-10 的真实代码在 `experiments/<pkg>/src/{kernel,storage-sqlite}/**`（生产根迁移前），
   // 只认 `src/**` 会让「名单语义行 + 真实写点同提交」在迁移窗口内全绿——第二轮复审 P1-3。
-  const writeModules = files.filter((f) => /^(?:experiments\/[^/]+\/)?src\/(?:kernel|storage-sqlite)\//.test(f));
+  // 契约正文也在语义行面内（复核残余风险）：同提交「改契约条文 + 改锚」= 既改判据又改被判对象，
+  // 只有夹具能拦，而夹具是代码、可同提交改。契约文件与锚文件必须分居两个提交。
+  const CONTRACT_DOC = /^experiments\/[^/]+\/g1\/G1-CONTRACT-[A-Za-z0-9-]+\.md$/;
+  const writeModules = files.filter((f) => /^(?:experiments\/[^/]+\/)?src\/(?:kernel|storage-sqlite)\//.test(f) || CONTRACT_DOC.test(f));
   const hits = [];
   const push = (detail) => hits.push({ code: 'EVENT_RECON_COUPLING', msg: `提交 ${sha.slice(0, 7)} 同时改了名单语义行与写点模块（${writeModules.slice(0, 3).join(', ')}…）：${detail}` });
   if (!touchesLedger) return hits;

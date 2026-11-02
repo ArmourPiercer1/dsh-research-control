@@ -117,10 +117,10 @@ commit   | CommitSequence        | commit_sequence  | 每提交 +1   | 是   | �
 
 | 要素 | 裁决 | 为什么不是别的 |
 | --- | --- | --- |
-| **分配点** | 事务内**第一次权威写之前**（凡将写 H/`domain_state`/挂载账/路由账/位置键者），由机制单点 `nextCommitSequence(raw)` 预留：`update meta set value = value + 1 where key='commit_sequence'`，本事务后续所有写**复用**该值，不再发号。一个事务**至多**一个提交序；一个历史写都没有的事务**不分配、不占号** | 不能搬到 COMMIT 之后：H 是 append-only（`ledger_no_update` ⇒ `HISTORY_IMMUTABLE`），行落库后**无法回填**归属 ⇒ 提交时再打号在物理上不可行（夹具 T-N5 真库否证：提交后 `update ledger set commit_sequence=?` 撞 `HISTORY_IMMUTABLE`） |
+| **分配点** | 事务内**第一次权威写之前**（凡将写 H/`domain_state`/挂载账/路由账/位置键者），由机制单点 `nextCommitSequence(raw)` **预留**：只做 `update meta set value = value + 1 where key='commit_sequence'`，**不插入 `commit_record`**（区间尚不可知）；本事务后续所有写**复用**该值，不再发号。一个事务**至多**一个提交序；一个历史写都没有的事务**不分配、不占号**。**【2026-11-03 P0 修订】** 预留与落账是**两步**：`commit_record` 行在领域事件落库之后、COMMIT 之前插入（见下「与 commit 的先后」），因为区间必须取自真实事件且该行不可 UPDATE | 不能搬到 COMMIT 之后：H 是 append-only（`ledger_no_update` ⇒ `HISTORY_IMMUTABLE`），行落库后**无法回填**归属 ⇒ 提交时再打号在物理上不可行（夹具 T-N5 真库否证：提交后 `update ledger set commit_sequence=?` 撞 `HISTORY_IMMUTABLE`） |
 | **作用域** | **每 Space 全局**（跨 Capability、跨命名空间单调），从 1 起稠密。**跨 Space 无共同序**：两空间的同一数字无相互含义，禁比较、禁进任何标识字符串 | 不按 ns / 不按 capability 分轴：Q40 的一次原子提交可同时写多个 owner 的 ns（C-05），若分轴就没有「这一次提交」的单一截点；Space = 文件 = 事务边界（C-04「同一 Space 统一…」），跨 Space 无原子提交 ⇒ 无跨 Space 截点 |
-| **持久化位置** | ① `meta` 键 `commit_sequence` = 已分配水位；② **提交账 `commit_record`**（CS-1.3）= 已提交事实账，读面解析只读它。两处**同事务**写入 | 只存水位不存提交账 ⇒ 墙钟分支无法解析（T-GAP-13 两个分支的取值都要求"哪些提交存在、各自几点"，C-07）；只存提交账不存水位 ⇒ 发号没有单点，回滚不留 ghost 的性质无法用既有 `meta_counter_monotonic` 守卫（`src/storage-sqlite/sqlite-port.ts:25-27`） |
-| **与 commit 的先后** | **先预留，后 COMMIT**；**生效（进入读面可见域）= COMMIT 成功**，无第二次写。回滚 / 提交期抛错 ⇒ 预留号与业务行一并消失，水位不前进、号可被后续提交复用（**无 ghost**，C-12 同族，真库复核 T-P2）。读面解析的候选集**只含 `commit_record` 里已存在的行** ⇒ 「预留但未提交」的值对读面**不可表示** | 若"提交后再 +1"则需第二次写（跨提交窗口 = 存在「内容已提交但无截点」的世界）；若在事务开始前分配则纯读事务也烧号，稠密性判据（I-1 等号）失效 |
+| **持久化位置** | ① `meta` 键 `commit_sequence` = 已分配水位（**预留点**写）；② **提交账 `commit_record`**（CS-1.3）= 已提交事实账，读面解析只读它（**事件落库后**写）。两处**同事务**写入（同一 SQLite 写事务，中间态对外不可见） | 只存水位不存提交账 ⇒ 墙钟分支无法解析（T-GAP-13 两个分支的取值都要求"哪些提交存在、各自几点"，C-07）；只存提交账不存水位 ⇒ 发号没有单点，回滚不留 ghost 的性质无法用既有 `meta_counter_monotonic` 守卫（`src/storage-sqlite/sqlite-port.ts:25-27`） |
+| **与 commit 的先后** | **先预留水位，再执行领域写与事件，再落提交账，最后 COMMIT**（2026-11-03 P0 修订：原「预留即落账」不可实现——落账时区间未知，而提交账禁 UPDATE）；**生效（进入读面可见域）= COMMIT 成功**，无第二次写。回滚 / 提交期抛错 ⇒ 预留号与业务行一并消失，水位不前进、号可被后续提交复用（**无 ghost**，C-12 同族，真库复核 T-P2）。读面解析的候选集**只含 `commit_record` 里已存在的行** ⇒ 「预留但未提交」的值对读面**不可表示** | 若"提交后再 +1"则需第二次写（跨提交窗口 = 存在「内容已提交但无截点」的世界）；若在事务开始前分配则纯读事务也烧号，稠密性判据（I-1 等号）失效 |
 
 ### 1.3 提交账 `commit_record`（逻辑形状；物理 DDL 归 G2）
 

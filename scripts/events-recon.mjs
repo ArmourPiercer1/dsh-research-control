@@ -65,8 +65,14 @@ function loadExpected(anchorPath = ANCHOR_PATH) {
  * legacy 锚（本仓无 `CONTRACTS.md` 的既有评审事实）走显式白名单，必须逐条写明理由。
  */
 const LEGACY_ANCHOR_WHITELIST = new Map([
-  ['legacy:C-19', 'C-19 既有评审事实（CONTRACTS.md §16.3 / D-27；该文件不在本仓，锚以事实标识字符串表达）'],
-  ['legacy:EA-5.2', 'EA-5.2 存量升格就地（G1-CONTRACT-EVENT-AUTHORITY.md 表内批准事实）'],
+  ['legacy:C-19', {
+    reason: 'C-19 既有评审事实（CONTRACTS.md §16.3 / D-27；该文件不在本仓，锚以事实标识字符串表达）',
+    names: ['capability-enabled', 'capability-disabled', 'capability-transferred', 'object-registered', 'check-report-recorded'],
+  }],
+  ['legacy:EA-5.2', {
+    reason: 'EA-5.2 存量升格就地（G1-CONTRACT-EVENT-AUTHORITY.md 表内批准事实）',
+    names: ['object-revised', 'record-backfilled'],
+  }],
 ]);
 const APPROVER_DENY = /implementer|implementor|author|self|the-same/i;
 
@@ -83,7 +89,10 @@ function verifyApprovals(doc, repoRoot) {
     const [, src, name] = m;
     if (APPROVER_DENY.test(by)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `批准者形态不可接受（${by}）：批准者必须是独立于实现者的人` }); continue; }
     if (src.startsWith('legacy:')) {
-      if (!LEGACY_ANCHOR_WHITELIST.has(src)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `未登记的 legacy 锚：${src}（legacy 锚进显式白名单才有效）` }); continue; }
+      const legacy = LEGACY_ANCHOR_WHITELIST.get(src);
+      if (!legacy) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `未登记的 legacy 锚：${src}（legacy 锚进显式白名单才有效）` }); continue; }
+      // legacy 锚还必须绑定它**历史上覆盖的名字集**——否则白名单就成了「给任何新名自签」的通道
+      if (!legacy.names.includes(name)) { problems.push({ code: 'EVENT_RECON_UNPROVED', name, msg: `legacy 锚 ${src} 不覆盖名字 ${name}（它只覆盖：${legacy.names.join('/')}）` }); continue; }
       approved.add(name); continue;
     }
     const abs = join(repoRoot, src);
@@ -219,8 +228,17 @@ function factsFromFile(abs) {
     }
     ts.forEachChild(node, visit);
   };
+  // 归属/名单核对调用（AST）：callee 文本命中其一即算本文件有核对
+  const GUARD_CALL = /(?:formalEventOwner|formalEventAuthority|registry\s*\.\s*(?:lookup|formal|capability|ownsEvent|capabilities)|MECHANISM_AUDIT_EVENT_TYPES\s*\.\s*(?:has|includes))/;
+  let guardCalls = 0;
+  const countGuards = (n) => {
+    if (ts.isCallExpression(n) && GUARD_CALL.test(n.expression.getText(sf))) guardCalls += 1;
+    ts.forEachChild(n, countGuards);
+  };
+  countGuards(sf);
+
   visit(sf);
-  return { names, invalid, unresolved, relays };
+  return { names, invalid, unresolved, relays, guardCalls };
 }
 
 function collectFacts(implRoot, byName) {
@@ -238,8 +256,9 @@ function collectFacts(implRoot, byName) {
     for (const x of r.invalid) invalid.push({ ...x, file: rel });
     for (const x of r.unresolved) unresolved.push({ ...x, file: rel });
     if (r.relays.length) {
-      // 同文件必须出现归属/名单核对（真新点判据：转发写点 = 必须在核对之后）
-      const guarded = /formalEventOwner|registry\s*\.\s*(?:lookup|formal|capability|ownsEvent)|MECHANISM_AUDIT_EVENT_TYPES/.test(readFileSync(f, 'utf8'));
+      // 同文件必须真的**调用**归属/名单核对——用 AST 的调用名判定，注释/字符串里出现不算
+      // （审查反攻第 3 条：字符串匹配可被一行注释满足）。
+      const guarded = r.guardCalls > 0;
       for (const x of r.relays) relays.push({ ...x, file: rel, guarded });
     }
   }
@@ -531,6 +550,27 @@ function selfTest() {
       `declare function appendLedger(a: { eventType: string }): void;\ndeclare function pick(): string;\nappendLedger({ eventType: pick() });\n`);
     const f3 = run({ implRoot: H });
     emit('MUT-R1 无法解析的事件名按违规处理', 'R1', f3.counts.R1 >= 1, `R1=${f3.counts.R1}（期望 ≥1）`);
+
+    // 架空形 J：legacy 锚给**新**名字自签 ⇒ 必须红（legacy 白名单不得成为签新名的通道）
+    const legacyNew = verifyApprovals({ ...baseDoc, approved: [{ approvedBy: 'someone', approvedOn: '2026-11-03', anchor: 'legacy:C-19#brand-new-mechanism-name' }] }, D);
+    emit('MUT-APPROVAL legacy 锚给新名自签', 'R2', legacyNew.approved.size === 0, `approved=${legacyNew.approved.size}（期望 0）`);
+
+    // 架空形 K：核对只出现在**注释**里 ⇒ 转发写点仍红（AST 判调用，不判字符串）
+    const K = join(dir, 'k');
+    mkdirSync(join(K, 'src/kernel'), { recursive: true });
+    writeFileSync(join(K, 'src/kernel/relay.ts'),
+      `declare const raw: { run(s: string, ...p: unknown[]): void };\ndeclare const a: { eventType: string };\n`
+      + `// 这里"提到" formalEventOwner 只是注释，不是核对\nraw.run('insert into ledger(seq, space, event_type) values(?,?,?)', 1, 'SP', a.eventType);\n`);
+    const k1 = run({ implRoot: K });
+    emit('MUT-R1 转发写点仅注释提到核对', 'R1', k1.counts.R1 >= 1, `R1=${k1.counts.R1}（期望 ≥1）`);
+    const K2 = join(dir, 'k2');
+    mkdirSync(join(K2, 'src/kernel'), { recursive: true });
+    writeFileSync(join(K2, 'src/kernel/relay2.ts'),
+      `declare const raw: { run(s: string, ...p: unknown[]): void };\ndeclare const a: { eventType: string };\n`
+      + `declare function formalEventOwner(t: string): string | undefined;\nformalEventOwner(a.eventType);\n`
+      + `raw.run('insert into ledger(seq, space, event_type) values(?,?,?)', 1, 'SP', a.eventType);\n`);
+    const k2 = run({ implRoot: K2 });
+    emit('对照4：转发写点 + 真核对调用 ⇒ 通过', 'R1', k2.counts.R1 === 0 && k2.relayed === 1, `R1=${k2.counts.R1} relayed=${k2.relayed}（期望 0 / 1）`);
 
     // 架空形 I：gated_by 不在契约闭集 ⇒ UNPROVED
     const I = join(dir, 'i');

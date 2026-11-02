@@ -37,8 +37,9 @@ EA-6.1 的 `approved[]` 形状只有 `{approvedBy, approvedOn, anchor}` 三个�
    真身份属人工面；缺失时不得当作已批准。
 
 `legacy:<id>` 锚（本仓无 `CONTRACTS.md`，既有评审事实只能以事实标识表达）走**显式白名单**：
-`legacy:C-19`（C-19 既有评审事实，CONTRACTS.md §16.3 / D-27）、`legacy:EA-5.2`（EA-5.2 存量升格就地）。
-白名单以外的 `legacy:` 锚一律红。
+`legacy:C-19`（C-19 既有评审事实，CONTRACTS.md §16.3 / D-27，只覆盖它的 5 个名）、
+`legacy:EA-5.2`（EA-5.2 存量升格就地，只覆盖它的 2 个名）。白名单以外的 `legacy:` 锚一律红，
+**且 legacy 锚还绑定它历史上覆盖的名字集**——`legacy:C-19#某个新名` 不算批准（否则白名单就是签新名的后门）。
 
 提交侧：任何**新增批准记录**的提交必须带 `Event-Name-Review: <日期> <批准人>` trailer
 （`EVENT_RECON_UNSIGNED`），且该提交**独立于**写点实现提交。
@@ -53,7 +54,8 @@ EA-6.1 的 `approved[]` 形状只有 `{approvedBy, approvedOn, anchor}` 三个�
 | 注释/排序/格式化 | 豁免（**按解析后的 JSON 判定**：`sha^` 与 `sha` 两份文档逐 entry 深度相等即视为纯格式变化） |
 
 > R4 的判定**不按 diff 行文子串**（把名单压成单行 JSON 就能让整段豁免——那是已修掉的绕过形）：
-> 它解析两个版本的 JSON，逐 entry 比字段。`planned` 只豁免 `true→false` 一个方向；
+> 它解析两个版本的 JSON，逐 entry 比字段。转发写点（`a.eventType`）的归属核对也按 **AST 调用**判定，
+> 注释或字符串里出现 `formalEventOwner` 字样不算核对。`planned` 只豁免 `true→false` 一个方向；
 > 新增/删除条目、任何其它字段变化、批准记录的删除或改写，一律算语义行。
 
 ## 4. 本地复现

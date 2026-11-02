@@ -416,6 +416,20 @@ RL-8.4/RL-8.5 与 §10.2 F-13 的 `failedGate='REPAIR_PROVENANCE'`（汇编注�
      字面相符**；ns 变化 ∩（enabled 翻转 ∨ plugin_id/contract_version 变化）同语句发生 ⇒ 拒，
      abort 信号文本 `ROUTE_RELOC_SPLIT_REQUIRED`（存储层信号文本，**不入** `RefusalCode`
      封闭集——P-03 的区分原样沿用）。
+   - 【**2026-11-01 G1-ROUTE-01 补句（父席 G1 冻结前收口工单执行**；READINESS F-G6A-3 自陈
+     「我上席写的方向判据自身有洞」：子句③三元组名单漏「capability 主键**出现/消失**」维。
+     本句采 READINESS F-G6A-3 行已登记的修法句为判据形态，正式落文——判据 G1 冻结、触发器体与
+     payload 字段形归 G2 工程批，与「形状/判据 G1、物理形态 G2」总纪律同型）：
+     **第四维——capability 登记行新 INSERT ⇒ 必须同事务随附审计**：`route_insert_guarded` 对
+     **新生行**同样生效——路由行 INSERT 须同事务携 `capability-admin` 轴全形信封的方向事件
+     （新行「出现」唯一合法方向类 = `capability-enabled` 族；`changed_seq` 不得为 NULL）；
+     **首登记 bootstrap 另立界**：首登记不要求前序行存在，但其随附审计 payload 必须自声明
+     bootstrap 身份（字段形工程批定，本句不钉字段名）——非首登记的 INSERT 若无可解释的前序行
+     状态链 ⇒ 拒并回滚。**墓碑行纳入巡检**（`route_no_delete` 保证删不掉的行）：只报不阻、
+     计入 drift 计数（§8.1 巡检 / RL-8.2 四方对账，F-G6A-5 同族：计数须落可回看工件）。
+     「停用复活·PK 改名」三步链（任意名伪造审计 + UPDATE 改 `capability` 主键 + INSERT
+     新生行）⇒ 任一环缺随附审计即被拦（UPDATE 环按子句③三条原判据，INSERT 环按本第四维），
+     「全程零启用审计」形态在触发器面 + 巡检面**双红**（负例常驻夹具随工程批）。】
 
 3. **`domain_state_no_update` 全禁 UPDATE vs RL-5.1 步 3**（R-8，2026-11-01；工程审查 P1-1）⇒
    **窄化触发器体**：体从「任何 UPDATE 即 abort」改为「**仅当 UPDATE 未只改 `ns` 位置列时 abort**」——

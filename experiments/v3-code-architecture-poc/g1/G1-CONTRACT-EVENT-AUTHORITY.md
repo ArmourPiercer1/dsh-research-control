@@ -114,7 +114,11 @@ EA-1.2.3 Raw 信封的台账行固定名 = 「raw-record-declared」（机制封
    readonly intakeNotes?: { readonly parseAttempt: 'UNPARSEABLE' | 'PARSE_FAILED' | 'STRUCTURED_INVALID';
                             readonly reportRef?: string };   // 解析尝试结局引用（每次尝试新增记录，#44 §7.2）
  }
- declareRawIntake(a: RawIntakeEnvelope): CommitSequence;   // 唯一入口；scoped 与 assembly 可达」
+ declareRawIntake(a: RawIntakeEnvelope): CommitSequence;   // 唯一入口；scoped 与 assembly 可达
+   // 【2026-11-01 换轨（CS BF-01 / UNIFIED §7.4 J-5；父席 G1 冻结前收口工单执行）：返回类型名 →
+   //   `LedgerEventSequence`（语义 = 本条登记**事件行**的号，CS-2.5「修法统一」）。旧类型名
+   //   `CommitSequence` 保留为登记原文（R-7）。EA-4.6 全形闸与夹具 S 组无类型名断言面
+   //   （本席 2026-11-01 实测：夹具文本零 `CommitSequence` 命中）⇒ 无需同步重锚。】」
 
 现状映射（登记为插件可见面收紧）：现 `declareRecord(recordId, eventType, payload)` 的 `eventType`
 参数**降格为 `declaredType` 数据字段**，不再进 `event_type` 列；历史行的 `event_type` 一字不动
@@ -339,6 +343,9 @@ G2-A 已实测同族的载荷侧半扇门：判据从 `note` 换到结构化字�
    readonly contractVersion: ContractVersion; // 签发时生效的契约版本（C-12：入信封）
    readonly issuedAtMs: number;             // 机制时钟（登记时间，与描述时间分槽，#44 四类时间）
    readonly txSeq: CommitSequence;          // 同事务内登记序（把「同一事务」做成可核事实）
+   // 【2026-11-01 换轨（CS BF-01 / UNIFIED §7.4 J-5；父席 G1 冻结前收口工单执行）：类型名 →
+   //   `LedgerEventSequence`（本事件行的登记序；CS-2.5）。旧类型名 `CommitSequence` 保留为登记原文
+   //   （R-7）。字段名 `txSeq`（线名 `tx_seq`）与九字段名单、信封 JSON 列（`authority_basis`）均不变。】
  }」
 
 ### 4.3 单点生成与 Port 入参封闭（「不得自带见证」是结构性质，不是纪律）

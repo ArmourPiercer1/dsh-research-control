@@ -172,6 +172,9 @@ export interface CommandReceipt {
   readonly oid: ObjectOid;
   readonly revision: number;
   readonly witnessSeq: CommitSequence;                 // DC-7：机制在入口内签发的登记序
+  // 【2026-11-01 换轨（CS BF-12 / UNIFIED §7.4 J-5；父席 G1 冻结前收口工单执行）：类型名 →
+  //   `LedgerEventSequence`（该权威事件行的号，CS-2.5）。旧类型名保留为登记原文（R-7）；
+  //   「不返回信封对象」条款不变。】
 }
 // Application 目标可见成员名单（S1 可达性判据的正例侧）：
 <!-- DC-APP-SURFACE-BEGIN -->
@@ -220,6 +223,9 @@ writerOwningKind  writerOf  uow  uowFor  port  raw  kernel  namespacedWriter  wr
   顺序 = 归属核对 → 激活核对 → 取证 → 对象/修订解析（EA-4.3 序原样，本契约的 ①–⑤ 与之相容）。
 - `CommandReceipt.witnessSeq` 只是那行的 `CommitSequence`，**不返回信封对象**（返回信封 = 把见证交回
   调用方手里，EA-4.1「字段相等不够」的反面）。调用方要回看走 `eventsOf` 的 `authority` 列（既有读面）。
+  【2026-11-01 换轨（CS BF-12 / UNIFIED §7.4 J-5；父席 G1 冻结前收口工单执行）：上句「那行的
+  `CommitSequence`」类型名 → `LedgerEventSequence`（该权威事件行的号，CS-2.5）。旧句保留为登记原文
+  （R-7）；「不返回信封对象」条款不变。】
 - 命令入参字段集封闭（`inputFields` 白名单）：类型面 + 运行时守卫双向（D-17/N3 教训：类型面不是墙）。
   携带见证字段 ⇒ 复用 `EVENT_AUTHORITY_REQUIRED`，`detail.reason = 'input-carries-witness-field'`
   （EA-2.3 既有码既有 reason，零扩张）。

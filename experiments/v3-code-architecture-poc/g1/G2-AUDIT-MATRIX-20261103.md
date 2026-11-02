@@ -3,7 +3,7 @@
 > 用途：外部审查要求的「合并后的审计矩阵」——逐条列出已修缺陷、真实测试、所依据的合同、正式实施 PR、
 > 仍未覆盖的运行风险。每一行都能追到**可复跑的命令**，不是文档编号或字符串比对。
 > 适用：G1 冻结申请与 G2 乙类开工的判据面。
-> **2026-11-03 状态更新**：G1 已冻结、G2 乙类已获用户授权（`g1/G1-FREEZE-DECISION-20261103.md`，冻结 SHA `fa3b892`）。
+> **2026-11-03 状态更新**：G1 已冻结、G2 乙类已获用户授权（`g1/G1-FREEZE-DECISION-20261103.md`；**契约冻结版本 `fa3b892`**，与开发起点 SHA 分列，见实施基线 §2）。
 > 本矩阵仍是判据台账，不因授权而改变任何判据；授权范围与未授权项以该决策文书为准。
 
 ## 0. 审查轮次与覆盖范围（诚实记录）
@@ -42,7 +42,7 @@
 | D15 | PR-2/PR-3 落地顺序倒置＋`p3-intake-validation` 无投票载体（R6 P1-1） | P1 | `G2-DEV-PLAN` **Bootstrap Gate**（落点 `src/kernel/**`、骨架、`tests/kernel-bootstrap.test.ts`、测试迁入根 `tests/`、CI 触发面、五条命令门禁） | 实施基线 §2、根 `vitest.config.ts` 排除 `experiments/**` | PR-2 第一提交 | Bootstrap 尚未执行（G2 开工后第一件事）；CI 触发面仍是实施前阻塞 |
 | D16 | 四个新错误信号绕过封闭码治理（R6 P1-2） | P1 | `g1/G1-ERROR-MODEL-RECONCILIATION.md`（四信号逐一归类；封闭集净扩张 0）；JC-1/IDC-12/基线/tx 实验改用既有载体并实跑 | §2.10、`RefusalCode` 联合、ADJ X-2/X-3 | PR-3/PR-9（正式负例与宿主映射） | `AUTHORITY_REQUIRED`/`CONTEXT_INCOMPLETE` 的新用法负例待补 |
 | D17 | PR-6b 保证 A 未要求两个**不同** Capability（R6 P2-1） | P2 | 保证 A 加严（双 Capability 正负例；单域「创建+修订」不算通过）；tx VERDICT 明示该实验不冒充跨域 | PLAN PR-6b | PR-6b | 跨域具名命令协同仍待正式实现验证 |
-| D18 | 基线 Git 起点三义（R6 P2-2；R7 再修：`db27ad2` 已落后两次提交） | P2 | 基线 §2：起点 = **冻结 tip（≥ `5a451e6`）**；`g2/impl` 从冻结 tip 建；新增 §2.4 选择性收编（base = `main`、白/黑名单、逐 PR 文件清单核对） | 实施基线 §2/§2.4 | 第一个实施 PR | 分支与收编 PR 尚未创建（开工时按命令执行） |
+| D18 | 基线 Git 起点三义（R6 P2-2；R7 改冻结 tip；**R8 用户修正：tip 浮动不可追溯**） | P2 | 基线 §2 拆两概念：**契约冻结版本 `fa3b892`（不可变）** vs **开发起点（`g2/impl` 第一提交钉死的字面 SHA，≥ `788c6ee`，且契约文本与 `fa3b892` 逐文件一致）**；禁用 `$(git rev-parse <branch>)` 作基线；新增 §2.4 选择性收编 | 实施基线 §2/§2.4、冻结决定 §1 | 第一个实施 PR | 收编 PR 尚未创建 |
 | D19 | 采纳权引用错误项号（R6 P2-3） | P2 | DELTA §4 改「项 1」并注明项 4 是事件名单签署人 | `G1-REMAINING-USER-DECISIONS` 项 1 | —（文书） | 无 |
 | D20 | Bootstrap 要求原始 `tsc` 零错误（与 19 条已登记债务冲突） | P1 | 改为 `pnpm run check:types`（诊断身份不新增债务）+ 新增 `tsconfig.kernel.json` 只检新面 | `dev/engineering/tsc-debt.ids`、`scripts/tsc-gate.mjs` | PR-2 Bootstrap | `tsconfig.kernel.json` 需随第一提交落地 |
 | D21 | Bootstrap 提前要求双序号分离（依赖倒置复发） | P1 | 改为最小提交环（提交/读回/回滚）；双轴归 PR-4/PR-5；测试夹具须自足（禁 import `experiments/**`） | PLAN PR-4/PR-5 | PR-2 / PR-4 / PR-5 | `tests/helpers/kernel-harness.ts` 随第一提交落地 |

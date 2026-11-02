@@ -172,5 +172,12 @@ CI 触发面调整（第一个实施 PR）；D-1 空间粒度（用户裁决）�
 | **P1 Bootstrap 双轴时点** | 删去「断言 `CommitSequence` 与事件序各一轴」，改为最小提交环（写→提交→读回→回滚）；双轴归 **PR-4/PR-5**；测试须自带夹具 `tests/helpers/kernel-harness.ts`，**禁** import `experiments/**` |
 | **P1 Git 语义** | 起点 = **冻结 tip（≥ `5a451e6`）**，不再写死 `db27ad2`；新增 §2.4：进入 `main` 走**以 `main` 为起点的选择性收编 PR**（白/黑名单 + 逐 PR 文件清单），`g2/impl → #49` 只作开发期可见性、不是发布路径；映射表改为 Kernel 首迁 = PR-2 Bootstrap、`packages/*` 备选取消 |
 
+### 9ter R8（用户修正）：区分契约冻结版本与开发起点
+
+- 问题：把「冻结 tip」同时当作契约版本与开工位置，则每追加一次授权/实施记录，冻结基准漂移，且分支 tip 浮动不可追溯。
+- 修正：`G1-FREEZE-DECISION` 与 `G2-IMPLEMENTATION-BASELINE §2` 拆成两行——**契约冻结版本 = `fa3b892`（永不改变）**；
+  **开发起点 = `g2/impl` 第一提交写死的字面 SHA**（判定式 `git rev-parse g2/impl~1` 逐字相等；且 ≥ `788c6ee`、
+  其 `g1/**` 文本与 `fa3b892` 逐文件一致）。建分支命令禁用 `$(git rev-parse <branch>)` 浮动指针。
+
 **不重开的稳定结论**（复审同意）：稳定 ns 必要性、P-EXT 基础扩展性、T-SEC 信任模型、JC-1 新旧序对照、R4/R5 事务反例。
 **留给实施 PR 的验证**：生产 SQLite/WAL 崩溃恢复、同键并发/进程杀死、具名命令 Port 跨域事务、真实 DSH Adapter 身份绑定、五类对象机制兼容切片。

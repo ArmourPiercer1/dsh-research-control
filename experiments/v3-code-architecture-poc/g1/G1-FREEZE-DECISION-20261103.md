@@ -7,7 +7,16 @@
 
 ## 1. 被冻结的对象（G1 机制契约集）
 
-**冻结 SHA（契约 tip）**：`fa3b892`（本决策文书提交之前的最后一次契约修订；本决策文书本身**不计入**被冻结面）。
+**两个 SHA 必须分开读（2026-11-03 用户修正；不要用一个「tip」同时指两件事）**：
+
+| 概念 | 值 | 性质 | 会不会变 |
+| --- | --- | --- | --- |
+| **被冻结的契约版本** | **`fa3b892`** | 冻结面**文本**的版本号：G1 机制契约集在该提交时的内容 | **永不改变**。它是一份不可变内容身份，不是某个分支的位置 |
+| **G2 开发起点** | 由 `g2/impl` **第一提交钉死的字面 SHA**（见 `G2-IMPLEMENTATION-BASELINE.md §2`） | 开发分支从哪个提交拉出：除被冻结契约外，还含**后续授权记录与实施配置**（`6c2ec69` 冻结登记、`a2cf9c1` 事件名批准、`788c6ee` Bootstrap 冻结面登记等） | 只在**建分支那一刻**确定一次，此后写死为字面 SHA |
+
+**为什么必须分开**：若把「被冻结的契约版本」写成「分支 tip」，则每追加一次授权/实施记录，冻结基准就漂移一次，
+同一句「冻结 SHA = X」在不同时间指向不同内容——既不可追溯，也让「冻结了什么」与「从哪开工」互相冒充。
+本决策文书 `fa3b892` 之后的所有提交（含本文书本身）**都不改变被冻结的契约文本**，只增加授权与实施配置记录。
 
 被冻结面 = `experiments/v3-code-architecture-poc/g1/**` 下**现行有效**的机制契约与判据文书，核心为：
 
@@ -30,7 +39,8 @@
 
 **已授权**：
 
-1. 建立 `g2/impl`（从冻结 tip 创建）并执行 **Bootstrap Gate**（`src/kernel/**` + `src/storage-sqlite/**` 骨架、
+1. 建立 `g2/impl`（从**钉死的字面 SHA** 创建，禁止 `$(git rev-parse <branch>)` 这种浮动指针；建分支的第一提交
+   把该 SHA 写进 `G2-IMPLEMENTATION-BASELINE.md §2`）并执行 **Bootstrap Gate**（`src/kernel/**` + `src/storage-sqlite/**` 骨架、
    `tests/kernel-bootstrap.test.ts`、`tests/helpers/kernel-harness.ts`、`tsconfig.kernel.json`、CI 触发面）。
 2. 按计划推进 **PR-2 起的乙类开发**（改 `src/**`、正式 `tests/**`、`schema/**` 的 PR），各自按卡片进入/退出门禁。
 3. 生产收编只走 `G2-IMPLEMENTATION-BASELINE.md §2.4` 的**选择性收编 PR**（base = `main`）。

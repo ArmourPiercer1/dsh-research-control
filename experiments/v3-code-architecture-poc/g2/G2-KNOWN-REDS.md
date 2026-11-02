@@ -30,24 +30,26 @@
 - 新增条目必须附**起点复现证据**（命令 + 输出），否则视为本轮引入的红灯，不许登记。
 - 条目被修复后不删除本条，改标注「已修复 + 修复提交」。
 
-## R-2 — `--commit` 在非默认工作树下的可疑静默放行（**未闭合，待查**）
+## R-3 — `raw-record-declared` 翻面受阻：写点面与「唯一入口」冲突（**需裁定，未闭合**）
 
-登记时间：2026-11-04（G2 第 24 轮）。发现场景：复核席要求为「改锚残余③④」补常驻架空间，
-我在临时仓（`git init` 的全新目录）里构造应判红的提交，`checkCoupling(head, tempRoot)` 返回
-**0 条命中**——连本应报的 `EVENT_RECON_COUPLING` 也没有。
+登记时间：2026-11-04（G2 第 37 轮）。实测：把锚文件 `raw-record-declared` 由 `planned:true`
+翻 `planned:false`（Port 形状、实现、清单登记均已就位）后，对账立刻红：
 
-已排除：`checkCoupling(sha, cwd)` 内部 `git()` 确实绑定了传入的 `cwd`（`execFileSync` 的 `cwd`），
-临时仓里 ledger 路径与写点路径都在 `files` 列表内。
+```
+FAIL [EVENT_RECON_STALE] 入账条目 raw-record-declared 既无写点又非 planned:true
+```
 
-未排除的可能：
-- `readAt(`${sha}^`)` 在临时仓里返回 null（父提交/路径解析差异）⇒ 走「创建提交」分支跳过全部比较；
-- `verifyApprovals` 依赖 `REPO` 模块级常量，与 `cwd` 不一致导致前置条件不同；
-- 其他早退路径。
+根因是两条规则相互拉扯：
+- 锚文件 `writeSites: ["src/kernel/**", "src/storage-sqlite/**"]` —— 写点只认机制面；
+- 契约要求端口内部走**拥有者的** `appendAuthoritativeEvent`，而调用点必然在领域包（`src/domains/**`）。
+  领域包不在写点面内 ⇒ 对账认为「这个名字没有写点」。
 
-**影响判断**：生产根（`cwd === REPO`）的逐提交门禁实测 4/4 有判别力，故**当前不认为生产路径漏检**；
-但「传别的 `cwd` 就静默放行」本身就是一种可被将来的调用方踩中的失效形态（例如未来把 PR 检查
-挂到别的 checkout 上），必须查清后才能声称 `--commit` 可靠。
+三种可能出路（**必须由人裁定，不是实现细节**）：
+1. 扩锚 `writeSites` 加入 `src/domains/**`——但 `writeSites` 是语义行，改它需要 `Event-Name-Review`
+   trailer（我们自己 R4 的规则），且这会放宽「写点只在机制面」的既有立场；
+2. 在 kernel 内部加一条机制原语 `declareRawRecord(...)`，领域端口调用它——保持写点面不变，
+   但「唯一入口」从 Port 移到机制原语，需要在契约里重新表述（DC-5/DC-7 的可实现形式）；
+3. 由机制在装配期把端口实现注入 kernel（翻转控制权），写点自然落在 `src/kernel/**`。
 
-复现步骤（≤10 行）：建空仓 → 提交 `contracts/event-registry/EVENT-CONTRACT-LEDGER.json`
-（单条 `approved[0].anchor = docs/a.md#capability-enabled`）→ 下一提交把 anchor 改成
-`docs/mine/docs/a.md#capability-enabled` 并同时改 `src/kernel/k.ts` → 期望 `checkCoupling` ≥1，实测 0。
+**登记原因**：这是 G1 冻结文本内部的一处张力，不该由实施者用「反正能过对账」的方式私自解决。
+在裁定前，PR-2 的最后一片保持**不做**：清单已导出但未接线、锚未翻面、无入口可用。

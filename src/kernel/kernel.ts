@@ -51,6 +51,13 @@ export interface Authorizer {
  * 判据只做排除，不解释名字含义。机制自身的写点走实现内部直写（不经 `appendLedger`），
  * 预留不误伤机制。
  */
+/**
+ * 记录域原始入口的正式事件名（R-9）。常量放在机制侧是**故意的**：写点判据按字面量所在模块
+ * 判定「这个名字有写点」，把字面量留在 `src/**`（内核）而不是领域包，能让对账脚本继续
+ * 只认机制写点面；领域侧引用常量，避免在非写点模块里复制字面量。
+ */
+export const RAW_RECORD_DECLARED = 'raw-record-declared';
+
 export const MECHANISM_AUDIT_EVENT_TYPES = [
   'capability-enabled', 'capability-disabled', 'capability-transferred',
   'object-registered', 'check-report-recorded',

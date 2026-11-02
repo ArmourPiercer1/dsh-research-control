@@ -54,3 +54,42 @@ describe('PR-2 记录域命令 Port 形状（DC-PORT / R-9）', () => {
     expect(Refusal).toBeTypeOf('function');
   });
 });
+
+describe('PR-2 记录域 Port 实现（未接线：不登记、不翻面）', () => {
+  test('declare 转发为 appendAuthoritativeEvent，且事件名是正式事件常量', async () => {
+    const { createRawIntakeCommandPort } = await import('../src/domains/raw-intake');
+    const calls: unknown[] = [];
+    const tx = { appendAuthoritativeEvent: (a: unknown) => { calls.push(a); return 7 as never; } };
+    const r = createRawIntakeCommandPort().declare(tx as never, {
+      command: 'test.records:declareRawIntake', recordId: 'RPT-1', text: '原文', sourceRef: 'src#a',
+    });
+    expect(r.witnessSeq).toBe(7);
+    expect(calls).toHaveLength(1);
+    const a = calls[0] as { eventType: string; payload: Record<string, unknown> };
+    expect(a.eventType).toBe('raw-record-declared');
+    expect(a.payload).toEqual({ recordId: 'RPT-1', text: '原文', sourceRef: 'src#a' });
+  });
+
+  test('unparseable 原样进载荷，不作为拒绝理由（DC-11）', async () => {
+    const { createRawIntakeCommandPort } = await import('../src/domains/raw-intake');
+    const calls: unknown[] = [];
+    const tx = { appendAuthoritativeEvent: (a: unknown) => { calls.push(a); return 1 as never; } };
+    createRawIntakeCommandPort().declare(tx as never, {
+      command: 'test.records:declareRawIntake', recordId: 'RPT-2', text: '???', sourceRef: 's', unparseable: true,
+    });
+    expect((calls[0] as { payload: Record<string, unknown> }).payload.unparseable).toBe(true);
+  });
+
+  test('走的是 appendAuthoritativeEvent，不是 appendLedger（唯一入口）', async () => {
+    const { createRawIntakeCommandPort } = await import('../src/domains/raw-intake');
+    const seen: string[] = [];
+    const tx = {
+      appendAuthoritativeEvent: () => { seen.push('authoritative'); return 1 as never; },
+      appendLedger: () => { seen.push('ledger'); return 1 as never; },
+    };
+    createRawIntakeCommandPort().declare(tx as never, {
+      command: 'test.records:declareRawIntake', recordId: 'RPT-3', text: 'x', sourceRef: 's',
+    });
+    expect(seen).toEqual(['authoritative']);
+  });
+});

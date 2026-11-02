@@ -146,6 +146,7 @@
 | `experiments/v3-code-architecture-poc/g1/G2-IMPLEMENTATION-ENTRY.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/RECON01-RESULT.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g2/G2-KNOWN-REDS.md` | Unranked |
+| `experiments/v3-code-architecture-poc/g2/G2-PROGRESS-LEDGER.md` | Unranked |
 | `experiments/v3-code-architecture-poc/preflight/ext/VERDICT.md` | Unranked |
 | `experiments/v3-code-architecture-poc/preflight/ns/VERDICT.md` | Unranked |
 | `experiments/v3-code-architecture-poc/preflight/tx/VERDICT.md` | Unranked |

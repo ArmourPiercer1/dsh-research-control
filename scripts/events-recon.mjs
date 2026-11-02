@@ -471,15 +471,22 @@ function checkCoupling(sha, cwd = REPO) {
   // 否则外部真实批准可以在一次纯名单提交里被静默换成作者自签的文书（复核终局 ②-a 的实测通道）。
   const pathOf = (a) => { const m = /^(.+)#[a-z][a-z0-9-]*$/.exec(String(a?.anchor ?? '')); return m ? m[1] : null; };
   const existsAtParent = (pth) => { try { git('cat-file', '-e', `${sha}^:${pth}`); return true; } catch { return false; } };
+  // 改锚判定拆成**两条互不干扰的规则**（此前混在一个分支里：收紧就误伤历史 legacy 规范化，
+  // 放宽就留出「父提交预埋自撰文书」的通道）：
+  //   规则 L — 历史批准事实的规范化：approvedBy 为 `legacy:<id>` 时，新锚必须**恰好**是
+  //            `<同一 approvedBy>#<同一 name>`；除此之外不接受任何目标。
+  //   规则 R — 路径搬迁：只接受**已登记的搬迁根**（不做 endsWith 泛匹配，防「前缀嵌套」），
+  //            且新锚所指文件在父提交里已存在（不许同提交顺手写一份）。
+  const MIGRATION_ROOT = 'experiments/v3-code-architecture-poc/';
+  const nameOf = (a) => { const m = /#([a-z][a-z0-9-]*)$/.exec(String(a?.anchor ?? '')); return m ? m[1] : null; };
   const legitReanchor = (oldA, newA) => {
     const o = pathOf(oldA); const n = pathOf(newA);
     if (o === null || n === null) return false;
     if (n === o) return true;
-    // 旧锚根本指不到仓内文件（历史里的描述性字符串）⇒ 规范化成可核路径是合法搬迁
-    // 旧锚指不到文件时：规范化为 legacy: 白名单形式（其有效性由 verifyApprovals 另判）或仓内已存在路径
-    if (!existsAtParent(o)) return n.startsWith('legacy:') || existsAtParent(n);
-    if (!n.endsWith('/' + o)) return false;      // 其余只接受目录前缀延伸
-    return existsAtParent(n);                     // 且新锚所指文件在父提交已存在
+    const by = String(oldA?.approvedBy ?? '');
+    if (by.startsWith('legacy:')) return String(newA?.anchor) === `${by}#${nameOf(oldA)}`;
+    if (n !== MIGRATION_ROOT + o) return false;
+    return existsAtParent(n);
   };
   const pairOk = (list) => {
     const oldList = before.approved ?? []; const newList = after.approved ?? [];

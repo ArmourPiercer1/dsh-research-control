@@ -29,7 +29,7 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 | 项 | 值 |
 | --- | --- |
 | **被冻结的契约版本** | **`fa3b892`**（不可变内容身份；G1 契约文本的冻结版本。`fa3b892` 之后的提交只增加授权记录与实施配置，**不改契约文本**） |
-| **G2 开发起点（字面 SHA）** | **`04c773a45a9b33f8d5b88ddc041dbd0446838c9d`** —— 由 `g2/impl` 第一提交（`da9c7f9`）写死；判定式：`git rev-parse g2/impl~1` 逐字等于本值（2026-11-03 实测输出见本节末「起点验证记录」） |
+| **G2 开发起点（字面 SHA）** | **`04c773a45a9b33f8d5b88ddc041dbd0446838c9d`** —— 由 `g2/impl` 第一提交写死（该提交即本节所在提交；**不在此记录它自身的 SHA**，避免自引用。查询：`git log --oneline -1 g2/impl`）；判定式：`git rev-parse g2/impl~1` 逐字等于本值（2026-11-03 实测输出见本节末「起点验证记录」） |
 | 目标分支（G2 开发分支） | `g2/impl`，**用字面 SHA 创建**：`git switch -c g2/impl <G2_START_SHA>`；**禁止** `$(git rev-parse g1/contracts-20261031)` / `origin/...` 这类浮动指针作为基线 |
 | 合并去向（两级，不可混） | **① 开发**：`g2/impl` 自由推进；**② 生产收编**：`main` ← **以 `main` 为起点的选择性收编 PR**（见 §2.4），**不是** `g2/impl` 或 `#49` 的普通分支合并 |
 | 正式生产码现状 | `src/**`（`host`/`client`/`shared` 等）；**无** `src/kernel/**`／`packages/kernel/**` |
@@ -52,8 +52,7 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 ```
 $ git branch --show-current
 g2/impl
-$ git rev-parse HEAD          # 本表所在提交（g2/impl 第一提交）
-da9c7f9ee7d5cb61be62f5a7ce9d7b4983458dbf
+$ git log --oneline -1 g2/impl  # 本表所在提交（g2/impl 第一提交；此处不记录其字面值以避免自引用）
 $ git rev-parse g2/impl~1     # 开发起点 = 本表所钉字面 SHA
 04c773a45a9b33f8d5b88ddc041dbd0446838c9d
 $ git diff --stat fa3b892 04c773a -- 'g1/G1-UNIFIED-CONTRACTS.md' 'g1/G1-CONTRACT-*.md' \

@@ -116,6 +116,10 @@ X-1 的「先幂等、后机制」读作**同事务内判定顺序**，禁止读
 事务外先读后写被禁止：那是 TOCTOU 窗口，并发同键会产生两个修订（夹具 MUT-IDEM-2 证红）。
 并发同键同体 ⇒ 后到者在事务内见先到者已提交键行 ⇒ 走重放支路；并发同键异体 ⇒ 后到者走 REUSED 支路。
 
+**错误载体（2026-11-03 错误模型对账）**：同键异体的对外形态恒为 `TOOL_INPUT` +
+`detail{serviceCode:"IDEMPOTENCY_KEY_REUSED", step:"client_request_id"}`（ADJ X-2/X-3），
+`IDEMPOTENCY_KEY_REUSED` **不是** `RefusalCode` 成员；实验代码不得直接以它为 `Refusal.code`。
+
 **写入时点（2026-11-03 P0 修订）**：键行（`IdempotencyReceipt`）**只能在领域命令执行完、结果引用已存在之后**
 写入（`resultRef`/`responseSnapshot` 必填），且仍在**同一写事务**内、`commit_record` 已插入之后、COMMIT 之前。
 旧文若读作「判定后立即写键行」，与 IDC-4 的必填字段自相矛盾（组合不可实现）；本句为唯一时点。
@@ -126,7 +130,9 @@ X-1 的「先幂等、后机制」读作**同事务内判定顺序**，禁止读
 `resultRef` 的读授权判定：
 
 1. 有当前读授权 ⇒ 逐字节返回首次 `responseSnapshot`（零领域读、零新记录）。
-2. 无当前读授权 ⇒ **拒披露** `REPLAY_ACCESS_DENIED`（零新领域效果、回执不改写、不新增任何记录）。
+2. 无当前读授权 ⇒ **拒披露**——对外码 = **既有 `AUTHORITY_REQUIRED`**（`detail` 仅 `{reason:"replay-disclosure",
+   operation}`，**不得**含 `resultRef`/oid/revision/响应字节：否则「拒绝披露」本身成为泄漏通道）；
+   零新领域效果、回执不改写、不新增任何记录。归类依据见 `G1-ERROR-MODEL-RECONCILIATION.md` §1.1。
 3. 连本空间写权都没有 ⇒ 更早的 UoW 守卫拒（`NO_SPACE_WRITE`），到不了重放支——**这不是**披露判定，
    是实现顺序的自然结果，两者不可混记为同一信号。
 4. 授权**恢复**后同一请求再次重放 ⇒ 正常返回首次结果（键行永久保留，INV-K）。
@@ -134,7 +140,7 @@ X-1 的「先幂等、后机制」读作**同事务内判定顺序**，禁止读
 理由：幂等语义保护的是「同一次真实登记不被重复执行」，不是「缓存可以越过当前的访问控制」。
 把权限模型接进重放披露面属于 X-1 边界内的接口层义务，机制侧只提供 `resultRef` 与回执。
 真实 SQLite 证据：`preflight/tx/run.mjs` IDEM-1（中间提交后仍返回首次 c1）/IDEM-2（同键异体拒）/
-IDEM-3（撤读权 ⇒ `REPLAY_ACCESS_DENIED`，恢复 ⇒ 重放）。
+IDEM-3（撤读权 ⇒ `AUTHORITY_REQUIRED`，恢复 ⇒ 重放）。
 
 ## 3. 崩溃矩阵（IDC-8；9 格 ≥ 6）
 

@@ -19,6 +19,10 @@
  *   IDEM-2 同键异体 ⇒ 拒（IDEMPOTENCY_KEY_REUSED），零任何记录；
  *   IDEM-3 首次提交后撤销调用者权限 ⇒ 零新领域效果，但按**当前**授权决定是否披露旧结果。
  *
+ * 错误载体（按 g1/G1-ERROR-MODEL-RECONCILIATION.md，2026-11-03 对账）：
+ *   - 回放披露拒绝 → 真实 Kernel `Refusal('AUTHORITY_REQUIRED')`（detail 不含任何结果引用）；
+ *   - 同键异体 → 接口层 `TOOL_INPUT` + `detail.serviceCode='IDEMPOTENCY_KEY_REUSED'`（非 RefusalCode 成员）；
+ *   - 空提交区间 → 内部存储信号（`COMMIT_RECORD_EMPTY` 文本，非对外码）。
  * 性质：类甲实验（真实 SQLite + 真实 PoC Kernel 事务/事件面；`commit_record`/回执为实验侧夹具表，
  * 形状按 CS-1.3 / IDC-4；不落生产代码、不改 `src/**`）。
  * 退出码：0 = 全过；1 = 有断言失败（技术否证）；2 = 脚手架失败（不得包装为技术结论）。
@@ -46,6 +50,10 @@ const { Refusal } = await import('../../src/contracts/index.ts');
 const ADMIN = PRINCIPAL('tx-admin');
 const GRANTS = { 'tx-admin': ['space-write', 'space-read'] };
 const digest = (o) => createHash('sha256').update(JSON.stringify(o)).digest('hex');
+/** 接口/装配层错误载体（ADJ X-2/X-3：`TOOL_INPUT` + `detail.serviceCode`，不是 Kernel RefusalCode）。 */
+class InterfaceRefusal extends Error {
+  constructor(code, detail) { super(`${code}`); this.code = code; this.detail = detail; }
+}
 const results = [];
 const failures = [];
 function check(id, title, fn) {
@@ -132,11 +140,12 @@ function submit({ actor = ADMIN.actorId, operation = 'test.create', clientReques
     const hit = receipt(actor, operation, clientRequestId);
     if (hit) {
       if (hit.digest_hex !== reqDigest) {
-        throw new Refusal('IDEMPOTENCY_KEY_REUSED', { step: 'client_request_id', operation });
+        throw new InterfaceRefusal('TOOL_INPUT', { serviceCode: 'IDEMPOTENCY_KEY_REUSED', step: 'client_request_id', operation });
       }
       // 6'. 重放支：不做领域前置、不占号；但**披露前按当前授权判定**
       if (replayAuthCheck && !replayAuthCheck(actor)) {
-        throw new Refusal('REPLAY_ACCESS_DENIED', { reason: '调用者对首次结果已无读授权', commitSequence: hit.commit_sequence });
+        // 既有码 AUTHORITY_REQUIRED；detail 刻意不含 resultRef/oid/响应字节（拒绝披露不得成为泄漏通道）
+        throw new Refusal('AUTHORITY_REQUIRED', { reason: 'replay-disclosure', operation });
       }
       return { kind: 'replay', commitSequence: hit.commit_sequence, response: Buffer.from(hit.response_snapshot).toString('utf8') };
     }
@@ -153,7 +162,7 @@ function submit({ actor = ADMIN.actorId, operation = 'test.create', clientReques
     const to = after.hi;
     if (to === null || to < from) {
       // 一次将产生零事件的写事务不占号：抛错即回滚（含发号）
-      throw new Refusal('COMMIT_RECORD_EMPTY', { commitSequence: c1 });
+      throw new Error(`COMMIT_RECORD_EMPTY: 事务预留 c${c1} 但零事件（内部存储信号，非对外码）`);
     }
     // 6. 不可变提交账（区间已真实存在）
     w.raw.run('insert into commit_record(commit_sequence, ledger_event_seq_from, ledger_event_seq_to, commit_recorded_at_ms) values(?,?,?,?)',
@@ -291,13 +300,15 @@ check('IDEM-1', '首次提交后插入其他提交，再重放首次请求 ⇒ �
 // ───────────────── IDEM-2：同键异体必须拒绝，且零任何记录 ─────────────────
 check('IDEM-2', '同幂等键、不同请求体 ⇒ 拒绝（IDEMPOTENCY_KEY_REUSED）且零任何记录', () => {
   const before = { rows: commitRows().length, ledger: ledgerRange().n, receipts: w.raw.get('select count(*) c from idempotency_receipt').c };
-  const code = refusal(() => submit({ clientRequestId: 'idem-a', body: { x: 999 } }));
+  let caught = null;
+  const code = refusal(() => { try { submit({ clientRequestId: 'idem-a', body: { x: 999 } }); } catch (e) { caught = e; throw e; } });
   const after = { rows: commitRows().length, ledger: ledgerRange().n, receipts: w.raw.get('select count(*) c from idempotency_receipt').c };
-  eq(code, 'IDEMPOTENCY_KEY_REUSED', '异体拒绝码');
+  eq(code, 'TOOL_INPUT', '异体对外载体');
+  eq(caught?.detail?.serviceCode, 'IDEMPOTENCY_KEY_REUSED', '异体 serviceCode');
   eq(after, before, '异体拒绝后提交账/账本/回执');
   const kept = receipt(ADMIN.actorId, 'test.create', 'idem-a');
   if (!kept) throw new Error('既有回执被破坏');
-  return `${code}；零新提交/零新事件/回执仍在（c=${kept.commit_sequence}）`;
+  return `${code}+serviceCode=${caught.detail.serviceCode}；零新提交/零新事件/回执仍在（c=${kept.commit_sequence}）`;
 });
 
 // ───────────────── IDEM-3：权限撤销后的重放披露判定 ─────────────────
@@ -316,14 +327,14 @@ check('IDEM-3', '首次提交后撤销访问权 ⇒ 零新领域效果；披露�
   w.revoke(ADMIN.actorId, 'space-read');
   const code = refusal(() => submit({ clientRequestId: 'idem-a', body: { x: 1 }, replayAuthCheck: canRead }));
   const after = { ledger: ledgerRange().n, rows: commitRows().length, objs: w.raw.get('select count(*) c from object_directory').c };
-  eq(code, 'REPLAY_ACCESS_DENIED', '撤读权后重放拒绝码');
+  eq(code, 'AUTHORITY_REQUIRED', '撤读权后重放拒绝码（既有码）');
   eq(after, before, '撤权后零新领域效果');
 
   // ③ 恢复读权：重放照旧返回首次结果（不重执行领域前置）
   w.grant(ADMIN.actorId, 'space-read');
   const ok = submit({ clientRequestId: 'idem-a', body: { x: 1 }, replayAuthCheck: canRead });
   eq(ok.kind, 'replay', '恢复授权后重放形态');
-  return `撤写权 ⇒ ${gate}（UoW 守卫更早）；仅撤读权 ⇒ ${code}（零新事件/提交/对象）；恢复 ⇒ 重放 c=${ok.commitSequence}`;
+  return `撤写权 ⇒ ${gate}（UoW 守卫更早）；仅撤读权 ⇒ ${code}（detail 无结果引用，零新事件/提交/对象）；恢复 ⇒ 重放 c=${ok.commitSequence}`;
 });
 
 // ─────────────────────────── 汇总 ───────────────────────────

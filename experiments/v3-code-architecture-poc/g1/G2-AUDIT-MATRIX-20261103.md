@@ -12,7 +12,9 @@
 | R1 修复（`4e30c18`） | 同上 | 复验「无阻塞，可进入结项」 |
 | R2 外部审查（2026-11-03，`01db6f6`/`e3e8eb5`） | 迁移形态、PR-8 权威收口、权限分层、P-EXT 范围、复核归档 | P1 已修（`e3e8eb5`） |
 | R3 外部审查（2026-11-03，`e3e8eb5`） | JC-1 事务时序（P0）、幂等回放、PR-6b/PR-10 边界、宿主映射、实施基线、CI 投票 | **本矩阵对应的一次性修订** |
-| R4 非作者定向复验 | 仅 R3 影响的机制链与正式放行门（真实反例，非文档编号） | 见 `G1-FREEZE-REVIEW-20261103-SEAT.md` 增补节 |
+| R4 非作者定向复验 | 仅 R3 影响的机制链与正式放行门（真实反例，非文档编号） | 2×P1 + 4×P2，已修（`53f3329`） |
+| R5 非作者定向复验 | 仅 R4 修复面 | 「修复有效，可进入结项」；2×P2 已修（`db27ad2`） |
+| R6 外部复审（2026-11-03，`db27ad2`） | 六组整改复查 + 生产接入顺序 + 错误模型 | 核心通过；2×P1（Bootstrap/错误模型）+ 3×P2，本轮修订 |
 
 **覆盖声明**：本轮覆盖「单个契约各自正确、组合后是否可执行」这一类问题（JC-1 是首个实例）。
 **不覆盖**：五类对象语义、H/S/R 顶层、独立 Kernel 必要性（已有稳定结论，不再重开）。
@@ -27,7 +29,7 @@
 | D4 | PR-8 延后未同步到权威契约/入口/门禁 | P1 | `g1-checklist-validate --require-clear` exit 0（27 项，违规 0）；四处文档加注 | UNIFIED §3.2 步 4、PLAN PR-5/PR-8/PR-10、ENTRY、清单 | —（文书） | 重定位契约文本保留；未来启用需按冻结变更流程 |
 | D5 | PR-6b 要求三步写同事务（与 Q40/现有报告接口冲突） | P1 | 契约层拆分（保证 A/B + 可选 C）；`preflight/tx` 的 TX-1 覆盖「两个命令同事务」形态 | PLAN PR-6b、Q40、DC-4 | PR-6b | 可选 C（事务作用域报告 Port）尚未实现，属显式 API 的后续设计 |
 | D6 | PR-10 把 G3 领域规则偷渡为 G2 退出条件 | P1 | 契约层边界声明（五类对象机制兼容性 vs 字段/状态机） | PLAN PR-10、§6.1′ | PR-10 | 字段/状态机完备性留 G3；G2 只验机制面 |
-| D7 | ResearchSpace 宿主映射无实施规则 | P1 | `G2-IMPLEMENTATION-BASELINE.md §1`（禁推导 + 显式绑定 + `SPACE_UNBOUND`） | UNIFIED P1、D-1 未决、Q24 | PR-3/PR-9（Adapter） | D-1 粒度仍未决（本矩阵不裁决）；绑定规则可替换 |
+| D7 | ResearchSpace 宿主映射无实施规则 | P1 | `G2-IMPLEMENTATION-BASELINE.md §1`（禁推导 + 显式绑定 + `CONTEXT_INCOMPLETE`） | UNIFIED P1、D-1 未决、Q24 | PR-3/PR-9（Adapter） | D-1 粒度仍未决（本矩阵不裁决）；绑定规则可替换 |
 | D8 | 正式源码收编基线未写死 | P1 | `G2-IMPLEMENTATION-BASELINE.md §2/§3`（起点 `e3e8eb5`、五个 PR SHA、模块映射表） | #44 布局建议、禁止整体合并 PoC | PR-3 起 | `packages/kernel` 是否拆包由 PR-3 定 |
 | D9 | CI 只对 main 投票、PoC 侧车 advisory | P1 | `G2-IMPLEMENTATION-BASELINE.md §4`（正式测试进投票路径、SHA 可识别） | `.github/workflows/ci.yml` 现状 | 第一个实施 PR | 触发面调整需改 `.github/**`（非冻结面），属阻塞项 |
 | D10 | 科研采纳权与开发批准混淆 | P1 | `G1-TRUSTED-PROFILE-DELTA.md §4` 两层拆分 | 用户裁决 + `G1-REMAINING-USER-DECISIONS` 项 4 | —（文书） | 采纳政策待业务启用前确定 |
@@ -35,6 +37,11 @@
 | D12 | 非作者复核原文未归档 | P2 | `G1-FREEZE-REVIEW-20261103-SEAT.md`（R1 两轮 + R4 定向复验原文 + 逐项处置） | §0bis 固定收尾门禁 | —（文书） | R5 复验结论需继续追加同文件 |
 | D13 | 唯一实施入口仍写旧七步/旧三步同事务（R4 P1-1） | P1 | `G2-IMPLEMENTATION-ENTRY.md` 行 3/11/24 已改（八步、A/B 两保证、步 6） | JC-1 八步、PLAN PR-6b | —（文书） | 入口与计划后续需保持单源 |
 | D14 | 回执 DELETE 未被守卫（R4 P1-2） | P1 | `preflight/tx` TX-3 第四条断言 + `idem_receipt_no_delete` | IDC-4（回执行永久不删）+ INV-K | PR-9（生产 DDL 同形触发器） | 生产表仍需同形触发器 |
+| D15 | PR-2/PR-3 落地顺序倒置＋`p3-intake-validation` 无投票载体（R6 P1-1） | P1 | `G2-DEV-PLAN` **Bootstrap Gate**（落点 `src/kernel/**`、骨架、`tests/kernel-bootstrap.test.ts`、测试迁入根 `tests/`、CI 触发面、五条命令门禁） | 实施基线 §2、根 `vitest.config.ts` 排除 `experiments/**` | PR-2 第一提交 | Bootstrap 尚未执行（G2 开工后第一件事）；CI 触发面仍是实施前阻塞 |
+| D16 | 四个新错误信号绕过封闭码治理（R6 P1-2） | P1 | `g1/G1-ERROR-MODEL-RECONCILIATION.md`（四信号逐一归类；封闭集净扩张 0）；JC-1/IDC-12/基线/tx 实验改用既有载体并实跑 | §2.10、`RefusalCode` 联合、ADJ X-2/X-3 | PR-3/PR-9（正式负例与宿主映射） | `AUTHORITY_REQUIRED`/`CONTEXT_INCOMPLETE` 的新用法负例待补 |
+| D17 | PR-6b 保证 A 未要求两个**不同** Capability（R6 P2-1） | P2 | 保证 A 加严（双 Capability 正负例；单域「创建+修订」不算通过）；tx VERDICT 明示该实验不冒充跨域 | PLAN PR-6b | PR-6b | 跨域具名命令协同仍待正式实现验证 |
+| D18 | 基线 Git 起点三义（R6 P2-2） | P2 | 基线 §2 唯一化：`db27ad2` + `g2/impl` + 首批引入封闭清单 + 沿革仅备查 | 实施基线 §2 | 第一个实施 PR | 分支尚未创建（开工时按命令建） |
+| D19 | 采纳权引用错误项号（R6 P2-3） | P2 | DELTA §4 改「项 1」并注明项 4 是事件名单签署人 | `G1-REMAINING-USER-DECISIONS` 项 1 | —（文书） | 无 |
 
 ## 2. 未修但已定归属（不在本轮，不需要新 PoC）
 
@@ -45,6 +52,7 @@
 | 具名命令端口的跨域扩展性 | PR-11 + PR-6b | P-EXT 已收窄到基础机制 |
 | 五类对象正式字段/状态机/接纳规则 | G3 | G2 只验机制兼容性 |
 | D-1 空间粒度 | 用户裁决 | 本矩阵不裁决；映射规则可替换 |
+| 首版 5 个待消费事件名的 `Approved-By`（PR-2 两名、PR-7 两名、PR-10 一名） | **用户指派独立批准者** | 既定流程逐名办理；不重开架构讨论，也不由作者自批 |
 | P-A 敌对 Profile（恒时/逐字节/穷尽侧信道） | 未来敌对部署立项 | 已按 T-SEC 降级为可选加固 |
 
 ## 3. 放行判据自检（外部审查给的退出条件）

@@ -96,7 +96,7 @@ FM-3.1(b)）。现状 `NAMESPACE_ESCAPE` 显式拒读形态按 C1 裁决**让位
   条件式 SF-25 同向）。
   **【2026-11-03 宿主映射执行约束（外部审查 P1；实施配置见 `g1/G2-IMPLEMENTATION-BASELINE.md` §1）】**
   `spaceId` 只能由 **Adapter 在可信上下文中显式绑定**；**禁止**从 Project / Workstream / Workspace /
-  会话目录 / 路径 / 仓库名自动推导，也禁止「缺绑定按默认值兜底」（缺绑定 ⇒ 显式拒 `SPACE_UNBOUND`）。
+  会话目录 / 路径 / 仓库名自动推导，也禁止「缺绑定按默认值兜底」（缺绑定 ⇒ 显式拒既有码 `CONTEXT_INCOMPLETE`，`detail{field:"spaceId"}`；见 `G1-ERROR-MODEL-RECONCILIATION.md` §1.2）。
   「一 Project 一 Space」属禁止的写死形态：ResearchSpace 的生命周期与可变性不同于宿主工作组织概念，
   绑定到可变对象会让身份随重构漂移。本注**不裁决 D-1**，只固定「未显式绑定即拒绝」。
 - 事务入口两根：`Kernel.uow(principal, fn, requires?)`（`scope='assembly'`）与
@@ -389,8 +389,8 @@ LEDGER_SEQ_CONFLICT`（RL-11.1 复用表）；**新增恰一枚** `RELOCATION_PR
    禁 `Date.now()`、禁重执行）；呈现**不做 `recorded_at` 截点重算**（DEP-①-2 ↔ D2-c/CS-3.3：截点比较只走
    提交轴，提交墙钟一事务一枚）；「键已提交但效果不在」的混合态**不在任何可达状态集**（IDC-6，单提交前提）。
    **披露判定按当前授权**：不重跑历史领域前置，但**必须**按调用者**当前**对 `resultRef` 的读授权决定是否
-   披露（撤销 ⇒ `REPLAY_ACCESS_DENIED`，零新领域效果；连写权都没有 ⇒ 更早的 UoW 守卫 `NO_SPACE_WRITE`），
-   见 IDC-12。
+   披露（撤销 ⇒ **既有码 `AUTHORITY_REQUIRED`**，零新领域效果、detail 不含任何结果引用；连写权都没有 ⇒
+   更早的 UoW 守卫 `NO_SPACE_WRITE`），见 IDC-12 与 `G1-ERROR-MODEL-RECONCILIATION.md` §1.1。
 8. **可解析性**：`resultRef@c1` 永久可解析 = 提交账 + append-only 历史面的既有承诺（DEP-①-3 ↔ CS I-3/I-6/§1.7；
    历史不可读 ⇒ `HISTORY_SNAPSHOT_REQUIRED` fail-loud，禁静默空结果冒充重放，IDC-11）；快照归档时随
    `commit_record` + c1 前缀史一并归档（IDC-11）。

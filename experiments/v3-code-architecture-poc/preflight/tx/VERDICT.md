@@ -55,9 +55,23 @@ CS 分配点/持久化位置/与 commit 的先后、IDC 写入时点 + IDC-12）
 | 同键异体 | 构键不含请求体摘要比对 | IDEM-2 钉住拒绝 + 零任何记录 |
 | 权限撤销后重放 | 任何业务守卫之前返回缓存 | IDEM-3 + IDC-12：零新领域效果，披露按当前授权 |
 
+## 3bis. 错误载体（2026-11-03 错误模型对账后）
+
+| 信号 | 对外载体 | 说明 |
+| --- | --- | --- |
+| 回放披露拒绝 | **`AUTHORITY_REQUIRED`**（真实 Kernel `Refusal`） | detail 仅 `{reason:"replay-disclosure", operation}`，**不含** `resultRef`/oid/响应字节 |
+| 同键异体 | **`TOOL_INPUT` + `detail.serviceCode="IDEMPOTENCY_KEY_REUSED"`** | 接口层载体；`IDEMPOTENCY_KEY_REUSED` 不是 `RefusalCode` 成员 |
+| 空提交区间 | **内部存储信号**（`COMMIT_RECORD_EMPTY` 文本） | 非对外码；对外只表现为事务回滚 |
+| 无写权 | `NO_SPACE_WRITE`（既有码） | 比披露判定更早的 UoW 守卫 |
+
+归类依据见 `g1/G1-ERROR-MODEL-RECONCILIATION.md`；封闭集净扩张 = 0。
+
 ## 4. 诚实边界
 
 - 夹具表（`commit_record`/`idempotency_receipt`）是**实验侧**实现，形状按契约；生产 DDL 归 G2（PR-5）。
+- **TX-1 的两个写在同一 Capability（`test.claim`）**：它证明「一个事务内可变事件数 + 区间真实 + 稠密」，
+  **不**证明两个不同领域的具名命令可共享事务——后者的判据已写入 PR-6b 保证 A（2026-11-03 P2-1 加严），
+  由 PR-6b 在正式 `tests/**` 验，不在本实验冒充。
 - 未覆盖：并发同键的持锁窗口竞争（IDC-7 已有 MUT-IDEM-2 设计，需真库并发夹具）、进程 kill 的
   9 格崩溃矩阵（IDC-8，归 PR-9 真库对应物）、跨 Space（无共同序，不在本实验范围）。
 - 独立复核席（R4）用自写反例在真库上另验了三点：落账后/回执后抛错四者同灭、旧序必撞

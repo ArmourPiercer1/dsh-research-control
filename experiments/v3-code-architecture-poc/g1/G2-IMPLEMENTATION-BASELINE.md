@@ -13,7 +13,7 @@
 2. **绑定由 Adapter 在可信上下文中显式完成**：宿主（DSH）侧何物对应一个 ResearchSpace，是**装配配置**
    （Adapter 的 profile/配置项），**不是 Kernel 语义**，也不进任何标识字符串（D1-a）。
 3. **禁止自动推导**：不得从 Project、Workstream、Workspace、会话目录、路径、仓库名或文件名推出
-   `spaceId`；不得在缺显式绑定时「按默认值兜底」。缺绑定 ⇒ 显式拒绝（`SPACE_UNBOUND`），
+   `spaceId`；不得在缺显式绑定时「按默认值兜底」。缺绑定 ⇒ 显式拒绝**既有码 `CONTEXT_INCOMPLETE`**（`detail{field:"spaceId", reason:"space-unbound"}`，不新增码），
    与「未认证 principal ⇒ 拒」同型。
 4. **Q24 不变**：一 ResearchSpace = 一权威数据库（一文件 = 一事务边界）。把「一 Project 一 Space」
    写死进实现属**禁止**形态——未来独立于 Project 的 ResearchSpace 会因此被迫重改身份绑定、查询权限与迁移流程。
@@ -28,11 +28,16 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 
 | 项 | 值 |
 | --- | --- |
-| 目标分支 | `g1/contracts-20261031`（本 PR #49 分支） |
-| **G2 起点 SHA** | **`e3e8eb5c62ef…` + 本轮 P0 修正提交 `36501d2`；实际开工 base = #49 合并后的 tip**（按字面从 `e3e8eb5` 开工会拿到修正前的 JC-1 旧序，故不单列父提交） |
-| 正式生产码现状 | `src/**`（`src/host`、`src/client`、`src/shared` 等）；不含新 Kernel |
-| 新 Kernel 可运行实现现状 | `experiments/v3-code-architecture-poc/src/**`（**不整体合并**） |
-| 依赖 PR（均为 Draft，按 head SHA 锁定读法） | #42 `0369c3196cec`（HSR 语义基础，base main）· #47 `37de107ed529`（Schema 界面，base #42）· #44 `5ec38974fca4`（架构评审，base main）· #48 `d2f19cc16f22`（PoC，base #44）· #49 `e3e8eb5c62ef`（G1 机制契约，base #48） |
+| 目标分支（G2 开发分支） | `g2/impl`（由第一个实施 PR 创建：`git switch -c g2/impl db27ad2`） |
+| **基线 SHA（唯一固定起点）** | **`db27ad2`**（本文件所在提交；G1 机制契约 + P0/P1/P2 修订 + R4/R5 复验的最终受审 tip） |
+| 合并去向 | `g2/impl` → `g1/contracts-20261031`（#49 分支）→ `main`；**#48/#49 不整体合并**，只按 §2.3 三类收编 |
+| 正式生产码现状 | `src/**`（`host`/`client`/`shared` 等）；**无** `src/kernel/**`／`packages/kernel/**` |
+| 新 Kernel 可运行实现现状 | `experiments/v3-code-architecture-poc/src/**`（**仅作证据与回归基线**） |
+| 依赖 PR（Draft，按 head SHA 锁定读法） | #42 `0369c3196cec` · #47 `37de107ed529` · #44 `5ec38974fca4` · #48 `d2f19cc16f22` · #49 `db27ad2`（本分支） |
+
+**历史修订沿革（仅备查，不是起点）**：`7b3315a`（基线）→ `71fa972`（§0bis 三项）→ `4e30c18`（R1 阻塞）→
+`01db6f6`（结项报告）→ `e3e8eb5`（R2 P1）→ `36501d2`（R3 P0）→ `53f3329`（R4 收口）→ `db27ad2`（R5 收口）。
+**只有 `db27ad2` 是可开工起点**——从更早的 SHA 开工必然拿到被否证的 JC-1 旧序。
 
 **收编原则（不变）**：禁止整体合并 PoC 分支（`#48`/`#49` 不整体合并）。按三类分别收编：
 
@@ -41,6 +46,12 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 | 冻结面 | 8 根文档 + `schema/**` | 已有流程（`snapshot:update` 同提交 + `Frozen-Face-Review` 标记） |
 | 实验产物 | `experiments/**`（PoC src、preflight、prex、attacks、证据报告） | **留在实验区**，作为证据与回归基线；不迁入生产包 |
 | 门禁脚本 | `g1-checklist-validate.mjs`、`g0-gate.mjs`、异源对账脚本 | 随对应 PR 迁入 `scripts/**` 并由 CI 调用 |
+
+**首批进入生产分支的文件（Bootstrap 第一提交，封闭清单）**：`src/kernel/**`（Kernel/NamespaceWriter/Registry 最小面）、
+`src/storage-sqlite/sqlite-port.ts`、`src/contracts/**` 的类型与拒绝码（与生产既有 `src/contracts/**` 合流）、
+`tests/kernel-bootstrap.test.ts`、`tests/p3-intake-validation.test.ts`（从 `experiments/**/tests/` 迁入，根 vitest 才收）。
+**其余 `experiments/**` 一律作为证据保留在原处，不进生产分支**（含 `preflight/**`、`prex/**`、`attacks/**`——
+后者到 PR-10 再迁入 `tests/**`）。
 
 **PoC → 正式模块映射（粒度 = 机制文件，不是目录 mv）**：
 

@@ -147,3 +147,22 @@ tsc/tests/attacks 收集面，故结论沿用；复核席在 `4e30c18` 上另跑
 
 **未覆盖（如实）**：并发同键持锁竞争、kill 9 格矩阵（PR-9 真库夹具）；换库/WAL 崩溃窗口（PR-5 硬性验收）；
 CI 触发面调整（第一个实施 PR）；D-1 空间粒度（用户裁决）。
+
+## 9. 第四轮（R6）复审：生产接入顺序与错误模型（2026-11-03，`db27ad2`）
+
+外部复审结论：**核心机制修订通过**（JC-1 时序、幂等回放、PR-8 延后、历史版本治理、证据归档）；另提 2×P1 + 3×P2，
+本轮已修订（详见 `G2-AUDIT-MATRIX-20261103.md` D15–D19）：
+
+| 项 | 处置 |
+| --- | --- |
+| **P1-1** PR-2 要改的生产 `Kernel` 尚不存在；`tests/p3-intake-validation.test.ts` 只在 `experiments/**`（根 vitest 排除） | 新增 **Bootstrap Gate**（并入 PR-2 第一提交，不单独编号）：落点固定 `src/kernel/**`、最小可编译骨架、`tests/kernel-bootstrap.test.ts`、测试迁入根 `tests/`、CI 触发面、五条命令门禁；不满足 ⇒ PR-2 不得开始 |
+| **P1-2** 四个新错误名绕过封闭码治理 | 新增 `g1/G1-ERROR-MODEL-RECONCILIATION.md`：`REPLAY_ACCESS_DENIED`→`AUTHORITY_REQUIRED`、`SPACE_UNBOUND`→`CONTEXT_INCOMPLETE`、`COMMIT_RECORD_EMPTY`→内部存储信号、`IDEMPOTENCY_KEY_REUSED`→`TOOL_INPUT+detail.serviceCode`；**封闭集净扩张 0**；契约与 tx 实验已改用正式载体并实跑 |
+| P2-1 | PR-6b 保证 A 加严：必须两个**不同** Capability 的具名命令（单域「创建+修订」不算），并给双 Capability 正负例 |
+| P2-2 | 实施基线 §2 唯一化：`db27ad2` + `g2/impl` + 首批引入封闭清单 + 沿革仅备查 |
+| P2-3 | `G1-TRUSTED-PROFILE-DELTA.md §4` 引用改为「项 1」（原「项 4」是事件名单签署人） |
+
+**待用户授权的实际事项（不由作者代办）**：首版 5 个待消费事件名的 `Approved-By`（PR-2 两名、PR-7 两名、PR-10 一名）
+需**用户指派独立批准者**，按既定流程逐名办理；以及 G1 冻结与 G2 乙类开工本身。
+
+**不重开的稳定结论**（复审同意）：稳定 ns 必要性、P-EXT 基础扩展性、T-SEC 信任模型、JC-1 新旧序对照、R4/R5 事务反例。
+**留给实施 PR 的验证**：生产 SQLite/WAL 崩溃恢复、同键并发/进程杀死、具名命令 Port 跨域事务、真实 DSH Adapter 身份绑定、五类对象机制兼容切片。

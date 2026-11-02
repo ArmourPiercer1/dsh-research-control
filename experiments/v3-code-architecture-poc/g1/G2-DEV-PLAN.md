@@ -283,6 +283,45 @@ pnpm run docs:check                                                             
 - **冻结面**：否（新增侧车）。**★ 专题⑤：承载面已裁为 `contracts/event-registry/`（见「范围」行），该处不在 8 根文档、也不在 `schema/**` ⇒ 本 PR 不触发冻结面**；下面那句「若用户决策 4 选择…」保留作演化，它描述的是一个已被本次裁定排除的分支。**若**用户决策 4 选择「进冻结面 / 进 `schema/**`」⇒ 本 PR 拆出子提交走
   `snapshot:update` + `Frozen-Face-Review`。
 
+### Bootstrap Gate（`PR-2 第一提交`；不单独编号，2026-11-03 外部审查 P1-1）
+
+> **为什么必须有这道门**：PR-2 的范围要改 `Kernel`、`NamespaceWriter`、Capability Registry，但正式生产目录
+> 里**没有** `src/kernel/**`／`packages/kernel/**`——新 Kernel 至今只存在于 `experiments/**`。同时
+> `G2-DEV-PLAN` PR-2 要求保持通过的 `tests/p3-intake-validation.test.ts` **不在根 `tests/`**，实际位于
+> `experiments/v3-code-architecture-poc/tests/p3-intake-validation.test.ts`，而根 `vitest.config.ts` 显式
+> 排除 `experiments/**`。⇒ 现状是「先实现依赖、后建立基础」＋「关键测试没有投票载体」，
+> 正是「各模块都在开发、正式集成从未发生」的失败模式。本门禁把它变成**可执行前置**，不是一句「先接入 Kernel」。
+
+**落点（固定，不再讨论）**：正式 Kernel 落 **`src/kernel/**`**（单包，不拆 `packages/*`）。理由：#44 的
+`packages/kernel` 建议需要改 workspace 布局与发布面，收益不抵风险；先落 `src/kernel/**` 使 `tsconfig`/`tsup`/
+`packages.json.files` 的最小改动即可编译，PR-3 若确需拆包再单独提案。存储 Port 落 `src/storage-sqlite/**`。
+
+**Bootstrap 第一提交必须交付（缺一不算过门）**：
+
+1. **最小可编译骨架**：`src/kernel/**` 的 `Kernel`（`uow`/`uowFor`/`head` 最小面）、`NamespaceWriter`（最小读写面）、
+   Capability Registry（`register`/`activate`）、`src/storage-sqlite/sqlite-port.ts`（`StoragePort.tx` 骨架）——
+   从 PoC **逐文件**迁移，每个文件在提交信息里写「来源路径 + 差异说明」；禁止整目录 `git mv` 后顺手清理。
+2. **一条生产级测试进投票路径**：`tests/kernel-bootstrap.test.ts` 覆盖「开 UoW → 写一条权威事件 → 提交 →
+   读回」，断言 `CommitSequence` 与事件序各一轴；随 `pnpm test` 跑。
+3. **`p3-intake-validation` 落点修复**：把
+   `experiments/v3-code-architecture-poc/tests/p3-intake-validation.test.ts` 的等价测试迁入根 `tests/`
+   （`tests/p3-intake-validation.test.ts`），或由 PR-2 明确写出替代载体并说明为什么等价。
+   **不得**以「experiments 里跑过」充当 PR-2 的 R-9 义务证据——根 vitest 不收 `experiments/**`。
+4. **CI 投票面**：目标开发分支（见 `G2-IMPLEMENTATION-BASELINE.md §2`）加入 `ci.yml` 的 `pull_request` 触发，
+   或新增一个只跑 gate 的 workflow；job 打印 `GITHUB_SHA`，使结果绑定到具体提交。
+5. **门禁命令化（逐条贴退出码）**：
+   ```sh
+   npx tsc -p tsconfig.json                     # 期望 0（新增目录不引入新债；若触达已知债须逐条登记）
+   npx vitest run tests/kernel-bootstrap.test.ts # 期望 0
+   pnpm run build && pnpm run check:freshness    # 期望 0（契约校验对新增目录无漂移）
+   node scripts/<异源对账>.mjs                   # 期望 0（事件名单零违规，若已在 PR-1 落地）
+   ```
+
+**退出判据**：上述五条全绿 ∧ `src/kernel/**` 与 `src/storage-sqlite/**` 已被 `tsconfig`/构建面收入 ∧
+`tests/kernel-bootstrap.test.ts` 在 CI 投票路径上跑过（附 run URL 或 job 日志片段）。
+**不满足 ⇒ PR-2 不得开始**（不是「可以先做再补」）；Bootstrap 与 PR-2 的功能实现可在同一 PR 的两个提交内完成，
+但**第一个提交必须让骨架 + 测试先绿**。
+
 ### PR-2 `events: 归属账扩形 + 唯一签发 Port + 全形信封 + 审计复算（deny-by-default 落地）`
 
 - **范围**：`EventOwnershipEntry` 扩形与装配期五序判据（`EA-3.2`）+ OA-1..OA-4（`EA-3.3`）；
@@ -454,11 +493,13 @@ pnpm run docs:check                                                             
   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs     # 期望 0
   node <PR-1 的异源对账脚本>                                             # 期望 0：切片未引入名单外事件名
   ```
-  三条判定式（缺一不算绿，2026-11-03 P1 修订后读法）：① 该路径上**每个跨领域写都是一个拥有者命令端口调用**
-  （`D-19c′` 静态集合相等核对通过）；② **保证 A** 的两个拥有者命令写在同一事务、失败全回滚，
-  **保证 B** 的检查报告是独立原子提交（Q40 不破，且外部检查不进写事务）；③ 切片测试在 `tests/**`
-  而非 `experiments/**`。
+  三条判定式（缺一不算绿，2026-11-03 P1/P2-1 修订后读法）：① 该路径上**每个跨领域写都是一个拥有者命令端口调用**
+  （`D-19c′` 静态集合相等核对通过）；② **保证 A** 是**两个不同 Capability** 的具名命令写在同一事务、
+  第二个命令失败时两域全回滚，**保证 B** 的检查报告是独立原子提交（Q40 不破，且外部检查不进写事务）；
+  ③ 切片测试在 `tests/**` 而非 `experiments/**`。
 - **验收测试要求**：「绕开拥有者端口直接写」的新形态必红（词法网 + 作用域墙双钉，墙失效才算洞）；
+  **跨域保证 A 的双 Capability 正负例**（A 命令成功 + B 命令失败 ⇒ 两域零残留；成功 ⇒ 两域记录与事件归属逐条对）；
+  **不得**用单 Capability 的「创建+修订」冒充跨域证据；
   「报告缺四要素之一 ⇒ 直接拒」的负例；「检查器不可用 ⇒ 落 INDETERMINATE 报告且响应仍成功」的降级正例
   （把 PR-6 的判据真正走一遍端到端，而不是只在夹具里）；**读回必须走只读面**，禁止测试用裸 SQL 抄近路。
 - **依赖前序**：PR-5（最小事务/表形）、PR-6（检查报告与降级）。
@@ -472,9 +513,12 @@ pnpm run docs:check                                                             
   `G1-UNIFIED-CONTRACTS.md` §2.11 JC-1 + CS-1.3/CS-2.5，本节是计划层转录非新裁）**：
   **（2026-11-03 P1 修订：拆成两个独立保证，不再要求「三步写同一条事务」）**
 
-  **保证 A — 跨领域命令原子性**：`object-registered` 与 `object-revised` 是**两个拥有者命令端口调用**，
-  在**同一个 UoW**（同一 `CommitSequence` c1）内完成：失败即全回滚，零 ghost。这条验的是 Kernel 的
-  跨领域原子事务能力（Q40 的机制侧），**不涉及**检查报告。
+  **保证 A — 跨领域命令原子性（2026-11-03 P2-1 加严：必须是两个**不同** Capability）**：
+  **Capability A 的一个具名命令 + Capability B 的一个具名命令**，在**同一个 UoW**（同一 `CommitSequence` c1）
+  内各自产生**自己拥有的记录**（各自的 ns、各自的事件类型）；**第二个命令失败 ⇒ 两个领域都没有已提交效果**。
+  只用同一 Capability 内的「创建 + 修订」（如 `test.claim`）**不算**通过——那证明不了跨域协作，只证明单域
+  事务可回滚。验收测试必须断言两项：① 事务提交后两域记录同时可见、事件各归其主（`object_directory.owner_capability`
+  与事件归属逐条核对）；② 让 B 的命令在写后抛错 ⇒ A 的记录、A 的事件、c1 账行、幂等回执**全部不在**（真库回滚）。
   **保证 B — 科研检查报告**：Check Request 是**独立操作**（外部计算/形式化证明可能很长，Q40 明确禁止放进
   数据库写事务）。对**已提交的精确 `RevisionRef`** 执行检查，**另一次原子提交**保存版本化 `CheckReport`
   （`check-report-recorded` 自带一个 `CommitSequence`）。报告的可见性从被检对象派生，不要求与对象写同事务。

@@ -51,6 +51,14 @@
   - `dffafa1` EA-7.1/7.2 **落地**：`Kernel.recordMechanismAudit`（只受两名字、运行期复核、字面量写点、走廊 `capability-admin`）+ 回声只回 `{seq}` + 入参 `hiddenBy*` 丢弃 + 锚两条目翻 `planned:false`
 - PR-2 门禁实测（`dffafa1`）：kernel-event-authority **19/19**；bootstrap 7/7；`tsc -p tsconfig.kernel.json` 0；`check:types` **19 条身份精确复现**；`lint` 0；全仓 **5108 passed / 1 red**（既存 eb1-canonical，R-1）；生产根 recon **exit 0**（期望 13 / 事实 9 / planned 4）
 - 未落（PR-2 剩余）：`appendLedger` 收敛为机制内部原语 + `synth:raw-intake` 注册与端口改道（**必须同一提交**）；`app/intake-use-case.ts` / `domains/test-records.ts` 用例迁移
+- **剩余项的真实性质（读契约后确认，非“改道”而是“新建”）**：`synth:raw-intake` 与
+  `RawIntakeCommandPort` 在当前树中**完全不存在**（`grep -rn "raw-intake\|RawIntake" src tests` 零命中）。
+  契约文本已给出形状（`G1-CONTRACT-DOMAIN-COMMAND.md` §DC-PORT）：
+  `declare(tx, cmd: DeclareRawIntakeCommand): CommandReceipt`，命令判别式 `'test.records:declareRawIntake'`，
+  内部 = 拥有者自己的 `appendAuthoritativeEvent`（不是 `appendLedger`）；`D-19c-ALLOWED` 标记制随之退役。
+  因此这一片需要：①新领域包的清单（`ownsEventTypes` 登记 `raw-record-declared`，该名已在批准集内、仍 `planned:true`）；
+  ②Port 实现 + 装配根注入；③与 deny-by-default 翻转**同一提交**；④用例迁移。
+  缺任何一项都是半扇门（注册了没改道 / 改道了没注册 / 翻转了没写点），故必须整片一次落地。
 - 新增登记项：`G2-KNOWN-REDS.md` **R-2**（`--commit` 在非默认工作树下可疑静默放行，附复现步骤，未闭合）
 - 未满足：`Frozen-Face-Review`（人工）；CI 触发面仍只投 `main`
 

@@ -121,7 +121,7 @@ const ledgerRange = () => {
 };
 
 /**
- * 修订后的唯一实现顺序（本实验的被测对象）：一次 UoW 内完成全部七步。
+ * 修订后的唯一实现顺序（本实验的被测对象）：一次 UoW 内完成全部八步（JC-1）。
  * 返回 { kind: 'commit'|'replay'|'denied', ... }。
  */
 function submit({ actor = ADMIN.actorId, operation = 'test.create', clientRequestId, body, effect, replayAuthCheck, injectAfter }) {
@@ -144,9 +144,9 @@ function submit({ actor = ADMIN.actorId, operation = 'test.create', clientReques
     const before = ledgerRange();
     w.raw.run("update meta set value = value + 1 where key='commit_sequence'");
     const c1 = Number(metaValue('commit_sequence'));
+    const reservedAt = Date.now(); // 预留点取时（一事务一枚；JC-1 要求登记时钟取本步，不是落账时）
     // 4. 领域命令与事件（同事务）
     const out = effect(tx);
-    const reservedAt = Date.now(); // 预留点取时（一事务一枚，非硬编码）
     // 5. 取**真实**事件闭区间
     const after = ledgerRange();
     const from = before.hi === null ? after.lo : before.hi + 1;

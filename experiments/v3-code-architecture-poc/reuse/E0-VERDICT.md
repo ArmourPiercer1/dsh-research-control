@@ -12,6 +12,7 @@
 - 可复用（宿主已有 + 自家已有）≈ **机制件 61%（薄片实测），机制层粗估 22–28%**；
 - 确需新写（宿主与自家都没有）：**版本化 Capability 端口、多 Space/租户隔离、跨会话持久投影、原子提交边界（UoW）**；
 - 消费者不存在应删除 / 暂缓：**OutboundPort → 外部 agent-team 编排者**（宿主只有出厂关闭的 9 工具 opt-in agent-team，无 blueprint/team-remote/15 工具/grant-revoke 那套）。
+  【**2026-11-01 更正（用户目标：体系须脱离 DSH 适用，经 Adapter 接入 DSH / Codex / Claude Code）**：下文 X 档「删除」判**作废**——多宿主目标下「agent 编排」成为真实的跨宿主需求（Claude Code 有 subagents、DSH 有 agent-team、各宿主能力面不同）。OutboundPort 应**重定义为宿主无关编排端口**：各宿主声明自己有什么、没有则降级，而非 DSH 专属接口。「DSH 无 blueprint/team-remote/15 工具编排者」**事实仍成立**，被新目标推翻的是判、不是事实。端口形状待 E2 裁决。】
 
 ## 1. 复审主张的实测核对（先钉事实，再谈裁决）
 
@@ -37,13 +38,13 @@
 | **P2 ObjectRef / RevisionRef** | **O** | 自家 `shared/ids/`（636 行，25 冻结前缀）已做分配/解析/注册表；V3 的 `space_id`/`record_id` 文法是**新文法**但能力可搬。**注意撞名**：V3 `OBJ-`/`RPT-` 与自家 25 冻结前缀 `OBJ`=Objective/`RPT`=ReportingItem 冲突，IG 自declare「无继承无映射」⇒ 文法新写，**ID 引擎复用**。 |
 | **P3 Directory / 路由读（归属判据单点）** | **N** | 生产对象在 git 文件、DB 仅 `history_event/derived_state/meta` 三表 ⇒ **Object Directory 是真新增**（OVERLAP 判 N）。宿主无此面。 |
 | **P4 Domain Command Port** | **O**（结构）+ **N**（语义） | 「跨归属只走命令 Port」的**结构判据**可复用自家 service 的拓扑/依赖缝（4419 行）；但「拥有者领域前置点」语义是 V3 新加的（DC 专题，自家现只有 `test.*` 零规则）。**先长规则再改道**（PR-11 顺序）不可省。 |
-| **P5 Event Ownership 与签发** | **H**（append/seq）+ **N**（所有权/见证） | 宿主 Session 给 append-only + seq + `sourceEventSeqs` 因果 + fork 截点（**机制强制**）⇒ **事件底座复用**；但「事件类型唯一所有权 + `AuthorizationContext` 授权见证 + 默认拒写」是 V3 新语义，宿主没有。 |
+| **P5 Event Ownership 与签发** | **H**（append/seq）+ **N**（所有权/见证） | 宿主 Session 给 append-only + seq + `sourceEventSeqs` 因果 + fork 截点（**机制强制**）⇒ **事件底座复用**；但「事件类型唯一所有权 + `AuthorizationContext` 授权见证 + 默认拒写」是 V3 新语义，宿主没有。【**2026-11-01 更正（多宿主目标）**：「宿主 Session = 事件真源」只可作 **DSH adapter 的内部实现选项**，不作体系真源——Codex/Claude Code 无 `dsh-session`。体系真源须**自有**（自有 append-only 事件日志）；宿主 Session 至多是 DSH 部署下 adapter 提供的一条事件通道。本行 H 档读法收窄为「DSH adapter 内可复用宿主 Session 底座」。】 |
 | **P6 Raw Intake** | **N** | Q37 容错收原始材料、`declareRawIntake` 命令 Port、`synth:raw-intake` 事件名——宿主与自家均无。**确需新写**。 |
 | **P7 FacetMountPort** | **N** | Facet 双身份（核心对象 vs 扩展记录独立身份/修订权威）宿主无对应物。**确需新写**（Q45 语义）。 |
 | **P8 RelocationPorts** | **N** | 物理重定位（append-only + 原子切换 + 历史不改写）宿主无。**确需新写**。 |
 | **P9 Check / ValidationReport** | **O** | 自家 `service/semantics`（1664 行）+ 检查器已有投影/校验形；V3 的 `INDETERMINATE` 降级矩阵是**新语义**但载体可复用。**部分 O**。 |
 | **横切：OutboundPort → 外部编排者** | **X** | **消费者不存在**：宿主无 blueprint/team-remote/15工具/grant-revoke，仅 opt-in 9 工具 agent-team。**这一整块应为不存在的消费者预留，建议删除或降为「具名消费方出现后再写」（复审 E0④ 同向：单向导出脚本，消费方出现才落）。** |
-| **横切：事件真源** | **H**（单会话）+ **N**（跨会话投影） | 宿主 Session 可当真源但**绑单会话**；跨会话/跨 Space 的持久投影宿主自己也是**自建**（session-projection + projection-cache 建在 storageDomain 上）⇒ **投影层确需新写，但形状宿主已示范**。 |
+| **横切：事件真源** | **H**（单会话）+ **N**（跨会话投影） | 宿主 Session 可当真源但**绑单会话**；跨会话/跨 Space 的持久投影宿主自己也是**自建**（session-projection + projection-cache 建在 storageDomain 上）⇒ **投影层确需新写，但形状宿主已示范**。【**2026-11-01 更正（多宿主目标）**：体系真源改判 **N（自有）**，H 档只保留在 DSH adapter 内部；见 P5 行更正与 E2 裁决。】 |
 | **横切：原子提交边界（UoW）** | **N** | 宿主 `storageDomain` 无事务/不跨键原子 ⇒ **跨命名空间单提交原子面确需新写**（E0 薄片自认这是它最大的缺口，§7.1）。 |
 | **横切：侧信道/不可区分性防御** | **待裁** | 见 §3 威胁模型——**单用户本地插件可能根本不需要这套**。 |
 
@@ -52,6 +53,7 @@
 1. **OutboundPort 是否为不存在消费者预留** → **是**。两树零命中，仅 opt-in 实验性 agent-team。**负债面 = 整个 OutboundPort + 有界缓冲 + 对应的 G1 契约条**。复审 E0④ 的「消费方出现才写」是更省的读法，采纳。
 2. **单用户本地插件是否需要侧信道防御** → **威胁模型存疑**。V3 自己声明「可信同进程、不宣称 OS 级沙箱」（OVERLAP 引），却建了不可区分呈现/禁精确计数/禁时延提示。**若部署事实确实是单用户本地 + `private:true` + 无第二作者 + 无沙箱外对手，则这套防御是为不存在的威胁建模——属「没有威胁模型的安全工程」。** 这一条**需要用户确认威胁模型**（见 §5）。
 3. **事件真源是否会出现第二套** → **事实上已是两套并存**（`history_event` vs 侧车 `ledger`，异库异 schema），靠「不合一、不互推」红线隔离；**真正的裁决点是用户决策项 2（V1 历史接管范围）与项 4（名单正源承载面）**，不是 R1/R11（不存在）。E0 薄片选**案 A（宿主 Session）为写侧真源、案 B（生产 history/）只读复用**，零触冻结面——这给出了「两套并存但职责分明」的可运行形状。
+【**2026-11-01 更正（多宿主目标）**：「案 A（宿主 Session）为写侧真源」是**「DSH 为唯一宿主」前提下的**结论；在用户多宿主目标（2026-11-01）下体系真源必须**自有**（Codex/Claude Code 无 `dsh-session` 可依），案 A 降级为 **DSH adapter 的内部选项**。E2 PoC 正在证明「自有真源 + 非 DSH 宿主（stdio JSON-RPC / MCP 形）」的可行性；自有真源的具体形状（复用生产 `history/` 形 vs E0 薄片形）待 E2 证据后再裁。】
 
 ## 4. 复用率（两个口径，都给）
 
@@ -68,6 +70,7 @@
 2. **V1 历史接管范围**（用户决策项 2）：生产 `history/` 与 V3 `ledger` 是**永不合一、只读 crosswalk**，还是**单向迁移、生产退役**？——**决定「事件真源第二套」是否永久并存。**
 3. **名单正源承载面**（用户决策项 4）：机制事件名单的正源放**正式仓版本化目录**（E0 已建议 `contracts/event-registry/`）还是**实验侧车**？——**决定侧车是否永久是影子真源。**
 4. **OutboundPort 去留**（§2 X 档）：**删除**还是**保留为「消费方出现再写」的占位契约**？——技术项，但影响契约面大小，**建议删除，若用户坚持保留则降为占位。**
+   【**2026-11-01 更正**：本条被用户多宿主目标**目标级解决**——OutboundPort 重定义为**宿主无关编排端口**（各宿主声明能力、无则降级），既不删除也不占位。这是**目标蕴含**（「接入 Codex / Claude Code 也能用」要求编排面跨宿主可表达），非父席偏好。留给用户的残余问题只有一个：编排面的**最小公约数形状**（Codex/Claude Code 各需满足什么能力集才算「有编排」）——待 E2 证据后与用户核。】
 
 ## 6. 无需授权、可立即执行的后续实验（复审认可「先用宿主能力做一遍」）
 

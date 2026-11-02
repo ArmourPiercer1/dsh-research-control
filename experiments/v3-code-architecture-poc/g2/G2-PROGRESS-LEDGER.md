@@ -44,7 +44,14 @@
   - `tests/kernel-event-authority.test.ts` **16/16**（装配期判据、九字段、入参封闭 8 字段、退役、半形、同源、三支、三态、闸门源码无名单）
 - 门禁实测（tip `752088d`+1，全仓面）：`tsc -p tsconfig.kernel.json` 0；**`check:types` 19 条债务身份精确复现**（期间自查抓到 1 条新债 `TS2532` 并修掉：`Refusal.detail` 可为空）；`lint` 0；`build` 0（31 文件契约校验）；`docs:check` OK；bootstrap 7/7；**`pnpm test` 5105 passed，1 red = 既存 `eb1-canonical`**（登记 R-1，非本 PR 引入）；生产根 `events-recon` exit 0
 - 自查发现并修正的三处**测试自身**缺陷（已记入提交信息）：半形负例被合并逻辑覆盖而全绿；把 `capability-admin` 当「挂错轴」（那是 route-audit 支）；domain 支误测 `authorized`
-- 未落（PR-2 剩余）：`appendLedger` 收敛为机制内部原语 + `synth:raw-intake` 注册与端口改道（**必须同一提交**）；`integrity-audit-recorded` / `read-shadow-recorded` 落地 + 非 oracle 断言；`app/intake-use-case.ts` / `domains/test-records.ts` 迁移
+- 已落（续，同一分支后续提交）：
+  - `a97bc39` EA-7.4 非 oracle 判据 `findNonOracleViolations`（递归含数组、深度 32、容忍循环引用；判据是**前缀**非子串）+ 5 例测试
+  - `226d31f` 通用台账通道对预留名的拒写**实测证据**（先前版断言前提有误：`facet-mounted`/EA-7 名字当时并未登记/预留；改正后只断言真正预留的名字）
+  - `7bd0950` EA-7.1/7.2 名字**先入预留集**：批准已到位、写点未落地是最危险窗口（通用通道若能写，space-write 主体可 mint 审计行）
+  - `dffafa1` EA-7.1/7.2 **落地**：`Kernel.recordMechanismAudit`（只受两名字、运行期复核、字面量写点、走廊 `capability-admin`）+ 回声只回 `{seq}` + 入参 `hiddenBy*` 丢弃 + 锚两条目翻 `planned:false`
+- PR-2 门禁实测（`dffafa1`）：kernel-event-authority **19/19**；bootstrap 7/7；`tsc -p tsconfig.kernel.json` 0；`check:types` **19 条身份精确复现**；`lint` 0；全仓 **5108 passed / 1 red**（既存 eb1-canonical，R-1）；生产根 recon **exit 0**（期望 13 / 事实 9 / planned 4）
+- 未落（PR-2 剩余）：`appendLedger` 收敛为机制内部原语 + `synth:raw-intake` 注册与端口改道（**必须同一提交**）；`app/intake-use-case.ts` / `domains/test-records.ts` 用例迁移
+- 新增登记项：`G2-KNOWN-REDS.md` **R-2**（`--commit` 在非默认工作树下可疑静默放行，附复现步骤，未闭合）
 - 未满足：`Frozen-Face-Review`（人工）；CI 触发面仍只投 `main`
 
 ## 3. 未开工（按授权序列）

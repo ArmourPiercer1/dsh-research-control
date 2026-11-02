@@ -29,7 +29,7 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 | 项 | 值 |
 | --- | --- |
 | **被冻结的契约版本** | **`fa3b892`**（不可变内容身份；G1 契约文本的冻结版本。`fa3b892` 之后的提交只增加授权记录与实施配置，**不改契约文本**） |
-| **G2 开发起点（字面 SHA）** | **`<G2_START_SHA>`** —— 由 `g2/impl` 第一提交写死，判定式：`git rev-parse g2/impl~1` 必须逐字等于本格所写值；且必须 ≥ `788c6ee`（含 Bootstrap 冻结面登记） |
+| **G2 开发起点（字面 SHA）** | **`04c773a45a9b33f8d5b88ddc041dbd0446838c9d`** —— 由 `g2/impl` 第一提交（`da9c7f9`）写死；判定式：`git rev-parse g2/impl~1` 逐字等于本值（2026-11-03 实测输出见本节末「起点验证记录」） |
 | 目标分支（G2 开发分支） | `g2/impl`，**用字面 SHA 创建**：`git switch -c g2/impl <G2_START_SHA>`；**禁止** `$(git rev-parse g1/contracts-20261031)` / `origin/...` 这类浮动指针作为基线 |
 | 合并去向（两级，不可混） | **① 开发**：`g2/impl` 自由推进；**② 生产收编**：`main` ← **以 `main` 为起点的选择性收编 PR**（见 §2.4），**不是** `g2/impl` 或 `#49` 的普通分支合并 |
 | 正式生产码现状 | `src/**`（`host`/`client`/`shared` 等）；**无** `src/kernel/**`／`packages/kernel/**` |
@@ -46,6 +46,23 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 `g1/G2-*.md`（计划/基线/矩阵/报告）与登记类新文件允许新增或改状态行，**但不得夹带判据改写**
 （判定：`git diff --stat fa3b892 <SHA> -- 'g1/G1-UNIFIED-CONTRACTS.md' 'g1/G1-CONTRACT-*.md'` 必须为空）。
 建分支后**立刻**在 `g2/impl` 第一提交把实际 SHA 写入本表并附 `git rev-parse g2/impl~1` 的输出。
+
+**起点验证记录（2026-11-03，`g2/impl` 第一提交实测）**：
+
+```
+$ git branch --show-current
+g2/impl
+$ git rev-parse HEAD          # 本表所在提交（g2/impl 第一提交）
+da9c7f9ee7d5cb61be62f5a7ce9d7b4983458dbf
+$ git rev-parse g2/impl~1     # 开发起点 = 本表所钉字面 SHA
+04c773a45a9b33f8d5b88ddc041dbd0446838c9d
+$ git diff --stat fa3b892 04c773a -- 'g1/G1-UNIFIED-CONTRACTS.md' 'g1/G1-CONTRACT-*.md' \
+    'g1/G1-ERROR-MODEL-RECONCILIATION.md' 'g1/G1-TRUSTED-PROFILE-DELTA.md'
+(空 —— 判据文本与冻结版本 fa3b892 逐文件一致；0 字节输出)
+```
+
+⇒ 起点 `04c773a` 满足判定①（≥ `788c6ee`）与判定②（判据文本 diff 为空）。注：本表所在分支的**第一提交**
+即本提交，故 `~1` 指向起点本身，不存在自引用。
 
 **收编原则（不变）**：禁止整体合并 PoC 分支（`#48`/`#49` 不整体合并）。按三类分别收编：
 

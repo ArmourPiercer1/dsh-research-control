@@ -1,0 +1,9 @@
+{
+ "case_id": "C5-T3-focus-sweep",
+ "tier": "T3",
+ "domain": "40 keV 束线 · 聚焦扫描与发射度重建",
+ "stable_field": "SCAN-FOCUS-SWEEP-01",
+ "record_count": 30,
+ "author_tier_note": "作者暂定 T3（与档序同向的系统漂移未登记为混杂）；须独立复核",
+ "revision": "2026-11-02 按用户指示重造：证据拆成 raw/ 清点、analysis 与 results 目录、楼宇设施日志、相机健康日志四种形态；电源/真空/磁场加随机噪声；删除库内预先算好的杠杆值 (W²/3)/σ² 与\"一个百分点推 6%\"这类提示"
+}

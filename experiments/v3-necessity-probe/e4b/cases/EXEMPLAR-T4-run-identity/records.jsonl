@@ -1,0 +1,15 @@
+{"id": "r01", "t": "2026-07-02T09:20:00Z", "channel": "source", "text": "场图对齐检查：阴极-栅网间距按北京场图基准取 1.82 mm，轴线电位表与参照最大偏差 0.4%。", "refs": [], "actor": "实验记录"}
+{"id": "r02", "t": "2026-07-03T10:05:00Z", "channel": "source", "text": "RUN-SC-OFF-B 首次提交：deck 内写了显式纵向积分容限行（具体值以归档 deck 为准），宏粒子数 20000，出口动能 40.0 keV，漂移段 125 mm；deck SHA 9c44b10e。", "refs": [], "actor": "操作用户"}
+{"id": "r03", "t": "2026-07-03T10:40:00Z", "channel": "source", "text": "RUN-SC-ON-A 提交：与 RUN-SC-OFF-B 同参数（同样带显式纵向积分容限行、宏粒子数 20000），仅打开空间电荷，束流 1.6 mA；deck SHA 5a71ff02。", "refs": [], "actor": "操作用户"}
+{"id": "r04", "t": "2026-07-04T08:15:00Z", "channel": "source", "text": "deck 整理（为对齐后续流强扫描）：RUN-SC-OFF-B.in 删除显式纵向积分容限行，改由求解器按默认策略自适应选取；本次起算求解器打印\"effective longitudinal tolerance = 2.0e-4\"。文件名、run 名与输出目录均保持原样；整理后 deck SHA f0b7761a。", "refs": [], "actor": "操作用户"}
+{"id": "r05", "t": "2026-07-04T08:52:00Z", "channel": "source", "text": "RUN-SC-OFF-B 重跑完成，wall 214 s，exit 0；输出 .gdf 覆盖同名旧文件，宏粒子数与注入分布设置与首跑一致。", "refs": [], "actor": "实验记录"}
+{"id": "r06", "t": "2026-07-04T09:10:00Z", "channel": "source", "text": "运行清单 runs/20260704/：RUN-SC-OFF-B/ 与 RUN-SC-ON-A/ 各含 out.gdf、run.log、post/；目录内未保存 deck 副本（约定：deck 只在 decks/ 目录留一份）。", "refs": [], "actor": "操作用户"}
+{"id": "r07", "t": "2026-07-04T14:20:00Z", "channel": "source", "text": "统一后处理：对两组 out.gdf 用同一脚本 post/emit_rms.py 计算 rms 发射度演化，统计窗口与匹配算法两次相同。", "refs": [], "actor": "实验记录"}
+{"id": "r08", "t": "2026-07-04T14:35:00Z", "channel": "inference", "text": "对照结论：40 keV、1.6 mA 下，打开空间电荷使归一化 rms 发射度由 0.489 pi-mm 增至 0.550 pi-mm，增长 12.4%±0.3%；该增长量归因于空间电荷引起的非线性聚束。", "refs": [], "actor": "收尾结论"}
+{"id": "r09", "t": "2026-07-05T09:00:00Z", "channel": "source", "text": "例行复算 RUN-SC-ON-A：deck 与首次提交逐字节相同（SHA 5a71ff02 校验通过），发射度演化曲线与首次一致，读数不变。", "refs": [], "actor": "操作用户"}
+{"id": "r10", "t": "2026-07-05T09:20:00Z", "channel": "source", "text": "真空与发射电流日志：阴极预热 12 h，脉冲发射电流 1.58 mA（纹波 1.2%）；腔压 4.3e-6 / 4.7e-6 Pa；高压回读 40.02 / 39.99 kV。", "refs": [], "actor": "值班记录"}
+{"id": "r11", "t": "2026-07-05T11:15:00Z", "channel": "inference", "text": "建议：把 12.4% 写入栅网枪设计报告预算表，作为 1.6 mA 档的空间电荷份额；1.0 mA 档另行测算。", "refs": [], "actor": "分析判断"}
+{"id": "r12", "t": "2026-07-06T10:00:00Z", "channel": "source", "text": "求解器版本 4.2 发布说明：默认自适应纵向容限策略的判据系数微调，多数工况下与 4.1 相当；升级说明未逐条给出对束流指标的影响。", "refs": [], "actor": "软件版本说明"}
+{"id": "r13", "t": "2026-07-06T10:30:00Z", "channel": "source", "text": "环境核查：机房 22.1→22.6 ℃，冷却水 21.9 ℃；控制台时钟与 NTP 同步，偏差 <1 s。", "refs": [], "actor": "实验记录"}
+{"id": "r14", "t": "2026-07-07T15:40:00Z", "channel": "suggestion", "text": "建议（王）：预算表里注明\"由 SC ON/OFF 对照直接取用，两组后处理一致\"，评审时省事。", "refs": [], "actor": "评审建议"}
+{"id": "r15", "t": "2026-07-08T09:05:00Z", "channel": "source", "text": "排期：下周流强扫描 0.4–2.0 mA 沿用 decks/ 现行两份 deck 的设置。", "refs": [], "actor": "排期"}

@@ -1,0 +1,16 @@
+{
+ "case_id": "C4-T2-emit-caliber",
+ "tier": "T2",
+ "domain": "40 keV 电子枪 · 发射度归档字段的报告口径",
+ "stable_field": "EMIT-BASELINE",
+ "record_count": 18,
+ "author_tier_note": "作者暂定 T2（字段名不变而报告定义改变）；须独立复核",
+ "conversions": [
+  {
+   "normalized_to_geometric": 0.40334,
+   "tolerance": 0.01,
+   "note": "40 keV 电子 ε_n=βγ·ε_geo，βγ=0.403340"
+  }
+ ],
+ "revision": "2026-11-02 按用户指示重造：改用不同单位串（2.97 pi-mm → 1.61 mm）使两值之比不再是干净的 5.991；删除\"用新脚本对旧输入重算\"这类同输入交叉校核记录"
+}

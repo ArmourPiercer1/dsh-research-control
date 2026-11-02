@@ -1,0 +1,56 @@
+{
+  "answer_key_version": "poc/ab-planted/v0",
+  "deviation_statement": "测量的是「机器从该读法可达的植入缺口」，不是人类问题发现质量；素材为合成任务包（见 README.md），非脱敏真实任务人工标注（#10 P4 该条目 = N/A 范围裁定 ≠ PASS）。",
+  "gaps": [
+    {
+      "gap_id": "GAP-01",
+      "gap_kind": "dangling_based_on",
+      "note": "RUN-AB-B#3 claim.candidate 的 based_on 引用不存在的 seq 99：P0 第二遍记 dangling_based_on 文件级问题（事件行保留），推理视图把该引用列入 broken_references（不静默）。",
+      "ground_truth": ["RUN-AB-B#3"],
+      "location": { "refs": [{ "run_id": "RUN-AB-B", "seq": 3 }] }
+    },
+    {
+      "gap_id": "GAP-02",
+      "gap_kind": "anchorless_association",
+      "note": "RUN-AB-C#3 第二条 experience_association 无 source 锚 → 关联面拒收列账。",
+      "ground_truth": ["RUN-AB-C#3"],
+      "location": { "refs": [{ "run_id": "RUN-AB-C", "seq": 3 }] }
+    },
+    {
+      "gap_id": "GAP-03",
+      "gap_kind": "shared_deck_no_mechanism",
+      "note": "RUN-AB-D 与 RUN-AB-E 共享 deck sha（SHARED_DECK 边在场）但两 run 之间没有任何 REGISTERED_FINDING（机制/统计读数未登记）。",
+      "ground_truth": ["RUN-AB-D", "RUN-AB-E"],
+      "location": { "refs": [{ "run_id": "RUN-AB-D", "seq": null }, { "run_id": "RUN-AB-E", "seq": null }] }
+    },
+    {
+      "gap_id": "GAP-04",
+      "gap_kind": "artifact_sha_unanchored",
+      "note": "RUN-AB-C#1 artifact.registered 的 content_sha256=null 且 unknowns 空（SPEC 规则 2：null 须 unknowns 指路）。seq2 为带指路对照，非缺口。",
+      "ground_truth": ["RUN-AB-C#1"],
+      "location": { "refs": [{ "run_id": "RUN-AB-C", "seq": 1 }] }
+    },
+    {
+      "gap_id": "GAP-05",
+      "gap_kind": "finding_target_unresolvable",
+      "note": "RUN-AB-E#3 的 REGISTERED_FINDING 指向不存在的 RUN-AB-A#99 → broken_references 列账；检出样本的 resolvable_source=false（如实标注，不冒充可回源）。",
+      "ground_truth": ["RUN-AB-E#3"],
+      "location": { "refs": [{ "run_id": "RUN-AB-E", "seq": 3 }] },
+      "resolvable_source_expected": false
+    },
+    {
+      "gap_id": "GAP-06",
+      "gap_kind": "no_support_evidence",
+      "note": "RUN-AB-F#3 claim 的显式证据关系仅 CONTEXTUALIZES，无 SUPPORTS 支持关系。",
+      "ground_truth": ["RUN-AB-F#3"],
+      "location": { "refs": [{ "run_id": "RUN-AB-F", "seq": 3 }] }
+    },
+    {
+      "gap_id": "GAP-07",
+      "gap_kind": "failed_run_basis",
+      "note": "RUN-AB-G#3 claim 的依据事件（#2）位于 run.failed 的失败运行；claim 事件在前、失败事件在后（单趟前向线性扫描不可见）。",
+      "ground_truth": ["RUN-AB-G#3"],
+      "location": { "refs": [{ "run_id": "RUN-AB-G", "seq": 3 }] }
+    }
+  ]
+}

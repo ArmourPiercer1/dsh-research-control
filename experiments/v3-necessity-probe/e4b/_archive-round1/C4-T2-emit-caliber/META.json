@@ -1,0 +1,14 @@
+{
+ "id": "C4-T2-emit-caliber",
+ "tier": "T2",
+ "domain": "栅网电子枪 · 40 keV · 发射度报告字段",
+ "record_count": 12,
+ "note": "席位可见的唯一元信息。不含任何答案。",
+ "conversions": [
+  {
+   "normalized_to_geometric": 0.40334,
+   "tolerance": 0.01,
+   "note": "40 keV 电子 ε_n=βγ·ε_geo，βγ=0.403340"
+  }
+ ]
+}

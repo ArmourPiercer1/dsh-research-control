@@ -1,0 +1,38 @@
+# AssertionRevision（字段逐一对应 V3_TYPED_RESEARCH_EPISTEMICS_ARCHITECTURE_DRAFT.md §3.3）
+assertionId: A-jkd-floor-0001            # 系统发号，人写 0
+revisionHash: auto                        # 系统生成
+statement: "n2 自建工作点上真束腰地板 939–970 nm，290 nm 门不可达"
+proposition:                              # TypedFormula AST（部分形式化，允许不透明谓词）
+  kind: ge
+  lhs: {fn: min_sigma_r, over: {set: W_self, quantifier: existential}}
+  rhs: {value: 939, unit: nm}
+  opaquePredicates: [{name: min_sigma_r, signature: "(WorkingPoint)->nm"}]
+worlds:
+  - {world: GPT-DS-deck-n2, revision: 8f1c2ad, kind: SIMULATION}
+scope:                                    # ResearchScope：UNKNOWN 不得用空白伪装
+  quantifier: "单一工作点存在性；未穷尽备选 ⇒ 不得外推为构型族结论"
+  objects: ["160 keV 探针柱", "DS 双六极校正器", "OL2 Bfield.gdf 实测场"]
+  units: {sigma_r: nm, definition: "rms(r)=√(varx+vary)"}
+  parameterDomain: {K_S: [0, 6000], alpha: [0.6, 1.8], 粒子数: 3000}
+  modelConditions: ["deck 8f1c2ad", "dtmaxt 双窗", "1 µm 真束腰细扫", "100-eval NelderMead"]
+  errorDefinition: "无统计误差条；C3 可校项 236 nm 取自 K_S 0→100 偶极，未验证"
+  unknownConditions: ["K_S 多极小未扫", "60k/acc8 未复核", "Larmor 旋转未查", "非 C3 地板 940 nm 为差值推断"]
+  explicitCitations: []                   # ← 工作区内无基线 ⇒ P6 在此报警（I12）
+semanticKind: EMPIRICAL_UPPER_BOUND
+conceptRevisionRefs: [C-sigma-r@v3, C-true-waist@v1, C-gate-290@v2, C-true-waist@v1]
+formalizationCoverage: RULE_CHECKABLE
+
+# Argument（推理登记，字段逐一对应 §5.1）
+- id: Arg-jkd-floor-0001
+  revisionHash: auto
+  premises: [A-n2-matched@v1, A-c3-addressable-236@v1]
+  evidenceRefs: [E-optimization_results.json#best, E-ks_scan_n2_failfast.json]
+  conclusion: A-jkd-floor-0001
+  inferenceSchemeRef: SCHEME-LOCAL-OPT-TO-IMPOSSIBILITY@v1
+  logicalForce: DEFEASIBLE
+  evidenceRelation: SUPPORTS
+  bindings: [{var: W_self, to: "n2 matched 种子邻域"}]
+  assumptions: ["100-eval 已覆盖相关盆地", "非 C3 像差项不可校"]
+  obligationRefs: [OB-KS-密扫, OB-60k-复核, OB-Larmor-检查]
+  verificationReportRefs: []
+  justificationRefs: []

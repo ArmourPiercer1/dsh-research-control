@@ -1,0 +1,452 @@
+{
+ "_note": "条目取自 REALTRACE-1（真实 jKDesign 轨迹）。armA = 真实 run 产物里**物理存在**的输入（src 可核对）；armB = 按 HSR 规约**应由席位/作者代填**的登记（intent:true，测的是可表达性，不是人真会填对）。谓词只从 value 计算，不读任何 caught 标记。",
+ "predicates": [
+  "P1 同量口径/优先级冲突",
+  "P2 比较端点设置指纹",
+  "P3 退化最优（自由量落域端点/零点）",
+  "P4 不可达类主张缺适用域",
+  "P5 同观测点同量互斥值→禁止升级为已验证",
+  "P6 不可达宣称门（须列已排除备选+判据指纹+参照，缺则阻断出口）",
+  "P7 跨 run 互斥裁决"
+ ],
+ "items": [
+  {
+   "id": "I1",
+   "truth": "K_S≈−3.27 而域为 [0,6000] ⇒ 校正器不起作用，却作为 best 上报（P3 应报警）",
+   "src": "eoopt-agent-ds/scw/results/verification_report.md:40-42；designer_output.md:9",
+   "pred": "P3",
+   "armA": {
+    "freeVars": [
+     {
+      "name": "K_S",
+      "value": -3.27,
+      "lo": 0,
+      "hi": 6000
+     }
+    ]
+   },
+   "armB": {
+    "intent": true,
+    "freeVars": [
+     {
+      "name": "K_S",
+      "value": -3.27,
+      "lo": 0,
+      "hi": 6000,
+      "role": "六极强度，0 = 无校正"
+     }
+    ],
+    "negStates": [
+     {
+      "qty": "K_S",
+      "value": -3.27,
+      "declared": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "I2",
+   "truth": "标题级 no-go 未带适用域，正文才说 at this design's working point（P4 应报警）",
+   "src": "verification_report.md:6,17,19",
+   "pred": "P4",
+   "armA": {
+    "claimText": "the 290 nm gate is not reachable with the double-sextupole corrector at this design's ... (正文限定语在此)",
+    "headline": "Accept: document no-go; floor demonstrated"
+   },
+   "armB": {
+    "intent": true,
+    "claims": [
+     {
+      "kind": "impossibility",
+      "scope": "本设计自建工作点（非该构型族）",
+      "alternatives": [
+       "同工作点未测的 K_S 多极小",
+       "单级/Lout 路线未跑"
+      ],
+      "fingerprint": "100-eval NelderMead, 3k, 真束腰",
+      "headline": "Accept: document no-go; floor demonstrated"
+     }
+    ]
+   }
+  },
+  {
+   "id": "I3",
+   "truth": "α 在 Restrictions 里不可增大、在 designer_output 里硬域 [0.6,1.8] 且优先级最低 ⇒ 冲突（P1 应报警）",
+   "src": "L9T4/scw/baseline/Restrictions.md:13 vs L9T4/scw/designer_output.md:9,18",
+   "pred": "P1",
+   "armA": {
+    "qtyDefs": [
+     {
+      "qty": "饱和上限",
+      "domain": "不可再增大（可减小）",
+      "source": "Restrictions.md:13",
+      "priority": null
+     },
+     {
+      "qty": "α",
+      "domain": "[0.6,1.8]",
+      "source": "designer_output.md:9",
+      "priority": "低于束斑"
+     }
+    ]
+   },
+   "armB": {
+    "intent": true,
+    "qtyDefs": [
+     {
+      "qty": "α",
+      "definition": "物镜磁场相对 Bfield.gdf 数据的标度因子",
+      "defSource": "Restrictions.md:13",
+      "domain": "[0.6,1.8]（任务书硬域）",
+      "hardwareDomain": "(0,1]",
+      "priority": "低于束斑"
+     }
+    ]
+   },
+   "armAp": {
+    "plusBasis": "义务「量→定义出处」+ 适用域登记：α 的定义出处指向 Restrictions，两个域落在同名量上",
+    "qtyDefs": [
+     {
+      "qty": "α",
+      "domain": "[0.6,1.8]",
+      "source": "designer_output.md:9",
+      "priority": "低于束斑"
+     },
+     {
+      "qty": "α",
+      "domain": "(0,1]（场图数据即饱和上限，不可增大）",
+      "source": "Restrictions.md:13",
+      "priority": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "I4",
+   "truth": "同一 q* 上放大率测得 1.83/2.107/118.74 互斥，却写「已验证不可达」（P5 应报警）",
+   "src": "H2VN/scw/full_record.txt 尾部",
+   "pred": "P5",
+   "armA": {
+    "prose": "放大率沿梯级从 1.83 → 10.82 → 2.107 后钉死…waist_validation 在同一 q* 上测得 A_total(z=0.81)=118.74（可复现两次）…同一 q 的放大率本身随运行在 1.83/2.107/118.74 间跳变"
+   },
+   "armB": {
+    "intent": true,
+    "measurements": [
+     {
+      "site": "q*",
+      "qty": "A_total@z=0.81",
+      "value": 1.83
+     },
+     {
+      "site": "q*",
+      "qty": "A_total@z=0.81",
+      "value": 2.107
+     },
+     {
+      "site": "q*",
+      "qty": "A_total@z=0.81",
+      "value": 118.74
+     }
+    ]
+   },
+   "armAp": {
+    "_blocked": "最小臂三条义务里**没有测量级对象槽位**（口径/前提/终态都不承载 (观测点,量,值) 三元组）"
+   }
+  },
+  {
+   "id": "I5",
+   "truth": "10µm 网格 vs 1µm 真束腰同名 ε 口径，跨构型直接比较 ⇒ 高估 ~65 nm（P1 应报警；真实时间线上是事后自曝）",
+   "src": "三构型报告 §0 核心结论 1、§2.3",
+   "pred": "P1",
+   "armA": {
+    "qtyDefs": [
+     {
+      "qty": "rms(r)",
+      "domain": "10µm 近轴像面网格",
+      "source": "实验① ",
+      "priority": null
+     },
+     {
+      "qty": "rms(r)",
+      "domain": "1µm 真束腰细扫",
+      "source": "实验②",
+      "priority": null
+     }
+    ]
+   },
+   "armB": {
+    "intent": true,
+    "qtyDefs": [
+     {
+      "qty": "rms(r)",
+      "definition": "√(varx+vary)",
+      "grid": "10µm 像面网格",
+      "waist": "名义像面"
+     },
+     {
+      "qty": "rms(r)",
+      "definition": "√(varx+vary)",
+      "grid": "1µm 细扫",
+      "waist": "真束腰（最小弥散圆）"
+     }
+    ]
+   }
+  },
+  {
+   "id": "I6",
+   "truth": "「1/50 比 1/40 差 60 nm」的两端点 dtmaxt 设置不同，真实代价 22 nm（P2 应报警）",
+   "src": "三构型报告 §2.3 ★根因",
+   "pred": "P2",
+   "armA": {
+    "comparison": {
+     "label": "mag 1/50 vs 1/40 的束斑代价",
+     "value": "60 nm",
+     "endpoints": [
+      {
+       "cfg": "R1"
+      },
+      {
+       "cfg": "R1"
+      }
+     ]
+    }
+   },
+   "armB": {
+    "intent": true,
+    "comparison": {
+     "label": "mag 1/50 vs 1/40 的束斑代价",
+     "value": "60 nm",
+     "endpoints": [
+      {
+       "cfg": "R1",
+       "fp": "dtmaxt: 仅物镜区"
+      },
+      {
+       "cfg": "R1",
+       "fp": "dtmaxt: 仅物镜区"
+      }
+     ]
+    },
+    "fixedComparison": {
+     "label": "同上（补窗后）",
+     "value": "22 nm",
+     "endpoints": [
+      {
+       "cfg": "R2",
+       "fp": "dtmaxt: 六极区+物镜区"
+      },
+      {
+       "cfg": "R2",
+       "fp": "dtmaxt: 六极区+物镜区"
+      }
+     ]
+    }
+   },
+   "armAp": {
+    "plusBasis": "义务「前提 + 工件版本」：比较的两端点各带 deck/求解设置版本即该义务的内容",
+    "comparison": {
+     "label": "mag 1/50 vs 1/40 的束斑代价",
+     "value": "60 nm",
+     "resolutionOk": false,
+     "endpoints": [
+      {
+       "cfg": "R1",
+       "fp": "dtmaxt: 仅物镜区"
+      },
+      {
+       "cfg": "R1",
+       "fp": "dtmaxt: 仅物镜区"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "I7",
+   "truth": "「1 簇」被当「唯一分支」；采样盒本身排除 +B_T 镜像臂（P4 强度≤证据 应报警）",
+   "src": "X7QK/scw/results/openphase_writeup.md §2；消融报告 §0.4③",
+   "pred": "P4",
+   "armA": {
+    "claimText": "1 簇（size 6）",
+    "samples": 120,
+    "feasible": 6,
+    "boxBoundsIn": "interface/*.py（代码，非记录）"
+   },
+   "armB": {
+    "intent": true,
+    "claims": [
+     {
+      "kind": "uniqueness",
+      "scope": "采样盒 |B_T|=0.116 固定、B_T 符号取 −（盒边界见 deck_builder）",
+      "alternatives": [
+       "+B_T 镜像臂：盒内不可达，未测"
+      ],
+      "fingerprint": "6 seeds × 20 LH，可行 6/120"
+     }
+    ]
+   },
+   "armAp": {
+    "plusBasis": "义务「前提」+ 索引「适用域登记」：采样盒边界属前提，命中率属判据指纹",
+    "claims": [
+     {
+      "kind": "uniqueness",
+      "scope": "采样盒 B_T 符号固定为 −",
+      "alternatives": [
+       "+B_T 镜像臂：盒内不可达，未测"
+      ],
+      "fingerprint": "6/120"
+     }
+    ]
+   }
+  },
+  {
+   "id": "I8",
+   "truth": "同族症状归因分歧：Larmor 旋转未抵消（真）vs 束宽填充 1.7%（假）；登记不产生物理知识",
+   "src": "消融报告 §0.4②；ks_diagnosis.md",
+   "pred": "P6",
+   "armA": {
+    "claimText": "σ_r 对 K_S 单调上升，best at K_S=0 — 主因是束宽填充仅 1.7%"
+   },
+   "armB": {
+    "intent": true,
+    "claims": [
+     {
+      "kind": "causal-attribution",
+      "scope": "本 deck",
+      "alternatives": [
+       "Larmor 旋转未抵消：未查"
+      ],
+      "fingerprint": "解析 r_H + smoke 3k"
+     }
+    ]
+   }
+  },
+  {
+   "id": "I9",
+   "truth": "正面对照：预写判别实验 + 执行后诚实记录 fail-fast FAILED（两臂都不得报警）",
+   "src": "eoopt-agent-ds/scw/results/ks_diagnosis.md",
+   "pred": "P6",
+   "armA": {
+    "claimText": "RESULT: n_relay=2 fail-fast FAILED — 中继 −I 并非原因（原判据被自己的实测推翻）"
+   },
+   "armB": {
+    "intent": true,
+    "claims": [
+     {
+      "kind": "falsification-report",
+      "scope": "n2 matched 种子",
+      "alternatives": [
+       "−I 质量：已排除",
+       "r_H 束宽：已排除",
+       "六极相对符号：待测"
+      ],
+      "fingerprint": "ks_scan 0→2000 十步 ±40µm rake"
+     }
+    ]
+   }
+  },
+  {
+   "id": "I10",
+   "truth": "正面对照（用户裁决）：L9T4 发现冲突并升级，**未**宣布目标不可达 ⇒ P6 必须放行，P1 必须报警",
+   "src": "L9T4/scw/results/branch_selection.md:103-126",
+   "pred": "P6",
+   "armA": {
+    "claimText": "若这是真硬件天花板，则每个达到束斑门的分支都不可建造——这是设计决策，不归我定（未宣布目标不可达）"
+   },
+   "armB": {
+    "intent": true,
+    "claims": [
+     {
+      "kind": "escalation",
+      "scope": "α≤1 支束斑 2906–3066 vs α≈1.3 支 419–451",
+      "alternatives": [
+       "α≤1 支存在且 on-M：已实测",
+       "优先级需重议：交人"
+      ],
+      "fingerprint": "投影 A1 补偿，残差 7e-12"
+     }
+    ]
+   }
+  },
+  {
+   "id": "I11",
+   "truth": "以「地板是门的 3.2 倍」为由**跳过** 60k 复核（P6 应报警：未列已排除备选与判据指纹）",
+   "src": "verification_report.md:6",
+   "pred": "P6",
+   "armA": {
+    "claimText": "deliberately NOT run because the demonstrated floor (~940–970 nm) is 3.2–3.3× the gate"
+   },
+   "armB": {
+    "intent": true,
+    "claims": [
+     {
+      "kind": "skip-verification",
+      "scope": "60k/acc8 复核被跳过",
+      "alternatives": null,
+      "fingerprint": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "I12",
+   "truth": "宣布地板时工作区内无任何基线参照（«人工基线值·已脱敏» 在场外）⇒ 参照为空（P6 应报警；两臂都能抓）",
+   "src": "testbeds/jKDesign/baseline/基线设计_透镜与束流特征.md:17 vs scw/baseline/ 清单",
+   "pred": "P6",
+   "armA": {
+    "claimText": "floor ~939–970 nm 已确立、门不可达",
+    "referencesInWorkspace": []
+   },
+   "armB": {
+    "intent": true,
+    "claims": [
+     {
+      "kind": "impossibility",
+      "scope": "自建工作点",
+      "alternatives": [
+       "K_S 多极小未扫"
+      ],
+      "fingerprint": "3k smoke",
+      "reference": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "I13",
+   "truth": "H2VN 的不可达被另一 run 用同种子解析落 M（1e-11）证伪；但 HSR 的跨面引用是断言非可解析引用（SD-20）⇒ B 臂也只能标记，不能自动判负",
+   "src": "消融报告 §0.4①；H2VN/full_record.txt",
+   "pred": "P7",
+   "armA": {
+    "claimsInScope": [
+     {
+      "kind": "impossibility",
+      "verdict": "±1/50 域内不可达",
+      "run": "H2VN"
+     }
+    ]
+   },
+   "armB": {
+    "intent": true,
+    "claimsInScope": [
+     {
+      "kind": "impossibility",
+      "verdict": "±1/50 域内不可达",
+      "run": "H2VN"
+     }
+    ],
+    "externalCitations": [
+     {
+      "to": "M3RD/results",
+      "asserts": "同种子解析落 M 残差 1e-11",
+      "resolvable": false
+     }
+    ]
+   },
+   "armAp": {
+    "_blocked": "最小臂**无任何跨 run/跨面引用槽位**（外部出处不是三条义务之一）"
+   }
+  }
+ ]
+}

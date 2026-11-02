@@ -465,6 +465,56 @@ export class Kernel {
       capability: cap, pluginId: row.plugin_id, contractVersion: row.contract_version, storageNamespace: row.ns,
     });
   }
+  /**
+   * EA-7.1 / EA-7.2 的**机制内部写点**：`integrity-audit-recorded` / `read-shadow-recorded`。
+   *
+   * 这两个名字在 `MECHANISM_AUDIT_EVENT_TYPES` 里（预留集），通用 `appendLedger` / `write()`
+   * 一律拒写——只有这里能落账。回声**只回 seq**：不返回任何 `hiddenBy*`（EA-7.4 非 oracle），
+   * 否则发起者能从返回值读出「被隐藏的是什么」，审计事件退化成查询接口。
+   */
+  recordMechanismAudit(
+    a: { readonly eventType: 'integrity-audit-recorded' | 'read-shadow-recorded'; readonly payload: Record<string, unknown> },
+    by: VerifiedPrincipal,
+  ): { readonly seq: CommitSequence } {
+    // 运行期再核一遍：类型层只约束编译期，`as unknown as` 面在上游拦不住（EA-4.3 同一纪律）。
+    if (!(MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(a.eventType)
+      || (a.eventType !== 'integrity-audit-recorded' && a.eventType !== 'read-shadow-recorded')) {
+      throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
+        eventType: a.eventType, channel: 'recordMechanismAudit',
+        reason: '该入口只落 EA-7.1/EA-7.2 两个机制审计名；其他名字走各自的授权命令 Port',
+      });
+    }
+    const payload: Record<string, unknown> = { ...a.payload };
+    for (const k of Object.keys(payload)) {
+      if (k.startsWith('hiddenBy')) {
+        delete payload[k];   // 入参也不许带：否则它会被原样存进不可变账，再被读面回出去
+      }
+    }
+    const echo = this.uow(by, (held) => {
+      const tx = held as UnitOfWorkImpl;
+      const raw = RAW_OF_UOW.get(tx)!;
+      const seq = this.nextLedgerSeq(raw);
+      const evidence = JSON.stringify({ axis: 'capability-admin', capability: 'capability-admin', authorized: this.principalCan(by, 'capability-admin') } satisfies AuthorityEvidence);
+      const body = JSON.stringify(payload);
+      // 写点用**字面量**落名（不用 `a.eventType` 转发）：对账脚本按字面量判断「这个名字有写点」，
+      // 转发形要靠守卫调用证明，而审计名的守卫恰恰是这份预留集本身——用字面量把关系写死更诚实。
+      if (a.eventType === 'integrity-audit-recorded') {
+        raw.run(
+          `insert into ledger(seq, space, event_type, actor, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?)`,
+          seq, this.space, 'integrity-audit-recorded', by.actorId, evidence, body, null, Date.now(),
+        );
+      } else {
+        raw.run(
+          `insert into ledger(seq, space, event_type, actor, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?)`,
+          seq, this.space, 'read-shadow-recorded', by.actorId, evidence, body, null, Date.now(),
+        );
+      }
+      this.journalEpoch(raw, seq, a.eventType);
+      return { seq };
+    }, 'capability-admin');
+    return { seq: echo.seq };
+  }
+
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {
     this.uow(by, (held) => {
       const tx = held as UnitOfWorkImpl;

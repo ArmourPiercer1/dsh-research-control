@@ -54,6 +54,11 @@ export interface Authorizer {
 export const MECHANISM_AUDIT_EVENT_TYPES = [
   'capability-enabled', 'capability-disabled', 'capability-transferred',
   'object-registered', 'check-report-recorded',
+  // EA-7.1 / EA-7.2：已获独立席位批准（anchor 内 `independent-review-seat`），写点尚未落地
+  // （anchor 里仍 `planned:true`）。**先入预留集**：否则在“批准了但还没接写点”的窗口期里，
+  // 任何 space-write 主体都能用通用 `appendLedger` mint 这两个名字的行，等于提前把
+  // EA-7.1/7.2 的审计面做成可伪造的。
+  'integrity-audit-recorded', 'read-shadow-recorded',
 ] as const;
 
 /**

@@ -73,6 +73,11 @@
 | FM | `pluginVisibleResponse()` 的 `echo: {}` | T-P5 原断言不变（挂载对属主读面零差分） | **T-N9** | **MUT-4** |
 | RL | `callerBodyFor(code)` 只回 `{code}`（RL-INFO 唯一构造器） | T-N13/T-N11 等既有断言随构造器改形仍绿 | **T-N19**：旧体泄漏 + 计数仍在 `opsDetail` | **MUT-8** |
 
+**2026-11-03 T-SEC 适用范围对账**：上表 EA 行的「三态**逐字节**同形」按
+`g1/G1-TRUSTED-PROFILE-DELTA.md` 归入敌对部署 Profile（P-A）；可信首版（P-T）的门禁是
+「零 `hiddenBy*` 键 + 计数只在内部审计面可回看 + 有权计数如实 + **字段级**同形」。
+夹具 T-P7 / T-N11 / MUT-5 **不删**，登记为 P-A 套件，启用条件与负责人见该对账文件 §4。
+
 **仍开放**：G2 落地时按 §7.4 的历史形态句做 `arch-independence.test.ts` 重锚（撤键是**收紧**方向，
 但面锚是逐字比对，必须逐条点名重锚，不走静默）——该义务已写进 EA-7.4 正文，不再悬空。
 

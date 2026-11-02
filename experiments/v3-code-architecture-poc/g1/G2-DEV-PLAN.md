@@ -343,7 +343,9 @@ pnpm run docs:check                                                             
 - **不做什么**：**禁止**「禁跨领域边」式整包修法（`§15 G1-c` 点名：会打死 Q45/Q40）；不借机收紧人群；
   不把 `NAMESPACE_ESCAPE` 与 `CAPABILITY_SCOPE_ESCAPE` 互替（`RECONCILIATION.md §3 8b` 实测）。
 - **进入门禁**：PR-2 exit 0；`G1-READ-02`、`G1-LINK-01` 进入 `assigned`（owner = 三源之一）。
-- **退出门禁**：两世界逐字节同形探针（`SCR-54` 先例形态）exit 0；`pnpm test` exit 0；
+- **退出门禁**：两世界逐字节同形探针（`SCR-54` 先例形态）exit 0 —— **【2026-11-03 T-SEC 适用范围】**
+  该探针并入敌对 Profile（P-A）套件、不作首版放行门；首版退出门禁改为「字段级同形（D1-c）＋零
+  `hiddenBy*` 键＋计数审计面可回看」，对账见 `g1/G1-TRUSTED-PROFILE-DELTA.md`；`pnpm test` exit 0；
   计数面负例（**R-1 反转形**：调用方 echo 面**零 `hiddenBy*` 键**，计数只在内部审计面可回看；旧句
   「`hiddenByInactiveCapability` 等 echo 键不增字段」为 R-1 前形态，作废——撤键是收紧方向，但
   `arch-independence.test.ts` 的面锚是逐字比对，须按 EA-7.4 历史形态句**逐条点名重锚**，不走静默）exit 0。

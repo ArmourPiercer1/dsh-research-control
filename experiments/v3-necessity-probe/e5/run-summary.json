@@ -1,0 +1,59 @@
+{
+ "total_hits": 111,
+ "by_predicate": {
+  "P1": 1,
+  "P2": 12,
+  "P8": 56,
+  "P3": 3,
+  "P4": 2,
+  "P5": 21,
+  "P6": 3,
+  "P7": 13
+ },
+ "packages": [
+  {
+   "name": "rhodotron_nonlinear_v2",
+   "root": "«用户主目录»/Downloads/rhodotron_nonlinear_v2",
+   "files": 13,
+   "text_files": 9,
+   "hits": 7,
+   "byPred": {
+    "P1": 1,
+    "P2": 1,
+    "P8": 5
+   },
+   "elapsed_ms": 7
+  },
+  {
+   "name": "20261014_Beijing_field_sanity_v2",
+   "root": "«用户主目录»/Downloads/20261014_Beijing_field_sanity_v2/20261014_Beijing_field_sanity_v2",
+   "files": 73,
+   "text_files": 56,
+   "hits": 74,
+   "byPred": {
+    "P2": 1,
+    "P3": 3,
+    "P4": 2,
+    "P5": 21,
+    "P6": 3,
+    "P8": 44
+   },
+   "elapsed_ms": 103
+  },
+  {
+   "name": "EGUN_Simulation_Files",
+   "root": "«盘D»/EGUN_Simulation_Files",
+   "files": 303,
+   "text_files": 203,
+   "hits": 30,
+   "byPred": {
+    "P2": 10,
+    "P7": 13,
+    "P8": 7
+   },
+   "elapsed_ms": 2118
+  }
+ ],
+ "total_elapsed_ms": 4743,
+ "out": "/home/user/dsh-plugins/dsh-research-control/experiments/v3-necessity-probe/e5/findings.jsonl"
+}

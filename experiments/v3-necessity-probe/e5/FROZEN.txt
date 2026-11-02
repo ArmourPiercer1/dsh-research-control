@@ -1,0 +1,7 @@
+E5 冻结记录（阶段一完成，未读 e4a/FINDINGS.jsonl）
+date: Sun Nov  1 21:05:52 UTC 2026
+machine: DESKTOP-P64Q2FT
+4fabca284c316700c6060c59980c81e6ec753b422d13511d69556177577f942d  findings.jsonl
+0acf555d5218a2d17cee4c6eac76d2618b94d265d0e655150ace1bfc918c3d6e  reconcile.mjs
+run: node reconcile.mjs <3 roots> --out findings.jsonl (单次运行)
+total_hits: 111 | total_elapsed_ms: 4743

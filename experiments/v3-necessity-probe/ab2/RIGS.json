@@ -1,0 +1,22 @@
+{
+ "r1": {
+  "case": "C2-T4-noise-floor",
+  "n": 20,
+  "budget": 8
+ },
+ "r2": {
+  "case": "C4-T2-emit-caliber",
+  "n": 18,
+  "budget": 8
+ },
+ "r3": {
+  "case": "C5-T3-focus-sweep",
+  "n": 30,
+  "budget": 12
+ },
+ "r4": {
+  "case": "EXEMPLAR-T4-run-identity",
+  "n": 15,
+  "budget": 8
+ }
+}

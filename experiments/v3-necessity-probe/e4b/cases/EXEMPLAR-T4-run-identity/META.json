@@ -1,0 +1,9 @@
+{
+ "case_id": "EXEMPLAR-T4-run-identity",
+ "tier": "T4",
+ "domain": "栅网电子枪 · 空间电荷开/关对照",
+ "stable_field": "RUN-SC-OFF-B",
+ "record_count": 15,
+ "author_tier_note": "暂标 T4（前提被单独改动）；复核席原判②，其根因已修，档位待复审重判",
+ "revision": "2026-11-02 按用户指示重造：删除容差单变量敏感性扫描（原 r02/r03），故**效应量在库内不可定量**，正确答案是判定对照失效并要求同容限重做"
+}

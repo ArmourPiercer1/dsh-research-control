@@ -1,0 +1,76 @@
+=== prex run round=6（全新台账；.run 运行时数据，不提交）===
+[track] c1 RAW-1 raw intake（构造损坏 of 真实文本；declaredType=proposition）  (+0.774ms)
+[track] c2 RAW-2 raw intake（declaredType 完全不认识，B-1）  (+0.147ms)
+[track] c3 P-1 登记（r1，S-L1 未达成仍登记）+ 首轮报告 RPT-1（rs/v1）  (+0.540ms)
+[track] c4 P-1 修订 r2 + 重检 RPT-2（rs/v1）  (+0.203ms)
+[track] c5 E1 登记 + A-1 登记 + A-1 首轮报告 RPT-3（rs/v1）  (+0.448ms)
+[track] c6 A-2 + A-3 登记（负例结论对象）  (+0.183ms)
+[track] 出口尝试 #1（A-1，E2 未到达）  (+0.134ms)
+[track] 出口尝试 #2（A-2，负例三码）  (+0.018ms)
+[track] 出口尝试 #3（A-3，跨对象引用负例）  (+0.022ms)
+[track] 场景-中断：P-2 事务在提交点前进程级崩溃（crash-probe exit 9）  (+37.114ms)
+[track] 场景-中断：同幂等键重放 #1（首次成功提交 c7，P-2 r1 + RPT-4）  (+0.894ms)
+[track] 场景-中断：同幂等键重放 #2（应字节逐等返回首次结果）  (+0.073ms)
+[track] 积压：c8 E2 晚到登记（knownFromMs 早于首份报告）  (+0.188ms)
+[track] 积压：c9 A-1 复查 RPT-5（新报告；旧报告不改写）  (+0.319ms)
+[track] 积压收口：c10 A-1 出口（证据到达 + 复查 PASS 后）  (+0.158ms)
+[track] 回访：c11 规则集 v2 生效，回访 P-1@r2 → 新报告 RPT-6（v2 新规则 verifiedAgainst 缺）  (+0.163ms)
+[track] 回访：钉住版本读 RPT-1 / RPT-2 / RAW-1（历史报告按钉住版本可读；原始字节不重解释）  (+0.034ms)
+
+=== 断言：1 — S-L0 提交（C-04 / #44 L234 / EA B-1/B-4 / C-09 / IC-H3）===
+PASS  A1-01  不可解析材料（构造损坏 of 真实文本）仍被提交为原始记录：raw-record-declared 事件落账成功（commit ok，台账有行）
+PASS  A1-02  原始记录事件名不冒充生产封闭名单：prex:raw-record-declared ∉ 生产已入账 7 名；行内携 planned 未批准标注（gated EA-1.2.3）
+PASS  A1-03  原始记录类型标记 ≠ 任何正式对象类：读回 form==='raw'；Object Directory 无 RAW-1 行（不登记为正式对象）
+PASS  A1-04  台账中不出现「把 RAW-1 当正式对象」的行：无任何非 raw 事件载荷引用 RAW-1（无 object-registered/revised/exit 以它为对象）
+PASS  A1-05  对 RAW-1 的读取返回 raw 形态而非五类对象形态：读回键集恰为 {recordId,form,body,origin,declaredType,intakeNotes}，无 revision/kind/objectClass 字段
+PASS  A1-06  原文与来源完整保存、不被解释污染：body 与损坏文本 sha256 逐等；origin.sourceRef/medium 原样
+PASS  A1-07  B-1 反向护栏：declaredType 完全不认识（totally-unknown-foreign-schema-xyz）仍被收为 raw，未产生任何 EVENT_AUTHORITY_REQUIRED 形态拒绝；declaredType 仅作数据保存
+PASS  A1-08  B-4：无空间写权 ⇒ Raw Intake 完全拒收（SPACE_WRITE_DENIED），台账字节零变化（拒收与类型是否认识无关）
+PASS  A1-09  解析尝试结局留痕（每次尝试的输入/结局新增记录）：RAW-1 intakeNotes.parseAttempt==='UNPARSEABLE'；全链 digest 验证通过
+
+=== 断言：2 — S-L1 旁路（#44 L235 / IC-S1 / EA B-5 / RD-33；中断场景 X-1/JC-1）===
+PASS  A2-01  可解析材料在 S-L1 未 PASS 时仍登记为正式对象：P-1 登记提交成功，Directory 行 {P1, proposition, prex-space-1}，r1 可读
+PASS  A2-02  首轮检查报告是独立记录：RPT-1 为独立事件（check-report-recorded，rptId 独立）；对象事件载荷不含报告 verdict（对象与报告解耦，同事务原子提交 Q40 形态）
+PASS  A2-03  S-L1 未达成如实报告：RPT-1 verdict==='NOT_ACHIEVED'（≠PASS），缺陷清单非空且为首个结构缺陷码 CIT_ACCESS_VIA_MISSING
+PASS  A2-04  报告 verdict≠PASS 时对象不消失、不重写（c3 时刻快照）：首轮报告落账后 P-1@r1 仍可读，且此刻无任何 P-1 的 object-revised 行（未达成不说成 PASS、不静默修订）
+PASS  A2-05  报告只含结构/声明缺陷清单：RPT-1 全部缺陷码 ∈ 结构/声明缺陷封闭词表（无语义判定码）
+PASS  A2-06  RD-33 机验：verdict+defects 面零语义判定词（封闭集扫描零命中）；guaranteeScope 声明不覆盖语义（声明不是判定）
+PASS  A2-07  对象修订追加不覆盖：P-1 r2 登记成功、r1 历史版本仍可读、P-1 的 object-revised 恰 1 条（即显式修订 c4，无静默改写）
+PASS  A2-08  中断·零残留：提交点前进程级崩溃（exit 9）后台账文件字节逐等（零落盘、无部分行）；探针证据 staged=1 committed=0
+PASS  A2-09  中断·重放首次成功：同幂等键（actor,space,op,clientRequestId 四元组）重放 ⇒ 正常提交（idempotent=false，P-2 r1 + RPT-4 落账）
+PASS  A2-10  中断·X-1 幂等：同键第二次重放 ⇒ 返回首次结果字节逐等（resultJson 字符串相等；不重算墙钟、不重执行）
+PASS  A2-11  中断·不产生第二份记录：P-2 的 object-registered 事件恰 1 条（崩溃 + 两次重放后仍无第二份）
+
+=== 断言：3 — 证据适用域（#44 L293 / ADJ D4-b / UNIFIED P5 / C11 / D3-b / X-6）===
+PASS  A3-01  报告缺规则集版本（ruleSetVersion）⇒ 拒绝入库（RPT_BIND_INCOMPLETE），零新增块
+PASS  A3-02  报告缺输入环境（inputEnvironment）⇒ 拒绝入库，零新增块
+PASS  A3-03  报告缺执行时间（checkedAt）⇒ 拒绝入库，零新增块
+PASS  A3-04  报告缺声明保证范围（guaranteeScope）⇒ 拒绝入库，零新增块
+PASS  A3-05  报告缺对象确切 revision（target.revision）⇒ 拒绝入库，零新增块
+PASS  A3-06  同对象换规则集版本复查 ⇒ 产生新报告：RPT-6 为新 rptId（≠RPT-1/RPT-2），ruleSetVersion==='rs/v2'，verdict==='NOT_ACHIEVED'（v2 新规则 verifiedAgainst 缺）
+PASS  A3-07  C11/D3-b：复查后旧报告字节不变（c3 块行自磁盘重读 sha256 逐等）；RPT-1 按其钉住版本 rs/v1 原样可读（不重解释：verdict 仍为存值 NOT_ACHIEVED）
+PASS  A3-08  跨适用域引用（跨 revision）：A-2 以 RPT-1（钉住 P1@r1）支撑 P1@r2 结论 ⇒ 出口拒（OUT_OF_SCOPE_CITATION）
+PASS  A3-09  跨适用域引用（跨对象）：A-3 以 RPT-2（钉住 P1@r2）支撑 E1 结论 ⇒ 出口拒（OUT_OF_SCOPE_CITATION）
+PASS  A3-10  回访不重解释（X-6 原始字节）：rs/v2 生效后，RPT-2 所在块行（c4，自磁盘重读）sha256 逐等、RAW-1 原始体逐等（机制只按钉住版本供原始字节，不套用新规则重解释）
+
+=== 断言：4 — 结论出口判据（四分量 + IC-S2/RD-33 不变量；积压场景 D2-d/C11）===
+PASS  A4-01  积压·不可出口窗口：E2 到达前 A-1 出口被拒（PROVENANCE_REF_UNRESOLVED + EXIT_REPORT_NOT_PASS）——结论在证据到达前保持「不可出口」
+PASS  A4-02  缺 declared_gaps ⇒ 拒出口（EXIT_MISSING_DECLARED_GAPS）
+PASS  A4-03  把 S-L1 结论当「科学为真」⇒ 拒出口（VERDICT_SEMANTIC_CLAIM_REFUSED）：语义真值词 SCIENTIFICALLY_TRUE 落在域相对封闭词表外——机制只保证声明面
+PASS  A4-04  D2-d·早截点不可见：晚到记录 E2 在其提交前一时刻的视图不可见（迟到登记不可追溯变成过去已登记）
+PASS  A4-05  D2-d·晚截点携补录标注：E2 在默认（当前已提交）视图可见且 lateBackfill===true（补录派生键：提交序 > cutoff(knownFromMs)）
+PASS  A4-06  积压·复查产生新报告且旧报告不改写（C11）：RPT-5 为新 rptId（≠RPT-3）verdict==='PASS'；RPT-3 所在块行自磁盘重读 sha256 逐等（字节不变）
+PASS  A4-07  出口成功且出口记录是独立台账行：assessment-exited 事件恰 1 条；readExit(A1) 非空
+PASS  A4-08  出口记录携四分量齐全：verdict（域相对值）+ declared_gaps（数组，2 项如实声明）+ 适用域声明（domain+method）+ 溯源绑定（4 条全部解析）
+PASS  A4-09  出口记录保留机制不变量声明（逐字）：「S-L1 PASS ≠ 原意被确认 ≠ 正确」+ RD-33 声明面限定
+PASS  A4-10  出口溯源绑定在适用域内：出口记录引用复查报告 RPT-5，其钉住目标 = {A1, r1}（与出口对象一致，非跨域引用）
+
+=== 汇总（round 6）===
+断言: 总 40 | PASS 40 | FAIL 0
+整轮墙钟: 45.595ms | 机制操作记账: 27（中断 3 ⊂ 积压 9，三行不重复计）| 重放整链: {"ok":true,"length":13}
+成本表:
+  中断: ops=[1 崩溃(子进程 exit9) + 1 重放提交 + 1 幂等重放 + 2 文件字节核验] wall=38.162ms — 提交点前崩溃 = 零落盘；同幂等键重放返回首次结果字节逐等、不产生第二份记录（X-1/JC-1）
+  积压: ops=[3 出口拒绝尝试 + 3 中断场景操作 + 1 E2 晚到登记 + 1 复查(新报告 RPT-5) + 1 出口成功 = 9 机制操作；窗口跨 4 个提交块（P-2 重放 / E2 晚到登记 / RPT-5 复查 / 出口）] wall=39.123ms — E2 到达前结论保持不可出口；晚到记录在早截点不可见、晚截点携补录标注（D2-d）；旧报告不改写（C11）
+  回访: ops=[1 规则集 v2 重检（新报告 RPT-6）+ 3 钉住版本读（RPT-1/RPT-2/RAW-1）= 4 操作] wall=0.203ms — 历史报告按钉住版本仍可读（D3-b）；原始字节不重解释（X-6）
+材料溯源: DOI 10.1007/978-3-319-24574-4_28（Crossref HTTP 200，2026-11-02）；引文文本源 arXiv:1505.04597v1；RAW-1 = 构造损坏 of 真实文本（arXiv v1 abstract sentence 3）
+run-history 已追加 round=6（exit code 0）

@@ -1,0 +1,9 @@
+{
+ "case_id": "C2-T4-noise-floor",
+ "tier": "T5",
+ "domain": "栅网电子枪 · 宏粒子抽样与发射度比较",
+ "stable_field": "EMIT-40K-REF",
+ "record_count": 20,
+ "author_tier_note": "档位采复核席判定（⑥证据不足当定论）；作者原判 T4 已废",
+ "revision": "2026-11-02 按用户指示重造：粒子数依赖性检查改为每档单次（不再提供同 N 重复得到的散布），库内不含任何散布/噪声百分比"
+}

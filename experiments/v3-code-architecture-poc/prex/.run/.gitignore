@@ -1,0 +1,4 @@
+# prex/.run 运行时数据（台账/轮次历史）不提交
+/run-history.jsonl
+/prex-ledger.jsonl
+/*.trunc

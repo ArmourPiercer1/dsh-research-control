@@ -1,0 +1,8 @@
+索引: 结论-不可达声明 | 真束腰地板 939–970 nm ⇒ 290 nm 门在本工作点不可达（存在性反例未穷尽）
+量→定义出处: sigma_r ≡ rms(r)=√(varx+vary)，定义见 results/verification_report.md §2；束腰 = 1 µm 细扫最小弥散圆
+适用域: 仅 n2 matched 种子邻域；≠ "DS 双六极构型族"；K_S∈[0,6000]、α∈[0.6,1.8]、3k 粒、dtmaxt 双窗
+
+结论声明（3 行）:
+  口径: rms(r)=√(varx+vary)，1 µm 真束腰，3k（非 60k 复核值）
+  前提+工件版本: deck 8f1c2ad；100-eval ManifoldNelderMead；C3 可校项按 K_S 0→100 偶极取 236 nm
+  终态: 已测=同工作点 K_S 0→2000 单调升；**未测**=K_S 密扫找多极小、60k 复核、Larmor 旋转；参照=无（工作区内无基线值）

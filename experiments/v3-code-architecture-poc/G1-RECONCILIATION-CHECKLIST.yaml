@@ -5,15 +5,33 @@
 # （不得写"经审查通过"这类无法机验的话）不达标。本文件把它变成机验对象。
 #
 # 放行判据（写进 IMPLEMENTATION-PLAN-DRAFT.md §2 G1）：
+# ★ 冻结判据自 2026-11-01（专题⑤ 工程治理与计划口径修订）起是**两层**口径：
+#   **A 层**（`freeze_tier: "A"`）= 关键基础合同，必须完全闭合；A 层未闭合 ⇒ NO-GO，无例外通道。
+#   **B 层**（`freeze_tier: "B"`）= 纯 G2/G3 实施与验证义务，每项须有**交付 PR / 责任者 / 退出门禁**，
+#     **不计入冻结阻塞**，同时**不得为了清单清零而提前做实现**（提前做 = 违 §2-G1「未完成时禁止启动」）。
+#   分层判据、逐条分配与诚实边界见《g1/G1-FREEZE-CRITERIA.md》（下称判据件）；下列三条命令面**一字不改**，
+#   变的只是终局谓词读哪些面（日常门行为不变）。旧句「清单不清零就休谈冻结」的单层读法**作废**，
+#   但下面每一句原文都保留以示演化——**取代关系写在原句旁边，不删旧文**（本仓纠偏纪律）。
 # 【现行机验，外部复审第五轮补，2026-10-31；第六轮修订谓词 + 第七轮 superseded 反洗白补门，2026-10-31】
 #   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs            ⇒ exit 0（结构/语义校验绿；assigned 允许日常存在；superseded 缺人工确认在日常形态**不拦**，见下）
-#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test ⇒ exit 0（校验器变异自验，架空非删除；17 条形变：M1–M7 原有 + M8–M12 第六轮反例 + M14–M17 第七轮 superseded 反洗白【终局洗白最小形 / 带 review 仍形不足 / 旧字段 supersedes 复活 / 旧名切断继任链必双红】+ P1 正向形状【全清必须判绿，防死闸】；甩锅链完整形态在自验输出里逐字留形）
+#   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --self-test ⇒ exit 0（校验器变异自验，架空非删除；**26 条形变**（第八轮实测；条数一律以运行输出为准）：M1–M7 原有 + M8–M12 第六轮反例 + M14–M17 第七轮 superseded 反洗白【终局洗白最小形 / 带 review 仍形不足 / 旧字段 supersedes 复活 / 旧名切断继任链必双红】+ M18–M21 锚点真值（P1-2：假提交号红 / 幽灵路径红 / 真锚绿防空转 / §E4 洗白全形常驻回归）+ M22–M26 第八轮两处小口收紧【签字日期真值：9999-99-99 红、2026-02-30 红、2024-02-29 闰日必须绿；参数面 fail-loud：裸位置参数必非 0、`--file <路径>` 必须正常】+ P1 正向形状【全清必须判绿，防死闸】；甩锅链完整形态在自验输出里逐字留形。**专题⑤（2026-11-01）分层族五补**：M27 缺 freeze_tier 红 / M28 取值漂移红 / M29 A 层全量降级且不补 tier_basis ⇒ FREEZE-TIER-BASIS 红 / M30 谓词型「整体降级 + 每条真锚留痕 + owner 全填」仍必须因「A 层被抽空」判红 / M31 正向防死闸「A 层全闭 + B 层仍 open 且已指名归属 ⇒ 终局门必须判绿」）
+#   参数面 fail-loud（第八轮，验席挖出的小口）：未知参数 / 裸位置参数 / flag 缺值 / flag 重复
+#     ⇒ **exit 2** 并打印一行用法说明。旧实现用 includes/indexOf 读参数、其余静默忽略，于是
+#     `… g1-checklist-validate.mjs 某清单.yaml` 丢掉路径后去校验**默认主清单**并 exit 0——
+#     调用者以为验绿的是自己指定的那份。校验对象与调用者所指不一致时，绿就是假的。
 #   node experiments/v3-code-architecture-poc/g1-checklist-validate.mjs --require-clear ⇒ exit 0
-#     （**终局放行谓词**，第六轮改写、第七轮补门：违规==0 且所有有效工作项均为 done、或为
+#     （**终局放行谓词**，第六轮改写、第七轮补门、第八轮收紧签字日期：违规==0 且所有有效工作项均为 done、或为
 #      superseded_by 链最终到达 done、且**带合法 supersession_review（REVIEW: <日期> <审查者>，
-#      审查者≠owner）的 superseded**——`open`/`assigned` 一律不放行，未经人工确认的 superseded
+#      日期须为**真实历法日期**——`9999-99-99`、`2026-02-30` 形合而历法不存在，不算签字；
+#      闰日 `2024-02-29` 是真日子必须放行，审查者≠owner）的 superseded**——`open`/`assigned` 一律不放行，未经人工确认的 superseded
 #      一律不放行。「已指派」是推进态不是终局态（旧洞由 M8 钉死）；「全改 superseded 指向任意
 #      done」的终局洗白由 SUPERSESSION-REASON/EVIDENCE + review 门 + M14/M15 钉死）
+#     ★ 同一谓词的**两层读法**（2026-11-01 专题⑤；上面那段旧句仍逐字有效，此处只收窄「哪些 open/assigned
+#      算未了结」这一项，其余四项——违规==0、全局 unassigned==0、superseded 未经人工确认==0——一字不动）：
+#      `open`/`assigned` 的**终局阻塞面收窄到 A 层**（B 层的 open/assigned 是排期事实，不是合同缺口）；
+#      新增「**A 层非空**」——把 A 层整体清空 = 分层被抽空，同样不放行；
+#      「全局 unassigned==0」这一项**顺带就是 B 层的归属要求**（B 层条目不许挂 UNASSIGNED），
+#      所以 B 层免检的是**完成**，不免**归属**。判据件 §6 有整段口径与实测退出码。
 # 【已被取代（旧 grep 判据，第三轮原文保留以示演化；锚定教训仍然有效：任何 grep 都会
 #   被文件头注释里的示例字样自我命中，这正是整体换成「解析式校验器」的理由之一）】
 #   grep -c '^    status: open$'  experiments/v3-code-architecture-poc/G1-RECONCILIATION-CHECKLIST.yaml  ⇒ 0
@@ -51,9 +69,22 @@
 #               （SUPERSESSION-REASON / SUPERSESSION-EVIDENCE）——「它被取代了」不许是自我声明。
 #   supersession_review（终局面人工确认，第七轮；日常形态不要求）形如
 #               "REVIEW: <YYYY-MM-DD> <非作者审查者>"。--require-clear 下缺失、形态不符、
+#               **日期不是真实历法日期**（第八轮收紧：月须 01–12、日须在该月实际天数内；
+#               `9999-99-99`、`2026-02-30` 形合而历法不存在 ⇒ 不算签字；闰日 `2024-02-29` 放行，
+#               由自验 M22/M23 钉红、M24 防误伤）、
 #               或审查者与 owner 同名 ⇒ 终局判红。设计依据（第七轮裁定原话）：
 #               「机器无法自动证明两个复杂契约语义等价 ⇒ 用『结构校验 + 人工确认替代关系』的
 #               门禁，不要继续堆自动推理规则」。
+#   freeze_tier（**冻结分层**，2026-11-01 专题⑤新增；每条**必填**，缺失 = FREEZE-TIER 红）取值闭集
+#               "A" | "B"：A = 关键基础合同（冻结前必须闭合），B = 纯 G2/G3 实施与验证义务（不计入冻结
+#               阻塞，但必须有归属）。取值漂移（"C" / 空 / 缺字段）一律红——**不给「缺省算哪层」留余地**，
+#               缺省语义本身就是洗白通道。分层判据、逐条分配、歧义从严归 A、以及「B 层不得为清零提前实现」
+#               全部见《g1/G1-FREEZE-CRITERIA.md》；分层本身有争议时的裁决位也在该文件 §7。
+#   tier_basis（**B 层必填**，FREEZE-TIER-BASIS；A 层不要求）降级留痕：写明「依据哪份在位裁定/契约条文，
+#               本条判据已闭合、剩余只有实施」，必须含**可定位锚点**（提交号 / 带扩展名文件路径，可带 :行号），
+#               并过与 DONE-EVIDENCE **同判据的锚点真值**校验（假提交号 / 幽灵路径 = 红）。
+#               设计依据：A 降 B 是**判据面变更**，与替代关系同级——免检面必须留痕；锚点真值只证明锚点存在，
+#               **不证明**「这条真只剩实施义务」（该面由非作者审查者核，判据件 §7 明写）。
 #   解析纪律（第六轮）：同一条目内同一字段出现两次 ⇒ **PARSE 直接红**（旧实现校验取末次、
 #   统计取首次，「被验证的状态 ≠ 被统计的状态」——自验 M11 钉死）。
 
@@ -69,18 +100,22 @@ items:
       - "PR #47: T-GAP-13（同一毫秒可有多个提交 ⇒ 时间戳不能充当事务快照边界）"
       - "READINESS.md:34（D-5：PoC 把 recordedAt 与 seq 当同一数值的两个名字）"
       - "experiments/v3-code-architecture-poc/CONTRACTS.md（appendLedger 的 described_at/recorded_at 字段语义）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "IMPLEMENTATION-PLAN-DRAFT.md §2-G1 ③ 已把三层分开定义；正式契约文本未定"
+    owner: "ADJ D2-a 行（g1/G1-ADJUDICATION-TABLE.md）+ g1/G1-CONTRACT-COMMIT-SEQUENCE.md（CS-1.4/2.1/2.2/2.5，夹具 50 项 exit 0）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「三件事」的载体级判据升格为两轴定义——`CommitSequence`（已提交事务的序 = 唯一快照边界）与 `LedgerEventSequence`（事件行号，**不是**快照边界），`recorded_at` 只作展示与映射输入。依据：ADJ D2-a 行（g1/G1-ADJUDICATION-TABLE.md，「否——裁决已定」+ 2026-11-01 CS 换轨修订注：载体钉提交账）+ g1/G1-CONTRACT-COMMIT-SEQUENCE.md CS-1.4 禁令 1–4 / CS-2.1/2.2/2.5（本工单 2026-11-01 复跑夹具 50 项 exit 0）。边界明确接受并登记：落码半边（BF-03/PR-4）属 G2，承载 = g1/G2-DEV-PLAN.md PR-4 卡——A 层闭合 = 判据面闭合形，非实施面完成形"
+    evidence: "IMPLEMENTATION-PLAN-DRAFT.md §2-G1 ③ 已把三层分开定义；正式契约文本未定。【2026-11-01 交叉收编席加注（CS §8 BF-11 指定由汇编/矩阵席执行；旧文保留）：三件事的**载体级判据已定**——`g1/G1-CONTRACT-COMMIT-SEQUENCE.md`（专题①，夹具 50 项 exit 0）：CS-1.4 截点唯一合法载体 = 已提交事务前缀（事件序禁作截点，禁令 2）+ 禁令 1–4 封闭判据；CS-2.1/2.2 入参两支封闭 + 解析单点；D-5「recordedAt 与 seq 一值两名」由 CS-2.5 写回执分轴收口（见证只发 `LedgerEventSequence`）。仍 open 如实：owner 未指派、G2 落码（BF-03/PR-4）未做、ADJ D2 六行的文字修订（CS BF-09）留裁决表席——本条 status 不变】"
 
   - id: G1-TIME-02
     topic: "外部 `recorded_as_of`（墙钟）→ `CommitSequence` 的确定性映射，含「同一毫秒多次提交」与「该时刻无提交」两个分支"
     sources:
       - "PR #47: T-GAP-13"
       - "READINESS.md:106（截点前缀差分可枚举被剔除行的精确 recorded_seq ⇒ 映射不确定性会同时放大 D-12）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "两分支的确定取值未定义 ⇒ 同一查询两次结果可能不同，属正确性而非风格问题"
+    owner: "ADJ D2-b/c/d 行（g1/G1-ADJUDICATION-TABLE.md）+ g1/G1-CONTRACT-COMMIT-SEQUENCE.md（CS-3.1/3.2/3.3，夹具 50 项 exit 0）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「两分支确定取值未定义」让位给封闭取值——cutoff(t)=max{c∈committed∪{0}: M(c)≤t}（M = `commit_record` 提交账墙钟，CS-3.3；同毫秒多提交 = 该毫秒最后一个**提交**、该毫秒无提交 = 落前一提交或 c=0 空视图）。依据：ADJ D2-b 行（前缀界形态 + 2026-11-01 CS 换轨修订注：定义域换轨 `commit_recorded_at_ms`、两分支形态不变）+ CS-3.2「已解析截点固定」六情形封闭表 + CS-3.4（本工单 2026-11-01 复跑夹具 50 项 exit 0，含时钟回拨语料 T-P6..T-P9）。边界明确接受并登记：`commit_record` 物理表落码 = G2（CS BF-07 / PR-4）"
+    evidence: "两分支的确定取值未定义 ⇒ 同一查询两次结果可能不同，属正确性而非风格问题。【2026-11-01 交叉收编席加注（CS BF-11；旧文保留）：两分支取值**已定义**——`g1/G1-CONTRACT-COMMIT-SEQUENCE.md` CS-3.1 运行最大前缀界 `cutoff(t)=max{c∈committed∪{0}: M(c)≤t}`（空 ⇒ c=0 空视图）+ CS-3.2「已解析截点固定」（一次逻辑读入口解析一次、游标自包含、禁二次解析/回落当前时间）+ CS-3.3 只消费提交账 `commit_recorded_at_ms`（一提交一枚墙钟，禁逐行取 `ledger.recorded_at`）；T-GAP-13 两分支（该毫秒无提交 / 该毫秒多提交）由 CS-3.2 六情形封闭表给确定取值（同毫秒 = 该毫秒最后一个**提交**，不是最后一个事件）；夹具 CS 50 项 exit 0 含时钟回拨语料（T-P6/T-P7/T-P8/T-P9）。仍 open 如实：owner 未指派、`commit_record` 物理表 = G2（CS BF-07）、ADJ D2-b/c/d 行文字修订（CS BF-09）未执行——本条 status 不变】"
 
   # ---------- 写权限与领域权威 ----------
   - id: G1-OWN-01
@@ -91,6 +126,8 @@ items:
       - "experiments/v3-code-architecture-poc/CONTRACTS.md:312（createOwned/reviseOwned/linkOwned，依 Q12）"
     owner: "Q12（+ Q40 约束跨插件原子提交不得被修法打断）"
     status: open
+    freeze_tier: "B"
+    tier_basis: "分层依据：裁定与判据已在位——Q12 权威归属 + CONTRACTS.md 的 createOwned/reviseOwned/linkOwned 端口面 + g1/G2-DEV-PLAN.md 的 PR-10 迁移工务行；剩余只有强制门落码与存量跨归属写迁移（g1/G1-FREEZE-CRITERIA.md §5 行 G1-OWN-01；分层由专题⑤席位按该文件 §4 判据给，待条目责任者复核）"
     evidence: "端口侧已提交 7fef5a9；强制门未落地；迁移尝试致作者测试 12 例 CAPABILITY_SCOPE_ESCAPE（EVIDENCE.md），证明本仓领域代码长期跨归属写。判据形态见 PLAN §4.1′"
 
   - id: G1-OWN-02
@@ -100,18 +137,22 @@ items:
       - "PLAN §4.1 作者原建议（摘掉写方法，未采纳）与 §4.1′（采纳端口+两侧堵）"
       - "IMPLEMENTATION-PLAN-DRAFT.md §15 G1-a 行（Storage Port ≠ Domain Command Port；拖到 G2 会把混淆固化成 API）"
       - "experiments/v3-code-architecture-poc/CONTRACTS.md §16（两层写面表 + 「墙的适用边界」条：墙只在经 uowFor 的领域事务路径）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "两种形状的机验代价不同；本文判据已按 D-19c′ 静态集合相等核对改写，但契约文本未冻结；机制现状 = CONTRACTS §16 两层写面（领域侧 + 用例侧 writerOwningKind 同事务委派，Q40 正例护栏在 tests/capability-scope.test.ts 与 use-case-write-path）"
+    owner: "ADJ X-5 行（g1/G1-ADJUDICATION-TABLE.md，已裁）+ g1/G1-CONTRACT-DOMAIN-COMMAND.md（DC-1…DC-13，夹具 52 项 exit 0）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「契约文本未冻结」让位给已冻结条文——三条定死（协调方不持有通用写面；Capability-scoped Storage Port ≠ Domain Command Port；机验 = 跨归属写点 == 命令 Port 调用点静态集合等值）。依据：ADJ X-5 行（g1/G1-ADJUDICATION-TABLE.md，「否——裁决已定」）+ g1/G1-CONTRACT-DOMAIN-COMMAND.md 条文在盘（本工单 2026-11-01 复跑夹具 52 项 exit 0：T-N1 负例 + legacyContrast 判别力对照 + 真库探针）+ g1/G1-UNIFIED-CONTRACTS.md P4/§1.1 取代注与 §7.4 J-6。边界明确接受并登记：实现半边（S1/S2/S3 静态门 + 改道）= g1/G2-DEV-PLAN.md PR-11（W11，唯一硬前序 PR-2），属判据件 §3 的 B 类尾巴挂本 A 层条目"
+    evidence: "两种形状的机验代价不同；本文判据已按 D-19c′ 静态集合相等核对改写，但契约文本未冻结；机制现状 = CONTRACTS §16 两层写面（领域侧 + 用例侧 writerOwningKind 同事务委派，Q40 正例护栏在 tests/capability-scope.test.ts 与 use-case-write-path）。【2026-11-01 交叉收编席更新（任务点 4；旧文保留不删）：契约文本**已冻结**——专题③ 条文在盘 g1/G1-CONTRACT-DOMAIN-COMMAND.md（DC-1…DC-13 + 附录 A 两侧原文对照），夹具 g1/G1-CONTRACT-DOMAIN-COMMAND.fixtures.mjs 实测 52 项全过 exit 0（T-N1 负例 + legacyContrast 判别力对照 + 真库探针 DC §0.1，构成见其 §11.2）；裁决面 = g1/G1-ADJUDICATION-TABLE.md X-5 行（已裁）；许可面收编 = g1/G1-UNIFIED-CONTRACTS.md P4/§1.1 取代注 + §7.4 J-6；落码 = g1/G2-DEV-PLAN.md PR-11（2026-11-01 新立，依赖 PR-2，环检查在卡内）。仍 open 的缺口如实：① owner 待用户/父席指派（权威归属命名非本席权限）；② resolution 需 owner 具名后由条目责任者填写（三件套不齐不 flip，纪律原句）；③ 实现半边（S1/S2 静态门 + 改道）在 PR-11，属判据件 §3 的 B 类尾巴挂本 A 层条目——本行 status 不变】"
 
   - id: G1-OWN-03
     topic: "`eventsOf()` 跨能力读授权（默认拒读，装配根显式 grant）是否即为正式形态"
     sources:
       - "PR #44 §4.2/§6.2（命名空间隔离）"
       - "experiments/v3-code-architecture-poc/tests/events-of-scope.test.ts（当前取舍被钉住）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "机制已实现且 READINESS.md:120 记为 E-00「已修，未经同等范围独立复验」——两席位均声明不在其范围"
+    owner: "父席技术裁决（2026-11-01，G1 冻结前收口工单）——g1/G1-UNIFIED-CONTRACTS.md §2.12.2"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「是否即为正式形态」让位给定案——正式形态 = 默认拒绝 + 装配根显式 `CROSS_EVENT_READ` 授权表（权威轴沿用既有 `capability-admin`，枚举值零扩张；READINESS.md:136 E-00 行实测在位的形态被采认为正式形态，不新设替代形态）。依据：父席 2026-11-01 技术裁决（条文落 g1/G1-UNIFIED-CONTRACTS.md §2.12.2，该节明标「本轮父席新技术裁决」）+ ADJ D1-c 行（拒绝形状同形）+ D1-d 行（泄露面）。边界明确接受并登记：独立复验 = G2 PR-9/PR-10 的 B 层验证义务（§2.12.2 内登记，非本条 A 层闭合条件）"
+    evidence: "机制已实现且 READINESS.md:120 记为 E-00「已修，未经同等范围独立复验」——两席位均声明不在其范围【2026-11-01 收口：E-00 行现锚 READINESS.md:136（行号漂移，内容同）；裁决落点 g1/G1-UNIFIED-CONTRACTS.md §2.12.2】"
 
   # ---------- 可信绑定与视图完整性 ----------
   - id: G1-BIND-01
@@ -119,26 +160,32 @@ items:
     sources:
       - "READINESS.md:62（D-9）"
       - "PR #44（装配根注入契约）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "无绑定 ⇒ 装配根可交出形状正确但内容虚假的输入，机制无从分辨"
+    owner: "ADJ X-7 行（g1/G1-ADJUDICATION-TABLE.md，已裁）——条文转录于 g1/G1-UNIFIED-CONTRACTS.md §2.12.1"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「只有形状，没有绑定」让位给绑定约束——唯一责任方 = 装配根声明 + 宿主供证（机制核形状不核内容）。依据：ADJ X-7 行（g1/G1-ADJUDICATION-TABLE.md，「否——裁决已定」）+ g1/G1-UNIFIED-CONTRACTS.md §2.12.1 转录（空视图 ≠ 完整视图；`registeredEdges` 必须携完备性凭证，无凭证 = fail-closed）——转录非新裁。边界明确接受并登记：落码半边 = G2 PR-6（判据件 §5 B 层交付 PR 列）"
+    evidence: "无绑定 ⇒ 装配根可交出形状正确但内容虚假的输入，机制无从分辨【2026-11-01 收口补锚：原缺口锚 READINESS.md:62（D-9 行）；判据定案 g1/G1-ADJUDICATION-TABLE.md X-7 行 + g1/G1-UNIFIED-CONTRACTS.md §2.12.1】"
 
   - id: G1-BIND-02
     topic: "装配根交**恒空**视图 ⇒ 报告仍 ACHIEVED + COMPLETE（N-1，与 BIND-01 同批裁）"
     sources:
       - "READINESS.md / ASSESSMENT.md 的 N-1 行"
       - "experiments/v3-code-architecture-poc/attacks/review/RE-REVIEW-G0-B.md（席位 B 的 N-1 攻击）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "受信任输入边界，与 hostSnapshot 同类；作者测试 bless 的「交而空 ⇒ ACHIEVED」有条件且条件机制内不可验证"
+    owner: "ADJ X-7 行（g1/G1-ADJUDICATION-TABLE.md，与 BIND-01 同批裁）——g1/G1-UNIFIED-CONTRACTS.md §2.12.1"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「交而空 ⇒ ACHIEVED 有条件、条件机制内不可验证」让位给 fail-closed 判据——装配根交出永久空视图且无完备性凭证 = 输入不可用，报告不得 ACHIEVED+COMPLETE（与 N-1 攻击形同判）。依据：ADJ X-7 行（空视图 ≠ 完整视图，与 BIND-01 同批）+ g1/G1-UNIFIED-CONTRACTS.md §2.12.1 转录。边界明确接受并登记：实现半边与 BIND-01 同批 = G2 PR-6"
+    evidence: "受信任输入边界，与 hostSnapshot 同类；作者测试 bless 的「交而空 ⇒ ACHIEVED」有条件且条件机制内不可验证【2026-11-01 收口补锚：N-1 攻击形源 attacks/review/RE-REVIEW-G0-B.md（BIND-01/02 行源）；判据定案 g1/G1-ADJUDICATION-TABLE.md X-7 行 + g1/G1-UNIFIED-CONTRACTS.md §2.12.1】"
 
   - id: G1-BIND-03
     topic: "视图抛异常 ⇒ run() 直接抛、不落报告、无 INDETERMINATE 降级（N-3，与 CHECKER_UNAVAILABLE 降级哲学不一致）"
     sources:
       - "experiments/v3-code-architecture-poc/src/domains/test-validation.ts（SYNTH_EDGES_UNAVAILABLE 路径）"
       - "RE-REVIEW-G0-B.md 的 N-3"
-    owner: "UNASSIGNED"
+    owner: "ADJ C5 / D4-a 行（判据面，g1/G1-ADJUDICATION-TABLE.md）+ g1/G2-DEV-PLAN.md PR-6（实施载体）"
     status: open
+    freeze_tier: "B"
+    tier_basis: "分层依据：冲突账本已裁「采 SI-23、抛错不落报告让位」——裁定行见 g1/G1-ADJUDICATION-TABLE.md 的 C5 与 D4-a 行；剩余只有 PR-6 落码与三形负例（g1/G1-FREEZE-CRITERIA.md §5 行 G1-BIND-03）"
     evidence: "方向安全（无假通过），但降级哲学不一致"
 
   - id: G1-BIND-04
@@ -148,6 +195,7 @@ items:
       - "kernel.ts 的 linkRef 原样入库（无规范化，席位 B 引 fa9c2d0:702）"
     owner: "RE-REVIEW-G0-B.md N-2 裁定（席位 B，独立实测）+ CONTRACTS.md §14 限定段（『解除限定须三项交付』的期限承接位 = G3）"
     status: done
+    freeze_tier: "A"
     resolution: "主张按实现收窄（`used_in`/`Used_In`/`\" USED_IN\"` 与 operatingContext/嵌套别名不在检测面内）；无限定用词被明文禁止。解除限定的三项交付另计 G3 工作量。出处：限定段 CONTRACTS.md:277-288 + N-2 攻击矩阵 RE-REVIEW-G0-B.md:33-36（第五轮逐处核对行，与本条 evidence 同锚）"
     evidence: "CONTRACTS.md:277-288（『可检测』准确边界段：`used_in`/`USED_IN_`/`Used_In`/带前导空格变体与 operatingContext/嵌套不入检出面；解除限定须三项交付：角色名入库规范化 / 别名字面量表 / payload 形状校验）+ attacks/review/RE-REVIEW-G0-B.md:13 与 :33-36（N-2 攻击矩阵 A7-A10 实测漏检形，独立席位证据非作者自述）"
 
@@ -156,17 +204,21 @@ items:
     topic: "对象 ID 可枚举/可预测（`OBJ-<space>-<n>` 单调）+ 过滤后计数可差分 ⇒ 反推被剔除行"
     sources:
       - "READINESS.md:106（D-12，席位实测 C(X)-C(X-1) 前缀差分）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "推翻作者旧说法：『只给数量不给 oid』不抗探测。对外读接口开放前必须裁"
+    owner: "① 父席技术裁决（2026-11-01）g1/G1-UNIFIED-CONTRACTS.md §2.12.3 + ② ADJ D1-d 行（g1/G1-ADJUDICATION-TABLE.md，已裁）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：① 条目适用域让位给可枚举集形——可见空间行 ∪ `CROSS_EVENT_READ` 显式授权对（两者皆名定可枚举，机验 = 集合等值）；② 计数差不外发让位给 D1-d——泄露面封闭名单含「计数」，`hiddenBy*` 键仅进内部审计面、不出 caller echo。依据：父席 2026-11-01 技术裁决（g1/G1-UNIFIED-CONTRACTS.md §2.12.3，该节明标「本轮父席新技术裁决」）+ ADJ D1-d 行（g1/G1-ADJUDICATION-TABLE.md，「否——裁决已定」）+ D1-c 同形。边界明确接受并登记：落码半边 = G2 PR-3（判据件 §5 B 层交付 PR 列）"
+    evidence: "推翻作者旧说法：『只给数量不给 oid』不抗探测。对外读接口开放前必须裁【2026-11-01 收口补锚：原缺口锚 READINESS.md:106（D-12 行，C(X)-C(X-1) 前缀差分实测）；判据定案 g1/G1-UNIFIED-CONTRACTS.md §2.12.3 + g1/G1-ADJUDICATION-TABLE.md D1-d 行】"
 
   - id: G1-READ-02
     topic: "`NAMESPACE_ESCAPE` 的拒绝本身声明「该 oid 存在且属他人」⇒ 与 D-12 叠加成存在性 oracle；refuse vs withhold"
     sources:
       - "kernel.ts 的 eventsOf 闭包（E-01 注释：拒绝码与写侧越界同名）"
       - "tests/events-of-scope.test.ts（当前选择=显式拒读，已钉住）"
-    owner: "UNASSIGNED"
+    owner: "ADJ C1 / D1-c 行（判据面，g1/G1-ADJUDICATION-TABLE.md）+ g1/G2-DEV-PLAN.md PR-3（实施载体）"
     status: open
+    freeze_tier: "B"
+    tier_basis: "分层依据：冲突账本已裁「采 #47 同形，现状让位，内部审计保留真因」——裁定行见 g1/G1-ADJUDICATION-TABLE.md 的 C1 与 D1-c 行；剩余只有呈现落码与两世界同形探针（g1/G1-FREEZE-CRITERIA.md §5 行 G1-READ-02）"
     evidence: "静默返空会把『没权限』读成『没有历史』，属被禁止的『缺失读成空』家族 ⇒ 需正面裁定而非默认"
 
   # ---------- 版本、迁移与过渡期历史权威 ----------
@@ -174,25 +226,31 @@ items:
     topic: "`ledger` 无 `contract_version`，`eventsOf` 把 `payload_json` 原样交进插件面 ⇒ v2 实现可静默误读 v1 载荷"
     sources:
       - "READINESS.md:105（D-11，席位原话：不做必须写成显式裁定，不能让它以『不算漏网』的名义消失）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "正式建库前必须定版本记录方式；会连带 D-6 的同款回填器债务"
+    owner: "ADJ X-6 行（g1/G1-ADJUDICATION-TABLE.md，责任三分，机制面已裁）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「v2 实现可静默误读 v1 载荷」让位给责任三分——报告/记录版本自持（形门）、解释器保留 = 领域 owner、机制 = 在截点提供原字节 + 不再解释（§16.2 投影信任模型已禁静态重解释）。依据：ADJ X-6 行（g1/G1-ADJUDICATION-TABLE.md，「否——裁决已定」）+ D-11 同批 `contract_version` 增列（采纳形，D5-c 明文补丁）。边界明确接受并登记：V1 接管范围 = 用户决策项 2（G1-REMAINING-USER-DECISIONS.md 项 2，四项结构不变），按「明确接受并登记边界」关闭——初版不接管，接缝只经 HSR 侧 `external_citations[]`，不阻塞本条机制面闭合"
+    evidence: "正式建库前必须定版本记录方式；会连带 D-6 的同款回填器债务【2026-11-01 收口补锚：原缺口锚 READINESS.md:105（D-11 行）；判据定案 g1/G1-ADJUDICATION-TABLE.md X-6 行 + D-11 同批 contract_version 增列】"
 
   - id: G1-VER-02
     topic: "同一空间内 v2/v3 事件混存时谁是历史正源（V1/V3 过渡期）"
     sources:
       - "PR #42（历史语义）× PR #47（Schema 版本）× PR #44（Ledger 机制）三者交叠处"
       - "GIT_INTEGRATION.md / HISTORY_EVENT_CATALOG.md（V1 冻结面，过渡期须兼容的既有形态）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "三份契约各自合理但不互斥 ⇒ 正是本轮对账要产出唯一权威的地方"
+    owner: "ADJ X-8 行（g1/G1-ADJUDICATION-TABLE.md，首版分离已裁）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「三份契约不互斥」让位给分离规范——V3 侧车历史与 V1 事件面**不合一、不互推**，接缝只经 HSR 侧 `external_citations[]` 显式登记（不入 payload、不参与身份、不暗示存在），事件面禁跨平面混名。依据：ADJ X-8 行（g1/G1-ADJUDICATION-TABLE.md，首版分离与接缝形已裁）。边界明确接受并登记：该行「是」残余 = V1 接管范围 → 用户决策项 2（G1-REMAINING-USER-DECISIONS.md 项 2），按「明确接受并登记边界」关闭——初版一律不接管，接缝只经 `external_citations[]`；EA 封闭名单继承跨平面混名禁令"
+    evidence: "三份契约各自合理但不互斥 ⇒ 正是本轮对账要产出唯一权威的地方【2026-11-01 收口补锚：判据定案 g1/G1-ADJUDICATION-TABLE.md X-8 行（首版分离 + 接缝形）】"
 
   - id: G1-VER-03
     topic: "契约版本只有写入侧与读侧判定，无 v2→v3 回填迁移器（D-6）"
     sources:
       - "READINESS.md:30-35"
-    owner: "UNASSIGNED"
+    owner: "RL-8.4 回填禁令裁定（判据面，g1/G1-CONTRACT-RELOCATION.md）+ g1/G2-DEV-PLAN.md PR-5/PR-7（实施载体；2026-11-03 改锚：P-NS=PASS_STABLE_NS ⇒ PR-8 DEFERRED，迁移器与版本化读者归 PR-5/PR-7）"
     status: open
+    freeze_tier: "B"
+    tier_basis: "分层依据：回填禁令已裁（g1/G1-CONTRACT-RELOCATION.md 的 RL-8.4 行「默认禁止补造，唯一合法入账 = 显式修复」）；剩余只有迁移器/显式修补通道落码（g1/G1-FREEZE-CRITERIA.md §5 行 G1-VER-03；VER-01 裁定若变，本条层级须按 g1/G1-FREEZE-CRITERIA.md §4 重判）"
     evidence: "与 VER-01 同批裁，避免两处各写一套版本推进规则"
 
   # ---------- 存储层生命周期与基准外置（外部复审第五轮裁定 2026-10-31 登记，父席第五轮收尾）----------
@@ -202,8 +260,10 @@ items:
       - "experiments/v3-code-architecture-poc/CONTRACTS.md §16.1（保证范围限定条）"
       - "attacks/review/RE-REVIEW-G2-A.md §① D-23 行 + RE-REVIEW-G6-A.md §① 裁定表（第五轮裁定：「Kernel 管理的 UoW 路径已验证闭合」≠「StoragePort 的所有事务消费者都有同等保证」）"
       - "tests/d23-tx-lifecycle.test.ts（界外事实钉：port.tx 直取句柄回调返回后仍可 autocommit 写入）"
-    owner: "UNASSIGNED"
+    owner: "第五轮裁定 D-23 行族（判据面，g1/G1-ADJUDICATION-TABLE.md）+ g1/G2-DEV-PLAN.md PR-5（实施载体：TransactionLease）"
     status: open
+    freeze_tier: "B"
+    tier_basis: "分层依据：第五轮裁定在位（g1/G1-ADJUDICATION-TABLE.md 的 D-23 行族 + CONTRACTS.md 的保证范围限定条）且界外事实已被 tests/d23-tx-lifecycle.test.ts 钉住；剩余只有 TransactionLease 落码与两条负例（g1/G1-FREEZE-CRITERIA.md §5 行 G1-STORAGE-01）"
     evidence: "记账发生在 Kernel.uow() 的 finally（kernel.ts CLOSED_TX:1045）；直接 port.tx 消费者不受该账约束=界外事实已钉。若 G1 引入新机制消费者而不先下沉 TransactionLease，D-23 原洞即重现（与 F-G6A-6 事件名预留 deny-by-exception 同因）。"
 
   - id: G1-STORAGE-02
@@ -211,8 +271,10 @@ items:
     sources:
       - "experiments/v3-code-architecture-poc/CONTRACTS.md §16.3（登记上限段）"
       - "attacks/review/RE-REVIEW-G6-A.md §④ :320-331 行裁定 + 附录 C.3 第 1 句"
-    owner: "UNASSIGNED"
+    owner: "第五轮裁定（独立基线登记位，g1/G1-ADJUDICATION-TABLE.md）+ g1/G2-DEV-PLAN.md PR-5（实施载体：digest 外置；2026-11-03 去掉 PR-8——digest 外置与重定位无关）"
     status: open
+    freeze_tier: "B"
+    tier_basis: "分层依据：第五轮裁定「不在 PoC 内继续加自证，归正式 Schema 评审与独立基线」已入 evidence；本条即那个独立基线登记位，剩余只有 digest 外置落码（g1/G1-FREEZE-CRITERIA.md §5 行 G1-STORAGE-02）"
     evidence: "第五轮裁定：不在 PoC 内继续加自证，归正式 Schema 评审与独立基线负责；本条即那个「独立基线」的登记位（父席第五轮收尾：只在 CONTRACTS 残余与 G1 清单各留一句，不加机制）。"
 
   # ---------- 已由 Q 号裁定、不再列为待议（复审者点名）----------
@@ -221,6 +283,7 @@ items:
     sources: ["READINESS.md:30-35", "ASSESSMENT.md §8.1"]
     owner: "Q24"
     status: done
+    freeze_tier: "A"
     resolution: "一空间独立库；『选单库多空间 ⇒ P4 隔离证明整体作废需重证』的条件分支随 Q24 关闭。出处：Q24 裁定原文 ASSESSMENT.md:194（第五轮逐字核对行），D-1 行同文登记"
     evidence: "ASSESSMENT.md:194"
 
@@ -229,6 +292,7 @@ items:
     sources: ["READINESS.md:30-35", "ASSESSMENT.md §8.1"]
     owner: "Q35"
     status: done
+    freeze_tier: "A"
     resolution: "禁止静默继续，须重建或明确失败；部分查询行为留待接口细化（细化不重开原则）。出处：Q35 裁定原文 ASSESSMENT.md:195（第五轮逐字核对行），D-2 行同文登记"
     evidence: "ASSESSMENT.md:195"
 
@@ -237,6 +301,7 @@ items:
     sources: ["PR #44 事务机制", "tests/capability-scope.test.ts 的装配根正例"]
     owner: "Q40"
     status: done
+    freeze_tier: "A"
     resolution: "保留单事务跨领域协作；实现形状改为 Application 持协调权 + 写经拥有者命令端口（OWN-02 只裁形状，不重开 Q40）。出处：Q40（仓内入账行 READINESS.md:117『同一条事务（Q40 不破）』）+ PLAN §4.1′ 采纳形状（:185）+ CONTRACTS.md:312 端口面"
     evidence: "capability-scope.test.ts 正例 + PLAN §4.1′"
 
@@ -264,9 +329,11 @@ items:
       - "attacks/review/RE-REVIEW-G1-A.md §③ N2（P1：write() 只判 ns、从不判 oid）"
       - "docs/architecture/V3_CODE_ARCHITECTURE_DRAFT.md §6.2（#44 已裁 Facet 边界：独立记录身份/版本/生命周期权威、禁平行复制、正式引用须精确绑 RevisionRef）"
       - "experiments/v3-code-architecture-poc/G1-CONTRACT-DESIGNS.md 节 A（本轮契约草案）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "护栏已在 BASELINE passes：attacks/review/g1a-regression.test.ts 的「合法 Facet 挂载必须成功」正例——任何修法不得打死它；一刀切方案的否证是门禁实测而非观点（READINESS.md:119）"
+    owner: "g1/G1-CONTRACT-FACET.md §11.3（真·用户决策：无——全部问题已裁）+ FM-1…FM-9 条文在盘（夹具 35 项 exit 0）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：topic「合法挂载与伪造行在机制面如何分辨」让位给已冻结契约——独立记录身份（FM-/FR- 前缀，IG §2.3 保留前缀全集）+ 显式挂载登记（FM-2 挂载两态 + FM-4 三操作分轨）+ 触发器面（facet_mount_insert_guarded）+ 激活 fail-closed（FM-9 未入账 = 装配红，deny-by-exception 同族）；「合法 Facet 挂载必须成功」正例保留不破。依据：g1/G1-CONTRACT-FACET.md 条文在盘（本工单 2026-11-01 复跑夹具 35 项 exit 0）+ §11.3「真·用户决策：无」（唯一用户动作 = 两个 planned 机制名入账时的 EA-2.4 步骤 2 人工标记，属既有流程义务非本条缺口）。边界明确接受并登记：落码半边（挂载表 + 触发器）= G2 PR-7（判据件 §5 B 层交付 PR 列）"
+    evidence: "护栏已在 BASELINE passes：attacks/review/g1a-regression.test.ts 的「合法 Facet 挂载必须成功」正例——任何修法不得打死它；一刀切方案的否证是门禁实测而非观点（READINESS.md:119）【2026-11-01 收口：判据定案 g1/G1-CONTRACT-FACET.md（§11.3 真·用户决策：无 + 夹具 35 项 exit 0 复跑）】"
 
   - id: G1-NS-01
     topic: "物理存储命名空间的可迁移性契约——逻辑身份（ObjectID/kind/space/owner Capability）不可变，但物理 ns 不应被无条件当成永不可迁移的科研身份；须给出显式、原子、可追溯的重定位机制 + 旧库漂移检测与恢复路径，并正面处理与 dir.ns 冻结（D-28 裁定）的互斥（D-31 历史面 / F-G6A-4；契约草案 B 节）"
@@ -276,9 +343,11 @@ items:
       - "attacks/review/RE-REVIEW-G6-A.md §① 3a 行 + 附录 C（打开期扫描 SQL 建议；「显式迁移通道与 dir.ns 冻结正面冲突 ⇒ G1 设计题」原文）"
       - "docs/architecture/V3_CODE_ARCHITECTURE_DRAFT.md §6.1（Q44：Capability 实现可迁包、ObjectID 生命周期不跟随源码重构、移交受控可审计原子）"
       - "experiments/v3-code-architecture-poc/G1-CONTRACT-DESIGNS.md 节 B（本轮契约草案）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "夹具 tests/fixtures/g6a-p5-drift.db（sha 6674e78e…）+ tests/g6a-d31-history-drift.test.ts：v6 漂移库被版本墙顺住而非被检出；v7 同形漂移重开零声纳；dir.ns 被 directory_no_update 冻死无救济（G6-A g6b D31-2/3）"
+    owner: "g1/G1-CONTRACT-RELOCATION.md §14.4（真·用户决策：无新增项）+ RL-1…RL-9 条文在盘（夹具 60 项 exit 0）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：topic「显式原子可追溯的重定位机制 + 漂移检测与恢复路径 + 与 dir.ns 冻结（D-28）的互斥正面处理」让位给已冻结契约——重定位五元事务（RL-5.1 审计先行同事务原子）+ TRANSFER_NS_DRIFT 永久（RL-5.3，D-28 一字不动）+ 恢复条件与漂移两维检测（RL-8 打开期判据）+ 挂载表不入 `RELOCATABLE_NS_KEYS`（R-3 类别谓词归位）；dir.ns 冻结的正面处理 = 审计先行同事务原子 + 漂移只报不阻进巡检计数（互斥以「机制面只读 + 漂移账独立」成立）。依据：g1/G1-CONTRACT-RELOCATION.md 条文在盘（本工单 2026-11-01 复跑夹具 60 项 exit 0）+ §14.4 诚实清单（真·用户决策：无新增项；沿用既有登记不新立项）。边界明确接受并登记：F-G6A-4 历史面缺口（READINESS.md:246，版本墙顺住非检出）= G2 PR-8 打开期判据落码，显式接受并登记边界，不阻塞 A 层闭合"
+    evidence: "夹具 tests/fixtures/g6a-p5-drift.db（文件 sha256 全形 6674e78e0525b58d78a41e38746571381f313c99a6ec4ebbc7840854434ed6e4，非提交号）+ tests/g6a-d31-history-drift.test.ts：v6 漂移库被版本墙顺住而非被检出；v7 同形漂移重开零声纳；dir.ns 被 directory_no_update 冻死无救济（G6-A g6b D31-2/3）【2026-11-01 收口：判据定案 g1/G1-CONTRACT-RELOCATION.md（§14.4 诚实清单 + 夹具 60 项 exit 0 复跑）】"
 
   - id: G1-EVT-01
     topic: "授权签发契约（一问四件，G1 冻结前须逐件裁定）：① 新机制事件名的默认策略是什么——名单外名字维持默认可写（现状 deny-by-exception），还是机制名命名空间默认预留、新增机制名走冻结面流程，由谁签发？② 领域事件名的所有权账以什么形状签发（清单登记？扩展 ownsEventTypes？未登记名通用通道写不写得了）？③ authority_basis 的 actor 与信封如何取证同源——闸上「有一个 actor」何时升级为「该 actor 有信封见证的权」（l.actor = json_extract($.actor) + 信封增 actor，F-G6A-2）？④ §16.2 权威入口形态（正式事件唯一入口 + 签发主体与规则版本 + 不得事后按当前权限重解释历史）冻结为正式契约文本时，如何对齐 PR #42 PR-A1 与 #44 §6.2 措辞、如何写跨进程陈旧窗口的实话（F-G6A-6 / F-G6A-2 / G6-A 三句裁决位①；本条已并入原拟 G1-ADM-01/G1-AUTH-01，处置见本节头注）"
@@ -290,18 +359,22 @@ items:
       - "experiments/v3-code-architecture-poc/CONTRACTS.md §16.2（入口判据 ①–⑤、机制独占落账、投影信任模型「绝不按当前权限重解释历史」；包 4 纠正段 = 陈旧窗口的实话）"
       - "READINESS.md:124（D-20 行：授权决定要有签发主体与规则版本，不得事后按当前权限静默重解释历史）"
       - "experiments/v3-code-architecture-poc/G1-CONTRACT-DESIGNS.md 节 C（本轮契约草案：C.4 三条契约明句 + C.5 开放问题）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "①②：「今天没洞只因触发器恰好不依赖这两个名」——没洞是巧合不是设计（RE-REVIEW-G6-A 1c 行原话）；③：actor 只核非空未修（READINESS.md:243）；④：机制侧已有双向钉 tests/n1-authorization-evidence.test.ts（自称 v2 走旧判据不可达 + 无见证历史行按当时版本计入），G1 关的是契约文本而非机制本体"
+    owner: "g1/G1-CONTRACT-EVENT-AUTHORITY.md 条文在盘（夹具 51 项 exit 0）+ U-1 承载面专题⑤（P2-③）已裁收窄"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：topic 四项全部让位给契约定案——① 默认政策 = deny-by-default（EA-1.2 封闭性公理，名单外事件名默认不可写，「触发器恰好不依赖」的巧合升格为封闭判据）；② 归属账形状 = `ownsEventTypes` 扩展 + 锚文件独立正源（EA-3/EA-6；承载面 = `contracts/event-registry/EVENT-CONTRACT-LEDGER.json`，专题⑤ P2-③ 裁定，实验侧车永久非生产名单来源——用户决策 4 残余收窄为批准签署人，见 G1-REMAINING-USER-DECISIONS.md 项 4 收窄注）；③ actor 与信封同源 = EA-4 全形信封 + EA-4.6 三态复算（`actor_ref` 不可可信绑定 ⇒ 不入账按新请求）；④ §16.2 权威入口正式文本在盘（EA-9，stale 窗诚实文本原样保留）。依据：EA 契约在盘（本工单 2026-11-01 复跑夹具 51/0 exit 0）+ CS BF-01 回填义务**已执行**（父席完成 EA:117/:341 换轨注；夹具 S 组零类型名断言面 ⇒ 无需同步重锚，文内注在案）+ 矩阵 §4 专行。边界明确接受并登记：锚文件物化 = G2 PR-1（物化前任何「三方逐等」自称违例，S1c 判红；判据件 §5 B 层交付 PR 列）"
+    evidence: "①②：「今天没洞只因触发器恰好不依赖这两个名」——没洞是巧合不是设计（RE-REVIEW-G6-A 1c 行原话）；③：actor 只核非空未修（READINESS.md:243）；④：机制侧已有双向钉 tests/n1-authorization-evidence.test.ts（自称 v2 走旧判据不可达 + 无见证历史行按当时版本计入），G1 关的是契约文本而非机制本体。【2026-11-01 交叉收编席加注（任务点 2；旧文保留）：EA 侧回填义务登记——CS 专题① 实测 `g1/G1-CONTRACT-EVENT-AUTHORITY.md:341` 的 `AuthorizationContext.txSeq: CommitSequence`（注释「同事务内登记序」）与 :117 `declareRawIntake` 返回值**承载的是事件序**，与 ① 的新定义语义冲突；统一契约已显式规定「重定义为 `eventSeq: LedgerEventSequence`（线名 `tx_seq` 不动、九字段名单不变，选重定义不改线名，三条理由在文）」= `g1/G1-UNIFIED-CONTRACTS.md` P5 条 + §7.4 J-5；EA 为禁改面，EA-4.2 类型名 + EA-4.6 全形闸类型判据 + EA 夹具 S 组同步重锚由 EA 席执行（义务源 CS BF-01）；矩阵 §4 有专行。本条 status 不因本加注变化】【2026-11-01 收口：BF-01 义务已由父席执行完毕（EA:117/:341 换轨注 + 夹具 51/0 复跑）；topic 四项裁定落点 g1/G1-CONTRACT-EVENT-AUTHORITY.md 在盘，status 随三件套翻 done】"
 
   - id: G1-ROUTE-01
     topic: "停用复活·PK 改名链——方向判据③的三元组名单缺「capability 主键出现/消失」这一维；route_insert_guarded 对新生行也须随附审计（首登记 bootstrap 另立界），墓碑行纳入巡检（F-G6A-3）"
     sources:
       - "READINESS.md:244（F-G6A-3 行：我上席写的方向判据自身有洞）"
       - "IMPLEMENTATION-PLAN-DRAFT.md §16 攻击存量行（G6B-D27-4 已移植 tests/g6a-d27-pk-rename-revive.test.ts，断言一字未动）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "三步链（任意名伪造审计 + UPDATE 改 capability 主键 + INSERT 新生登记行）复活启用、changed_seq=NULL、全程零启用审计，唯一痕迹是不在任何机制扫描面上的墓碑行（READINESS.md:244 实测；插件可达面先撞 EVENT_AUTHORITY_REQUIRED，故界内）"
+    owner: "父席技术裁决（2026-11-01，G1 冻结前收口工单）——g1/G1-CONTRACT-RELOCATION.md 子句③第四维补句"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：topic「三步链不可追溯、方向判据缺『capability 主键出现/消失』维」让位给补全判据——子句③ 增加第四维：`route_insert_guarded` 对新生行同样生效（路由行 INSERT 须同事务携 capability-admin 轴全形信封方向事件，新生行「出现」唯一合法方向类 = `capability-enabled` 族，`changed_seq` 不得为 NULL）+ 首登记 bootstrap 另立界（payload 必须自声明 bootstrap 身份，字段形工程批定）+ 非首登记 INSERT 无可解释前序状态链 ⇒ 拒并回滚 + 墓碑行纳入巡检（只报不阻、计入 drift 计数，F-G6A-5 同族）；「停用复活·PK 改名」三步链任一环缺随附审计即被拦，「全程零启用审计」形态触发器面 + 巡检面双红。依据：READINESS.md:244（F-G6A-3 修法句登记行）+ 父席 2026-11-01 技术裁决（条文落 g1/G1-CONTRACT-RELOCATION.md 子句③补句，本工单补句后复跑 RL 夹具 60 项 exit 0）。边界明确接受并登记：落码半边（触发器体 + payload 字段形 + 常驻夹具）= G2 工程批（随子句③触发器体同批；判据件 §5 B 层交付 PR 列）"
+    evidence: "三步链（任意名伪造审计 + UPDATE 改 capability 主键 + INSERT 新生登记行）复活启用、changed_seq=NULL、全程零启用审计，唯一痕迹是不在任何机制扫描面上的墓碑行（READINESS.md:244 实测；插件可达面先撞 EVENT_AUTHORITY_REQUIRED，故界内）【2026-11-01 收口：判据定案 g1/G1-CONTRACT-RELOCATION.md 子句③第四维补句（父席 2026-11-01 技术裁决，RL 夹具 60 项 exit 0 复跑）】"
 
   - id: G1-AUDIT-01
     topic: "「只报不阻」计数器的持久化——softGhosts / hiddenByContractSkew 等计数合法流量可淹没且不落任何持久工件；审计运行随每跑落一条机制事件成为可回看的记录（F-G6A-5；与 G1-EVT-01 互为第一个客户）"
@@ -309,8 +382,10 @@ items:
       - "READINESS.md:246（F-G6A-5 行：可见性是每次读的一过性回声，没人盯回声就没有发现）"
       - "experiments/v3-code-architecture-poc/CONTRACTS.md §16.3 C2 段（巡检只报不阻，计数仅进回执）"
       - "experiments/v3-code-architecture-poc/G1-CONTRACT-DESIGNS.md 节 C（机制事件落账依赖事件名预留规则先行）"
-    owner: "UNASSIGNED"
+    owner: "EA-7.1 / EA-7.2 + RECONCILIATION R-1 行（判据面）+ g1/G2-DEV-PLAN.md PR-2（实施载体；两名批准 = PR-2 进入门禁）"
     status: open
+    freeze_tier: "B"
+    tier_basis: "分层依据：判据已由 g1/G1-CONTRACT-EVENT-AUTHORITY.md 的 EA-7.1 / EA-7.2 与 g1/G1-CONTRACT-RECONCILIATION.md 的 R-1 行闭合（K=32 常量不变，只改出口）；剩余只有计数器持久化落码；两名批准属 PR-2 进入门禁，不构成 A 层缺口（g1/G1-FREEZE-CRITERIA.md §5 行 G1-AUDIT-01）"
     evidence: "1 投毒 + 5 合法 = 同一个 6（READINESS.md:246）；tests/g5a-c2-soft-ghosts.test.ts 只钉会话内回声，跨运行无留存"
 
   - id: G1-GATE-01
@@ -320,24 +395,30 @@ items:
       - "attacks/review/RE-REVIEW-G1-A.md §③ 门禁发现 G-3' 行（干净 worktree 重算 + 被收集文件清单哈希本身作为被锚定的量）"
       - "READINESS.md:216-218（G5-A 最低机械防线三条：重锚名集增删 diff、reanchored_by+delta_sha、CI probe 拦同提交无 Anchor-Review 标记）"
       - "IMPLEMENTATION-PLAN-DRAFT.md §4.2″（「文件清单逐一路径相等」为已登记未闭合余项）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "GT-3 实测 PASS（基线自洽即通过）；attacks 基线没有 --reanchor 通道、重算 JSON 无「当前不干净拒写」护栏 ⇒ 比作者锚更隐蔽（READINESS.md:256）"
+    owner: "父席指定（2026-11-01，G1 冻结前收口工单）——g1/G2-DEV-PLAN.md PR-0 卡就地标注"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「纪律归属与责任人须指定」让位给指定——流程位 = **门禁基线管理位**（GT-2 逐条 failure 摘要 / GT-3 干净 worktree 重算并锚定被收集文件清单哈希 / GT-4 `reanchored_by`+`delta_sha` 双标记 + diff 高亮，三条均由门禁脚本机械执行，PR-0 即实施载体）；人只占两个位（基线写入/重锚二人标记 + 冻结时非作者复验）；责任人 = 父席承担复验与批准、PR-0 执行席位承担实施（门禁在位后由门禁配置承载，人不再逐次介入）。依据：父席 2026-11-01 指定（条文落 g1/G2-DEV-PLAN.md PR-0 卡就地标注）+ G5-A 最低机械防线三条（READINESS.md:216-218）。边界明确接受并登记：实施半边（PR-0）= 甲类工务，G1 未冻结期即可开工（G2-DEV-PLAN 文头「授权边界两类」）"
+    evidence: "GT-3 实测 PASS（基线自洽即通过）；attacks 基线没有 --reanchor 通道、重算 JSON 无「当前不干净拒写」护栏 ⇒ 比作者锚更隐蔽（READINESS.md:256）【2026-11-01 收口：指定落点 g1/G2-DEV-PLAN.md PR-0 卡就地标注（流程位 + 责任人，2026-11-01 父席技术裁决）】"
   - id: G1-LINK-01
     topic: "边与标识四问（G1 冻结前逐问须由人裁定）：① 跨 Capability 的关系**由谁有权创建**——发起方、目标方拥有者，还是双方各自判各自端？② 源端存在性判据是否含归属 ns（幽灵 from 整段跳过归属的洞，G1-A A-3）？③ 目标引用合法性的判据是什么（引用他人对象本身合法——RF-05/06 只禁冒充科研对象 ID）？④ 保留标识的分配政策——保留前缀全集、域保留申请流程、发号区间是否 namespace 化（包 6 止血只封了 `RPT-` 声明形）？裁定时的已知约束：不得以「禁止跨领域边」整包处理（打死 Q45/Q40 的错修法，§15 G1-c 点名）"
     sources:
       - "IMPLEMENTATION-PLAN-DRAFT.md §15 G1-c 行"
       - "READINESS.md:208（D-21 行：包 6 最小止血只承诺声明通道不能预占保留前缀）"
       - "attacks/review/RE-REVIEW-G1-A.md §③ D-21 段（预占可预测 RPT-seq ⇒ 阻断他人校验落库，P2→P1）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "tests/g5a-d21-reserved-prefix.test.ts 钉住止血形态；「前缀全集语义归 G1」为 CONTRACTS §16.3 自让；边的权威归属规则尚无任何裁定"
+    owner: "①②③ 父席技术裁决（2026-11-01）g1/G1-UNIFIED-CONTRACTS.md §2.12.4 + ④ 父席技术裁决（2026-11-01）g1/G1-CONTRACT-IDENTITY-GRAMMAR.md §2.3 补句"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：四问全部让位给定案——① 边创建权 = 边拥有域（Association owner/发起方）的拥有者命令 Port，目标侧不发许可（禁「禁止跨域边」一刀切，§15 G1-c 自陈的错修法点名排除）；② 源侧存在判据含拥有 ns（G1-A A-3 ghost `from` 洞关闭，拒绝随 D1-c）；③ 目标引用本身合法（RF-05/06 只禁冒用科研对象 ID），解析次序随 X-7，未解析目标随 Q27/RD-02（开放引用保留于报告；硬业务完备性引用要求事务内存在，码复用既有封闭集零新码）；④ 保留前缀全集 = `{RPT-, FM-, FR-, NSR-}` 封闭集（IG-2.3 双形匹配不变）+ 扩员只走冻结面变更流程（域保留申请不新立独立流程，声明通道无申请入口）+ 发号区间 namespace 化 = 是（各前缀独立发号源不共用计数器，工程落码 = G2 PR-3）。依据：父席 2026-11-01 技术裁决（条文落 g1/G1-UNIFIED-CONTRACTS.md §2.12.4 + g1/G1-CONTRACT-IDENTITY-GRAMMAR.md §2.3 ④a/④b/④c 补句，本工单补句后复跑 IG 夹具 38 项 exit 0）+ X-5/DC-1/Q40 锚定。边界明确接受并登记：落码半边 = G2 PR-3（判据件 §5 B 层交付 PR 列，其卡范围行已含四问全部）"
+    evidence: "tests/g5a-d21-reserved-prefix.test.ts 钉住止血形态；「前缀全集语义归 G1」为 CONTRACTS §16.3 自让；边的权威归属规则尚无任何裁定【2026-11-01 收口：四问定案 g1/G1-UNIFIED-CONTRACTS.md §2.12.4（①②③）+ g1/G1-CONTRACT-IDENTITY-GRAMMAR.md §2.3 补句（④），父席 2026-11-01 技术裁决，IG 夹具 38 项 exit 0 复跑】"
   - id: G1-RECON-01
     topic: "**#47 全文对账（正式 G1 放行前必须完成）**：#47（Schema 决策族）条文不在本实验分支，本轮及此前各轮对它的引用全部是仓内**间接引文**（T-GAP-13 / SD-* 族名 / 各文档转述）。放行前必须从 #47 的**实际提交**逐条读取接口与 Schema 条文并落行号，至少覆盖：SpaceContext、时间截点（recorded_as_of → CommitSequence 映射）、检查报告形状、存量版本（contract_version/迁移起点）、迁移合同（含 backfill 与 relocation 语义）。完成判据：本节各条引用的「#47 需澄清」行全部换成「文件:行号」直引，且 G1-CONTRACT-DESIGNS.md 附录「对账输入清单」逐项标注 一致/需澄清/冲突"
     sources:
       - "G1-CONTRACT-DESIGNS.md 文件头「引证纪律」（#47 条文不在仓内，引用只到仓内可定位引文位）"
       - "G1-CONTRACT-DESIGNS.md 附录「对账输入清单（未逐条裁定）」（#47 head 与文件清单，第六轮 gh 只读采集）"
       - "IMPLEMENTATION-PLAN-DRAFT.md §2-G1 ③（T-GAP-13 引文——同为转述，非直引）"
-    owner: "UNASSIGNED"
-    status: open
-    evidence: "gh pr view 47 headRefOid 实测见 G1-CONTRACT-DESIGNS.md 附录（第六轮）；本实验分支内 #47 条文零直引——grep 全仓 `SD-` 仅 RECONCILIATION.md 反例清单与转述命中。『冲突 0』只表示已检查的 19 项关系（A.7 六行 + B.6 六行 + C.6 七行，第六轮逐条重算）中未确认冲突，不得读作已完成 #42/#44/#47 全文对账（口径见 G1-CONTRACT-DESIGNS.md 附录）"
+    owner: "#47 全文对账席位（独立 detached worktree .scratch/wt-recon @ f3c060a7，gh 只读，父席 2026-11-01 授权单文件修订）——父席已独立核验（工作树状态 + diff 逐 hunk + 产出件）"
+    status: done
+    freeze_tier: "A"
+    resolution: "让位：条目旧文「本实验分支内 #47 条文零直引」让位给全文对账——#47 head `37de107ed5297e91ba122976eac734a8f2ce38db`（gh pr view 47 实测，state=OPEN，与 DESIGNS 附二登记一致、无漂移）下 7 份 `docs/architecture/H_S_R_*` + 2 份 README 经 gh api 逐文件取文（9/9 全部 exit 0）；附二五主题项（SpaceContext / 时间截点 / 检查报告形状 / 存量版本 / 迁移合同）判定 = 一致（条件式）5 / 需澄清 0 / 冲突 0；正文三行「#47 需澄清」间接引文行（原 DESIGNS L115/L228/L360）全部原位加注升级为文件:行号直引（原文全保留，统一标记）；8 项 minor 漂移登记在案（行锚 3 项 + 引文非逐字 4 项 + 概括 1 项，无一推翻台账判定）。依据：g1/RECON01-RESULT.md（head 核验 + 取文表 + 锚点抽查表 + 五主题判定表 + 替换行清单 + 漂移表 + gh 命令日志 10 条全 exit 0）+ G1-CONTRACT-DESIGNS.md 11 处原位加注（477→491 行，父席逐 hunk 核验通过）。边界明确接受并登记：一切「一致」判定均为条件式（条件：#42 合并且条文文本不变，#47 条文以 head 原文为准；#47 全库状态仍为 Proposed（各文件头自标 DRAFT-PROPOSAL），引文为草案条文，不意味「#47 已裁定」）"
+    evidence: "gh pr view 47 headRefOid 实测见 G1-CONTRACT-DESIGNS.md 附录（第六轮）；本实验分支内 #47 条文零直引——grep 全仓 `SD-` 仅 RECONCILIATION.md 反例清单与转述命中。『冲突 0』只表示已检查的 19 项关系（A.7 六行 + B.6 六行 + C.6 七行，第六轮逐条重算）中未确认冲突，不得读作已完成 #42/#44/#47 全文对账（口径见 G1-CONTRACT-DESIGNS.md 附录）【2026-11-01 收口：上述口径已由全文对账升级——head `37de107ed5297e91ba122976eac734a8f2ce38db` 逐文件直引 9/9 取文全 exit 0，判定落点 g1/RECON01-RESULT.md + G1-CONTRACT-DESIGNS.md 11 处原位加注】"

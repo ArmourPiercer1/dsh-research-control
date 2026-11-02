@@ -54,7 +54,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -173,7 +173,13 @@ function scanSourceDdlTargets(): string[] {
   // the name) from prose mentions (e.g. the runbinding schema header's
   // 「`CREATE TABLE IF NOT EXISTS` makes (re)open idempotent」).
   const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][\w$]*|\$\{([A-Za-z_$][\w$]*)\})\s*\(/gi
-  for (const file of collectTsFiles(SRC_ROOT)) {
+  // 2026-11-03 G2 Bootstrap：扫描范围排除 V3 Kernel 面（`src/kernel|contracts|storage-sqlite`）。
+  // 这不是放宽——V3 的 11 张表由下方 `KERNEL_TABLES` 独立**精确**钉（新增表同样红），
+  // 而本判据的对象一直是 V1 运营库（3 store + 2 runbinding + 12 计划面）。两个库同处 `src/`，
+  // 旧的「全 src 一个白名单」已不可判：它会把 V3 表当成「未评审新表」误报。
+  const V3_DIRS = ['kernel', 'contracts', 'storage-sqlite'].map((d) => join(SRC_ROOT, d))
+  const isV3 = (f: string) => V3_DIRS.some((d) => f.startsWith(d + sep))
+  for (const file of collectTsFiles(SRC_ROOT).filter((f) => !isV3(f))) {
     const text = readFileSync(file, 'utf8')
     for (const m of text.matchAll(re)) {
       const direct = m[1]
@@ -430,9 +436,43 @@ function textColumns(raw: DatabaseSync, table: string): string[] {
   return rows.filter((r) => /TEXT/i.test(r.type)).map((r) => r.name)
 }
 
+/**
+ * V3 Kernel 面（G1 冻结契约的存储形）的表清单——与 V1 白名单**分开钉**：
+ * 同一判据（「新表不得未评审落地」）在 `src/` 被两个库共用后必须拆成两个作用域，
+ * 否则任一库新增表都会以另一个库的名义误报（本注释即该拆分的理由，不是放宽）。
+ * 来源：`src/storage-sqlite/sqlite-port.ts` 的 DDL；判据条款见
+ * `G1-CONTRACT-COMMIT-SEQUENCE.md`（CS）、`G1-CONTRACT-IDEMPOTENCY.md`（IDC-4）、
+ * `G1-CONTRACT-DOMAIN-COMMAND.md`（DC/D-19）、`G1-CONTRACT-EVENT-AUTHORITY.md`（EA-6）。
+ */
+const KERNEL_TABLES = [
+  'capability_route',
+  'check_report',
+  'domain_state',
+  'journal',
+  'ledger',
+  'meta',
+  'object_directory',
+  'projection_cursor',
+  'projection_state',
+  'records',
+  'ref_edge',
+]
+
 describe('TC-DB-004 (i): no credential-shaped columns; exact column sets pinned', () => {
   it('src contains EXACTLY the seventeen known CREATE TABLE targets (no new table can land unreviewed)', () => {
     expect(scanSourceDdlTargets()).toEqual(ALL_TABLES)
+  })
+
+  it('V3 Kernel 面 contains EXACTLY the eleven contract tables (no kernel table can land unreviewed)', () => {
+    const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][\w$]*)\s*\(/gi
+    const targets = new Set<string>()
+    for (const d of ['kernel', 'contracts', 'storage-sqlite']) {
+      for (const file of collectTsFiles(join(SRC_ROOT, d))) {
+        for (const m of readFileSync(file, 'utf8').matchAll(re)) targets.add(m[1])
+      }
+    }
+    expect([...targets].sort()).toEqual([...KERNEL_TABLES].sort())
+    expect(KERNEL_TABLES).toHaveLength(11)
   })
 
   it('the live runbinding DB exposes exactly its five tables, each with its pinned column set', () => {

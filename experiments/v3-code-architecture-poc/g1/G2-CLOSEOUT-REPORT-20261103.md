@@ -142,7 +142,7 @@ tsc/tests/attacks 收集面，故结论沿用；复核席在 `4e30c18` 上另跑
 | P0 | JC-1 改为唯一可执行八步（预留水位 → 领域写与事件 → 落提交账 → 落回执 → COMMIT）；CS/IDC 同步；`preflight/tx/run.mjs` 真实 SQLite 七项，含「旧顺序必撞 `HISTORY_IMMUTABLE`」反例 |
 | P1 | 幂等回放三缺口（中间提交/同键异体/权限撤销）→ IDEM-1/2/3 + 新 **IDC-12**（披露按当前授权） |
 | P1 | PR-6b 拆为「跨领域命令原子性」+「检查报告独立原子提交」（可选事务 Port 为显式 API）；PR-10 边界收窄到 G2 机制兼容性 |
-| P1 | 新 `g1/G2-IMPLEMENTATION-BASELINE.md`：ResearchSpace 显式绑定（禁推导）、起点 SHA `e3e8eb5`、五个 PR SHA、PoC→正式模块映射、CI 投票要求 |
+| P1 | 新 `g1/G2-IMPLEMENTATION-BASELINE.md`：ResearchSpace 显式绑定（禁推导）、开工 base = #49 合并后 tip（含本轮 P0 修正）、五个 PR SHA、PoC→正式模块映射、CI 投票要求 |
 | P2 | `G1-ACCEPTANCE-MATRIX` RL-2.1 行条件化；PR-8 卡头加 DEFERRED 状态行 |
 
 **未覆盖（如实）**：并发同键持锁竞争、kill 9 格矩阵（PR-9 真库夹具）；换库/WAL 崩溃窗口（PR-5 硬性验收）；

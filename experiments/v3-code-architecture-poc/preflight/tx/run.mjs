@@ -95,6 +95,8 @@ function installFixture(dbPath) {
         primary key(actor_ref, space_id, operation, client_request_id));
       create trigger if not exists idem_receipt_no_update before update on idempotency_receipt
         begin select raise(abort, 'IDEMPOTENCY_RECEIPT_IMMUTABLE'); end;
+      create trigger if not exists idem_receipt_no_delete before delete on idempotency_receipt
+        begin select raise(abort, 'IDEMPOTENCY_RECEIPT_IMMUTABLE'); end;
       insert into meta(key, value) values('commit_sequence', 0)
         on conflict(key) do nothing;
     `);
@@ -122,7 +124,7 @@ const ledgerRange = () => {
  * 修订后的唯一实现顺序（本实验的被测对象）：一次 UoW 内完成全部七步。
  * 返回 { kind: 'commit'|'replay'|'denied', ... }。
  */
-function submit({ actor = ADMIN.actorId, operation = 'test.create', clientRequestId, body, effect, replayAuthCheck }) {
+function submit({ actor = ADMIN.actorId, operation = 'test.create', clientRequestId, body, effect, replayAuthCheck, injectAfter }) {
   const key = { actor, space: 'SP-TX', operation, crid: clientRequestId };
   const reqDigest = digest(body);
   return w.uow(ADMIN, (tx) => {
@@ -144,6 +146,7 @@ function submit({ actor = ADMIN.actorId, operation = 'test.create', clientReques
     const c1 = Number(metaValue('commit_sequence'));
     // 4. 领域命令与事件（同事务）
     const out = effect(tx);
+    const reservedAt = Date.now(); // 预留点取时（一事务一枚，非硬编码）
     // 5. 取**真实**事件闭区间
     const after = ledgerRange();
     const from = before.hi === null ? after.lo : before.hi + 1;
@@ -154,12 +157,17 @@ function submit({ actor = ADMIN.actorId, operation = 'test.create', clientReques
     }
     // 6. 不可变提交账（区间已真实存在）
     w.raw.run('insert into commit_record(commit_sequence, ledger_event_seq_from, ledger_event_seq_to, commit_recorded_at_ms) values(?,?,?,?)',
-      c1, from, to, 1700000000000 + c1);
-    // 7. 幂等回执（c1 读自提交账，结果取自上一步的领域返回）
+      c1, from, to, reservedAt);
+    // 7. 幂等回执：c1 **读自**刚插入的 commit_record 行（不是局部变量直传），结果取自上一步领域返回
+    const ledgerRow = w.raw.get('select commit_sequence, commit_recorded_at_ms from commit_record where commit_sequence = ?', c1);
+    if (!ledgerRow || Number(ledgerRow.commit_sequence) !== c1) throw new Error(`回执取值通道失效：commit_record(${c1}) 不可读`);
+    if (injectAfter === 'commit_record') throw new Refusal('INJECTED_AFTER_COMMIT_RECORD', { commitSequence: c1 });
     const snapshot = JSON.stringify({ oid: out.oid, revision: out.revision });
     w.raw.run(`insert into idempotency_receipt(actor_ref, space_id, operation, client_request_id, digest_hex, result_ref, response_snapshot, commit_sequence, recorded_at_ms)
                values(?,?,?,?,?,?,?,?,?)`,
-      actor, 'SP-TX', operation, clientRequestId, reqDigest, `${out.oid}@${out.revision}`, snapshot, c1, 1700000000000 + c1);
+      actor, 'SP-TX', operation, clientRequestId, reqDigest, `${out.oid}@${out.revision}`, snapshot,
+      Number(ledgerRow.commit_sequence), Number(ledgerRow.commit_recorded_at_ms));
+    if (injectAfter === 'receipt') throw new Refusal('INJECTED_AFTER_RECEIPT', { commitSequence: c1 });
     return { kind: 'commit', commitSequence: c1, eventFrom: from, eventTo: to, response: snapshot };
   });
 }
@@ -194,19 +202,33 @@ check('TX-1', '可变事件数量（1 / 3 条）下 commit_record 区间逐条�
 });
 
 // ───────────────────── TX-2：失败回滚（在提交账插入之后抛错）零残留 ─────────────────────
-check('TX-2', '事务内失败（提交账已插入后抛错）⇒ 号/账/回执/领域效果同生同灭，号可复用', () => {
-  const before = { meta: Number(metaValue('commit_sequence')), rows: commitRows().length, ledger: ledgerRange().n, objs: w.raw.get('select count(*) c from object_directory').c };
-  // 领域写已发生、提交账尚未插入之前抛错（契约顺序的第 4/5 步之间）
-  const code2 = refusal(() => submit({
-    clientRequestId: 'req-crash-2', body: { crash: 2 },
-    effect: (tx) => { tx.createObject({ kind: 'test.claim', payload: { crash: 2 } }); throw new Refusal('INJECTED_FAILURE', {}); },
+check('TX-2', '事务内失败（领域写后 / 提交账后 / 回执后三个注入点）⇒ 号/账/回执/领域效果同生同灭，号可复用', () => {
+  const snap = () => ({
+    meta: Number(metaValue('commit_sequence')), rows: commitRows().length, ledger: ledgerRange().n,
+    objs: w.raw.get('select count(*) c from object_directory').c,
+    receipts: w.raw.get('select count(*) c from idempotency_receipt').c,
+  });
+  const before = snap();
+  // ① 领域写已发生、提交账未插入
+  const c1 = refusal(() => submit({
+    clientRequestId: 'req-crash-domain', body: { c: 1 },
+    effect: (tx) => { tx.createObject({ kind: 'test.claim', payload: { c: 1 } }); throw new Refusal('INJECTED_FAILURE', {}); },
   }));
-  const after = { meta: Number(metaValue('commit_sequence')), rows: commitRows().length, ledger: ledgerRange().n, objs: w.raw.get('select count(*) c from object_directory').c };
-  eq(after, before, '失败后元数据/提交账/账本/身份行');
-  // 号可复用：下一次成功提交拿到与失败事务相同的号（无 ghost）
+  // ② 提交账已插入、回执未插入
+  const c2 = refusal(() => submit({
+    clientRequestId: 'req-crash-commit', body: { c: 2 }, injectAfter: 'commit_record',
+    effect: (tx) => { const oid = tx.createObject({ kind: 'test.claim', payload: { c: 2 } }); return { oid, revision: 1 }; },
+  }));
+  // ③ 回执已插入、COMMIT 未发生
+  const c3 = refusal(() => submit({
+    clientRequestId: 'req-crash-receipt', body: { c: 3 }, injectAfter: 'receipt',
+    effect: (tx) => { const oid = tx.createObject({ kind: 'test.claim', payload: { c: 3 } }); return { oid, revision: 1 }; },
+  }));
+  const after = snap();
+  eq(after, before, '三个注入点回滚后元数据/提交账/账本/身份行/回执');
   const next = submit({ clientRequestId: 'req-after-crash', body: { ok: 1 }, effect: (tx) => { const oid = tx.createObject({ kind: 'test.claim', payload: { ok: 1 } }); return { oid, revision: 1 }; } });
   eq(next.commitSequence, before.meta + 1, '失败未烧号（复用同一号）');
-  return `注入失败（${code2}）后零残留；下一提交 c=${next.commitSequence} = 水位 ${before.meta}+1（未烧号）`;
+  return `三个注入点（${c1}/${c2}/${c3}）后零残留；下一提交 c=${next.commitSequence} = 水位 ${before.meta}+1（未烧号）`;
 });
 
 // ───────────────────────── TX-3：提交账与回执不可改写 ─────────────────────────
@@ -214,8 +236,11 @@ check('TX-3', 'commit_record / idempotency_receipt 的 UPDATE 与 DELETE 被拒�
   const updCommit = refusal(() => w.raw.run('update commit_record set ledger_event_seq_to = 99 where commit_sequence = 1'));
   const delCommit = refusal(() => w.raw.run('delete from commit_record where commit_sequence = 1'));
   const updReceipt = refusal(() => w.raw.run("update idempotency_receipt set result_ref = 'x' where client_request_id = 'req-1'"));
-  eq([updCommit, delCommit, updReceipt], ['HISTORY_IMMUTABLE', 'HISTORY_IMMUTABLE', 'IDEMPOTENCY_RECEIPT_IMMUTABLE'], '不可变守卫拒绝码');
-  return `UPDATE/DELETE 提交账 ⇒ ${updCommit}/${delCommit}；改写回执 ⇒ ${updReceipt}`;
+  const delReceipt = refusal(() => w.raw.run("delete from idempotency_receipt where client_request_id = 'req-1'"));
+  eq([updCommit, delCommit, updReceipt, delReceipt],
+    ['HISTORY_IMMUTABLE', 'HISTORY_IMMUTABLE', 'IDEMPOTENCY_RECEIPT_IMMUTABLE', 'IDEMPOTENCY_RECEIPT_IMMUTABLE'],
+    '不可变守卫拒绝码（四条）');
+  return `UPDATE/DELETE 提交账 ⇒ ${updCommit}/${delCommit}；改写/删除回执 ⇒ ${updReceipt}/${delReceipt}`;
 });
 
 // ───────────────── TX-4：旧顺序（先插提交账）不可实现的真反例 ─────────────────

@@ -24,8 +24,8 @@ CS 分配点/持久化位置/与 commit 的先后、IDC 写入时点 + IDC-12）
 | # | 断言 | 结果 |
 | --- | --- | --- |
 | TX-1 | 可变事件数量（1 条 / 3 条）下区间逐条真实；水位 = 提交账行数（稠密）；区间总长 = 事件总数（无空洞/重叠） | PASS |
-| TX-2 | 领域写已发生、提交账未插入时注入失败 ⇒ 号/账/回执/领域效果同生同灭；下一提交复用同一号（未烧号） | PASS |
-| TX-3 | `commit_record` 的 UPDATE/DELETE ⇒ `HISTORY_IMMUTABLE`；回执改写 ⇒ `IDEMPOTENCY_RECEIPT_IMMUTABLE` | PASS |
+| TX-2 | **三个注入点**（领域写后 / 提交账插入后 / 回执插入后）⇒ 号/账/回执/领域效果同生同灭（五项快照逐等）；下一提交复用同一号（未烧号） | PASS |
+| TX-3 | `commit_record` UPDATE/DELETE ⇒ `HISTORY_IMMUTABLE`；回执**改写与删除** ⇒ `IDEMPOTENCY_RECEIPT_IMMUTABLE`（四条断言） | PASS |
 | TX-4（负例） | 按旧顺序插占位区间 → 执行后想对齐真实区间 ⇒ 必撞 `HISTORY_IMMUTABLE`，事务回滚零残留 | PASS（旧顺序被否证） |
 | IDEM-1 | 首次提交 c1 后插入其他提交，再重放首次请求 ⇒ 返回 **c1**（不随 head），响应逐字节等 | PASS |
 | IDEM-2 | 同键异体 ⇒ `IDEMPOTENCY_KEY_REUSED`，零新提交/零新事件，既有回执不改写 | PASS |
@@ -40,6 +40,10 @@ CS 分配点/持久化位置/与 commit 的先后、IDC 写入时点 + IDC-12）
 3. **IDC**（`G1-CONTRACT-IDEMPOTENCY.md`）：回执写入时点写明（结果存在之后、`commit_record` 之后）；
    新增 **IDC-12**（重放披露按当前授权；不重执行历史前置；`NO_SPACE_WRITE` 与 `REPLAY_ACCESS_DENIED`
    是两级不同守卫，不得混记）。
+
+**取值通道与时钟（复核后补强）**：回执的 `commitSequence`/`recordedAtMs` **读自刚插入的 `commit_record` 行**
+（不是局部变量直传；读不到即抛错），`commitRecordedAtMs` 取**预留点**时钟而非硬编码——这两点让
+「c1 读自提交账」与「一事务一枚登记时钟」成为可判据事实而非注释。
 
 ## 3. 幂等回放的三处缺口（旧夹具未覆盖）
 
@@ -56,4 +60,7 @@ CS 分配点/持久化位置/与 commit 的先后、IDC 写入时点 + IDC-12）
 - 夹具表（`commit_record`/`idempotency_receipt`）是**实验侧**实现，形状按契约；生产 DDL 归 G2（PR-5）。
 - 未覆盖：并发同键的持锁窗口竞争（IDC-7 已有 MUT-IDEM-2 设计，需真库并发夹具）、进程 kill 的
   9 格崩溃矩阵（IDC-8，归 PR-9 真库对应物）、跨 Space（无共同序，不在本实验范围）。
+- 独立复核席（R4）用自写反例在真库上另验了三点：落账后/回执后抛错四者同灭、旧序必撞
+  `HISTORY_IMMUTABLE`、跨 capability 同事务区间连续；并指出「回执 DELETE 未被守住」——已补
+  `idem_receipt_no_delete` 触发器与第四条断言（本轮修复项）。
 - 本实验不证明「生产迁移器/幂等层已完成」，只证明**契约顺序可执行**且旧顺序不可执行。

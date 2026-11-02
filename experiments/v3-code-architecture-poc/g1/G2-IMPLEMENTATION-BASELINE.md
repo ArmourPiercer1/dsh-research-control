@@ -29,7 +29,7 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 | 项 | 值 |
 | --- | --- |
 | 目标分支 | `g1/contracts-20261031`（本 PR #49 分支） |
-| **G2 起点 SHA** | **`e3e8eb5c62efb4b11ed3e36a184b1b61ea62a40a`**（本文件所在提交的父；G2 第一个乙类 PR 以它为 base） |
+| **G2 起点 SHA** | **`e3e8eb5c62ef…` + 本轮 P0 修正提交 `36501d2`；实际开工 base = #49 合并后的 tip**（按字面从 `e3e8eb5` 开工会拿到修正前的 JC-1 旧序，故不单列父提交） |
 | 正式生产码现状 | `src/**`（`src/host`、`src/client`、`src/shared` 等）；不含新 Kernel |
 | 新 Kernel 可运行实现现状 | `experiments/v3-code-architecture-poc/src/**`（**不整体合并**） |
 | 依赖 PR（均为 Draft，按 head SHA 锁定读法） | #42 `0369c3196cec`（HSR 语义基础，base main）· #47 `37de107ed529`（Schema 界面，base #42）· #44 `5ec38974fca4`（架构评审，base main）· #48 `d2f19cc16f22`（PoC，base #44）· #49 `e3e8eb5c62ef`（G1 机制契约，base #48） |

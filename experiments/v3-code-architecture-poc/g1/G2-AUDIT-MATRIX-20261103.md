@@ -21,8 +21,8 @@
 
 | # | 缺陷 | 严重度 | 真实测试（可复跑） | 依据合同 | 正式实施 PR | 残余风险 |
 | --- | --- | --- | --- | --- | --- | --- |
-| D1 | JC-1 旧顺序要求执行前写入未知事件区间与未知首次结果（组合不可实现） | **P0** | `node experiments/…/preflight/tx/run.mjs` → TX-1/TX-2/TX-3/TX-4，exit 0 | JC-1（八步）、CS-1.3、IDC-4 | PR-9（幂等层）＋ PR-5（表形） | 并发同键持锁竞争、kill 9 格矩阵未在真库覆盖（IDC-7/IDC-8 已设计，归 PR-9） |
-| D2 | 幂等回放三缺口（中间提交、同键异体、权限撤销） | P1 | 同上 IDEM-1/IDEM-2/IDEM-3，exit 0 | IDC-5/IDC-7/**IDC-12** | PR-9 | 披露判定依赖宿主授权模型；PoC 只验证「读权撤销 ⇒ 拒披露」一形 |
+| D1 | JC-1 旧顺序要求执行前写入未知事件区间与未知首次结果（组合不可实现） | **P0** | `node experiments/…/preflight/tx/run.mjs` → TX-1/TX-2（三注入点）/TX-3（四守卫）/TX-4，exit 0；R4 复核席自写 CE-1/CE-2/CE-3 反例均未成立 | JC-1（八步）、CS-1.3、IDC-4 | PR-9（幂等层）＋ PR-5（表形） | 并发同键持锁竞争、kill 9 格矩阵未在真库覆盖（IDC-7/IDC-8 已设计，归 PR-9） |
+| D2 | 幂等回放三缺口（中间提交、同键异体、权限撤销）＋ 回执可删 | P1 | 同上 IDEM-1/2/3 + TX-3 第四条（回执 DELETE 拒），exit 0；R4 的 CE-5 反例已由该条覆盖 | IDC-5/IDC-7/**IDC-12** | PR-9 | 披露判定依赖宿主授权模型；PoC 只验证「读权撤销 ⇒ 拒披露」一形 |
 | D3 | P-NS 迁移批量改写历史 `contract_version`（违版本治理） | P1 | `node experiments/…/preflight/ns/run.mjs` → 五项 + 负例，exit 0（连跑 2 次） | UNIFIED §3.3/§3.4/§5.1 | PR-5（迁移器）＋ PR-7（版本化读者） | 换库/WAL 崩溃窗口归 PR-5 硬性验收（清单见 VERDICT §2） |
 | D4 | PR-8 延后未同步到权威契约/入口/门禁 | P1 | `g1-checklist-validate --require-clear` exit 0（27 项，违规 0）；四处文档加注 | UNIFIED §3.2 步 4、PLAN PR-5/PR-8/PR-10、ENTRY、清单 | —（文书） | 重定位契约文本保留；未来启用需按冻结变更流程 |
 | D5 | PR-6b 要求三步写同事务（与 Q40/现有报告接口冲突） | P1 | 契约层拆分（保证 A/B + 可选 C）；`preflight/tx` 的 TX-1 覆盖「两个命令同事务」形态 | PLAN PR-6b、Q40、DC-4 | PR-6b | 可选 C（事务作用域报告 Port）尚未实现，属显式 API 的后续设计 |
@@ -32,7 +32,9 @@
 | D9 | CI 只对 main 投票、PoC 侧车 advisory | P1 | `G2-IMPLEMENTATION-BASELINE.md §4`（正式测试进投票路径、SHA 可识别） | `.github/workflows/ci.yml` 现状 | 第一个实施 PR | 触发面调整需改 `.github/**`（非冻结面），属阻塞项 |
 | D10 | 科研采纳权与开发批准混淆 | P1 | `G1-TRUSTED-PROFILE-DELTA.md §4` 两层拆分 | 用户裁决 + `G1-REMAINING-USER-DECISIONS` 项 4 | —（文书） | 采纳政策待业务启用前确定 |
 | D11 | P-EXT 证据范围高估 | P1 | `preflight/ext/VERDICT.md §1/§4` 收窄 + 挂 PR-11/PR-6b | §0bis P-EXT、Q40 | PR-11/PR-6b | 具名命令端口跨域写入未验证 |
-| D12 | 非作者复核原文未归档 | P2 | `G1-FREEZE-REVIEW-20261103-SEAT.md`（两轮原文 + 处置） | §0bis 固定收尾门禁 | —（文书） | R4 定向复验结论需追加同文件 |
+| D12 | 非作者复核原文未归档 | P2 | `G1-FREEZE-REVIEW-20261103-SEAT.md`（R1 两轮 + R4 定向复验原文 + 逐项处置） | §0bis 固定收尾门禁 | —（文书） | R5 复验结论需继续追加同文件 |
+| D13 | 唯一实施入口仍写旧七步/旧三步同事务（R4 P1-1） | P1 | `G2-IMPLEMENTATION-ENTRY.md` 行 3/11/24 已改（八步、A/B 两保证、步 6） | JC-1 八步、PLAN PR-6b | —（文书） | 入口与计划后续需保持单源 |
+| D14 | 回执 DELETE 未被守卫（R4 P1-2） | P1 | `preflight/tx` TX-3 第四条断言 + `idem_receipt_no_delete` | IDC-4（回执行永久不删）+ INV-K | PR-9（生产 DDL 同形触发器） | 生产表仍需同形触发器 |
 
 ## 2. 未修但已定归属（不在本轮，不需要新 PoC）
 

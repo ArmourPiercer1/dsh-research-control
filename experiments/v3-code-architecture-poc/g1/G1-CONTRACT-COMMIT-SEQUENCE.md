@@ -312,7 +312,9 @@ interface KernelReadPorts {
 interface WriteReceipt { readonly witnessEventSeq: LedgerEventSequence }
 ```
 
-- **DEP-①-1 的兑现方式**：专题② 的回执行 `commitSequence` 由**机制**在提交账预留点同事务写入提交账派生值，
+- **DEP-①-1 的兑现方式**：专题② 的回执行 `commitSequence` 由**机制**保证与提交账行同事务同生死，取值经
+  **同事务读 `commit_record(c1)` 行**获得（2026-11-03 P0 后：提交账在事件落库后插入，无「预留点即落账」；原措辞
+  「提交账预留点」已废），
   **不**经写回执交回调用方再转交（C-18）。若专题② 需在读面确认 c1 已生效，判据 = `c1 ∈ commit_record`
   （I-6），不是"回执里那个数还在"。
 - 现状需换轨的写面签名（BF-01/BF-02/BF-06）：`appendAuthoritativeEvent(...): CommitSequence`

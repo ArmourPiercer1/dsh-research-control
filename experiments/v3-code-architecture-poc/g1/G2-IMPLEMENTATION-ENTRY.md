@@ -21,7 +21,7 @@
    - `g1/G1-CONTRACT-DOMAIN-COMMAND.md`（DC，夹具 52 项）—— 写面权威形状（X-5 三条定死）。
    - `g1/G1-CONTRACT-EVENT-AUTHORITY.md`（EA，夹具 51 项）—— 机制事件封闭名单/全形信封/权威入口；
      EA:117 与 :341 的换轨注（旧类型名保留为登记原文）已落。
-   - `g1/G1-CONTRACT-IDEMPOTENCY.md`（IDC，夹具 29 项）—— 幂等账，取值读 §2.11 JC-1 步 4。
+   - `g1/G1-CONTRACT-IDEMPOTENCY.md`（IDC，夹具 29 项）—— 幂等账，取值读 §2.11 JC-1 **步 6**（2026-11-03 P0 后步号：发号 3、落账 5、回执 6）。
    - `g1/G1-CONTRACT-RECONCILIATION.md` —— 对账 R 系列（R-1 审计出口 / R-5 批准面 / R-6 / R-7 纪律等）。
    - `g1/G1-CONTRACT-FACET.md`（FM，夹具 35 项）/ `g1/G1-CONTRACT-RELOCATION.md`（RL，夹具 60 项）/
      `g1/G1-CONTRACT-IDENTITY-GRAMMAR.md`（IG，夹具 38 项）。
@@ -53,7 +53,7 @@
 | --- | --- | --- |
 | 1 | 两轴：事件序 `LedgerEventSequence`（+1 登记序，排序键/游标内位置，**禁当截点**）× 提交序 `CommitSequence`（唯一快照边界，提交账 `commit_record` + `commit_recorded_at_ms` 一提交一枚墙钟） | CS-1.4/2.5/3.3；ADJ D2-a/b 修订注 |
 | 2 | 外部墙钟 → 截点：`cutoff(t)=max{c∈committed∪{0}: M(c)≤t}`，M = 提交账墙钟；已解析截点固定（禁二次解析/回落当前时间） | CS-3.1/3.2/3.3；ADJ D2-b/c/d |
-| 3 | JC-1 七步：开事务 → 幂等判定 → **发号点（第一次权威写之前预留 c1 + 同事务插提交账行）** → 回执行（回执 seq 读自 `commit_record(c1)` 行）→ …→ 提交；回滚同生同灭零 ghost | UNIFIED §2.11 |
+| 3 | JC-1 **八步**（2026-11-03 P0 修订）：开事务 → 幂等判定 → **发号（只推 `meta.commit_sequence`，不落账）** → 领域写与事件 → **落不可变 `commit_record`（区间取自真实事件）** → 落回执（c1 读自 `commit_record(c1)` 行、结果取自领域返回）→ 重放/拒绝 → 可解析；回滚同生同灭零 ghost。**禁止**「预留即插提交账」旧序（区间未知且提交账禁 UPDATE ⇒ 不可实现） | UNIFIED §2.11 + `preflight/tx/VERDICT.md` |
 | 4 | 写面：协调方不持有通用写面；Capability-scoped Storage Port ≠ Domain Command Port；机验 = 跨归属写点 == 命令 Port 调用点静态集合等值 | X-5/DC-1…13；UNIFIED P4 |
 | 5 | resolver 绑定：装配根声明 + 宿主供证；机制核形状不核内容；空视图 ≠ 完整视图，完备性凭证 fail-closed | UNIFIED §2.12.1（X-7 转录） |
 | 6 | `eventsOf` 跨能力读正式形态：默认拒绝 + 装配根 `CROSS_EVENT_READ` 显式授权表（capability-admin 轴，枚举零扩张）；拒绝同形随 D1-c，泄露面随 D1-d | UNIFIED §2.12.2（父席 2026-11-01） |
@@ -61,7 +61,7 @@
 | 8 | 边四问定案：① 创建权 = 边拥有域的拥有者命令 Port（目标侧不发许可，禁跨域边一刀切）；② 源侧存在判据含拥有 ns；③ 引用合法（RF-05/06 只禁冒用），解析次序随 X-7；④ 保留前缀全集 `{RPT-,FM-,FR-,NSR-}` 封闭 + 扩员走冻结面变更流程 + 发号区间 namespace 化 | UNIFIED §2.12.4 + IG §2.3 ④（父席 2026-11-01） |
 | 9 | 路由方向判据第四维：路由行 INSERT 同事务携 capability-admin 全形信封方向事件（`capability-enabled` 族，`changed_seq` 非 NULL）；bootstrap 另立界；墓碑行巡检只报不阻 | RL 子句③补句（F-G6A-3 修法，父席 2026-11-01） |
 | 10 | 机制事件名单正源 = `contracts/event-registry/EVENT-CONTRACT-LEDGER.json`（正式仓内版本化、独立批准）；实验侧车永久非生产名单来源；入账唯一批准面 = EA-2.4 步骤 2 人工 `Approved-By` | 专题⑤ P2-③；EA-2.4/6.1/6.2；REMAINING 项 4 收窄注 |
-| 11 | 首条纵向切片事务边界：三步权威写（`object-registered`→`object-revised`→`check-report-recorded`）+ Directory/ledger/journal **同一条原子事务 = 一个 `CommitSequence` c1**；三事件各得 `LedgerEventSequence`；读回在事务外（只读面，禁按 `recorded_at` 重算截点） | G2-DEV-PLAN PR-6b 事务边界句（JC-1 + CS-1.3/2.5 转录） |
+| 11 | 首条纵向切片事务边界（2026-11-03 P1 修订，**两个保证**）：**A** 两个拥有者命令（`object-registered`→`object-revised`）在**同一 UoW** = 一个 `CommitSequence` c1，失败全回滚；**B** `check-report-recorded` 是**独立原子提交**（对已提交的精确 RevisionRef 另发 Check Request，外部检查不进写事务，Q40）；各事件各得 `LedgerEventSequence`；读回在事务外（只读面，禁按 `recorded_at` 重算截点）。不再读作「三事件同一事务」 | G2-DEV-PLAN PR-6b（A/B/可选 C 三保证） |
 | 12 | 排期含 W11：`W1 → W2 → W3 → W4 → W5 → W6 → PR-6b → W7 → W8 → W9 → W10`，W11 自 W2 后并行、于 PR-6b 与 W10 退出门禁前收口（PR-6b ← W11 为**判据**依赖非代码导入依赖） | G2-DEV-PLAN §1 ★ 注（2026-11-01 回填） |
 | 13 | GATE-01 指定：流程位 = 门禁基线管理位（GT-2/3/4 机械执行）；人占两位置（二人标记 + 冻结时非作者复验）；责任人 = 父席复验批准 + PR-0 席位实施 | G2-DEV-PLAN PR-0 卡就地标注（父席 2026-11-01） |
 | 14 | 版本责任三分：报告/记录版本自持（形门）、解释器保留 = 领域 owner、机制 = 截点原字节 + 不再解释；`contract_version` 增列随 D-11 同批 | ADJ X-6 + D5-c |

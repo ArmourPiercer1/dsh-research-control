@@ -60,7 +60,7 @@
 
 | 未决项 | 阻塞谁 | 处理方式 |
 | --- | --- | --- |
-| 5 个待消费机制事件名的 `Approved-By`（PR-2×2：`integrity-audit-recorded`/`read-shadow-recorded`；PR-7×2：`facet-mounted`/`facet-unlinked`；PR-10×1：`raw-record-declared`） | 对应写面 PR 的**进入门禁** | 用户指派独立批准者，按 EA-2.4 逐名办理（见 §5） |
+| ~~5 个待消费机制事件名的 `Approved-By`~~ | ~~对应写面 PR 的进入门禁~~ | **已解除（2026-11-03）**：用户指派独立复核席 `independent-review-seat` 逐名裁定，**5/5 批准**；签署原文与依据见 `EVENT-NAME-APPROVALS-20261103.md`。机械写入（`approved[]` + `planned:false`）待 PR-1 锚文件物化，属落地工务不是授权缺口 |
 | CI 触发面（`.github/workflows/ci.yml` 只投 `main`） | Bootstrap 的投票路径 | 随 Bootstrap 第一提交同批改（非冻结面） |
 | Bootstrap 本身 | PR-2 的第一步 | 已授权，执行即开始 G2 |
 | D-1 粒度、科研采纳政策 | 各自业务启用点 | 不在 G2 机制面 |

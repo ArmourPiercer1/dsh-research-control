@@ -869,14 +869,21 @@ const MUTANTS = [
   },
   // —— 第六轮新增（裁定原话：现有 7/7 只证明七个**预设**变异被捕获）。——
   {
-    name: 'M8-终局态洗白（全部 open→assigned 且 UNASSIGNED 换成有主 owner：日常判据无违规，'
-      + '旧 --require-clear 只数 open/unassigned 会当场放行——这正是被点名的 G1 门禁 P1）',
+    name: 'M8-终局态洗白（A 层推进态洗白：「违规零 + A 层仍是 assigned 推进态 + 有主」的形态不得放行。'
+      + '原全局改写形预设收口前状态（A 层 open + UNASSIGNED 面存在）；清单合法收口（A done 20 / B open 全归属）后，'
+      + '最小改写只触 B 层且被谓词合法放行，不再构造所点名攻击——2026-11-01 重构为「全局改写 + 显式追加攻击面」，'
+      + '与清单现状无关。旧谓词只数 open/unassigned 会当场放行，正是被点名的 G1 门禁 P1）',
     expect: 'PREDICATE',   // 捕获 = 违规==0 且谓词红（若靠违规红算「捕获」是错误原因通过，不算）
     apply(text) {
       const out = text
         .replace(/^    status: open$/gm, '    status: assigned')
-        .replace(/^    owner: "UNASSIGNED"$/gm, '    owner: "M8 变异：伪装权威归属"');
-      if (out === text) throw new Error('变异未生效：清单里找不到 status: open / owner=UNASSIGNED 面');
+        .replace(/^    owner: "UNASSIGNED"$/gm, '    owner: "M8 变异：伪装权威归属"')
+        + '\n  - id: G1-MUTA-80\n    topic: "M8 变异夹具：A 层推进态洗白 A 侧（assigned + 有主，零违规）"\n'
+        + '    owner: "M8 变异：伪装权威归属"\n    status: assigned\n    freeze_tier: "A"\n'
+        + '  - id: G1-MUTA-81\n    topic: "M8 变异夹具：A 层推进态洗白 B 侧（assigned + 有主，零违规）"\n'
+        + '    owner: "M8 变异：伪装权威归属"\n    status: assigned\n    freeze_tier: "A"\n';
+      if (!out.includes('G1-MUTA-80') || !out.includes('G1-MUTA-81'))
+        throw new Error('变异未生效：M8 攻击面夹具未追加');
       return out;
     },
   },
@@ -937,9 +944,10 @@ const MUTANTS = [
     },
   },
   {
-    name: 'M12-superseded 甩锅链（除 TIME-01 外全部 open→superseded 并统一 superseded_by 指向'
-      + '仍 open 的 TIME-01：每一跳单看都指向存在 id，整条链没有任何裁定落地——'
-      + '父席要求把这条的完整形态留在自验输出里，不只报条数）',
+    name: 'M12-superseded 甩锅链（链终点非 done：整条链没有任何裁定落地。原形为「除 TIME-01 外全部 '
+      + 'open→superseded 指向仍 open 的 TIME-01」，预设 TIME-01 仍 open；合法收口后 TIME-01 为 done，'
+      + '同一改写的链落到 done 成为合法链（红因只剩替代载荷缺失——那是正确判定）——2026-11-01 重构为'
+      + '「保留全局甩锅改写 + 显式追加三条甩锅链 82→83→84（终点 84 = 新增 open 项）」，与清单现状无关）',
     expect: 'SUPERSEDED-CHAIN',
     apply(text) {
       const chunks = text.split(/(?=^  - id: )/m);
@@ -950,8 +958,15 @@ const MUTANTS = [
         return c
           .replace(/^    status: open$/m, '    status: superseded\n    superseded_by: "G1-TIME-01"')
           .replace(/^    owner: "UNASSIGNED"$/m, '    owner: "M12 变异：甩锅给 open 项"');
-      }).join('');
-      if (n === 0) throw new Error('变异未生效：清单里没有可甩的 open 条目');
+      }).join('')
+        + '\n  - id: G1-MUTA-82\n    topic: "M12 变异夹具：甩锅链首（superseded → 83）"\n'
+        + '    owner: "M12 变异：甩锅给 open 项"\n    status: superseded\n    freeze_tier: "A"\n    superseded_by: "G1-MUTA-83"\n'
+        + '  - id: G1-MUTA-83\n    topic: "M12 变异夹具：甩锅链中（superseded → 84）"\n'
+        + '    owner: "M12 变异：甩锅给 open 项"\n    status: superseded\n    freeze_tier: "A"\n    superseded_by: "G1-MUTA-84"\n'
+        + '  - id: G1-MUTA-84\n    topic: "M12 变异夹具：甩锅链终点（open——无任何裁定落地）"\n'
+        + '    owner: "M12 变异：甩锅给 open 项"\n    status: open\n    freeze_tier: "A"\n';
+      if (!out.includes('G1-MUTA-82') || !out.includes('G1-MUTA-84'))
+        throw new Error('变异未生效：M12 甩锅链夹具未追加');
       return out;
     },
   },
@@ -1053,23 +1068,36 @@ const MUTANTS = [
     },
   },
   {
-    name: 'M21-终局洗白全形常驻回归（RE-REVIEW-G1-ENG §E4 的**原反例**：27 条全改 done + owner 伪造'
+    name: 'M21-终局洗白全形常驻回归（RE-REVIEW-G1-ENG §E4 的**原反例**：全部条目改 done + owner 伪造'
       + '归属 + 每条 evidence 同一条假锚「abcdef0 见 ghost-evidence-does-not-exist.md」+ resolution'
-      + ' 形合文本——修前该文本 --require-clear exit 0（今天实测的绿，登记为常驻回归）；修后 DONE-EVIDENCE'
-      + ' 逐条点名真值违规，放行谓词必红）',
+      + ' 形合文本——修前该文本 --require-clear exit 0（当时实测的绿，登记为常驻回归）；修后 DONE-EVIDENCE'
+      + ' 逐条点名真值违规，放行谓词必红。原全局正则形预设 UNASSIGNED owner 面存在；合法收口后全部'
+      + ' owner 为真归属，守卫失败——2026-11-01 重构为逐条目改写（现状无关，且剥离 supersession 载荷，'
+      + '红因只许落在锚点真值）',
     expect: 'DONE-EVIDENCE',
     apply(text) {
-      let t = text
-        .replace(/^    status: open$/gm, '    status: done\n    resolution: "形合文本：经审查已解决（伪造）"')
-        .replace(/^    owner: "UNASSIGNED"$/gm, '    owner: "Q40（伪造归属）"')
-        .replace(/^    evidence: ".*"$/gm, '    evidence: "abcdef0 见 ghost-evidence-does-not-exist.md"');
-      // 原本没有 evidence 行的条目补假锚行——洗白场景不限于「已有锚」的条目（照 §E4 复现脚本同构）
-      t = t.split(/(?=^  - id: )/m).map((c) =>
-        (/^    status: done$/m.test(c) && !/^    evidence: /m.test(c)
-          ? c.replace(/^  - id: (G1-[A-Z0-9-]+)\n/, '  - id: $1\n    evidence: "abcdef0 见 ghost-evidence-does-not-exist.md"\n')
-          : c)).join('');
-      if (!/^    owner: "Q40（伪造归属）"/m.test(t)) throw new Error('变异未生效：洗白形未构造成功');
-      return t;
+      const FAKE = '    evidence: "abcdef0 见 ghost-evidence-does-not-exist.md"';
+      const chunks = text.split(/(?=^  - id: )/m);
+      let n = 0;
+      const out = chunks.map((c) => {
+        const mId = c.match(/^  - id: (G1-[A-Z0-9-]+)\n/);
+        if (!mId) return c;   // 文件头等非条目块
+        n++;
+        let d = c
+          .replace(/^    (superseded_by|supersession_reason|supersession_evidence|supersession_review): .*$/gm, '')
+          .replace(/^    status: (open|assigned|done|superseded)$/m, '    status: done')
+          .replace(/^    owner: .*$/m, '    owner: "Q40（伪造归属）"')
+          .replace(/^    evidence: .*$/m, FAKE);
+        if (!/^    resolution: /m.test(d))
+          d = d.replace(/^  - id: (G1-[A-Z0-9-]+)\n/, '  - id: $1\n    resolution: "形合文本：经审查已解决（伪造）"\n');
+        if (!/^    evidence: /m.test(d))
+          d = d.replace(/^  - id: (G1-[A-Z0-9-]+)\n/, '  - id: $1\n' + FAKE + '\n');
+        return d;
+      }).join('');
+      const forged = (out.match(/^    owner: "Q40（伪造归属）"$/gm) ?? []).length;
+      if (n === 0 || forged !== n)
+        throw new Error(`变异未生效：M21 全形洗白未构造成功（条目=${n} 伪造归属=${forged}）`);
+      return out;
     },
   },
   // ——— 第八轮（验席挖出的两处校验器小口，2026-11-01）：日期真值 + 参数 fail-loud ———

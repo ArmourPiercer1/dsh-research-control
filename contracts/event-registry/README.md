@@ -51,6 +51,7 @@ EA-6.1 的 `approved[]` 形状只有 `{approvedBy, approvedOn, anchor}` 三个�
 | 新增/删除机制名、改 `owner`/`class`/`writeSites`/`gated_by` | **语义行变更**：与写点代码**必须分居两个提交**（R4 `EVENT_RECON_COUPLING`）；新增名还需批准记录先落（独立提交 + trailer） |
 | `planned: true → false` 翻转（代码落地） | R4 **豁免**，可与写点同 PR，但仍建议独立提交便于评审 |
 | `approved[]` 追加 | R4 **豁免**，但必须独立于写点提交（EA-2.4 步骤 3），且提交信息带 `Event-Name-Review:` trailer |
+| `planned:true` 条目 | 必须带 `contractRef: "<仓内路径>#<gate-id>"`：路径须存在（只查存在性，不解析正文——recon 不得有第二个读取源），gate-id 须与 `gated_by` 一致且 ∈ 闭集 |
 | 注释/排序/格式化 | 豁免（**按解析后的 JSON 判定**：`sha^` 与 `sha` 两份文档逐 entry 深度相等即视为纯格式变化） |
 
 > R4 的判定**不按 diff 行文子串**（把名单压成单行 JSON 就能让整段豁免——那是已修掉的绕过形）：

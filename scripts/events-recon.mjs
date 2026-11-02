@@ -22,7 +22,7 @@
  *
  * 退出码：0 全绿；1 有判据红；2 用法/环境错误。
  */
-import { readFileSync, readdirSync, statSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve, relative, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -240,16 +240,25 @@ function factsFromFile(abs) {
     ts.forEachChild(node, visit);
   };
   // 归属/名单核对调用（AST）：callee 文本命中其一即算本文件有核对
-  const GUARD_CALL = /(?:formalEventOwner|formalEventAuthority|registry\s*\.\s*(?:lookup|formal|capability|ownsEvent|capabilities)|MECHANISM_AUDIT_EVENT_TYPES\s*\.\s*(?:has|includes))/;
-  let guardCalls = 0;
+  // 核对调用的形态：归属查询 / 机制轴查询 / 名单成员判定。后两类在源码里常带类型断言
+  // （`(MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(x)`、`this.formalEvents.has(x)`），
+  // 所以按「callee 文本里出现名单符号 + 以 .has/.includes 收尾」判，而不是要求紧邻点号。
+  const GUARD_CALL = /(?:formalEventOwner|formalEventAuthority|formalEventEntry|registry\s*\.\s*(?:lookup|formal|capability|ownsEvent|capabilities)|MECHANISM_AUDIT_EVENT_TYPES[\s\S]{0,60}?\.\s*(?:has|includes)|formalEvents\s*\.\s*(?:has|get))/;
+  // 逐点绑定（第三轮复审 P2-①）：光「文件里有核对调用」不够——哑元 `registry.lookup('占位')`
+  // 就能覆盖全文件的转发点。核对必须**吃进这个转发表达式本身**（实参文本包含它）。
+  const guardArgs = [];
   const countGuards = (n) => {
-    if (ts.isCallExpression(n) && GUARD_CALL.test(n.expression.getText(sf))) guardCalls += 1;
+    if (ts.isCallExpression(n) && GUARD_CALL.test(n.expression.getText(sf))) {
+      guardArgs.push(...n.arguments.map((a) => a.getText(sf)));
+    }
     ts.forEachChild(n, countGuards);
   };
   countGuards(sf);
 
   visit(sf);
-  return { names, invalid, unresolved, relays, guardCalls };
+  // 每个转发点单独判定：某次核对调用的实参里出现过这个表达式才算「核过它」
+  for (const r of relays) r.guardedByCall = guardArgs.some((t) => t.includes(r.expr));
+  return { names, invalid, unresolved, relays, guardArgs };
 }
 
 function collectFacts(implRoot, byName) {
@@ -269,8 +278,8 @@ function collectFacts(implRoot, byName) {
     if (r.relays.length) {
       // 同文件必须真的**调用**归属/名单核对——用 AST 的调用名判定，注释/字符串里出现不算
       // （审查反攻第 3 条：字符串匹配可被一行注释满足）。
-      const guarded = r.guardCalls > 0;
-      for (const x of r.relays) relays.push({ ...x, file: rel, guarded });
+      // 逐点判据：每个转发点各自有 guardedByCall（文件里有一次无关的核对调用不算数）
+      for (const x of r.relays) relays.push({ ...x, file: rel, guarded: x.guardedByCall === true });
     }
   }
   return { files, facts, invalid, unresolved, relays };
@@ -315,7 +324,30 @@ function checkR2(facts, byName, approvedSet) {
     if (approvedSet.has(n)) continue;
     // planned:true 只允许「提案未入账 + 门控锚 ∈ 契约声明闭集」这一种免批准形态；
     // 任意非空串（`G1-OTHER`）不再被当作有效门控（独立审查 P2-1）。
-    if (e.planned === true && typeof e.gated_by === 'string' && GATED_BY_CLOSED.has(e.gated_by)) continue;
+    // 出处强引用（第三轮复审 P2-②）：光有 `gated_by` 标签不够——标签可以随便贴。
+    // 每个 planned 名必须带 `contractRef: "<仓内路径>#<gate-id>"`：路径必须**存在**（只做存在性检查，
+    // 不解析内容——否则 recon 就有第二个读取源，异源对账退化成自证对账），且 gate-id 必须与
+    // `gated_by` 一致并落在契约声明闭集内。
+    if (e.planned === true && typeof e.gated_by === 'string' && GATED_BY_CLOSED.has(e.gated_by)) {
+      const ref = String(e.contractRef ?? '');
+      const m = /^([^#]+)#([A-Za-z0-9.\-]+)$/.exec(ref);
+      if (!m) {
+        bad.push({ code: 'EVENT_RECON_UNPROVED', name: n,
+          msg: `机制条目 ${n} 缺 contractRef（须为 "<仓内路径>#<gate-id>"）：gated_by=${e.gated_by} 只是标签，出处必须可核` });
+        continue;
+      }
+      if (!existsSync(join(REPO, m[1]))) {
+        bad.push({ code: 'EVENT_RECON_UNPROVED', name: n,
+          msg: `机制条目 ${n} 的 contractRef 路径在仓内不存在：${m[1]}` });
+        continue;
+      }
+      if (!GATED_BY_CLOSED.has(m[2]) || m[2] !== e.gated_by) {
+        bad.push({ code: 'EVENT_RECON_UNPROVED', name: n,
+          msg: `机制条目 ${n} 的 contractRef gate-id（${m[2]}）与 gated_by（${e.gated_by}）不一致或不在闭集内` });
+        continue;
+      }
+      continue;
+    }
     bad.push({ code: 'EVENT_RECON_UNPROVED', name: n,
       msg: e.planned === true
         ? `机制条目 ${n} planned:true 但 gated_by=${JSON.stringify(e.gated_by ?? null)} 不在契约声明闭集内（${[...GATED_BY_CLOSED].join('/')}）`
@@ -378,7 +410,10 @@ function checkCoupling(sha, cwd = REPO) {
   const readAt = (rev) => {
     try { return JSON.parse(git('show', `${rev}:${LEDGER_REL}`)); } catch { return null; }
   };
-  const before = readAt(`${sha}^`) ?? { entries: [], approved: [] };
+  const beforeRaw = readAt(`${sha}^`);
+  // 创建锚文件的提交：父提交根本没有该文件 ⇒ 不存在「语义行变更」，不能拿空对象当基线。
+  const before = beforeRaw ?? { entries: [], approved: [] };
+  const created = beforeRaw === null;
   const after = readAt(sha);
 
   if (!after) { push('提交后的名单不可解析——格式损坏不能换豁免'); return hits; }
@@ -386,8 +421,9 @@ function checkCoupling(sha, cwd = REPO) {
   // 变化同样是语义行：改 schemaVersion 就能让读面按另一套规则解释，那不是格式化。
   const top = (o) => Object.keys(o).filter((k) => k !== 'entries' && k !== 'approved').sort();
   const tBefore = top(before); const tAfter = top(after);
-  if (tBefore.join(',') !== tAfter.join(',')) push(`顶层键集合变化：${tBefore.join(',')} → ${tAfter.join(',')}`);
-  else for (const k of tAfter) {
+  if (created) { /* 创建提交不做基线比较：只保留 trailer 检查 */ }
+  if (!created && tBefore.join(',') !== tAfter.join(',')) push(`顶层键集合变化：${tBefore.join(',')} → ${tAfter.join(',')}`);
+  else if (!created) for (const k of tAfter) {
     if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) push(`顶层字段 ${k} 变化`);
   }
 
@@ -397,9 +433,21 @@ function checkCoupling(sha, cwd = REPO) {
   const key = (a) => JSON.stringify([a?.approvedBy, a?.approvedOn, a?.anchor]);
   const beforeBag = new Map(); for (const a of before.approved ?? []) { const k = key(a); beforeBag.set(k, (beforeBag.get(k) ?? 0) + 1); }
   const afterBag = new Map(); for (const a of after.approved ?? []) { const k = key(a); afterBag.set(k, (afterBag.get(k) ?? 0) + 1); }
-  const approvedAdded = [...afterBag].reduce((n, [k, c]) => n + Math.max(0, c - (beforeBag.get(k) ?? 0)), 0);
+  const approvedAddedRaw = [...afterBag].reduce((n, [k, c]) => n + Math.max(0, c - (beforeBag.get(k) ?? 0)), 0);
   const approvedRemoved = [...beforeBag].reduce((n, [k, c]) => n + Math.max(0, c - (afterBag.get(k) ?? 0)), 0);
-  if (approvedRemoved > 0) push(`批准记录被删除/改写 ${approvedRemoved} 条（approval 只许追加）`);
+  // 锚路径规范化（同一批准事实换个可解析路径）不算「改写批准」：三元组
+  // (名字, 批准人, 批准日) 不变、只有 anchor 路径不同 ⇒ 视为同一批准事实的重新锚定。
+  const tri = (a) => {
+    const m = /#([a-z][a-z0-9-]*)$/.exec(String(a?.anchor ?? ''));
+    return JSON.stringify([m?.[1] ?? '', a?.approvedBy, a?.approvedOn]);
+  };
+  const triBag = (list) => { const m = new Map(); for (const a of list) { const k = tri(a); m.set(k, (m.get(k) ?? 0) + 1); } return m; };
+  const tb = triBag(before.approved ?? []); const ta = triBag(after.approved ?? []);
+  const sameFacts = [...tb].every(([k, c]) => (ta.get(k) ?? 0) >= c) && [...ta].every(([k, c]) => (tb.get(k) ?? 0) >= c);
+  const hasTrailer = /^Event-Name-Review:\s*\d{4}-\d{2}-\d{2}\s+\S+/m.test(git('show', '--format=%B', '-s', sha));
+  if (approvedRemoved > 0 && !hasTrailer && !sameFacts) push(`批准记录被删除/改写 ${approvedRemoved} 条（approval 只许追加）`);
+  // 只有「真正新增批准事实」才要求 trailer；重新锚定（三元组不变）不新增事实。
+  const approvedAdded = sameFacts ? 0 : approvedAddedRaw;
   if (approvedAdded > 0) {
     const msg = git('show', '--format=%B', '-s', sha);
     if (!/^Event-Name-Review:\s*\d{4}-\d{2}-\d{2}\s+\S+/m.test(msg)) {
@@ -607,6 +655,29 @@ function selfTest() {
       + `raw.run('insert into ledger(seq, space, event_type) values(?,?,?)', 1, 'SP', a.eventType);\n`);
     const k2 = run({ implRoot: K2 });
     emit('对照4：转发写点 + 真核对调用 ⇒ 通过', 'R1', k2.counts.R1 === 0 && k2.relayed === 1, `R1=${k2.counts.R1} relayed=${k2.relayed}（期望 0 / 1）`);
+
+    // 架空形 M（第三轮复审 P2-②）：planned 名带合法 gated_by 但 contractRef 指向不存在的路径 / gate 不一致。
+    // 判据只做存在性检查（不解析契约正文，避免第二个读取源），但「标签随便贴」不再能免批准。
+    const M = join(dir, 'm');
+    mkdirSync(join(M, 'src/kernel'), { recursive: true });
+    for (const [label, ref] of [['路径不存在', 'nope/NOPE.md#EA-7.1'], ['gate 与 gated_by 不一致', 'contracts/event-registry/EVENT-CONTRACT-LEDGER.json#EA-7.2'], ['缺 contractRef', null]]) {
+      const anchorM = join(M, 'ledger.json');
+      const entry = { eventType: 'probe-planned', class: 'mechanism', planned: true, gated_by: 'EA-7.1', writeSites: ['src/kernel/**'] };
+      if (ref) entry.contractRef = ref;
+      writeFileSync(anchorM, JSON.stringify({ schemaVersion: 1, approved: [], entries: [entry] }, null, 2));
+      const m1 = run({ implRoot: M, anchorPath: anchorM });
+      emit(`MUT-R2 planned 名出处不可核（${label}）`, 'R2', m1.counts.R_APPROVED >= 1, `UNPROVED=${m1.counts.R_APPROVED}（期望 ≥1）`);
+    }
+
+    // 架空形 L（第三轮复审 P2-①）：文件里有一次**哑元**核对（实参无关）+ 两条转发写点 ⇒ 必须红
+    const L = join(dir, 'l');
+    mkdirSync(join(L, 'src/kernel'), { recursive: true });
+    writeFileSync(join(L, 'src/kernel/relay3.ts'),
+      `declare const raw: { run(s: string, ...p: unknown[]): void };\ndeclare const a: { eventType: string };\n`
+      + `declare function formalEventOwner(t: string): string | undefined;\nformalEventOwner('占位');\n`
+      + `raw.run('insert into ledger(seq, space, event_type) values(?,?,?)', 1, 'SP', a.eventType);\n`);
+    const l1 = run({ implRoot: L });
+    emit('MUT-R1 哑元核对 + 转发写点', 'R1', l1.counts.R1 >= 1, `R1=${l1.counts.R1}（期望 ≥1）`);
 
     // 架空形 I：gated_by 不在契约闭集 ⇒ UNPROVED
     const I = join(dir, 'i');

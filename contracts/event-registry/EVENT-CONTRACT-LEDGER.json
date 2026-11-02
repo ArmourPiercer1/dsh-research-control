@@ -150,7 +150,8 @@
         "src/storage-sqlite/**"
       ],
       "planned": true,
-      "gated_by": "EA-1.2.3"
+      "gated_by": "EA-1.2.3",
+      "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md#EA-1.2.3"
     },
     {
       "eventType": "integrity-audit-recorded",
@@ -162,7 +163,8 @@
         "src/storage-sqlite/**"
       ],
       "planned": true,
-      "gated_by": "EA-7.1"
+      "gated_by": "EA-7.1",
+      "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md#EA-7.1"
     },
     {
       "eventType": "read-shadow-recorded",
@@ -174,7 +176,8 @@
         "src/storage-sqlite/**"
       ],
       "planned": true,
-      "gated_by": "EA-7.2"
+      "gated_by": "EA-7.2",
+      "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md#EA-7.2"
     },
     {
       "eventType": "ns-relocated",
@@ -186,7 +189,8 @@
         "src/storage-sqlite/**"
       ],
       "planned": true,
-      "gated_by": "G1-NS-01"
+      "gated_by": "G1-NS-01",
+      "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.md#G1-NS-01"
     },
     {
       "eventType": "facet-mounted",
@@ -198,7 +202,8 @@
         "src/storage-sqlite/**"
       ],
       "planned": true,
-      "gated_by": "G1-FACET-01"
+      "gated_by": "G1-FACET-01",
+      "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET-MOUNT.md#G1-FACET-01"
     },
     {
       "eventType": "facet-unlinked",
@@ -210,7 +215,8 @@
         "src/storage-sqlite/**"
       ],
       "planned": true,
-      "gated_by": "G1-FACET-01"
+      "gated_by": "G1-FACET-01",
+      "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET-MOUNT.md#G1-FACET-01"
     }
   ]
 }

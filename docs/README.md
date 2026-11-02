@@ -133,6 +133,10 @@
 | `experiments/v3-code-architecture-poc/g1/G1-REMAINING-USER-DECISIONS.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G1-UNIFIED-CONTRACTS.md` | Unranked |
 | `experiments/v3-code-architecture-poc/g1/G2-DEV-PLAN.md` | Unranked |
+| `experiments/v3-code-architecture-poc/reuse/E0-HOST-CAPABILITIES.md` | Unranked |
+| `experiments/v3-code-architecture-poc/reuse/E0-OVERLAP-MAP.md` | Unranked |
+| `experiments/v3-code-architecture-poc/reuse/E0-VERDICT.md` | Unranked |
+| `experiments/v3-code-architecture-poc/reuse/e0/README.md` | Unranked |
 | `experiments/v3-necessity-probe/BOUNDARY-REUSE.md` | Unranked |
 | `experiments/v3-necessity-probe/CLAIMS.md` | Unranked |
 | `experiments/v3-necessity-probe/PROTOCOL.md` | Unranked |

@@ -1,5 +1,7 @@
 # G2 正式开发计划 —— 按契约依赖排出的可执行顺序（不是愿望清单）
 
+> **2026-11-03 现行审计收口**：本计划新增 §0bis，两项有界 PoC（P-NS/P-EXT）与一次可信部署范围核对（T-SEC）；**PR-8 改为条件性实施**。下文尚将 PR-8 作为必经项的旧排期与对抗性侧信道验收，均须按 §0bis 和对应 PR 卡的新注释解释。**本文件不是 G1 冻结或 G2 乙类开工许可，不修改五类对象与 H/S/R 顶层语义。**
+
 > **性质**：G1 阶段 3 交付物 6。**本计划不是开工许可**：G2 的进入条件 = `g1-checklist-validate.mjs
 > --require-clear` exit 0 **+ 用户授权**（`G1-ADJUDICATION-TABLE.md §4.2` 项 3）。第七轮裁定现行口径：
 > **G0-R 限定范围 PASS；G1 立即冻结 = NO-GO；G2 = NO-GO；PR #48 不合并**（`G0-R-CLOSURE.md:14-18`，
@@ -51,6 +53,39 @@
 
 ---
 
+## 0bis. G2 前置架构必要性审计的最后收口（2026-11-03，现行）
+
+**固定范围**：独立 Mechanism Kernel、稳定 Capability 与具名 Domain Command Ports、五类对象/H/S/R、历史精确引用和正常 ResearchSpace 隔离均保留。首版用户与同进程 Plugin 可信，不以主动窥探其他 Space 的对抗性租户/恶意 Plugin 为威胁主体；Agent 登记时机、恢复上下文和 L1 编排归 Harness，不进入服务侧实现。
+
+**当前事实**：PR #49 `b2dd09f` 中的 G1 清单 27 项 = A 层 20/20 done、B 层 7/7 open 且有归属；仓内报告 `--self-test` 31/31 与 `--require-clear` exit 0。**机验绿 ≠ 非作者独立复核、G1 已冻结或 G2 已获授权**。本节工作均属甲类实验/文书，仅修改 `experiments/**` 或 G1 契约文档，不落生产 `src/**`、`tests/**`、`schema/**` 或 DDL。P-NS 与 P-EXT 可并行，T-SEC 可与二者及 PR-0/PR-1 并行（同文件互斥）。
+
+### P-NS：稳定物理命名空间 vs 通用重定位（必须执行一次，直接分支）
+
+- **对照**：H0 = `CapabilityID` 稳定、持久 `storage_ns` 与 Plugin 包名分离，允许更换实现和重启式离线 Schema 迁移；H1 = 当前 RL/PR-8 物理位置迁移。不能以“现有 PoC 代码没有 H0”代替对 H0 的验证。
+- **最小真实测试**：在临时 SQLite 的两个 Space 中，① 同 CapabilityID 更换 PluginID 后旧 ObjectID/RevisionRef、旧事件与检查报告按原版本可读；② 只升级一个 Space，另一空间仍可运行；③ 不改变持久 ns/owner，缺旧解释器时 fail-loud 而非重解释；④ 离线 Schema 升级的注入崩溃全回滚，重启后可恢复；⑤ Facet/跨能力的精确引用在拆包后不漂移（合成挂载即可，勿要求先开发 PR-7）。记录前后快照及一个真正打破相应保证的负例。
+- **判定**：五项全部通过且 Kernel 未引入领域特殊分支 = `PASS_STABLE_NS`；只有提供无法通过合理离线迁移、正确的 PluginID/ns 解耦或普通兼容适配消除的**Q44/Q45/历史不变量**最小反例，才可记 `RELOCATION_REQUIRED`。普通脚手架故障和运行失败只能记 `INCONCLUSIVE`，一次修复夹具重试后仍不定就停在证据不足，不自动选择复杂方案。
+- **自动结果**：`PASS_STABLE_NS` ⇒ PR-8/W8 **DEFERRED，不再是首版依赖**；`ns-relocated` 保持 planned 且不要求批准；PR-5/PR-7 实现稳定 ns、启动版本/历史验证与可回滚重启式迁移，PR-10 不再验物理重定位。必须在 G1 冻结前同步 RL/EA/UNIFIED、事件名表、验收矩阵与 PR 卡中的**机制条款适用范围**，不以低位计划暗中废止高位合同。`RELOCATION_REQUIRED` ⇒ PR-8 保持原卡全部验收，事件名按现有逐名 `Approved-By` 程序办理。两支都**不需要每次 PoC 后再询问用户**。
+- **固定产物**：`preflight/ns/{run.mjs,VERDICT.md}`（位于 `experiments/v3-code-architecture-poc/`）；命令 `node experiments/v3-code-architecture-poc/preflight/ns/run.mjs` 约定 `exit 0` = PASS、`exit 10` = 有效必要性反例、`exit 2` = 无效/未定；报告保留输入 SHA、完整输出与证据锚，不得将失败的脚手架包装为技术否证。
+
+### P-EXT：独立 Kernel 扩展缝核对（已有证据能覆盖则直接关闭）
+
+- **问题**：在实验侧加入一个新的合成领域 Capability（版本化公开 Port/具名命令、独立校验贡献、精确引用），能否不修改 Kernel 私有实现、其他领域私有代码或 DSH Adapter，仍完成合法装配、同 Space 原子提交与版本化报告？该实验**不重开 H/S/R、不建立第六类生产对象**。
+- **判定**：优先逐项引用现有 G0/Q44 的真测试 ID，确有证据则记 `PASS_EXTENSION_SEAM`、不重跑；仅在证据欠缺时增加一个合成插件、一个正例、一个非法越权/版本负例。若发现可重现的真实 Kernel 机制缝缺失，记 `EXTENSION_SEAM_GAP`，将**最小通用 Port/装配修复**落入已有 PR-2/PR-5/PR-6，不把领域规则塞进 Kernel。无效实验最多一次修夹具重试。
+- **产物**：`preflight/ext/VERDICT.md`；若现有证据不足再建 `preflight/ext/run.mjs`，其退出码 0/10/2 分别为通过/有效机制缺口/无效。若属于无法不修改上层语义的实质冲突，只停止该依赖实现并列明反例，禁止本轮自行改顶层语义。
+
+### T-SEC：可信部署边界收口（非 PoC，不再做安全攻防实验）
+
+- **分类核对**：在 `g1/G1-TRUSTED-PROFILE-DELTA.md` 中逐项对账 SP-07、RPT-09/10、SCR-54、G1-READ-02、D1-c/d、PR-3/PR-9 的对抗性要求：正常授权/Space 隔离/数据不越界/不得将 WITHHELD 或 UNKNOWN 变成科学断言，**必须保留**；响应恒时、恶意枚举下的字节逐等、隐含计数侧信道穷尽证明，作为未来敌对部署 Profile 的可选加固，**不作可信首版的单独放行门**。
+- **不得假装改动不存在**：若旧高位契约明文把加固作为绝对 MUST，按现有契约修订程序做**最小适用范围对账**（只修安全部署适用域，不改五类对象、H/S/R 结构或历史语义），并同步 PR-3/PR-9 的验收项；不准仅删红测试。`G1-READ-02` 保留普通越权拒绝与检查报告完整性判据。
+- **完成条件**：每一处保留/降级都有原条款、用户可信部署裁决依据、实施 Profile 与相应正反例；明确谁负责正式科研采纳授权。无需重复向用户询问相同威胁模型。
+
+### 固定收尾门禁：不再反复讨论
+
+1. 两个实验各交一份有效判定或标明唯一不可判定原因；T-SEC 只交一份影响清单；与原计划的**非作者 G1 冻结复核**合成一次结项报告，不因普通测试红灯增开语义研讨轮次。
+2. 依据 P-NS 的有效结论选择**唯一** PR-8 路径，并完成必要的高位机制合同/计划同步；复核 20 条 A 的权威依据、7 条 B 的交付归属，再复跑 `--self-test`、`--require-clear`。两者 exit 0 只是**申请**冻结的判据。
+3. G1 冻结和 G2 乙类开工仍必须取得原定用户授权；技术 PoC PASS/FAIL 可由本计划自动分流，不代表自动取得冻结或上线许可。事件名审批只针对实际要消费的名字逐名办理。
+
+---
 ## 1. 依赖图（文本表；`←` = 被依赖，行内给依赖的具体理由与条款锚）
 
 | # | 工作块 | 依赖前序 | 为什么不能换序（条款锚） | 冻结面变更？ |
@@ -152,7 +187,7 @@ pnpm run docs:check                                                             
 | 5 | `facet-mounted` | `G1-CONTRACT-FACET.md` FM-9（挂载登记入账） | `planned`（FM-9 三态） | **PR-7** | PR-7 进入门禁 | 挂载 Port 装配红（`ACTIVATION_IMPOSSIBLE`，FM-7） |
 | 6 | `facet-unlinked` | `G1-CONTRACT-FACET.md` FM-9（解链登记入账） | `planned`（FM-9 三态） | **PR-7** | PR-7 进入门禁 | 同上 |
 
-**分布合计：6 个 = PR-2 两名 + PR-7 两名 + PR-8 一名 + PR-10 一名。**
+**原提案合计 6 名，不等于无条件待批准 6 名：PR-8 的 `ns-relocated` 仅在 P-NS=`RELOCATION_REQUIRED` 时审批；P-NS=`PASS_STABLE_NS` 时该名保持 planned、首版不消费。** 其余名仍按原卡逐名批准。
 （前四名 = `EA-2.4` 的 `PLANNED-PENDING` 族；后两名 = `FM-9` 的 `planned` 族。两态词汇不互推，
 入账时的字段名以各自契约为准，但**批准面同一套三要素**，见下。）
 
@@ -298,6 +333,8 @@ pnpm run docs:check                                                             
   如动 `schema/**` 则同提交 `pnpm run snapshot:update`。
 
 ### PR-3 `identity: ObjectID 文法去空间 + SpaceContext 强制 + 存在性呈现 + 保留前缀全集`
+
+> **2026-11-03 适用范围**：§0bis T-SEC 结束后，仅以首版可信部署的正常权限、引用可见性和检查完整性作为强制门；对抗性枚举/恒时/无差别逐字节同形不作为独立发布阻塞。若高位合同冲突，先通过甲类契约范围对账，禁止直接跳过既有测试。
 
 - **范围**：正式面标识字符串不编码空间名/路由事实（`D1-a`）；`SpaceContext`/`ReadContext` 必填（`D1-b`，#44 L147）；
   `refuse` vs `withhold` 正面裁定落码（`G1-READ-02` / E-01），含既有四码 + PR-2 新 detail 形状**逐码复核**
@@ -465,6 +502,8 @@ pnpm run docs:check                                                             
 
 ### PR-8 `ns: 物理重定位 + 恢复条件 + 打开期漂移检测与修复流（D-31 历史面）`
 
+> **2026-11-03 条件门**：只有 P-NS=`RELOCATION_REQUIRED` 才需要本 PR；P-NS=`PASS_STABLE_NS` 则为 **DEFERRED（不在 G2 必经图中）**，其下全部 RL 机制留作未来运维设计，不是首版退出门禁；`ns-relocated` 仍未批准且不可预先入账。技术结果自动选支，无需再询问产品级取舍。
+
 - **范围**：`namespace_relocation` 账（append-only + `RELOCATION_LEDGER_FROZEN`）；`ns-relocated` 名入账
   （`planned:false`，`gated_by` 撤销；R-5：RL-2.2 只是**提案文书**，入账 = 人工 `Approved-By` + trailer 三要素，
   见进入门禁）；`RelocationPorts` 七成员（运维面，插件面零增删）；`RL-4` **12 门**（R-4 正式入集：precheck
@@ -498,6 +537,8 @@ pnpm run docs:check                                                             
 
 ### PR-9 `host: 真实 DSH Adapter 最小装配冒烟 + 只读工具四硬约束`
 
+> **2026-11-03 适用范围**：主体真实绑定、正常跨 Space 权限、无权不泄漏内容、查询/报告不虚称完整仍是强制；本卡下文“**两世界同形探针**”仅在对抗性部署 Profile 强制。可信首版不要求恒时与全字节同形，但必须保留正常越权拒绝回归。
+
 - **范围**：最小身份 / 权限 / Capability 装配冒烟（**从 G4 提前到 G2**，`§2-G2 收窄②`）；工具读实现
   **复用空间内同一判据函数**（`D6-b`，禁复制逻辑）；新只读工具四条硬约束（必携 SpaceContext / echo 键集不含
   隐藏计数与被屏蔽 detail / 报告可见性从被检对象派生 / 跨空间只读面不返回 per-space 计数）；
@@ -520,6 +561,8 @@ pnpm run docs:check                                                             
   自 PR-5 起在阶段门，漏跑当场红，但**排期面不许依赖兜底**）。
 
 ### PR-10 `slice: 纵向功能切片 + 迁移工务（G2 收尾判据）`
+
+> **2026-11-03 条件分支**：若 P-NS=`PASS_STABLE_NS`，下文“PR-0..PR-9 全绿”仅指**实际启用 PR**（不含 DEFERRED 的 PR-8）；完整切片验证稳定 ns 下的实现替换、重启升级和历史读回，不需要 `ns-relocated`/`namespace_relocation`。若 P-NS=`RELOCATION_REQUIRED`，照旧执行 PR-8/RL 全套验收。PR-6b、PR-11 的原有强制依赖不变。
 
 > **★ 定位改写（专题⑤，2026-11-01 架构裁决 P2-①；下面的范围/门禁原文一律保留）**：本 PR 由
 > 「**第一条**端到端纵向切片」改为「**完整纵向验收**」——第一条切片已提前到 **PR-6b**（见该卡片）。
@@ -605,6 +648,8 @@ pnpm run docs:check                                                             
 ---
 
 ## 3. 并行范围与互斥点
+
+> **2026-11-03 统一解释**：下文所有把 PR-8 写成必经的依赖线都以 P-NS=`RELOCATION_REQUIRED` 为条件；另一分支不建 PR-8，也不把它计作失败或遗漏。PR-5/PR-7 的常规版本、挂载和历史保护仍必须通过。
 
 ### 3.1 可并行（且为什么可以）
 
@@ -758,9 +803,9 @@ pnpm run test:e2e:v2:bootstrap && pnpm run test:e2e:v2   # 现行 V2 验收入�
 
 | 阶段界 | 命令 | 期望退出码 |
 | --- | --- | --- |
-| **G1 申请冻结（唯一的放行命令）** | `node …/g1-checklist-validate.mjs --self-test` 然后 `… --require-clear` | **0 然后 0**（当前实测 0 与 **1** ⇒ NO-GO）。**★ 终局门按《G1-FREEZE-CRITERIA.md》两层口径判定：A 层必须全闭、B 层必须有归属；命令面与退出码语义不变** |
+| **G1 申请冻结（唯一的放行命令）** | `node …/g1-checklist-validate.mjs --self-test` 然后 `… --require-clear` | **0 然后 0**（`b2dd09f` 仓内记录 0 与 0；**仍待非作者复核、§0bis 范围对账及用户冻结授权**，不可据此称 G1 已冻结）。**★ 终局门按《G1-FREEZE-CRITERIA.md》两层口径判定：A 层必须全闭、B 层必须有归属；命令面与退出码语义不变** |
 | G1 冻结批准 | 人工：非作者审查者具名结论 + 用户授权（`--require-clear` 的 `supersession_review` 字符串**不代替**证据） | — |
-| **G2 进入** | 上一行完成 + 用户批准工程基线（分支 / PR / train pin） | — |
+| **G2 进入** | 上一行完成 + §0bis P-NS/P-EXT 有效判定及 T-SEC 完成、必要高位机制合同同步 + 用户批准工程基线（分支 / PR / train pin） | — |
 | 每个 PR（含 PR-0） | §2 的「通用退出门禁」五条命令 | 各 0 |
 | PR-5 起 | `pnpm run build` / `pnpm run check:freshness` / `pnpm run pack:verify` | 各 0 |
 | **PR-6b（首条端到端切片，专题⑤插入）** | PR-6b 卡片的进入/退出门禁命令组（含 `npx vitest run tests/vertical-slice-min.test.ts` 与「切片测试常驻 `tests/**`」判据） | 各 0 |

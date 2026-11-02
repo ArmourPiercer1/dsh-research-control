@@ -29,3 +29,25 @@
 
 - 新增条目必须附**起点复现证据**（命令 + 输出），否则视为本轮引入的红灯，不许登记。
 - 条目被修复后不删除本条，改标注「已修复 + 修复提交」。
+
+## R-2 — `--commit` 在非默认工作树下的可疑静默放行（**未闭合，待查**）
+
+登记时间：2026-11-04（G2 第 24 轮）。发现场景：复核席要求为「改锚残余③④」补常驻架空间，
+我在临时仓（`git init` 的全新目录）里构造应判红的提交，`checkCoupling(head, tempRoot)` 返回
+**0 条命中**——连本应报的 `EVENT_RECON_COUPLING` 也没有。
+
+已排除：`checkCoupling(sha, cwd)` 内部 `git()` 确实绑定了传入的 `cwd`（`execFileSync` 的 `cwd`），
+临时仓里 ledger 路径与写点路径都在 `files` 列表内。
+
+未排除的可能：
+- `readAt(`${sha}^`)` 在临时仓里返回 null（父提交/路径解析差异）⇒ 走「创建提交」分支跳过全部比较；
+- `verifyApprovals` 依赖 `REPO` 模块级常量，与 `cwd` 不一致导致前置条件不同；
+- 其他早退路径。
+
+**影响判断**：生产根（`cwd === REPO`）的逐提交门禁实测 4/4 有判别力，故**当前不认为生产路径漏检**；
+但「传别的 `cwd` 就静默放行」本身就是一种可被将来的调用方踩中的失效形态（例如未来把 PR 检查
+挂到别的 checkout 上），必须查清后才能声称 `--commit` 可靠。
+
+复现步骤（≤10 行）：建空仓 → 提交 `contracts/event-registry/EVENT-CONTRACT-LEDGER.json`
+（单条 `approved[0].anchor = docs/a.md#capability-enabled`）→ 下一提交把 anchor 改成
+`docs/mine/docs/a.md#capability-enabled` 并同时改 `src/kernel/k.ts` → 期望 `checkCoupling` ≥1，实测 0。

@@ -289,6 +289,15 @@ function collectFacts(implRoot, byName) {
 
 /** 契约块声明的 gated_by 闭集（EA §2.4 四门 + FM §9 FM-9 一门）。新增门控必须同批改这里与夹具。 */
 const GATED_BY_CLOSED = new Set(['EA-1.2.3', 'EA-7.1', 'EA-7.2', 'G1-NS-01', 'G1-FACET-01']);
+// gate-id → 契约正文路径的**静态映射**：只查「文件存在」等于让作者自证（锚自指 / 自建文件 /
+// 随便一个既有文件都能过）。出处必须是**指定的那份契约**。
+const GATE_CONTRACT = new Map([
+  ['EA-1.2.3', 'experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md'],
+  ['EA-7.1', 'experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md'],
+  ['EA-7.2', 'experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md'],
+  ['G1-NS-01', 'experiments/v3-code-architecture-poc/g1/G1-CONTRACT-RELOCATION.md'],
+  ['G1-FACET-01', 'experiments/v3-code-architecture-poc/g1/G1-CONTRACT-FACET-MOUNT.md'],
+]);
 
 function checkR1(facts, byName, scan) {
   const bad = [...facts.entries()].filter(([n]) => !byName.has(n));
@@ -334,6 +343,11 @@ function checkR2(facts, byName, approvedSet) {
       if (!m) {
         bad.push({ code: 'EVENT_RECON_UNPROVED', name: n,
           msg: `机制条目 ${n} 缺 contractRef（须为 "<仓内路径>#<gate-id>"）：gated_by=${e.gated_by} 只是标签，出处必须可核` });
+        continue;
+      }
+      if (GATE_CONTRACT.get(m[2]) !== m[1]) {
+        bad.push({ code: 'EVENT_RECON_UNPROVED', name: n,
+          msg: `机制条目 ${n} 的 contractRef 路径必须是该 gate 的指定契约 ${GATE_CONTRACT.get(m[2]) ?? '(未登记 gate)'}，实为 ${m[1]}（出处不能由作者自选）` });
         continue;
       }
       if (!existsSync(join(REPO, m[1]))) {
@@ -436,21 +450,49 @@ function checkCoupling(sha, cwd = REPO) {
   const key = (a) => JSON.stringify([a?.approvedBy, a?.approvedOn, a?.anchor]);
   const beforeBag = new Map(); for (const a of before.approved ?? []) { const k = key(a); beforeBag.set(k, (beforeBag.get(k) ?? 0) + 1); }
   const afterBag = new Map(); for (const a of after.approved ?? []) { const k = key(a); afterBag.set(k, (afterBag.get(k) ?? 0) + 1); }
-  const approvedAddedRaw = [...afterBag].reduce((n, [k, c]) => n + Math.max(0, c - (beforeBag.get(k) ?? 0)), 0);
-  const approvedRemoved = [...beforeBag].reduce((n, [k, c]) => n + Math.max(0, c - (afterBag.get(k) ?? 0)), 0);
-  // 锚路径规范化（同一批准事实换个可解析路径）不算「改写批准」：三元组
-  // (名字, 批准人, 批准日) 不变、只有 anchor 路径不同 ⇒ 视为同一批准事实的重新锚定。
   const tri = (a) => {
     const m = /#([a-z][a-z0-9-]*)$/.exec(String(a?.anchor ?? ''));
     return JSON.stringify([m?.[1] ?? '', a?.approvedBy, a?.approvedOn]);
   };
-  const triBag = (list) => { const m = new Map(); for (const a of list) { const k = tri(a); m.set(k, (m.get(k) ?? 0) + 1); } return m; };
-  const tb = triBag(before.approved ?? []); const ta = triBag(after.approved ?? []);
-  const sameFacts = [...tb].every(([k, c]) => (ta.get(k) ?? 0) >= c) && [...ta].every(([k, c]) => (tb.get(k) ?? 0) >= c);
+  const triBag2 = (list) => { const m = new Map(); for (const a of list) { const k = tri(a); m.set(k, (m.get(k) ?? 0) + 1); } return m; };
+  const tb2 = triBag2(before.approved ?? []); const ta2 = triBag2(after.approved ?? []);
+  const addedFacts = [...ta2].reduce((n, [k, c]) => n + Math.max(0, c - (tb2.get(k) ?? 0)), 0);
+  const approvedAddedRaw = [...afterBag].reduce((n, [k, c]) => n + Math.max(0, c - (beforeBag.get(k) ?? 0)), 0);
+  const approvedRemoved = [...beforeBag].reduce((n, [k, c]) => n + Math.max(0, c - (afterBag.get(k) ?? 0)), 0);
+  // 锚路径规范化（同一批准事实换个可解析路径）不算「改写批准」：三元组
+  // (名字, 批准人, 批准日) 不变、只有 anchor 路径不同 ⇒ 视为同一批准事实的重新锚定。
+
+  // 「同一批准事实换锚」只在**纯目录前缀搬迁**且新路径在父提交里已存在时才算数
+  // （`g1/…` → `experiments/…/g1/…` 正是这种搬迁）。其余改锚一律要求人工签署 trailer：
+  // 否则外部真实批准可以在一次纯名单提交里被静默换成作者自签的文书（复核终局 ②-a 的实测通道）。
+  const pathOf = (a) => { const m = /^(.+)#[a-z][a-z0-9-]*$/.exec(String(a?.anchor ?? '')); return m ? m[1] : null; };
+  const existsAtParent = (pth) => { try { git('cat-file', '-e', `${sha}^:${pth}`); return true; } catch { return false; } };
+  const legitReanchor = (oldA, newA) => {
+    const o = pathOf(oldA); const n = pathOf(newA);
+    if (o === null || n === null) return false;
+    if (n === o) return true;
+    // 旧锚根本指不到仓内文件（历史里的描述性字符串）⇒ 规范化成可核路径是合法搬迁
+    // 旧锚指不到文件时：规范化为 legacy: 白名单形式（其有效性由 verifyApprovals 另判）或仓内已存在路径
+    if (!existsAtParent(o)) return n.startsWith('legacy:') || existsAtParent(n);
+    if (!n.endsWith('/' + o)) return false;      // 其余只接受目录前缀延伸
+    return existsAtParent(n);                     // 且新锚所指文件在父提交已存在
+  };
+  const pairOk = (list) => {
+    const oldList = before.approved ?? []; const newList = after.approved ?? [];
+    const used = new Set();
+    for (const a of oldList) {
+      const hit = newList.findIndex((b2, i) => !used.has(i) && tri(a) === tri(b2) && legitReanchor(a, b2));
+      if (hit >= 0) { used.add(hit); continue; }
+      // 没有合法配对 ⇒ 该条算「被删除/改写」
+      if (!newList.some((b2) => tri(a) === tri(b2) && String(b2?.anchor) === String(a?.anchor))) return false;
+    }
+    return true;
+  };
+  const sameFacts = pairOk();
   const hasTrailer = /^Event-Name-Review:\s*\d{4}-\d{2}-\d{2}\s+\S+/m.test(git('show', '--format=%B', '-s', sha));
   if (approvedRemoved > 0 && !hasTrailer && !sameFacts) push(`批准记录被删除/改写 ${approvedRemoved} 条（approval 只许追加）`);
   // 只有「真正新增批准事实」才要求 trailer；重新锚定（三元组不变）不新增事实。
-  const approvedAdded = sameFacts ? 0 : approvedAddedRaw;
+  const approvedAdded = addedFacts;
   if (approvedAdded > 0) {
     const msg = git('show', '--format=%B', '-s', sha);
     if (!/^Event-Name-Review:\s*\d{4}-\d{2}-\d{2}\s+\S+/m.test(msg)) {
@@ -670,6 +712,33 @@ function selfTest() {
       writeFileSync(anchorM, JSON.stringify({ schemaVersion: 1, approved: [], entries: [entry] }, null, 2));
       const m1 = run({ implRoot: M, anchorPath: anchorM });
       emit(`MUT-R2 planned 名出处不可核（${label}）`, 'R2', m1.counts.R_APPROVED >= 1, `UNPROVED=${m1.counts.R_APPROVED}（期望 ≥1）`);
+    }
+
+    // 架空形 N（终局复核 ②-a）：把真实批准锚改到**作者同提交新建**的文书，无 trailer ⇒ 必须红
+    const N = join(dir, 'n');
+    mkdirSync(join(N, 'src/kernel'), { recursive: true });
+    const gN2 = (...a) => execFileSync('git', a, { cwd: N, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    gN2('init', '-q'); gN2('config', 'user.email', 't@t'); gN2('config', 'user.name', 't');
+    mkdirSync(join(N, 'docs'), { recursive: true });
+    writeFileSync(join(N, 'docs/a.md'), '# a\n\n```\nApproved-By: 2026-11-03 reviewer-b\n  x-y  —— ok\n```\n');
+    const ledgerN = join(N, LEDGER_REL); mkdirSync(join(N, 'contracts/event-registry'), { recursive: true });
+    const writeN = (anchors) => writeFileSync(join(N, 'contracts/event-registry/EVENT-CONTRACT-LEDGER.json'), JSON.stringify({ schemaVersion: 1, approved: anchors, entries: [{ eventType: 'x-y', class: 'mechanism', planned: false }] }, null, 2));
+    writeN([{ approvedBy: 'reviewer-b', approvedOn: '2026-11-03', anchor: 'docs/a.md#x-y' }]);
+    gN2('add', '.'); gN2('commit', '-qm', 'n-base');
+    writeFileSync(join(N, 'docs/mine.md'), '# mine\n\n```\nApproved-By: 2026-11-03 reviewer-b\n  x-y\n```\n');
+    writeN([{ approvedBy: 'reviewer-b', approvedOn: '2026-11-03', anchor: 'docs/mine.md#x-y' }]);
+    gN2('add', '.'); gN2('commit', '-qm', 'n-reanchor');
+    const nHead = gN2('rev-parse', 'HEAD').trim();
+    emit('MUT-R4 改锚到作者新建文书（无 trailer）', 'R4', checkCoupling(nHead, N).length >= 1, `hits=${checkCoupling(nHead, N).length}（期望 ≥1）`);
+
+    // 架空形 O（终局复核 ②-b）：contractRef 指向锚文件自身 / 无关既有文件 ⇒ 必须红
+    const O = join(dir, 'o');
+    mkdirSync(join(O, 'src/kernel'), { recursive: true });
+    for (const badRef of ['contracts/event-registry/EVENT-CONTRACT-LEDGER.json#EA-7.1', 'scripts/events-recon.mjs#EA-7.1']) {
+      const anchorO = join(O, 'ledger.json');
+      writeFileSync(anchorO, JSON.stringify({ schemaVersion: 1, approved: [], entries: [{ eventType: 'probe-planned', class: 'mechanism', planned: true, gated_by: 'EA-7.1', contractRef: badRef, writeSites: ['src/kernel/**'] }] }, null, 2));
+      const o1 = run({ implRoot: O, anchorPath: anchorO });
+      emit(`MUT-R2 contractRef 指向非指定契约（${badRef.split('/').pop()}）`, 'R2', o1.counts.R_APPROVED >= 1, `UNPROVED=${o1.counts.R_APPROVED}（期望 ≥1）`);
     }
 
     // 架空形 L（第三轮复审 P2-①）：文件里有一次**哑元**核对（实参无关）+ 两条转发写点 ⇒ 必须红

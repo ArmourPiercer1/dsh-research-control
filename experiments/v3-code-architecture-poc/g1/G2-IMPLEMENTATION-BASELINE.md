@@ -41,8 +41,10 @@ ResearchSpace 是**数据归属与授权的稳定身份**（决定哪个库、�
 **起点判定规则（取代旧的「冻结 tip」说法）**：开发起点 = 建 `g2/impl` 时钉死的字面 SHA，必须
 ① ≥ `788c6ee`（含 Bootstrap 冻结面登记）——更早的 SHA 缺 `e9e4a77`（Bootstrap Gate + 错误模型对账）、
 `5a451e6`（错误载体清理）、`6c2ec69`/`a2cf9c1`（授权与事件名批准记录）；
-② 其包含的 `g1/**` 契约文本与冻结版本 `fa3b892` **逐文件一致**（`git diff --stat fa3b892 <SHA> -- g1/` 只能有
-授权/登记类新增文件，不能有判据文本改动；有改动即说明该起点晚于冻结且改过契约，必须走冻结变更流程）。
+② 其**判据文本**与冻结版本 `fa3b892` **逐文件 sha256 相等**：判据文本 = `g1/G1-UNIFIED-CONTRACTS.md`、
+`g1/G1-CONTRACT-*.md`、`g1/G1-ERROR-MODEL-RECONCILIATION.md`、`g1/G1-TRUSTED-PROFILE-DELTA.md`；
+`g1/G2-*.md`（计划/基线/矩阵/报告）与登记类新文件允许新增或改状态行，**但不得夹带判据改写**
+（判定：`git diff --stat fa3b892 <SHA> -- 'g1/G1-UNIFIED-CONTRACTS.md' 'g1/G1-CONTRACT-*.md'` 必须为空）。
 建分支后**立刻**在 `g2/impl` 第一提交把实际 SHA 写入本表并附 `git rev-parse g2/impl~1` 的输出。
 
 **收编原则（不变）**：禁止整体合并 PoC 分支（`#48`/`#49` 不整体合并）。按三类分别收编：

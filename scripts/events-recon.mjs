@@ -288,6 +288,10 @@ function collectFacts(implRoot, byName) {
 /* ------------------------------------------------------------------ 判据 */
 
 /** 契约块声明的 gated_by 闭集（EA §2.4 四门 + FM §9 FM-9 一门）。新增门控必须同批改这里与夹具。 */
+// 判据条数下界（防「重建时判据静默丢失」）：任何人删掉/弄丢一条判据，架空间条数会掉到
+// 这个下界以下而自验变红。新增判据必须同时上调此值并新增对应架空间。
+const EXPECTED_MUTANTS = 29;
+
 const GATED_BY_CLOSED = new Set(['EA-1.2.3', 'EA-7.1', 'EA-7.2', 'G1-NS-01', 'G1-FACET-01']);
 // gate-id → 契约正文路径的**静态映射**：只查「文件存在」等于让作者自证（锚自指 / 自建文件 /
 // 随便一个既有文件都能过）。出处必须是**指定的那份契约**。
@@ -765,6 +769,11 @@ function selfTest() {
 
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  [${r.phase}] ${r.name} —— ${r.extra}`);
   const failed = results.filter((r) => !r.ok);
+  // 判据清单覆盖检查：清单里每条都必须在架空间标签中出现过，否则视为「判据静默丢失」。
+  if (results.length < EXPECTED_MUTANTS) {
+    failed.push({ name: `架空间条数 ${results.length} < 下界 ${EXPECTED_MUTANTS}`, ok: false,
+      detail: '判据疑似在重建/重构中丢失（每条判据都应有对应架空间）' });
+  }
   console.log(failed.length ? `\n自验失败：${failed.length} 条判据的架空形未被捕获` : `\n自验通过：${results.length}/${results.length} 条架空形均被对应判据捕获。`);
   return failed.length ? 1 : 0;
 }

@@ -8,8 +8,8 @@
  *  - `journal` 允许删除与压缩 ⇒ 它不是 H（#44 §7.4），缺口由 Kernel 的游标校验暴露。
  */
 import { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
-import { Refusal } from '../contracts/index';
+import { createHash, randomUUID } from 'node:crypto';
+import { MECHANISM_FROZEN_VERSION, Refusal } from '../contracts/index';
 import type { RawTx, StoragePort } from '../contracts/index';
 
 const SCHEMA = `
@@ -129,7 +129,15 @@ begin
          and json_valid(l.authority_basis)
          and json_extract(l.authority_basis, '$.axis') = 'capability-admin'
          and json_extract(l.authority_basis, '$.capability') = new.capability
-         and json_extract(l.authority_basis, '$.authorized') = 1)
+         and json_extract(l.authority_basis, '$.authorized') = 1
+         -- EA-4.5：触发器与审计面共用**同一判据**（九字段全形）。三字段旧形不再算见证：
+         -- 半形行和"没有信封"在审计侧无法区分，放它进来等于让全形闸只对读面生效。
+         and json_extract(l.authority_basis, '$.ctxId') is not null
+         and json_extract(l.authority_basis, '$.actor') = l.actor
+         and json_extract(l.authority_basis, '$.ruleSetVersion') is not null
+         and json_extract(l.authority_basis, '$.contractVersion') is not null
+         and json_extract(l.authority_basis, '$.issuedAtMs') is not null
+         and json_extract(l.authority_basis, '$.txSeq') = l.seq)
           then raise(abort, 'ROUTE_AUDIT_REQUIRED') end;
   select case
     when new.enabled <> old.enabled and not exists (
@@ -242,10 +250,17 @@ export function migrateLegacyRecords(file: string): number {
         // 这样迁移后的历史仍可被 recorded_as_of 截点看见，且不会与后续提交撞号。
         const next = (db.prepare(`select value from meta where key='ledger_seq'`).get() as { value: number }).value + 1;
         db.prepare(`update meta set value = ? where key='ledger_seq'`).run(next);
+        // EA-4.4：迁移行虽然不是"插件写"，但它是**今天新写**的机制行，同样必须带九字段信封——
+        // 否则审计复算只能把它判成半形/旧行，等于让迁移器成为"无信封行"的生产来源。
+        const envelope = JSON.stringify({
+          ctxId: randomUUID(), actor: 'migrator', capability: 'assembly', axis: 'space-write',
+          authorized: true, ruleSetVersion: MECHANISM_FROZEN_VERSION, contractVersion: MECHANISM_FROZEN_VERSION,
+          issuedAtMs: Date.now(), txSeq: next,
+        });
         db.prepare(
-          `insert into ledger(seq, space, event_type, actor, record_id, payload_json, described_at, recorded_at)
-           values(?,?,?,?,?,?,?,?)`)
-          .run(next, src.space, 'record-backfilled', 'migrator', r.record_id,
+          `insert into ledger(seq, space, event_type, actor, authority_basis, record_id, payload_json, described_at, recorded_at)
+           values(?,?,?,?,?,?,?,?,?)`)
+          .run(next, src.space, 'record-backfilled', 'migrator', envelope, r.record_id,
             JSON.stringify({ recordId: r.record_id, via: 'migrateLegacyRecords', originalSeq: r.seq, originalEventType: src.event_type }),
             null, Date.now());
         db.prepare(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`)
@@ -286,8 +301,14 @@ class Adapter implements RawTx {
  * （actor 非空 + authority_basis 的 capability-admin 信封，D-27 真修）。触发器体变了 ⇒
  * 与 v6 库**不算同一套模式**（打开路径按名比对之外现在还核 SQL 体摘要，见 REQUIRED_TRIGGERS 后）；
  * 既有旧库照旧 fail-loud，不隐式迁移。
+ *
+ * v7→v8（G2/PR-2，EA-4.5）：`route_change_guarded` 的见证核从"三字段"升为**九字段全形**
+ * （ctxId/actor/ruleSetVersion/contractVersion/issuedAtMs/txSeq 齐备，且 `txSeq = l.seq`、
+ * `actor = l.actor`）。理由：审计复算面已按九字段判定，若触发器仍收三字段行，
+ * 存储层会放行审计面必判 INCONSISTENT 的行——同一判据的两个执行面必须同形。
+ * 旧库照旧 fail-loud（不隐式迁移）；本次无表结构变化，只有触发器体变化。
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 const REQUIRED_TABLES = [
   'meta', 'ledger', 'records', 'check_report', 'object_directory', 'domain_state',
   'journal', 'capability_route', 'projection_state', 'ref_edge',

@@ -149,7 +149,7 @@
         "src/kernel/**",
         "src/storage-sqlite/**"
       ],
-      "planned": true,
+      "planned": false,
       "gated_by": "EA-1.2.3",
       "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md#EA-1.2.3"
     },
@@ -162,7 +162,7 @@
         "src/kernel/**",
         "src/storage-sqlite/**"
       ],
-      "planned": true,
+      "planned": false,
       "gated_by": "EA-7.1",
       "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md#EA-7.1"
     },
@@ -175,7 +175,7 @@
         "src/kernel/**",
         "src/storage-sqlite/**"
       ],
-      "planned": true,
+      "planned": false,
       "gated_by": "EA-7.2",
       "contractRef": "experiments/v3-code-architecture-poc/g1/G1-CONTRACT-EVENT-AUTHORITY.md#EA-7.2"
     },

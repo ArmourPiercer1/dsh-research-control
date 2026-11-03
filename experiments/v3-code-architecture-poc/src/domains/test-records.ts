@@ -33,7 +33,7 @@ import {
   Refusal,
   type CheckReportRecord,
   type CommitSequence, type ObjectKindLabel, type ObjectOid, type AnyRef,
-  type RevisionRef, type VerifiedPrincipal, type AuthorityEvidence,
+  type RevisionRef, type VerifiedPrincipal, type AuthorityEvidence, type DeclareRawIntakeCommand,
 } from '../contracts/index.ts';
 import type { Coverage, Finding } from './validation-contract.ts';
 
@@ -102,12 +102,17 @@ export class IntakePolicy {
   readonly carrierKind: ObjectKindLabel = 'test.subject';
 
   /** 原始材料登记的领域语义：解析状态是数据字段，不是对象（ID-08：不产生对象）。 */
-  rawIntakeEvent(a: { recordId: string; text: string; sourceRef: string; unparseable?: boolean }): LedgerEventDraft {
+  /**
+   * 原始登记命令（R-9）：**事件名不在这里**——`raw-record-declared` 是机制事件，
+   * 由机制内部签发；领域只决定"这次请求长什么样"（字段形状与容错语义）。
+   */
+  rawIntakeCommand(a: { recordId: string; text: string; sourceRef: string; unparseable?: boolean }): DeclareRawIntakeCommand {
     return {
-      eventType: 'synth:raw-intake',
+      command: 'test.records:declareRawIntake',
       recordId: a.recordId,
-      declaresRecord: true,
-      payload: { text: a.text, sourceRef: a.sourceRef, parseState: a.unparseable ? 'UNPARSEABLE' : 'PARSEABLE' },
+      text: a.text,
+      sourceRef: a.sourceRef,
+      ...(a.unparseable === undefined ? {} : { unparseable: a.unparseable }),
     };
   }
 

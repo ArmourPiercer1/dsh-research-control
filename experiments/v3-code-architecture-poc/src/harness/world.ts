@@ -9,6 +9,7 @@ import {
 import { TEST_OBJECT_MODEL } from '../domains/test-object-model.ts';
 import { CAP_RECORDS, FactDesignationCommandPort, FactStandingPolicy, IntakePolicy, type ValidationReportSubmission } from '../domains/test-records.ts';
 import { IntakeUseCase } from '../app/intake-use-case.ts';
+import { createRawIntakeCommandPort } from '../domains/raw-intake-port.ts';
 import { StandingUseCase } from '../app/standing-use-case.ts';
 import type { UseCaseDelegation } from '../app/delegation.ts';
 import {
@@ -111,7 +112,10 @@ export class World {
   }
 
   /** Raw Intake / Domain Admission 用例的**唯一**构造点（业务判据仍在领域，这里只接线）。 */
-  intakeUseCase(policy = new IntakePolicy()): IntakeUseCase { return new IntakeUseCase(policy, this.useCaseDelegation); }
+  intakeUseCase(policy = new IntakePolicy()): IntakeUseCase {
+    // R-9：把记录域命令 Port 交给用例（唯一具名入口）；Port 内部转调机制签发点。
+    return new IntakeUseCase(policy, this.useCaseDelegation, createRawIntakeCommandPort((env) => this.kernel.declareRawIntake(env)));
+  }
   /**
    * 派生业务视图（采纳/撤回）用例的唯一构造点。
    * D-20（包 2）：正式接纳事件的写入**只经领域命令 Port**——装配根在这里把记录域窄面交给

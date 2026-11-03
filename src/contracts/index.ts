@@ -60,15 +60,24 @@ export interface VerifiedPrincipal {
  * Kernel **自己执行**的授权资源。业务授权轴（例如某域的"接纳资格"）由领域插件自定义字符串，
  * Kernel 只按名字问授权层——写权与业务授权分轴（SP-09），因此这里不得预置任何领域资源名。
  */
-export type MechanismResource = 'space-write' | 'capability-admin';
+/**
+ * 冻结契约版本（EA-6.1 锚文件 `contracts/event-registry/EVENT-CONTRACT-LEDGER.json` 的
+ * `interpretationRuleSetVersion` 取值）。放在 contracts 是因为**三个使用者**都要它：
+ * Kernel 的机制信封、迁移器的补写行、审计复算的冻结版本集——任何一处手抄字面量都会在
+ * 版本推进时静默掉队（迁移行会先变成"复算不一致"）。
+ */
+export const MECHANISM_FROZEN_VERSION = 'g1/fa3b892';
+
+export type MechanismResource = 'space-write' | 'capability-admin' | 'facet-mount';
 export type AuthorityResource = MechanismResource | (string & {});
 /**
  * `MechanismResource` 的**运行时投影**（D-26，包 4，CONTRACTS.md §16.2）：类型联合在 JS 里不存在，
  * 而注册判据要在运行时回答「这根轴是不是机制自己的权限轴」——本数组是机制资源自述的唯一运行时正源。
- * **这不是业务知识回流**：里面只有机制自身执行的资源名（写权/管理权）；业务授权轴仍是 Kernel
- * 不解释的不透明字符串。新增机制资源时类型与本数组必须同步——漏一条由下方编译期穷尽检查变红。
+ * **这不是业务知识回流**：里面只有机制自身执行的资源名（写权/管理权/Facet 挂载权）；业务授权轴
+ * 仍是 Kernel 不解释的不透明字符串。`facet-mount` 的加入依据 = G1 契约 FM-7 / I-2（Facet 挂载
+ * 是与写权分轴的机制权限；挂载者不得借"有写权"代替"可挂载"）。新增机制资源时类型与本数组必须同步——漏一条由下方编译期穷尽检查变红。
  */
-export const MECHANISM_RESOURCES = ['space-write', 'capability-admin'] as const;
+export const MECHANISM_RESOURCES = ['space-write', 'capability-admin', 'facet-mount'] as const;
 // 穷尽检查（真判据，对**数组元素类型**做 Exclude）：本数组漏掉 `MechanismResource` 联合的
 // 任一成员 ⇒ 下一行编译红（运行时排除判据不得落后于类型联合——D-26 的判据强度取决于清单完整）。
 type _MechanismResourcesCover = Exclude<MechanismResource, typeof MECHANISM_RESOURCES[number]> extends never
@@ -91,6 +100,26 @@ export interface AuthorityEvidence {
   readonly axis: AuthorityResource;
   readonly capability: CapabilityId;
   readonly authorized: boolean;
+}
+
+/**
+ * EA-4.2 的授权上下文（`ledger.authority_basis` 的正式内容，**九字段封闭**）。
+ *
+ * 与 `AuthorityEvidence` 的关系：后者是包 3 的三字段旧形，历史行里仍然存在，读面必须照旧可解释
+ * （EA-5.2）。新写入一律写本结构——`actor` 入信封是 F-G6A-2 的修法转正（EA-4.4），
+ * `ctxId/txSeq/issuedAtMs` 把「同一授权上下文、同一取证点、同一事务」做成**可核事实**而不是声明。
+ * 列仍是 JSON 文本列 ⇒ 加字段不动 DDL、不推 `SCHEMA_VERSION`。
+ */
+export interface AuthorizationContext {
+  readonly ctxId: string;
+  readonly actor: string;
+  readonly capability: CapabilityId;
+  readonly axis: AuthorityResource;
+  readonly authorized: boolean;
+  readonly ruleSetVersion: string;
+  readonly contractVersion: string;
+  readonly issuedAtMs: number;
+  readonly txSeq: number;
 }
 
 // ---------------------------------------------------------------- 拒绝码
@@ -215,6 +244,36 @@ export interface RawTx {
 export type CapabilityId = string;
 export type PluginId = string;
 
+/**
+ * EA-3.1 归属账条目（唯一所有权）。`PluginManifest.ownsEventTypes` 就是这本账，
+ * **不另立第二本「域名账」**（C.5-2）。
+ *
+ * 装配期判据（EA-3.2 五序 + OA-1..OA-4）由 `CapabilityRegistry.register()` 执行；
+ * 本类型只表达形状。`truthSource` / `interpretationRuleSetVersion` / `contractVersion` 是
+ * 「读者钉版本」与「唯一真源」两条判据的承载位（C-03 / C-12），缺一即装配红。
+ */
+export interface EventOwnershipEntry {
+  /** 不透明字符串；Kernel 不解释业务语义（#44 §5.2 业务无知）。 */
+  readonly eventType: string;
+  /** 唯一 owner（单 Space 同一时刻唯一权威写者，Q44）。 */
+  readonly capability: CapabilityId;
+  /** 业务授权轴（不透明串）；缺失即 `ACTIVATION_IMPOSSIBLE`（EA-3.2 ③）。 */
+  readonly requiresAuthority: AuthorityResource;
+  /** C-03 唯一真源字段：领域事件不得「领域表一份、Ledger 另一份」。 */
+  readonly truthSource: 'ledger-payload' | 'ledger-referenced-store';
+  /** 读者钉的解释规则版本（C-12 SCR-74 同族）。 */
+  readonly interpretationRuleSetVersion: string;
+  /** 该事件类型的解释契约版本（C-12 SCR-03 同族）。 */
+  readonly contractVersion: string;
+  /**
+   * EA-3.4：新增领域名的 owner 批准记录（必填）。领域名走 owner 清单登记，与机制名分轨；
+   * 缺批准 = 没有"谁批准了这个名字"的可核事实，装配期必须拒（不给"先登记后补批准"留窗口）。
+   */
+  readonly approval: { readonly approvedBy: string; readonly approvedOn: string; readonly anchor: string };
+  /** 退役标记：只标不删，历史行读面不变（EA-5）；退役名不可再新写。 */
+  readonly retired?: boolean;
+}
+
 export interface PluginManifest {
   readonly pluginId: PluginId;
   /** 实现代码版本（与下面三者分属不同版本轴，#44 §11）。 */
@@ -245,11 +304,7 @@ export interface PluginManifest {
    * 权威入口落笔前用它对已验证主体取证，证据写入 ledger 见证列（`AuthorityEvidence`）——
    * 授权结论自此是机制事实，不再采信载荷自称（CONTRACTS.md §16.2 判据 ③ 与投影信任模型第 3 条）。
    */
-  readonly ownsEventTypes?: readonly {
-    readonly eventType: string;
-    readonly capability: CapabilityId;
-    readonly requiresAuthority: AuthorityResource;
-  }[];
+  readonly ownsEventTypes?: readonly EventOwnershipEntry[];
 }
 
 // ---------------------------------------------------------------- 校验贡献
@@ -271,4 +326,66 @@ export interface CheckReportRecord {
   readonly findings: readonly unknown[];
   readonly declaredGaps: readonly string[];
   readonly recordedAt: CommitSequence;
+}
+
+// ---------------------------------------------------------------------------
+// 领域命令 Port（DC-* / R-9）：**一个业务动作一个方法**，命令判别式是字面量。
+//
+// 为什么不是通用 `run(name, payload)`：判别式写成字面量后，命令名册在类型层就是封闭的；
+// 通用入口会把「哪个领域能写什么」重新变回运行期字符串比较，等于把授权面交还给调用方。
+//
+// 记录域 Raw Intake（DC-11 容错通道）：`unparseable` 是**载荷字段**，不是闸门——
+// 解析失败是数据事实，不是拒绝理由；把它做成闸门会让「无法解析的原文」永远进不了账，
+// 恰恰违背原始记录必须先落地的目的。
+// ---------------------------------------------------------------------------
+
+/** 命令 Port 的统一回执（DC-7）：机制在**入口内**签发登记序，调用方不得自行编造。 */
+export interface CommandReceipt {
+  readonly oid: ObjectOid;
+  readonly revision: number;
+  /** 该权威事件行的号（CS-2.5）。不返回信封对象——回执不是授权证据。 */
+  readonly witnessSeq: CommitSequence;
+}
+
+/**
+ * 机制内部签发点的入参（`Kernel.declareRawIntake`）。字段集与 `DeclareRawIntakeCommand` 一致，
+ * 但**不含** `command` 判别式：判别式属于应用层命令路由，机制只认数据。
+ */
+export interface RawIntakeEnvelope {
+  readonly recordId: string;
+  readonly text: string;
+  readonly sourceRef: string;
+  /** 载荷字段：原文是否可解析。缺省视为可解析；`true` 不构成拒绝理由（DC-11）。 */
+  readonly unparseable?: boolean;
+}
+
+/**
+ * Raw Intake 的回执（R-9 接口一致性澄清）：**没有** `oid` / `revision`。
+ * 原始记录不是对象面事实，伪造一个 ObjectID 会把"记录已登记"说成"对象已存在"，
+ * 后续任何以 oid 为前提的读面都会拿到一个查不到的对象。回执只说两件事：登记了哪条记录、
+ * 机制在入口内签发的登记序是多少。
+ */
+export interface RawIntakeReceipt {
+  readonly recordId: string;
+  readonly witnessSeq: CommitSequence;
+}
+
+export interface DeclareRawIntakeCommand {
+  readonly command: 'test.records:declareRawIntake';
+  readonly recordId: string;
+  readonly text: string;
+  readonly sourceRef: string;
+  /** 载荷字段：原文是否可解析。缺省视为可解析；`true` 不构成拒绝理由（DC-11）。 */
+  readonly unparseable?: boolean;
+}
+
+/**
+ * 拥有者导出、装配根注入。记录域的原始入口**只有这一个方法**（唯一入口）。
+ *
+ * 注意它**不接收 `tx`**（R-9 接口一致性澄清）：原始记录的身份、原文、来源与机制事件
+ * 必须由机制在**同一个**事务里登记，事务边界属于机制而不是调用方。若把 `tx` 透给领域，
+ * 领域就能在"记录已登记但事件未落账"的中间态里做别的事——那正是要排除的形态。
+ */
+export interface RawIntakeCommandPort {
+  declare(cmd: DeclareRawIntakeCommand): RawIntakeReceipt;
 }

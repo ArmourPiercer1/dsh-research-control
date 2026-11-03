@@ -14,13 +14,13 @@
  * | 目录 | 角色 | 允许的写面 |
  * | --- | --- | --- |
  * | `src/kernel/**`、`src/contracts/**` | 机制本身（写面的实现处与契约） | 不受本门禁扫描 |
- * | `src/app/**`（本目录） | **Application Use-case**：跨领域协调 | 同一条事务内经**对象拥有者的作用域端口**落笔；机制级 H 写入（`appendLedger`）需带 `D-19c-ALLOWED` 标记 |
+ * | `src/app/**`（本目录） | **Application Use-case**：跨领域协调 | 同一条事务内经**对象拥有者的作用域端口**落笔；H 记录声明经记录域 `RawIntakeCommandPort`（R-9），本目录**不得**出现 `appendLedger` |
  * | `src/harness/**` | **装配根**（测试世界的组合根，对应 #44 §4 `product/`）：构造 Kernel、授予委派、构造用例 | 同上（当前 0 处直接写；要加必须先在此登记理由） |
  * | `src/domains/**` | 领域插件 | **零**通用写面；只能经 `PluginFace.writerFor(tx)` 的自有端口 |
  *
  * 谁能进：只有**由装配根构造、且只被装配根注入委派**的用例类。判据不是"文件名看着像"，
  * 而是下面两条都被门禁钉住：① 本目录不得出现 `createObject/revise/linkRef/declareRecord`；
- * ② 出现 `appendLedger` 的每一行必须带 `D-19c-ALLOWED` 标记，门禁把全部命中行**列出来**
+ * ② `appendLedger` 一律禁止（R-9：H 记录声明改经记录域 `RawIntakeCommandPort` 请求机制签发）
  * 供人复核（白名单不是一条豁免，是一份要逐条签字的清单）。
  *
  * ## 为什么协调权不等于豁免权

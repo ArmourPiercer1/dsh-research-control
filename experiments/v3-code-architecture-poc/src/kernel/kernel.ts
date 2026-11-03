@@ -19,6 +19,8 @@ import {
   type ObjectKindLabel,
   type ObjectOid,
   type PluginManifest,
+  type RawIntakeEnvelope,
+  type RawIntakeReceipt,
   type RawTx,
   type RevisionRef,
   type SpaceId,
@@ -66,6 +68,17 @@ export const MECHANISM_AUDIT_EVENT_TYPES = [
  * 这些前缀由机制计数器专属发号，声明通道既不能预占也不能仿冒。
  */
 export const RESERVED_RECORD_ID_PREFIXES = ['RPT-'] as const;
+
+/**
+ * **机制自有事件名**：由机制内部签发，清单不得认领、领域不得经 `appendAuthoritativeEvent` 签发、
+ * 通用台账不得写。`raw-record-declared` 属此类（EA-1.2.3 / EA-3.2 / OA-4）。
+ */
+export const MECHANISM_OWNED_EVENT_TYPES = ['raw-record-declared'] as const;
+
+export function isMechanismEventType(t: string): boolean {
+  return (MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(t)
+    || (MECHANISM_OWNED_EVENT_TYPES as readonly string[]).includes(t);
+}
 
 /**
  * 单空间的激活视图：同一时刻同一 Capability 只有一个权威写入者（#44 §6.1 / Q44），
@@ -127,7 +140,7 @@ export class CapabilityRegistry {
       // D-27 真修（G5-A 包 6）：机制审计名不是清单可认领面——否则「窄面正式通道」成为
       // appendLedger 预留之后的第二个 breach（归属能力的命令 Port 能 mint 机制审计）。
       // 与双认领同码同族（AMBIGUOUS_AUTHORITY：同一权威出现两个声明者，机制声明即冲突）。
-      if ((MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(e.eventType)) {
+      if (isMechanismEventType(e.eventType)) {
         throw new Refusal('AMBIGUOUS_AUTHORITY', {
           axis: 'event-type', eventType: e.eventType, plugin: m.pluginId,
           reason: '机制审计名为机制落账预留，唯一写点是机制实现内部；清单不得认领（CONTRACTS.md §16.3）',
@@ -210,7 +223,8 @@ export class CapabilityRegistry {
    */
   isReservedEventType(eventType: string): boolean {
     return this.formalEvents.has(eventType)
-      || (MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(eventType);
+      || (MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(eventType)
+      || isMechanismEventType(eventType);
   }
   /**
    * D-20（包 3，N1，CONTRACTS.md §16.2 判据 ③）：正式事件类型登记的**授权轴**（不透明字符串）。
@@ -320,6 +334,8 @@ export interface UnitOfWork {
 export class Kernel {
   readonly registry = new CapabilityRegistry();
   private activated = false;
+  /** 当前已开启事务（机制签发点据此加入调用方事务，避免两个提交点）。 */
+  #activeUow: { readonly tx: UnitOfWorkImpl; readonly raw: RawTx; readonly principal: VerifiedPrincipal } | null = null;
 
   // D-7：句柄不再是公开属性。兄弟模块经 `KERNEL_PORT` symbol 取用（见 internal.ts 的代价说明）。
   readonly #port: StoragePort;
@@ -460,6 +476,59 @@ export class Kernel {
       capability: cap, pluginId: row.plugin_id, contractVersion: row.contract_version, storageNamespace: row.ns,
     });
   }
+  /**
+   * 记录域原始入口的**机制内部签发点**（R-9，方案 2 最小形态）。
+   *
+   * `raw-record-declared` 是机制事件：清单不得认领、领域不得经 `appendAuthoritativeEvent`
+   * 签发、通用台账不得写。Application 侧唯一入口是 `RawIntakeCommandPort.declare()`。
+   *
+   * 必须在**调用方的事务**里调用：记录身份、原文、来源与事件同一提交点（Q40）。
+   */
+  declareRawIntake(env: RawIntakeEnvelope, by?: VerifiedPrincipal): RawIntakeReceipt {
+    const active = this.#activeUow;
+    if (!active) {
+      throw new Refusal('AUTHORITY_REQUIRED', {
+        resource: 'space-write', channel: 'declareRawIntake',
+        reason: '原始记录必须在应用事务内登记（与调用方的其他写入同一提交点）',
+      });
+    }
+    const principal = active.principal;
+    // B-4：无空间写权 ⇒ 完全拒收（四表零变化）。事务的 requires 由调用方自选，不能拿它当判据。
+    if (!this.auth.can(principal.actorId, 'space-write', this.space)) {
+      throw new Refusal('NO_SPACE_WRITE', { space: this.space, required: 'space-write', channel: 'declareRawIntake' });
+    }
+    if (by !== undefined && by.actorId !== principal.actorId) {
+      throw new Refusal('AUTHORITY_REQUIRED', {
+        resource: 'space-write', actor: by.actorId, txActor: principal.actorId,
+        reason: '机制签发点不得替与当前事务主体不同的主体落账',
+      });
+    }
+    const raw = active.raw;
+    const reserved = RESERVED_RECORD_ID_PREFIXES.find((p) => env.recordId.startsWith(p));
+    if (reserved !== undefined) {
+      throw new Refusal('RECORD_ID_RESERVED', { recordId: env.recordId, prefix: reserved });
+    }
+    const seq = this.nextLedgerSeq(raw);
+    const payload = {
+      recordId: env.recordId, text: env.text, sourceRef: env.sourceRef,
+      ...(env.unparseable === undefined ? {} : { unparseable: env.unparseable }),
+    };
+    try {
+      raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
+        env.recordId, seq, JSON.stringify(payload));
+    } catch {
+      throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: env.recordId });
+    }
+    raw.run(
+      `insert into ledger(seq, space, event_type, actor, record_id, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?,?)`,
+      seq, this.space, 'raw-record-declared', principal.actorId, env.recordId,
+      JSON.stringify({ axis: 'space-write', capability: 'raw-intake', authorized: this.principalCan(principal, 'space-write') } satisfies AuthorityEvidence),
+      JSON.stringify(payload), null, Date.now(),
+    );
+    this.journalEpoch(raw, seq, 'raw-record-declared');
+    return { recordId: env.recordId, witnessSeq: seq };
+  }
+
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {
     this.uow(by, (held) => {
       const tx = held as UnitOfWorkImpl;
@@ -745,6 +814,8 @@ export class Kernel {
     }
     return this.#port.tx((raw) => {
       const tx = new UnitOfWorkImpl(this, principal, raw, scope);
+      const prev = this.#activeUow;
+      this.#activeUow = { tx, raw, principal };
       // D-23 ①：回调一离开（无论正常返回还是抛出）就把**底层句柄**记入终结账。
       // 提交失败（如 SQLITE_BUSY）与回滚同形：句柄死亡，被扣住的任何派生写入口不得
       // 再以 autocommit 落库。放在 finally 而不是提交成功之后，是为了连"提交期抛错"
@@ -754,6 +825,7 @@ export class Kernel {
         tx.checkRequiredRefs();
         return out;
       } finally {
+        this.#activeUow = prev;
         CLOSED_TX.add(raw);
         TX_REQUIRED_EDGES.delete(raw);
       }

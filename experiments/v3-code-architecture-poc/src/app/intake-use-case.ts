@@ -23,7 +23,9 @@
  * 全部来自 `IntakePolicy`（`src/domains/test-records.ts`）。本文件只是把话写下来。
  */
 import type { UnitOfWork } from '../kernel/kernel.ts';
-import { Refusal, type CommitSequence, type ObjectKindLabel, type ObjectOid } from '../contracts/index.ts';
+import {
+  Refusal, type CommitSequence, type ObjectKindLabel, type ObjectOid, type RawIntakeCommandPort,
+} from '../contracts/index.ts';
 import { IntakePolicy, type AdmissionDecision } from '../domains/test-records.ts';
 import type { UseCaseDelegation } from './delegation.ts';
 
@@ -36,21 +38,24 @@ export class IntakeUseCase {
   // TS 参数属性在运行时 = 自有可枚举属性，协作对象（policy/delegation…）顺着名字就可达。
   readonly #policy: IntakePolicy;
   readonly #delegation: UseCaseDelegation;
-  constructor(policy: IntakePolicy, delegation: UseCaseDelegation) {
+  readonly #rawIntake: RawIntakeCommandPort;
+  constructor(policy: IntakePolicy, delegation: UseCaseDelegation, rawIntake: RawIntakeCommandPort) {
     this.#policy = policy;
     this.#delegation = delegation;
+    this.#rawIntake = rawIntake;
   }
 
   /**
    * 原始材料登记：解析失败也要留下来源（IC-H3 / #44 §7.2）。不产生对象（ID-08）。
    *
-   * 这一笔走 `appendLedger` 而不是任何能力的作用域端口，理由是**机制事实**：
-   * 它写的是 `records`（H 记录身份）与 `ledger`，两者不归任何 capability 拥有，
-   * 记录域的清单也没有 `ownsKinds`——"用自有端口写自己的 kind"在这里没有对象可写。
-   * 因此这是**协调层的机制级写入**，与 `recordReport` 同类；门禁要求此行带标记留痕。
+   * R-9（方案 2 最小形态）：`raw-record-declared` 是**机制事件**，不是任何领域的正式事件——
+   * 因此这里不再走通用台账通道（旧的带标记豁免制随之退役），而是经
+   * `RawIntakeCommandPort.declare()` 请求机制签发。事件名、记录身份与事件行的同事务
+   * 落账都在机制侧；用例只把命令交出去，并把它拿回来的登记序���回去。
+   * 仍必须在本用例被调用时的那条事务里执行（调用方传入 `tx`，本类不自开事务）。
    */
-  intake(tx: UnitOfWork, a: { recordId: string; text: string; sourceRef: string; unparseable?: boolean }): CommitSequence {
-    return tx.appendLedger(this.#policy.rawIntakeEvent(a)); // D-19c-ALLOWED: appendLedger 写 records/ledger（机制级 H 记录声明，无归属 kind 可走端口）
+  intake(_tx: UnitOfWork, a: { recordId: string; text: string; sourceRef: string; unparseable?: boolean }): CommitSequence {
+    return this.#rawIntake.declare(this.#policy.rawIntakeCommand(a)).witnessSeq;
   }
 
   /** 领域接纳判定：不接纳时**只拒绝**，绝不触碰已登记的原始输入（#44 §7.2）。 */

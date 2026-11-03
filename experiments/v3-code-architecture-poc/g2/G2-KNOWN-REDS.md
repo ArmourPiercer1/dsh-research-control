@@ -30,7 +30,7 @@
 - 新增条目必须附**起点复现证据**（命令 + 输出），否则视为本轮引入的红灯，不许登记。
 - 条目被修复后不删除本条，改标注「已修复 + 修复提交」。
 
-## R-3 — `raw-record-declared` 翻面受阻：写点面与「唯一入口」冲突（**需裁定，未闭合**）
+## R-3 — `raw-record-declared` 翻面受阻：写点面与「唯一入口」冲突（**已闭合，方案 2 最小形态**）
 
 登记时间：2026-11-04（G2 第 37 轮）。实测：把锚文件 `raw-record-declared` 由 `planned:true`
 翻 `planned:false`（Port 形状、实现、清单登记均已就位）后，对账立刻红：
@@ -53,3 +53,23 @@ FAIL [EVENT_RECON_STALE] 入账条目 raw-record-declared 既无写点又非 pla
 
 **登记原因**：这是 G1 冻结文本内部的一处张力，不该由实施者用「反正能过对账」的方式私自解决。
 在裁定前，PR-2 的最后一片保持**不做**：清单已导出但未接线、锚未翻面、无入口可用。
+
+### R-3 闭合记录（2026-11-04，用户裁定「方案 2 最小形态，不新设计架构」）
+
+裁定要点与落地：
+- `raw-record-declared` 是**机制事件**（EA-1.2.3 / EA-3.2 / OA-4）：由机制内部签发，
+  `RAW_INTAKE_PLUGIN.ownsEventTypes` 不再认领（该清单**已删除**：没有领域自有事件可认领，
+  留一份空清单只会诱使后来者把机制名填回去），领域也不得经 `appendAuthoritativeEvent` 签发。
+- `RawIntakeCommandPort.declare()` 保留为 Application 唯一具名入口，内部**只做命令→数据**的剥离，
+  转调机制签发点 `Kernel.declareRawIntake(RawIntakeEnvelope)`；事务边界在机制侧。
+- `writeSites` **未改动**（仍只有 `src/kernel/**` + `src/storage-sqlite/**`）；机制内部
+  真实落账（`insert into ledger ... 'raw-record-declared'` 字面量写点）后，对账事实扫描
+  自然识别（事实 9 → 10），再把 `planned:true` 翻 `false`。**没有**加任何"无调用效果的名字常量"。
+- 回执改为 `RawIntakeReceipt { recordId, witnessSeq }`：不伪造 ObjectID / RevisionRef
+  （原始记录不是对象面事实，伪造 oid 会让后续以 oid 为前提的读面拿到查不到的对象）。
+- 接口一致性澄清（最小）：`RawIntakeCommandPort.declare()` **不再接收 `tx`**——事务边界属机制；
+  把 `tx` 透给领域就等于允许"记录已登记但事件未落账"的中间态。
+- 实测（真实 Kernel + SQLite）：未解析材料正常收存、原始记录可被引用、机制事件唯一签发
+  （`appendLedger` / `declareRecord` 双通道均拒）、重复 recordId ⇒ `RECORD_ALREADY_DECLARED`
+  且失败事务零残留、保留前缀 `RPT-` 拒占、领域插件冒领机制名 ⇒ 装配期 `AMBIGUOUS_AUTHORITY`、
+  无空间写权 ⇒ `NO_SPACE_WRITE`；对账 R1–R4 全绿（planned 4 → 3）。

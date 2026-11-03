@@ -1,95 +1,110 @@
-import { describe, expect, test } from 'vitest';
-import type {
-  CommandReceipt, DeclareRawIntakeCommand, RawIntakeCommandPort, RawIntakeTransaction,
-} from '../src/contracts';
+import { afterAll, describe, expect, test } from 'vitest';
+import { cleanup, openBootstrapWorld, PRINCIPAL, tempDir } from './helpers/kernel-harness';
+import type { PluginManifest } from '../src/contracts';
 import { Refusal } from '../src/contracts';
+import { createRawIntakeCommandPort } from '../src/domains/raw-intake';
+import { BOOTSTRAP_PLUGIN } from './helpers/kernel-harness';
 
 /**
- * PR-2 / R-9 的第一片：记录域命令 Port 的**形状契约**（还没有实现与接线）。
+ * PR-2 / R-9 记录域原始入口 —— **真实 Kernel + SQLite** 验收（方案 2 最小形态）。
  *
- * 这一片刻意只落类型：接口本身不可写、不可调用，因此不会形成「注册了没改道」的半扇门。
- * 实现在下一片与 `ownsEventTypes` 登记、deny-by-default 翻转**同一提交**落地。
+ * 归属判据（EA-1.2.3 / EA-3.2 / OA-4）：`raw-record-declared` 是**机制事件**，由机制内部签发；
+ * 领域插件不得认领、领域不得经 `appendAuthoritativeEvent` 签发；Application 只保留
+ * `RawIntakeCommandPort.declare()` 这一个具名入口，内部转调机制签发点。
  */
-describe('PR-2 记录域命令 Port 形状（DC-PORT / R-9）', () => {
-  test('命令判别式是字面量：改一个字符就不是同一条命令', () => {
-    const cmd: DeclareRawIntakeCommand = {
-      command: 'test.records:declareRawIntake', recordId: 'R-1', text: 'x', sourceRef: 's',
+const dirs: string[] = [];
+const mk = () => { const d = tempDir('g2-pr2-raw-'); dirs.push(d); return d; };
+afterAll(() => { for (const d of dirs) cleanup(d); });
+
+const ALICE = PRINCIPAL('alice');
+const portFor = (w: ReturnType<typeof openBootstrapWorld>) =>
+  createRawIntakeCommandPort((env) => w.kernel.declareRawIntake(env, ALICE));
+
+describe('PR-2 记录域原始入口（机制签发，真实 SQLite）', () => {
+  test('未解析材料正常收存（DC-11：解析失败是数据，不是闸门）', () => {
+    const w = openBootstrapWorld(mk());
+    const r = portFor(w).declare({
+      command: 'test.records:declareRawIntake', recordId: 'RAW-1', text: '<<坏字节>>',
+      sourceRef: 'field-note#3', unparseable: true,
+    });
+    expect(r.recordId).toBe('RAW-1');
+    expect(w.count(`select count(*) as c from records where record_id=?`, 'RAW-1')).toBe(1);
+    const row = w.count(`select count(*) as c from ledger where event_type='raw-record-declared' and record_id=? and payload_json like '%"unparseable":true%'`, 'RAW-1');
+    expect(row).toBe(1);
+    expect(r.witnessSeq).toBeGreaterThan(0);
+  });
+
+  test('原始记录可被引用（引用既有记录不重复声明）', () => {
+    const w = openBootstrapWorld(mk());
+    portFor(w).declare({ command: 'test.records:declareRawIntake', recordId: 'RAW-2', text: 'x', sourceRef: 's' });
+    const seq = w.uow(ALICE, (tx) => tx.appendLedger({
+      // 用**未登记**的普通事件名：本测试只验证"引用既有记录"，不触碰正式事件的授权面。
+      eventType: 'note-attached', payload: { note: 'refers RAW-2' }, recordId: 'RAW-2', declaresRecord: false,
+    }));
+    expect(seq).toBeGreaterThan(0);
+    expect(w.count(`select count(*) as c from ledger where record_id='RAW-2'`)).toBe(2);
+  });
+
+  test('机制事件唯一签发：通用台账通道与领域权威通道都写不了', () => {
+    const w = openBootstrapWorld(mk());
+    // 通用台账通道：拒（预留名）
+    expect(() => w.uow(ALICE, (tx) => tx.appendLedger({ eventType: 'raw-record-declared', payload: {}, recordId: 'RAW-X' })))
+      .toThrowError(expect.objectContaining({ code: 'EVENT_AUTHORITY_REQUIRED' }));
+    // 领域权威通道：`declareRecord` 也走同一预留判据（不是"换个方法就绕过"）
+    expect(() => w.uow(ALICE, (tx) => tx.declareRecord({ recordId: 'RAW-Y', eventType: 'raw-record-declared', payload: {} })))
+      .toThrowError(expect.objectContaining({ code: 'EVENT_AUTHORITY_REQUIRED' }));
+    expect(w.count(`select count(*) as c from ledger where event_type='raw-record-declared'`)).toBe(0);
+  });
+
+  test('重复 recordId 正确拒绝，且失败事务零残留', () => {
+    const w = openBootstrapWorld(mk());
+    portFor(w).declare({ command: 'test.records:declareRawIntake', recordId: 'RAW-3', text: 'x', sourceRef: 's' });
+    const before = w.count(`select count(*) as c from ledger`);
+    expect(() => portFor(w).declare({ command: 'test.records:declareRawIntake', recordId: 'RAW-3', text: 'y', sourceRef: 's' }))
+      .toThrowError(expect.objectContaining({ code: 'RECORD_ALREADY_DECLARED' }));
+    expect(w.count(`select count(*) as c from ledger`)).toBe(before);
+    expect(w.count(`select count(*) as c from records where record_id='RAW-3'`)).toBe(1);
+  });
+
+  test('保留前缀 id 不得预占（身份 namespace 与 appendLedger 同族）', () => {
+    const w = openBootstrapWorld(mk());
+    expect(() => portFor(w).declare({ command: 'test.records:declareRawIntake', recordId: 'RPT-99', text: 'x', sourceRef: 's' }))
+      .toThrowError(expect.objectContaining({ code: 'RECORD_ID_RESERVED' }));
+    expect(w.count(`select count(*) as c from ledger`)).toBe(0);
+  });
+
+  test('领域插件冒领机制名被拒绝（装配期 AMBIGUOUS_AUTHORITY）', () => {
+    const claim: PluginManifest = {
+      ...BOOTSTRAP_PLUGIN,
+      pluginId: 'synth:raw-intake',
+      ownsEventTypes: [{
+        eventType: 'raw-record-declared',
+        capability: 'raw-intake' as never,
+        requiresAuthority: 'space-write',
+        truthSource: 'ledger-payload',
+        interpretationRuleSetVersion: 'g1/fa3b892',
+        contractVersion: 'ferry/v1',
+        approval: { approvedBy: 'independent-review-seat', approvedOn: '2026-11-01', anchor: 'x#y' },
+      }],
     };
-    expect(cmd.command).toBe('test.records:declareRawIntake');
-    // @ts-expect-error 判别式是封闭字面量集合：拼错的命令名不可构造
-    const bogus: DeclareRawIntakeCommand = { command: 'test.records:declareRawIntakeTypo', recordId: 'R-1', text: 'x', sourceRef: 's' };
-    expect(bogus).toBeDefined();
+    expect(() => openBootstrapWorld(mk(), { plugin: claim }))
+      .toThrowError(expect.objectContaining({ code: 'AMBIGUOUS_AUTHORITY' }));
   });
 
-  test('`unparseable` 是载荷字段而不是闸门（DC-11）：两种取值都可构造', () => {
-    const ok: DeclareRawIntakeCommand = { command: 'test.records:declareRawIntake', recordId: 'R-1', text: 'x', sourceRef: 's' };
-    const bad: DeclareRawIntakeCommand = { ...ok, unparseable: true };
-    expect(ok.unparseable).toBeUndefined();
-    expect(bad.unparseable).toBe(true);
+  test('回执不含伪造的 ObjectID / RevisionRef（只有 recordId + witnessSeq）', () => {
+    const w = openBootstrapWorld(mk());
+    const r = portFor(w).declare({ command: 'test.records:declareRawIntake', recordId: 'RAW-4', text: 'x', sourceRef: 's' });
+    expect(Object.keys(r).sort()).toEqual(['recordId', 'witnessSeq']);
   });
 
-  test('回执只有三字段：oid / revision / witnessSeq（不返回信封对象）', () => {
-    const r: CommandReceipt = { oid: 'o' as CommandReceipt['oid'], revision: 1, witnessSeq: 1 as CommandReceipt['witnessSeq'] };
-    expect(Object.keys(r).sort()).toEqual(['oid', 'revision', 'witnessSeq']);
+  test('调用方无空间写权 ⇒ 拒绝（入口不是绕过授权的后门）', () => {
+    const w = openBootstrapWorld(mk());
+    const mallory = PRINCIPAL('mallory');
+    expect(() => w.kernel.declareRawIntake({ recordId: 'RAW-5', text: 'x', sourceRef: 's' }, mallory))
+      .toThrowError(expect.objectContaining({ code: 'NO_SPACE_WRITE' }));
   });
 
-  test('端口只暴露一个方法：`declare`（DC-5：禁通用 run(name, payload)）', () => {
-    const fake: RawIntakeCommandPort = {
-      declare: (_tx: RawIntakeTransaction, cmd) => ({
-        oid: 'o' as CommandReceipt['oid'], revision: 1, witnessSeq: (cmd.recordId.length as CommandReceipt['witnessSeq']),
-      }),
-    };
-    expect(Object.keys(fake)).toEqual(['declare']);
-    expect('run' in fake).toBe(false);
-  });
-
-  test('回执不是授权证据：伪造回执不构成任何可验事实（文档性断言）', () => {
-    // 这条不能"测"出实现正确，只能钉住意图：回执里没有 axis/authorized/ctxId 之类别名，
-    // 将来若有人往回执里加授权字段，这条断言会红。
-    const r: CommandReceipt = { oid: 'o' as CommandReceipt['oid'], revision: 1, witnessSeq: 1 as CommandReceipt['witnessSeq'] };
-    const keys = Object.keys(r);
-    for (const forbidden of ['axis', 'authorized', 'ctxId', 'contractVersion', 'ruleSetVersion']) {
-      expect(keys).not.toContain(forbidden);
-    }
+  test('Refusal 是类而非字面量对象（保持错误面可 instanceof 判定）', () => {
     expect(Refusal).toBeTypeOf('function');
-  });
-});
-
-describe('PR-2 记录域 Port 实现（未接线：不登记、不翻面）', () => {
-  test('declare 转发为 appendAuthoritativeEvent，且事件名是正式事件常量', async () => {
-    const { createRawIntakeCommandPort } = await import('../src/domains/raw-intake');
-    const calls: unknown[] = [];
-    const tx = { appendAuthoritativeEvent: (a: unknown) => { calls.push(a); return 7 as never; } };
-    const r = createRawIntakeCommandPort().declare(tx as never, {
-      command: 'test.records:declareRawIntake', recordId: 'RPT-1', text: '原文', sourceRef: 'src#a',
-    });
-    expect(r.witnessSeq).toBe(7);
-    expect(calls).toHaveLength(1);
-    const a = calls[0] as { eventType: string; payload: Record<string, unknown> };
-    expect(a.eventType).toBe('raw-record-declared');
-    expect(a.payload).toEqual({ recordId: 'RPT-1', text: '原文', sourceRef: 'src#a' });
-  });
-
-  test('unparseable 原样进载荷，不作为拒绝理由（DC-11）', async () => {
-    const { createRawIntakeCommandPort } = await import('../src/domains/raw-intake');
-    const calls: unknown[] = [];
-    const tx = { appendAuthoritativeEvent: (a: unknown) => { calls.push(a); return 1 as never; } };
-    createRawIntakeCommandPort().declare(tx as never, {
-      command: 'test.records:declareRawIntake', recordId: 'RPT-2', text: '???', sourceRef: 's', unparseable: true,
-    });
-    expect((calls[0] as { payload: Record<string, unknown> }).payload.unparseable).toBe(true);
-  });
-
-  test('走的是 appendAuthoritativeEvent，不是 appendLedger（唯一入口）', async () => {
-    const { createRawIntakeCommandPort } = await import('../src/domains/raw-intake');
-    const seen: string[] = [];
-    const tx = {
-      appendAuthoritativeEvent: () => { seen.push('authoritative'); return 1 as never; },
-      appendLedger: () => { seen.push('ledger'); return 1 as never; },
-    };
-    createRawIntakeCommandPort().declare(tx as never, {
-      command: 'test.records:declareRawIntake', recordId: 'RPT-3', text: 'x', sourceRef: 's',
-    });
-    expect(seen).toEqual(['authoritative']);
   });
 });

@@ -22,6 +22,8 @@ import {
   type ObjectKindLabel,
   type ObjectOid,
   type PluginManifest,
+  type RawIntakeEnvelope,
+  type RawIntakeReceipt,
   type RawTx,
   type RevisionRef,
   type SpaceId,
@@ -54,6 +56,22 @@ export interface Authorizer {
  * 判据只做排除，不解释名字含义。机制自身的写点走实现内部直写（不经 `appendLedger`），
  * 预留不误伤机制。
  */
+/**
+ * **机制自有事件名**（不是"机制审计名"，也不是"正式事件类型"）：由机制内部签发，
+ * 清单不得认领、领域不得经 `appendAuthoritativeEvent` 签发、通用台账不得写。
+ *
+ * `raw-record-declared` 属于这一类（EA-1.2.3 / EA-3.2 / OA-4 的归属判据）：原始记录的
+ * 身份与"它已登记"这一事实是机制事实，不是某个领域插件的业务事实——插件可以消失、可以换实现，
+ * 已登记记录的引用不能因此失效。
+ */
+export const MECHANISM_OWNED_EVENT_TYPES = ['raw-record-declared'] as const;
+
+/** 预留判据的统一入口：机制审计名 ∪ 机制自有名（两者都只能由机制内部写）。 */
+export function isMechanismEventType(t: string): boolean {
+  return (MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(t)
+    || (MECHANISM_OWNED_EVENT_TYPES as readonly string[]).includes(t);
+}
+
 /**
  * 记录域原始入口的正式事件名（R-9）。常量放在机制侧是**故意的**：写点判据按字面量所在模块
  * 判定「这个名字有写点」，把字面量留在 `src/**`（内核）而不是领域包，能让对账脚本继续
@@ -142,7 +160,7 @@ export class CapabilityRegistry {
       // D-27 真修（G5-A 包 6）：机制审计名不是清单可认领面——否则「窄面正式通道」成为
       // appendLedger 预留之后的第二个 breach（归属能力的命令 Port 能 mint 机制审计）。
       // 与双认领同码同族（AMBIGUOUS_AUTHORITY：同一权威出现两个声明者，机制声明即冲突）。
-      if ((MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(e.eventType)) {
+      if (isMechanismEventType(e.eventType)) {
         throw new Refusal('AMBIGUOUS_AUTHORITY', {
           axis: 'event-type', eventType: e.eventType, plugin: m.pluginId,
           reason: '机制审计名为机制落账预留，唯一写点是机制实现内部；清单不得认领（CONTRACTS.md §16.3）',
@@ -252,8 +270,7 @@ export class CapabilityRegistry {
    * 语义）：通用台账通道（`appendLedger` / `write()`）都不是这两类名字的写入者。
    */
   isReservedEventType(eventType: string): boolean {
-    return this.formalEvents.has(eventType)
-      || (MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(eventType);
+    return this.formalEvents.has(eventType) || isMechanismEventType(eventType);
   }
   /**
    * D-20（包 3，N1，CONTRACTS.md §16.2 判据 ③）：正式事件类型登记的**授权轴**（不透明字符串）。
@@ -564,6 +581,51 @@ export class Kernel {
       return { seq };
     }, 'capability-admin');
     return { seq: echo.seq };
+  }
+
+  /**
+   * 记录域原始入口的**机制内部签发点**（R-9；方案 2 最小形态）。
+   *
+   * 归属判据：`raw-record-declared` 是机制自有事件（`MECHANISM_OWNED_EVENT_TYPES`）——
+   * 清单不得认领、领域不得经 `appendAuthoritativeEvent` 签发、通用台账不得写。
+   * Application 侧唯一入口仍是 `RawIntakeCommandPort.declare()`，它只转调这里。
+   *
+   * 同一事务里做三件事：①`records` 行（记录身份，先于事件）②`ledger` 行（事件与载荷）
+   * ③epoch 日记。任一步失败 ⇒ 整事务回滚（零残留）。
+   *
+   * 三条**不做**：不伪造 ObjectID / RevisionRef（回执只回 `recordId` + `witnessSeq`：原始记录
+   * 不是对象面事实）；不因 `unparseable` 拒收（DC-11：解析失败是数据，不是闸门）；
+   * 不收保留前缀 id（`RPT-` 归机制计数器，身份 namespace 判据与 `appendLedger` 同族）。
+   */
+  declareRawIntake(env: RawIntakeEnvelope, by: VerifiedPrincipal): RawIntakeReceipt {
+    const receipt = this.uow(by, (held) => {
+      const tx = held as UnitOfWorkImpl;
+      const raw = RAW_OF_UOW.get(tx)!;
+      const reserved = RESERVED_RECORD_ID_PREFIXES.find((p) => env.recordId.startsWith(p));
+      if (reserved !== undefined) {
+        throw new Refusal('RECORD_ID_RESERVED', { recordId: env.recordId, prefix: reserved });
+      }
+      const seq = this.nextLedgerSeq(raw);
+      const payload = {
+        recordId: env.recordId, text: env.text, sourceRef: env.sourceRef,
+        ...(env.unparseable === undefined ? {} : { unparseable: env.unparseable }),
+      };
+      try {
+        raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
+          env.recordId, seq, JSON.stringify(payload));
+      } catch {
+        throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: env.recordId });
+      }
+      raw.run(
+        `insert into ledger(seq, space, event_type, actor, record_id, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?,?)`,
+        seq, this.space, 'raw-record-declared', by.actorId, env.recordId,
+        JSON.stringify({ axis: 'space-write', capability: 'raw-intake', authorized: this.principalCan(by, 'space-write') } satisfies AuthorityEvidence),
+        JSON.stringify(payload), null, Date.now(),
+      );
+      this.journalEpoch(raw, seq, 'raw-record-declared');
+      return { recordId: env.recordId, witnessSeq: seq };
+    }, 'space-write');
+    return receipt;
   }
 
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {

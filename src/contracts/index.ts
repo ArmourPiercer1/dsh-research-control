@@ -335,6 +335,29 @@ export interface CommandReceipt {
   readonly witnessSeq: CommitSequence;
 }
 
+/**
+ * 机制内部签发点的入参（`Kernel.declareRawIntake`）。字段集与 `DeclareRawIntakeCommand` 一致，
+ * 但**不含** `command` 判别式：判别式属于应用层命令路由，机制只认数据。
+ */
+export interface RawIntakeEnvelope {
+  readonly recordId: string;
+  readonly text: string;
+  readonly sourceRef: string;
+  /** 载荷字段：原文是否可解析。缺省视为可解析；`true` 不构成拒绝理由（DC-11）。 */
+  readonly unparseable?: boolean;
+}
+
+/**
+ * Raw Intake 的回执（R-9 接口一致性澄清）：**没有** `oid` / `revision`。
+ * 原始记录不是对象面事实，伪造一个 ObjectID 会把"记录已登记"说成"对象已存在"，
+ * 后续任何以 oid 为前提的读面都会拿到一个查不到的对象。回执只说两件事：登记了哪条记录、
+ * 机制在入口内签发的登记序是多少。
+ */
+export interface RawIntakeReceipt {
+  readonly recordId: string;
+  readonly witnessSeq: CommitSequence;
+}
+
 export interface DeclareRawIntakeCommand {
   readonly command: 'test.records:declareRawIntake';
   readonly recordId: string;
@@ -345,22 +368,12 @@ export interface DeclareRawIntakeCommand {
 }
 
 /**
- * 端口实现所依赖的事务面（**结构最小集**，刻意不 import `kernel.ts` 的 `UnitOfWork`）：
- * 契约层反向依赖内核实现会形成 kernel → contracts → kernel 的循环。实现侧传入真实的
- * `UnitOfWork`（结构兼容即通过），因此这里只声明端口真正用到的成员——多声明一个成员，
- * 就等于给未来实现多开一条未经契约裁定的能力。
+ * 拥有者导出、装配根注入。记录域的原始入口**只有这一个方法**（唯一入口）。
+ *
+ * 注意它**不接收 `tx`**（R-9 接口一致性澄清）：原始记录的身份、原文、来源与机制事件
+ * 必须由机制在**同一个**事务里登记，事务边界属于机制而不是调用方。若把 `tx` 透给领域，
+ * 领域就能在"记录已登记但事件未落账"的中间态里做别的事——那正是要排除的形态。
  */
-export interface RawIntakeTransaction {
-  appendAuthoritativeEvent(a: {
-    readonly eventType: string;
-    readonly objectId?: ObjectOid;
-    readonly revision?: number;
-    readonly payload: unknown;
-    readonly describedAt?: number;
-  }): CommitSequence;
-}
-
-/** 拥有者导出、装配根注入。记录域的原始入口**只有这一个方法**（唯一入口）。 */
 export interface RawIntakeCommandPort {
-  declare(tx: RawIntakeTransaction, cmd: DeclareRawIntakeCommand): CommandReceipt;
+  declare(cmd: DeclareRawIntakeCommand): RawIntakeReceipt;
 }

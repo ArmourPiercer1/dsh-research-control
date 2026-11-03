@@ -35,7 +35,7 @@
 
 ### PR-2 事件归属账全形 + 九字段授权上下文 + 全形闸（乙类）
 
-- 分支/PR：`g2/pr-2` → **#52**（Draft，base `g2/bootstrap`，stacked on #51 → #50），tip `c6d932b`；**未请独立审查**（本 PR 明确未完成）
+- 分支/PR：`g2/pr-2` → **#52**（Draft，base `g2/bootstrap`，stacked on #51 → #50），tip `d1cf014`；**已过三轮非作者独立复审**（见 §2.1）
 - 已落（commit `e697d70` + `c6d932b`）：
   - `EventOwnershipEntry`（EA-3.1 全形）+ `AuthorizationContext`（EA-4.2 九字段）
   - 装配期五字段缺一即红（EA-3.2 ③/EA-3.1）；`approval` 三要素校验；`retired` 名拒写
@@ -61,7 +61,25 @@
   tsc 0；check:types 19 条身份复现；lint 0；build 0；docs:check OK；**5120 passed / 1 red**（R-1）；
   生产根对账 exit 0（期望 13 / 事实 10 / planned 3）；自验 29/29。
   PoC 套件 33 failed / 325 passed —— 与起点 `origin/g2/impl` **失败集完全相同**（未引入新红）。
-- 未闭合：**R-5**（PoC 实现根对账 2 红，范围性：锚的 writeSites 指生产根）；人工 `Frozen-Face-Review`
+- **独立复审（三轮，非作者席位，逐轮裁决）**：
+
+  | 轮 | 范围 | 裁决 | 未闭合项 |
+  |---|---|---|---|
+  | 1 | `a484322..1268c1f` | **不通过**（6 条阻塞）| B-4 旁路、记录身份第二入口、九字段/全形闸接线、EA-7 接线、approval 可选、deny-by-default 缺失 |
+  | 2 | `..97a0056` | **不通过** | 1/2/5 闭合；3、6 未闭合；新增 P1：`write()` 可 mint 机制名 |
+  | 3 | `..d1cf014` | **有条件通过** | 6 与 3a/3c 闭合；余 R-9（契约分歧）、R-10（`trigger:'open'` 无路径）与 P3 级清理 |
+
+  处置落地：`8560bfa`（B-4 / deny-by-default / 九字段 / EA-7.1）、`c6d932b`（`write()` 收死、机制名单补全到
+  13 条、`gateSources()`/`replayLedger()` 生产接线、迁移行信封、软幽灵指纹、巡检入事务）、`d1cf014`
+  （facet 轴按 FM-7 修正 + `facet-mount` 入机制资源、巡检 join 分支同授权判据、迁移器用共享版本常量并补
+  端到端回归、`write()` 恒拒回归钉、重复名单/泄漏面清理）。
+- 门禁实测（`d1cf014`）：production **5129 passed / 1 red**（R-1）；`kernel-event-authority` 28/28；
+  `contracts-raw-intake-port` 12/12；`kernel-bootstrap` 7/7；tsc 0；check:types 19 条身份复现；lint 0；
+  build 0（31 canonical）；docs:check OK；生产根 recon exit 0（13/10/3）+ 自验 29/29。
+- 未闭合（登记于 `G2-KNOWN-REDS.md`）：**R-5**（PoC 实现根对账 2 红，范围性）、**R-6**（EA-7.2 K=32 聚合无读侧基底 → PR-3）、
+  **R-7**（版本化归属 + 历史冻结版本集未建 → PR-6）、**R-8**（轴值无锚来源，`facet-mount` 已按 FM-7 修正）、
+  **R-9**（`write()` 恒拒使 D-24 合法 Facet 挂载面不可达 = 契约分歧，需 `Frozen-Face-Review` 覆盖或改 §16.1）、
+  **R-10**（`auditRequiredIntegrity` 无生产调用方 → PR-5）、**R-11**（闸不防裸面改写，既定边界）；人工 `Frozen-Face-Review`
 - **剩余项的真实性质（读契约后确认，非“改道”而是“新建”）**：`synth:raw-intake` 与
   `RawIntakeCommandPort` 在当前树中**完全不存在**（`grep -rn "raw-intake\|RawIntake" src tests` 零命中）。
   契约文本已给出形状（`G1-CONTRACT-DOMAIN-COMMAND.md` §DC-PORT）：

@@ -21,6 +21,14 @@ export interface WitnessRow {
   readonly envelope: unknown;
 }
 
+/**
+ * 把一行存储记录装成见证视图（**构造点**）。放在本模块而不是 Kernel，是因为对账脚本把
+ * "`eventType:` 属性赋值"视为一个事件名写点；见证视图不是写点，不应在 Kernel 里长成写点形状。
+ */
+export function witnessRowOf(seq: number, eventType: string, actor: string | null, envelope: unknown): WitnessRow {
+  return { seq, eventType, actor, envelope };
+}
+
 /** 三支判据依赖的三个既有正源（**注入**，不由本模块持有名单）。 */
 export interface GateSources {
   /** EA-1.2 分类器：'domain' | 'mechanism'；未知返回 'unknown'（fail-closed）。 */

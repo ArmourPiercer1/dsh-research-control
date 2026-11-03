@@ -8,7 +8,7 @@
  *  - `journal` 允许删除与压缩 ⇒ 它不是 H（#44 §7.4），缺口由 Kernel 的游标校验暴露。
  */
 import { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Refusal } from '../contracts/index';
 import type { RawTx, StoragePort } from '../contracts/index';
 
@@ -250,10 +250,17 @@ export function migrateLegacyRecords(file: string): number {
         // 这样迁移后的历史仍可被 recorded_as_of 截点看见，且不会与后续提交撞号。
         const next = (db.prepare(`select value from meta where key='ledger_seq'`).get() as { value: number }).value + 1;
         db.prepare(`update meta set value = ? where key='ledger_seq'`).run(next);
+        // EA-4.4：迁移行虽然不是"插件写"，但它是**今天新写**的机制行，同样必须带九字段信封——
+        // 否则审计复算只能把它判成半形/旧行，等于让迁移器成为"无信封行"的生产来源。
+        const envelope = JSON.stringify({
+          ctxId: randomUUID(), actor: 'migrator', capability: 'assembly', axis: 'space-write',
+          authorized: true, ruleSetVersion: 'g1/fa3b892', contractVersion: 'g1/fa3b892',
+          issuedAtMs: Date.now(), txSeq: next,
+        });
         db.prepare(
-          `insert into ledger(seq, space, event_type, actor, record_id, payload_json, described_at, recorded_at)
-           values(?,?,?,?,?,?,?,?)`)
-          .run(next, src.space, 'record-backfilled', 'migrator', r.record_id,
+          `insert into ledger(seq, space, event_type, actor, authority_basis, record_id, payload_json, described_at, recorded_at)
+           values(?,?,?,?,?,?,?,?,?)`)
+          .run(next, src.space, 'record-backfilled', 'migrator', envelope, r.record_id,
             JSON.stringify({ recordId: r.record_id, via: 'migrateLegacyRecords', originalSeq: r.seq, originalEventType: src.event_type }),
             null, Date.now());
         db.prepare(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`)

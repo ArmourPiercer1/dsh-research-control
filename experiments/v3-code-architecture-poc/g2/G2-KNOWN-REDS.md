@@ -106,11 +106,20 @@ FAIL [EVENT_RECON_STALE] 入账条目 read-shadow-recorded 既无写点又非 pl
 **处置**：不造一个假计数器来"点亮"这个事件名（那正是本仓反复拒绝的假绿）。PR-3 落地
 读侧遮蔽后，把计数与 K=32 聚合接到 `recordMechanismAudit`。**未闭合，等 PR-3。**
 
-## R-7 — `replayAuthorityEvidence` 尚无生产调用点（**接线缺**，2026-11-04）
+## R-7 — 复算数据源仍有一处缺口（**版本化归属未建**，2026-11-04 修订）
 
-`gateFullShape` / `replayAuthorityEvidence` 已实现并有单测（含机制行判 VERIFIED），存储触发器
-也已升到同一九字段判据；但**审计命令面**（谁按需复算某一行）还没接到 Kernel 的公开入口，
-生产 `src/**` 里除测试外无调用点。
+第一轮登记的形态是「`replayAuthorityEvidence` 无生产调用点」；第二轮复审指出真正缺的是
+**三个数据源**而不是一个调用点。现已补：
 
-**处置**：待 PR-6（审计面）建立"按 seq 复算"的公开命令时接线；在那之前不得声称"审计复算已上线"。
-**未闭合，等 PR-6。**
+- 生产入口 `Kernel.replayLedger(seq)`（按 seq 复算一行，返回全形闸裁决 + 三态复算）；
+- 生产数据源 `Kernel.gateSources()`：分类器（机制名单 ∪ 归属账）、机制轴表
+  `MECHANISM_EVENT_AXIS`（13 条与锚逐条相等，有测试钉住）、冻结版本集（`g1/fa3b892` ∪
+  各登记条目钉住的版本）。
+
+**剩余缺口**：`ownerAt(eventType, contractVersion)` 只能回答**当前**登记版本——契约要求按行
+自己钉住的 `contractVersion` 复算，历史版本归属表尚未建立。当前实现对旧版本行返回
+`undefined`（判不一致），即"复算不出"而不是"猜成一致"。
+
+**处置**：PR-6 建版本化归属账后补齐；在那之前不得声称"历史行复算已上线"。
+另：锚文件没有 name→axis 字段，`MECHANISM_EVENT_AXIS` 是机制的自我陈述而非第二正源——
+待锚补字段后它应降级为"与锚逐条相等的断言"（本文件已记该方向）。**未闭合，等 PR-6。**

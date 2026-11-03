@@ -32,6 +32,9 @@ import {
   type VerifiedPrincipal,
 } from '../contracts/index';
 import { SCHEMA_VERSION } from '../storage-sqlite/sqlite-port';
+import {
+  gateFullShape, replayAuthorityEvidence, type GateSources, type GateVerdict, type ReplayVerdict, type WitnessRow, witnessRowOf,
+} from './authority-gate';
 import { KERNEL_PORT } from './internal';
 
 // ---------------------------------------------------------------- Capability 注册
@@ -91,15 +94,43 @@ export const MECHANISM_FROZEN_VERSION = 'g1/fa3b892';
  */
 export { SCHEMA_VERSION };
 
+/**
+ * **全部机制事件名**（EA-6.1 锚文件 `class:'mechanism'` 的 13 条，逐字同步）。
+ *
+ * 这份清单是机制的**自我陈述**，不是第二正源：它的完整性由 R2 对账（锚 ↔ 写点）与
+ * `tests/kernel-event-authority.test.ts` 的"名单 ≡ 锚"断言共同钉住。漏一个名字的后果不是
+ * 少一条预留，而是给通用通道留一个可 mint 的机制名——G2 复审第二轮实测正是这样：
+ * `object-revised` / `record-backfilled` 不在旧清单里，`write()` 能替机制签这两行。
+ */
 export const MECHANISM_AUDIT_EVENT_TYPES = [
   'capability-enabled', 'capability-disabled', 'capability-transferred',
-  'object-registered', 'check-report-recorded',
-  // EA-7.1 / EA-7.2：已获独立席位批准（anchor 内 `independent-review-seat`），写点尚未落地
-  // （anchor 里仍 `planned:true`）。**先入预留集**：否则在“批准了但还没接写点”的窗口期里，
-  // 任何 space-write 主体都能用通用 `appendLedger` mint 这两个名字的行，等于提前把
-  // EA-7.1/7.2 的审计面做成可伪造的。
+  'object-registered', 'object-revised', 'check-report-recorded', 'record-backfilled',
+  'raw-record-declared',
   'integrity-audit-recorded', 'read-shadow-recorded',
+  'ns-relocated', 'facet-mounted', 'facet-unlinked',
 ] as const;
+
+/**
+ * 机制名 → 授权轴（机制自我陈述）。EA-4.5 的 `GateSources.registeredMechanismAxis` 在生产侧的
+ * 数据源就是这张表：锚文件条目目前**没有** name→axis 字段（EA-6.1 只登记 class/truthSource/
+ * 版本/writeSites），所以审计复算不能假装从锚里读到它——要读的是机制的自我陈述。
+ * 待锚文件补字段后，这张表应降级为"与锚逐条相等的断言"，而不是继续做唯一来源（登记 R-8）。
+ */
+export const MECHANISM_EVENT_AXIS: Readonly<Record<string, AuthorityResource>> = {
+  'capability-enabled': 'capability-admin',
+  'capability-disabled': 'capability-admin',
+  'capability-transferred': 'capability-admin',
+  'ns-relocated': 'capability-admin',
+  'object-registered': 'space-write',
+  'object-revised': 'space-write',
+  'check-report-recorded': 'space-write',
+  'record-backfilled': 'space-write',
+  'raw-record-declared': 'space-write',
+  'integrity-audit-recorded': 'space-write',
+  'read-shadow-recorded': 'space-write',
+  'facet-mounted': 'space-write',
+  'facet-unlinked': 'space-write',
+};
 
 /**
  * D-21 最小止血（G5-A 包 6，CONTRACTS.md §16.3）：**保留前缀的记录身份收归机制计数器**。
@@ -639,9 +670,7 @@ export class Kernel {
         delete payload[k];   // 入参也不许带：否则它会被原样存进不可变账，再被读面回出去
       }
     }
-    const echo = this.uow(by, (held) => {
-      const tx = held as unknown as UnitOfWorkImpl;
-      const raw = RAW_OF_UOW.get(tx)!;
+    const emit = (raw: RawTx): { seq: CommitSequence } => {
       const seq = this.nextLedgerSeq(raw);
       const evidence = JSON.stringify(this.issueAuthorizationContext({
         actor: by.actorId, capability: 'assembly', axis: 'capability-admin',
@@ -663,7 +692,21 @@ export class Kernel {
       }
       this.journalEpoch(raw, seq, a.eventType);
       return { seq };
-    }, 'capability-admin');
+    };
+    // 已在事务里（如审计巡检被业务事务触发）⇒ **加入**那条事务；否则自开一条。
+    // 自开那条在嵌套调用时会抛 SQLite 的裸 "cannot start a transaction within a transaction"，
+    // 那不是可核的拒绝码，调用方也无法据此判断"是权限问题还是事务形状问题"。
+    const active = this.#activeUow;
+    if (active) {
+      if (active.principal.actorId !== by.actorId) {
+        throw new Refusal('AUTHORITY_REQUIRED', {
+          resource: 'capability-admin', actor: by.actorId, txActor: active.principal.actorId,
+          reason: '审计落账不得替与当前事务主体不同的主体签名',
+        });
+      }
+      return emit(active.raw as RawTx);
+    }
+    const echo = this.uow(by, (held) => emit(RAW_OF_UOW.get(held as unknown as UnitOfWorkImpl)! as RawTx), 'capability-admin');
     return { seq: echo.seq };
   }
 
@@ -945,6 +988,65 @@ export class Kernel {
   }
 
   /**
+   * EA-4.5 / EA-4.6 的**生产侧数据源**（`GateSources` 的装配）：机制轴表来自机制自我陈述
+   * `MECHANISM_EVENT_AXIS`，领域归属来自归属账，冻结版本集来自锚文件约定的冻结契约版本
+   * 加各登记条目钉住的版本。
+   *
+   * 已知局限（登记 R-8）：`ownerAt` 只能回答**当前**登记版本；契约要求按"行自己钉住的
+   * contractVersion"复算，历史版本归属表尚未建立。因此对旧版本行，本实现返回 undefined
+   * （判不一致）而不是猜——宁可说"复算不出"，不让复算面替历史背书。锚文件补 name→axis
+   * 字段后，`MECHANISM_EVENT_AXIS` 应降级为"与锚逐条相等的断言"。
+   */
+  gateSources(): GateSources {
+    const versions = new Set<string>([MECHANISM_FROZEN_VERSION]);
+    for (const e of this.registry.formalEventEntries()) {
+      if (e.interpretationRuleSetVersion) versions.add(e.interpretationRuleSetVersion);
+      if (e.contractVersion) versions.add(e.contractVersion);
+    }
+    return {
+      classify: (t: string) => (isMechanismEventType(t)
+        ? 'mechanism'
+        : (this.registry.formalEventOwner(t) !== undefined ? 'domain' : 'unknown')),
+      registeredMechanismAxis: (t: string) => MECHANISM_EVENT_AXIS[t],
+      mechanismResources: new Set<string>(MECHANISM_RESOURCES),
+      ownerAt: (t: string, contractVersion: string) => {
+        const entry = this.registry.formalEventEntry(t);
+        return entry && entry.contractVersion === contractVersion ? entry.capability : undefined;
+      },
+      frozenVersions: versions,
+    };
+  }
+
+  /**
+   * 按 seq 复算一行见证（EA-4.6 的生产入口）。
+   *
+   * 返回两个裁决：`shape` = 全形闸（该行是否按九字段单点生成、轴判据成立），
+   * `replay` = 三态复算（VERIFIED / INCONSISTENT / UNVERIFIABLE_LEGACY）。
+   * **不**证明宿主主体真实性，也**不**证明裸面未被改写——那是 EA-4.6 明写的边界。
+   */
+  replayLedger(seq: CommitSequence): {
+    readonly seq: CommitSequence;
+    readonly shape: GateVerdict;
+    readonly replay: ReplayVerdict;
+  } {
+    const row = this.#port.read((raw) => raw.get<{ seq: number; event_type: string; actor: string | null; authority_basis: string | null }>(
+      `select seq, event_type, actor, authority_basis from ledger where seq=?`, seq,
+    ));
+    if (!row) throw new Refusal('NOT_FOUND_IN_SPACE', { seq, level: 'ledger-row' });
+    let envelope: unknown = null;
+    if (row.authority_basis !== null) {
+      try { envelope = JSON.parse(row.authority_basis); } catch { envelope = undefined; }
+    }
+    // 复算**不产生**事件名：见证视图由 authority-gate 的构造点装配（此处刻意不出现 eventType 写点形状）。
+    const witness = witnessRowOf(row.seq, row.event_type, row.actor, envelope);
+    return {
+      seq: seq,
+      shape: gateFullShape(witness, this.gateSources()),
+      replay: replayAuthorityEvidence(witness, this.gateSources()),
+    };
+  }
+
+  /**
    * 存量 required 边的完整性巡检（D-23 ②，CONTRACTS.md §16.1）——**打开期 / 迁移 / 审计路径**。
    *
    * 提交期判据已改为只验本事务新增边（增量，见 `UnitOfWorkImpl.checkRequiredRefs`），
@@ -967,6 +1069,8 @@ export class Kernel {
      * 计数**只进回执**：不改 violations、不阻塞任何提交——软边的业务后果归领域自己。
      */
     readonly softGhosts: number;
+    /** 幽灵目标集合（供审计指纹计算；**不出现在任何调用方回声面**，只在机制内部用）。 */
+    readonly softGhostTargets: readonly string[];
   } {
     const result = this.#port.read((raw) => {
       const rows = raw.all<{
@@ -988,13 +1092,14 @@ export class Kernel {
         `select to_oid, to_record from ref_edge where required=0`,
       );
       let softGhosts = 0;
+      const softGhostTargets: string[] = [];
       for (const r of soft) {
         const present = r.to_record !== null
           ? raw.get(`select 1 as x from records where record_id=?`, r.to_record) !== undefined
           : r.to_oid !== null && raw.get(`select 1 as x from object_directory where oid=?`, r.to_oid) !== undefined;
-        if (!present) softGhosts += 1;
+        if (!present) { softGhosts += 1; softGhostTargets.push(r.to_record ?? r.to_oid ?? '(null)'); }
       }
-      return { checked: rows.length, violations, softChecked: soft.length, softGhosts };
+      return { checked: rows.length, violations, softChecked: soft.length, softGhosts, softGhostTargets };
     });
     // EA-7.1：**每次运行必落一条** `integrity-audit-recorded`（机制内部直写、预留名）。
     // 载荷形状照 §7.2：只给集合指纹不给身份（违规目标集排序后 sha256），drift 维在
@@ -1011,7 +1116,7 @@ export class Kernel {
         },
         // 集合指纹：只给"哪些边不成立"的指纹，不给身份（§7.2 的形状约束）
         violationsDigest: digestOf(result.violations.map((v) => `${v.code}:${JSON.stringify(v.detail)}`)),
-        softGhostsDigest: digestOf([]),
+        softGhostsDigest: digestOf(result.softGhostTargets),
         drift: null,
         schemaVersion: SCHEMA_VERSION,
         ruleSetVersion: MECHANISM_FROZEN_VERSION,
@@ -1174,48 +1279,18 @@ class NamespaceWriterImpl implements NamespaceWriter {
     if (a.ns !== this.ns) {
       throw new Refusal('NAMESPACE_ESCAPE', { attempted: a.ns, own: this.ns, capability: this.#cap, oid: a.oid });
     }
-    // D-20 ①（包 2，CONTRACTS.md §16.2）：`write()` 顺手登记的台账行不得冒充正式事件类型——
-    // 扩展状态行的登记事件与领域正式声明在 H 里必须是不同通道，否则本入口就是 appendLedger
-    // 拒绝后的第二条后门。D-27 真修（G5-A 包 6）：机制审计名同样走这条预留通道
-    // （同一判据点、同一码）——两个通用入口都必须对预留词表封闭。
-    if (this.#k.registry.isReservedEventType(a.eventType)) {
-      throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
-        eventType: a.eventType, capability: this.#cap, channel: 'NamespaceWriter.write',
-        reason: 'write() 的登记式台账行不是预留事件类型（正式事件 / 机制审计名）的写入通道；'
-          + '正式事件请经本能力命令 Port 的 appendAuthoritativeEvent，机制审计名只能由机制实现内部落账',
-      });
-    }
-    // D-24 ①（外部复审第四轮，席位 G1-A A-1/A-3）：状态行必须挂在**存在**的对象上。
-    // 不在 `object_directory` 的 oid 是幽灵对象——没有任何对象拥有它，也没有任何合法的
-    // 扩展挂载能指向它，照落即成"无主状态行 + 注入他人事件流的素材"。
-    // 合法 Facet 挂载（oid 在目录、行落自己 ns）**不受影响**（Q45 正例护栏钉住）。
-    // 注意本条只封"无歧义的一半"：区分"合法挂载"与"伪造他人对象状态行"需要扩展挂载登记，
-    // PoC 机制层没有该机制——完整修法属 G1 存储契约，不得用"oid 主能力==写入能力"一刀切代替。
-    if (!this.#raw.get(`select oid from object_directory where oid=?`, a.oid)) {
-      throw new Refusal('NOT_FOUND_IN_SPACE', {
-        oid: a.oid, ns: a.ns,
-        reason: 'oid 不在 object_directory——幽灵对象不得有状态行，也不得有派生 ledger/journal 痕迹',
-      });
-    }
-    const seq = this.#k.nextLedgerSeq(this.#raw);
-    this.#raw.run(
-      `insert into domain_state(ns, oid, revision, payload_json, recorded_seq, contract_version) values(?,?,?,?,?,?)`,
-      a.ns, a.oid, a.revision, JSON.stringify(a.payload), seq,
-      (() => { const c = capabilityOfNs(this.#k.registry, a.ns); return c ? this.#k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
-    );
-    // 扩展记录的变更同样进 H（#44 §6.2：Facet 需要自己的 H 追溯）
-    const hostPrincipal = WRITER_UOW.get(this)?.principal;
-    this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, authority_basis, object_id, revision, payload_json, described_at, recorded_at)
-       values(?,?,?,?,?,?,?,?,null,?)`,
-      seq, this.#k.space, a.eventType, hostPrincipal?.actorId ?? 'system:capability',
-      JSON.stringify(this.#k.issueAuthorizationContext({
-        actor: hostPrincipal?.actorId ?? 'system:capability', capability: this.#cap, axis: 'space-write', authorized: true, seq,
-      })),
-      a.oid, a.revision, '{}', Date.now(),
-    );
-    this.#raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, a.ns, a.oid, 'extension-upsert');
+    // D-20 ① + EA-1.2.2（deny-by-default）：`write()` 顺手登记的台账行**对三类事件名一律拒**。
+    // 旧实现只拒「已预留」名，于是 `unregistered` 与机制名单**漏收的名字**（复审第二轮实测：
+    // `object-revised` / `record-backfilled`）都能被本入口 mint 成机制行——只要把九字段信封
+    // 照抄一遍，全形闸就认它是机制直写。判据必须与 `appendLedger` 同一条：这里没有合法事件写点。
+    throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
+      eventType: a.eventType, capability: this.#cap, channel: 'NamespaceWriter.write',
+      reason: 'write() 的登记式台账行不是任何事件名的合法写面（EA-2.2 第二行）：domain 事件经归属'
+        + '能力签发 Port（appendAuthoritativeEvent）、机制事件只能由机制实现内部落账、'
+        + 'unregistered 名一律拒（deny-by-default）',
+    });
   }
+
   /** 本命名空间**生效路由**上的契约版本（装配后的真实值，不是清单意图）。 */
   private effectiveContractVersion(): { cap: CapabilityId; version: string } {
     const cap = capabilityOfNs(this.#k.registry, this.ns) ?? this.#cap;

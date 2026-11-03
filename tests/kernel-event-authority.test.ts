@@ -23,6 +23,8 @@ import {
   type GateSources, type WitnessRow,
 } from '../src/kernel/authority-gate';
 import type { EventOwnershipEntry } from '../src/contracts';
+import { MECHANISM_AUDIT_EVENT_TYPES, MECHANISM_EVENT_AXIS } from '../src/kernel/kernel';
+import { createHash } from 'node:crypto';
 
 const WRITER = PRINCIPAL('alice');   // space-write + 业务轴
 const PLAIN = PRINCIPAL('bob');      // 只有 space-write
@@ -405,15 +407,17 @@ describe('PR-2 EA-4.5/4.6 全形闸与三态复算', () => {
     expect(env!.txSeq).toBe(rawRow.seq);
     expect(env!.actor).toBe(rawRow.actor);
     expect(new Set(Object.keys(env!)).size).toBe(9);
-    const sources = {
-      classify: (t: string) => (t === 'raw-record-declared' ? 'mechanism' as const : 'unknown' as const),
-      registeredMechanismAxis: () => 'space-write',
-      mechanismResources: new Set(['space-write', 'capability-admin']),
-      ownerAt: () => undefined,
-      frozenVersions: new Set(['g1/fa3b892']),
-    };
-    expect(replayAuthorityEvidence({ seq: rawRow.seq, eventType: rawRow.event_type, actor: rawRow.actor, envelope: env }, sources))
-      .toBe('VERIFIED');
+    // 用**生产侧真实数据源**（Kernel.gateSources()），不再手搓一张"什么都能过"的轴表：
+    // 复审第二轮指出手工轴表等于让测试给自己发合格证。
+    expect(w2.kernel.gateSources().registeredMechanismAxis('raw-record-declared')).toBe('space-write');
+    expect(replayAuthorityEvidence(
+      { seq: rawRow.seq, eventType: rawRow.event_type, actor: rawRow.actor, envelope: env },
+      w2.kernel.gateSources(),
+    )).toBe('VERIFIED');
+    // 生产入口复算同一行：形状与三态都成立
+    expect(w2.kernel.replayLedger(rawRow.seq as never)).toMatchObject({
+      shape: { ok: true, branch: 'mechanism-op' }, replay: 'VERIFIED',
+    });
 
     // EA-7.1：巡检每次运行必落一条 integrity-audit-recorded（载荷形状照 §7.2）
     const before = w2.count(`select count(*) as c from ledger where event_type='integrity-audit-recorded'`);
@@ -431,8 +435,32 @@ describe('PR-2 EA-4.5/4.6 全形闸与三态复算', () => {
     });
     expect(body.trigger).toBe('audit-call');
     expect(body.ruleSetVersion).toBe('g1/fa3b892');
+    // 软幽灵指纹是真指纹：无幽灵时等于空集 sha256，有幽灵时必须变（见下方专项用例）
+    expect(body.softGhostsDigest).toBe(createHash('sha256').update('').digest('hex'));
     // EA-7.4 非 oracle：回执里没有任何 hiddenBy* 键
     expect(findNonOracleViolations(audit)).toEqual([]);
     w2.close();
+  });
+
+  test('EA-1.2.2：通用 write() 对三类事件名一律拒（含旧名单漏收的 object-revised/record-backfilled）', () => {
+    const d3 = tempDir('g2-pr2-write-');
+    const w3 = openBootstrapWorld(d3);
+    const name = (t: string) => w3.uow(WRITER, (tx) => w3.kernel.faceFor(CAP_BOOTSTRAP).writerFor(tx)
+      .write({ ns: 'boot_probe', oid: 'x' as never, revision: 1, payload: {}, eventType: t }));
+    for (const t of ['never-registered-xyz', 'object-revised', 'record-backfilled', 'raw-record-declared', DOMAIN_EVENT]) {
+      expect(() => name(t), `write() 必须拒 ${t}`).toThrowError(expect.objectContaining({ code: 'EVENT_AUTHORITY_REQUIRED' }));
+    }
+    expect(w3.count(`select count(*) as c from ledger where event_type in ('never-registered-xyz','object-revised','record-backfilled')`)).toBe(0);
+    w3.close();
+  });
+
+  test('机制名单与锚逐条相等（EA-6.1 唯一正源；漏一个名字就是给通用通道留一个可 mint 的机制名）', () => {
+    const anchor = JSON.parse(readFileSync(join(process.cwd(), 'contracts/event-registry/EVENT-CONTRACT-LEDGER.json'), 'utf8')) as
+      { entries: { eventType: string; class: string }[] };
+    const anchored = anchor.entries.filter((e) => e.class === 'mechanism').map((e) => e.eventType).sort();
+    const declared = [...MECHANISM_AUDIT_EVENT_TYPES].sort();
+    expect(declared).toEqual(anchored);
+    // 轴上表覆盖同一集合（否则 registeredMechanismAxis 会对某些名字返回 undefined）
+    expect(Object.keys(MECHANISM_EVENT_AXIS).sort()).toEqual(anchored);
   });
 });

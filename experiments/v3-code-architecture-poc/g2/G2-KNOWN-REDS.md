@@ -91,3 +91,26 @@ FAIL [EVENT_RECON_STALE] 入账条目 read-shadow-recorded 既无写点又非 pl
 **处置**：不把 PoC 树补成第二条生产实现面（那会让"两套实现"长期并存且都要过账）。
 待 PR-2 评审时确认：PoC 树是否仍需与生产根保持事件面同步——若需要，作为独立工作项排期；
 若不需要，则在契约里明确"对账的 impl-root 仅指生产根"，本项即关闭。**未闭合，等评审裁定。**
+
+## R-6 — EA-7.2 的 K=32 聚合无读侧计数基底（**未落地**，2026-11-04）
+
+契约 `EA-7.2` 要求：读侧遮蔽计数（`hiddenByContractSkew` / `hiddenByInactiveCapability`）
+满足「首次非零」或「距上次落账后非零遮蔽读次数达 K=32」时落一条 `read-shadow-recorded`，
+且计数**退出调用方 echo 面**（EA-7.4）。
+
+现状：G2 生产 Kernel 里根本没有读侧遮蔽计数（`hiddenBy*` 只在旧宿主 `src/host/persistence`
+的无关变量名出现）。`read-shadow-recorded` 的**写入口存在**（`recordMechanismAudit`，
+九字段信封已就位），但"什么时候该落"的聚合逻辑与计数来源都不存在——读面遮蔽语义
+（契约偏斜 / 能力停用导致的不可见）要到 PR-3（ReadContext / refuse-vs-withhold）才成形。
+
+**处置**：不造一个假计数器来"点亮"这个事件名（那正是本仓反复拒绝的假绿）。PR-3 落地
+读侧遮蔽后，把计数与 K=32 聚合接到 `recordMechanismAudit`。**未闭合，等 PR-3。**
+
+## R-7 — `replayAuthorityEvidence` 尚无生产调用点（**接线缺**，2026-11-04）
+
+`gateFullShape` / `replayAuthorityEvidence` 已实现并有单测（含机制行判 VERIFIED），存储触发器
+也已升到同一九字段判据；但**审计命令面**（谁按需复算某一行）还没接到 Kernel 的公开入口，
+生产 `src/**` 里除测试外无调用点。
+
+**处置**：待 PR-6（审计面）建立"按 seq 复算"的公开命令时接线；在那之前不得声称"审计复算已上线"。
+**未闭合，等 PR-6。**

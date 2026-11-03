@@ -10,7 +10,7 @@
 | `g2/impl` | `04c773a` | 基底（非发布路径） | G2 开发起点（= `04c773a45a9b33f8d5b88ddc041dbd0446838c9d`）|
 | `g2/pr-1` | `6013572` | **#50**（Draft） | 甲类：锚文件 + `events-recon.mjs` + 夹具；`src/**`、`tests/**` 为零 |
 | `g2/bootstrap` | `a484322` | **#51**（Draft，stacked on #50） | Bootstrap Gate |
-| `g2/pr-2` | `c6d932b` | **#52**（Draft，stacked on #51） | 乙类：EA-3 / EA-4 / EA-7.1·7.2 / R-8 / 记录域 Port |
+| `g2/pr-2` | `c6d932b`（代码 tip；后续仅文档与本轮补钉）| **#52**（Draft，stacked on #51） | 乙类：EA-3 / EA-4 / EA-7.1·7.2 / R-8 / 记录域 Port |
 
 合并顺序：50 → 51 → 52。**均未合并 `main`。**
 
@@ -22,14 +22,14 @@
 | `lint` / `check-imports` | 0 |
 | `build` + `check:freshness` | 0（31 个 canonical 文件 sha256 双向校验）|
 | `docs:check` | OK |
-| `pnpm test`（PR-2 tip `c6d932b`） | **5126 passed / 1 red** |
+| `pnpm test`（PR-2 tip） | **5129 passed / 1 red** |
 | 唯一红灯 | `tests/engineering/eb1-canonical.test.ts` = 既存 **R-1**（起点 `04c773a` 同红，非本次引入）|
 | `tsc -p tsconfig.kernel.json` | 0 |
 | `events-recon` 生产根 | exit 0（期望 13 / 事实 10 / planned 3）|
 | `events-recon --self-test` | **29/29** |
 | 逐提交门禁（PR-1 历史） | 4/4 PASS |
 | 冻结夹具 | 52 PASS / 0 FAIL |
-| `kernel-event-authority` | 25/25 |
+| `kernel-event-authority` | 28/28 |
 | `kernel-bootstrap` | 7/7 |
 | `contracts-raw-intake-port` | 12/12 |
 
@@ -63,7 +63,10 @@
 | E2 | **R-5**：PoC 实现根对账 2 红（范围性：锚 `writeSites` 指生产根）| 未闭合，待评审裁定 PoC 树是否需与生产根事件面同步 |
 | E3 | **R-6**：EA-7.2 的 K=32 聚合无读侧计数基底 | 未闭合，随 PR-3 |
 | E4 | **R-7**：复算的版本化归属未建（`ownerAt` 只答当前版本）| 未闭合，随 PR-6 |
-| E5 | **R-8**：锚缺 name→axis 字段，机制轴表暂为机制自我陈述 | 未闭合，待锚补字段后降级为断言 |
+| E5 | **R-8**：机制轴表的值无锚来源（`facet-mount` 已按 FM-7 修正）| 部分闭合，待锚补 name→axis 字段后降级为断言 |
+| E6 | **R-9**：`write()` 恒拒 ⇒ D-24 合法 Facet 挂载面在生产不可达 | **契约分歧**，需 `Frozen-Face-Review` 覆盖或改 CONTRACTS §16.1 |
+| E7 | **R-10**：`auditRequiredIntegrity` 无生产调用方（`trigger:'open'` 无路径）| 未闭合，随 PR-5 |
+| E8 | **R-11**：全形闸不防裸面改写；`axis=capability-admin` 恒走 route-audit 支 | 既定边界，仅记录 |
 | F | **R-1**：`SUBAGENT_ROUTING.md` G0 哈希不一致 | 既存红灯，需裁定（恢复 / 重锚 / 缓期）|
 | G | PR-1 的 5 个已批准名保持 `planned:true` 至写点同批翻面 | 需确认是否接受 |
 | H | **CI 从未在 `g2/*` 上真实运行过** | 触发面只投 `main`；与授权要求「每步真实 CI」冲突 |

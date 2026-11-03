@@ -120,6 +120,57 @@ FAIL [EVENT_RECON_STALE] 入账条目 read-shadow-recorded 既无写点又非 pl
 自己钉住的 `contractVersion` 复算，历史版本归属表尚未建立。当前实现对旧版本行返回
 `undefined`（判不一致），即"复算不出"而不是"猜成一致"。
 
+**同族限制（第三轮复审补记）**：`gateSources().frozenVersions` 也由**当前**登记推导
+（`g1/fa3b892` ∪ 在册条目钉住的版本）。即使 PR-6 补齐 `ownerAt` 历史表，旧版本行仍会先卡在
+版本集上——PR-6 必须同时建"历史冻结版本集"，否则会看起来做完了而历史行仍不可复算。
+
 **处置**：PR-6 建版本化归属账后补齐；在那之前不得声称"历史行复算已上线"。
 另：锚文件没有 name→axis 字段，`MECHANISM_EVENT_AXIS` 是机制的自我陈述而非第二正源——
 待锚补字段后它应降级为"与锚逐条相等的断言"（本文件已记该方向）。**未闭合，等 PR-6。**
+
+## R-8 — 机制轴表的值无锚来源，且曾经与契约相反（**部分闭合**，2026-11-04 修订）
+
+`MECHANISM_EVENT_AXIS` 是机制自我陈述：锚文件（EA-6.1）条目只有 `class/truthSource/
+interpretationRuleSetVersion/writeSites/planned`，**没有** name→axis 字段，所以"轴值"只能由
+机制自己声明，无法与锚对拍。
+
+第三轮复审实测指出：本表曾把 `facet-mounted`/`facet-unlinked` 写成 `space-write`，而 G1 契约
+FM-7 / I-2 与本仓单测都要求 `facet-mount` —— 那一刻轴表不是"缺来源"，而是**与契约相反**
+（真行会被判红、伪造的 `space-write` 行反而通过，相对契约是 fail-open）。现已改为
+`facet-mount`，并把 `facet-mount` 扩入 `MechanismResource` / `MECHANISM_RESOURCES`（FM-7 的要求）。
+
+**仍缺**：轴值的锚来源。待锚补 name→axis 字段后，本表应降级为"与锚逐条相等的断言"
+（`tests/kernel-event-authority.test.ts` 现有"键集合 ≡ 锚"断言，值仍需人工复核）。**部分闭合。**
+
+## R-9 — `NamespaceWriter.write()` 恒拒 ⇒ D-24 合法 Facet 挂载面在生产不可达（**契约分歧**，2026-11-04）
+
+EA-2.2 第二行要求 `write()` 的登记式台账行对三类事件名一律拒；实现按 deny-by-default 收死后，
+**任何** `write()` 调用都抛 `EVENT_AUTHORITY_REQUIRED`。后果：CONTRACTS §16.1 D-24 明写的
+"合法 Facet 挂载（oid 在目录、行落自己 ns）不受影响（Q45 / #44 §6.2）" 在 G2 生产代码里
+**不可达**，D-24 ① 的幽灵 oid 判据也随之不可观测。
+
+这不是偷偷删功能：本文件如实登记，且已补一条"恒拒 + 零残留"回归测试把这个死状态钉成
+**有意为之**（`tests/kernel-event-authority.test.ts` 的 `write() 恒拒是有意的死状态`）。
+**处置**：需要 `Frozen-Face-Review` 显式覆盖此分歧，或走冻结变更流程改 CONTRACTS §16.1
+（明确 `write()` 退役、Facet 挂载改由专门的挂载原语承担，并在 FM-7 落地时提供 Q45 正例护栏）。
+**未闭合，等人工裁定；不得声称"Facet 挂载可用"。**
+
+## R-10 — `auditRequiredIntegrity` 无生产调用方，`trigger:'open'` 无生产路径（**接线缺**，2026-11-04）
+
+`recordMechanismAudit` 的生产调用方是 `auditRequiredIntegrity`，但后者自身**零调用方**
+（`grep -rn auditRequiredIntegrity src/` 只有定义）。因此"装配根打开时巡检一次并落账"这条
+路径不存在，`trigger:'open'` 只是一个还没人用的枚举值。
+
+**处置**：PR-5（装配根/打开路径）落地时把打开期巡检接上；在那之前 EA-7.1 只能声称"巡检被调用时
+必落一条"，不能声称"每次打开都落"。**未闭合，等 PR-5。**
+
+## R-11 — 全形闸不防裸面改写；`axis=capability-admin` 恒走 route-audit 支（**既定边界**，2026-11-04）
+
+第三轮复审用 `new DatabaseSync(file)` 手抄九字段信封直插伪造行，`replayLedger` 判
+`mechanism-op / VERIFIED`。这是 EA-4.6 明写的边界（"不证明宿主主体真实性，也不证明裸面未被
+改写"），且经插件可达通道已无法做到——记录为边界，不是新增洞。
+
+同时记录一个判据形状：任意机制名 + `axis='capability-admin'` + `authorized=1` 恒走 ②
+（route-audit 支），与名字无关。契约把 ② 定为 ③ 的特例（既有设计），故伪造者若同时掌握
+运维轴仍可过闸——**这不是闸的漏洞，而是"运维权威本身就是最高权威"的定义**。
+**无需修复；作为评审记录保留。**

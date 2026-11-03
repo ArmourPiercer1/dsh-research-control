@@ -9,7 +9,7 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
-import { Refusal } from '../contracts/index';
+import { MECHANISM_FROZEN_VERSION, Refusal } from '../contracts/index';
 import type { RawTx, StoragePort } from '../contracts/index';
 
 const SCHEMA = `
@@ -254,7 +254,7 @@ export function migrateLegacyRecords(file: string): number {
         // 否则审计复算只能把它判成半形/旧行，等于让迁移器成为"无信封行"的生产来源。
         const envelope = JSON.stringify({
           ctxId: randomUUID(), actor: 'migrator', capability: 'assembly', axis: 'space-write',
-          authorized: true, ruleSetVersion: 'g1/fa3b892', contractVersion: 'g1/fa3b892',
+          authorized: true, ruleSetVersion: MECHANISM_FROZEN_VERSION, contractVersion: MECHANISM_FROZEN_VERSION,
           issuedAtMs: Date.now(), txSeq: next,
         });
         db.prepare(

@@ -60,15 +60,24 @@ export interface VerifiedPrincipal {
  * Kernel **自己执行**的授权资源。业务授权轴（例如某域的"接纳资格"）由领域插件自定义字符串，
  * Kernel 只按名字问授权层——写权与业务授权分轴（SP-09），因此这里不得预置任何领域资源名。
  */
-export type MechanismResource = 'space-write' | 'capability-admin';
+/**
+ * 冻结契约版本（EA-6.1 锚文件 `contracts/event-registry/EVENT-CONTRACT-LEDGER.json` 的
+ * `interpretationRuleSetVersion` 取值）。放在 contracts 是因为**三个使用者**都要它：
+ * Kernel 的机制信封、迁移器的补写行、审计复算的冻结版本集——任何一处手抄字面量都会在
+ * 版本推进时静默掉队（迁移行会先变成"复算不一致"）。
+ */
+export const MECHANISM_FROZEN_VERSION = 'g1/fa3b892';
+
+export type MechanismResource = 'space-write' | 'capability-admin' | 'facet-mount';
 export type AuthorityResource = MechanismResource | (string & {});
 /**
  * `MechanismResource` 的**运行时投影**（D-26，包 4，CONTRACTS.md §16.2）：类型联合在 JS 里不存在，
  * 而注册判据要在运行时回答「这根轴是不是机制自己的权限轴」——本数组是机制资源自述的唯一运行时正源。
- * **这不是业务知识回流**：里面只有机制自身执行的资源名（写权/管理权）；业务授权轴仍是 Kernel
- * 不解释的不透明字符串。新增机制资源时类型与本数组必须同步——漏一条由下方编译期穷尽检查变红。
+ * **这不是业务知识回流**：里面只有机制自身执行的资源名（写权/管理权/Facet 挂载权）；业务授权轴
+ * 仍是 Kernel 不解释的不透明字符串。`facet-mount` 的加入依据 = G1 契约 FM-7 / I-2（Facet 挂载
+ * 是与写权分轴的机制权限；挂载者不得借"有写权"代替"可挂载"）。新增机制资源时类型与本数组必须同步——漏一条由下方编译期穷尽检查变红。
  */
-export const MECHANISM_RESOURCES = ['space-write', 'capability-admin'] as const;
+export const MECHANISM_RESOURCES = ['space-write', 'capability-admin', 'facet-mount'] as const;
 // 穷尽检查（真判据，对**数组元素类型**做 Exclude）：本数组漏掉 `MechanismResource` 联合的
 // 任一成员 ⇒ 下一行编译红（运行时排除判据不得落后于类型联合——D-26 的判据强度取决于清单完整）。
 type _MechanismResourcesCover = Exclude<MechanismResource, typeof MECHANISM_RESOURCES[number]> extends never

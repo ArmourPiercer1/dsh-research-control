@@ -19,6 +19,7 @@ import {
   type CapabilityId,
   type EventOwnershipEntry,
   type CheckReportRecord,
+  MECHANISM_FROZEN_VERSION,
   type CommitSequence,
   type ObjectKindLabel,
   type ObjectOid,
@@ -33,7 +34,7 @@ import {
 } from '../contracts/index';
 import { SCHEMA_VERSION } from '../storage-sqlite/sqlite-port';
 import {
-  gateFullShape, replayAuthorityEvidence, type GateSources, type GateVerdict, type ReplayVerdict, type WitnessRow, witnessRowOf,
+  gateFullShape, replayAuthorityEvidence, type GateSources, type GateVerdict, type ReplayVerdict, witnessRowOf,
 } from './authority-gate';
 import { KERNEL_PORT } from './internal';
 
@@ -69,12 +70,9 @@ export interface Authorizer {
  * 身份与"它已登记"这一事实是机制事实，不是某个领域插件的业务事实——插件可以消失、可以换实现，
  * 已登记记录的引用不能因此失效。
  */
-export const MECHANISM_OWNED_EVENT_TYPES = ['raw-record-declared'] as const;
-
-/** 预留判据的统一入口：机制审计名 ∪ 机制自有名（两者都只能由机制内部写）。 */
+/** 预留判据的统一入口：机制名（13 条自我陈述）与机制自有名都只能由机制内部写。 */
 export function isMechanismEventType(t: string): boolean {
-  return (MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(t)
-    || (MECHANISM_OWNED_EVENT_TYPES as readonly string[]).includes(t);
+  return (MECHANISM_AUDIT_EVENT_TYPES as readonly string[]).includes(t);
 }
 
 /**
@@ -85,7 +83,7 @@ export function isMechanismEventType(t: string): boolean {
 export const RAW_RECORD_DECLARED = 'raw-record-declared';
 
 /** 冻结契约版本：锚文件每个条目的 `interpretationRuleSetVersion`（EA-6.1 唯一正源）。 */
-export const MECHANISM_FROZEN_VERSION = 'g1/fa3b892';
+export { MECHANISM_FROZEN_VERSION };
 
 /**
  * 存储模式版本（与 `src/storage-sqlite/sqlite-port.ts` 的 DDL 同步）。放在这里是为了让
@@ -128,8 +126,10 @@ export const MECHANISM_EVENT_AXIS: Readonly<Record<string, AuthorityResource>> =
   'raw-record-declared': 'space-write',
   'integrity-audit-recorded': 'space-write',
   'read-shadow-recorded': 'space-write',
-  'facet-mounted': 'space-write',
-  'facet-unlinked': 'space-write',
+  // FM-7 / I-2：Facet 挂载走独立的机制轴 `facet-mount`（不是 space-write）——本 PR 自己的
+  // 单测早就断言了这个值，轴表却写成 space-write，等于让生产闸对真行判红、对伪造行放行。
+  'facet-mounted': 'facet-mount',
+  'facet-unlinked': 'facet-mount',
 };
 
 /**
@@ -704,6 +704,15 @@ export class Kernel {
           reason: '审计落账不得替与当前事务主体不同的主体签名',
         });
       }
+      // **同一判据，不因"已在事务里"而放松**：自开那条经 `uow(...,'capability-admin')` 判过
+      // 管理权，加入这条也必须判。否则一个只有 space-write 的主体只要在业务事务里叫一次巡检，
+      // 就能让机制替它写一条永不可复算（authorized:false）的审计行——同一写点两套授权。
+      if (!this.auth.can(by.actorId, 'capability-admin', this.space)) {
+        throw new Refusal('AUTHORITY_REQUIRED', {
+          resource: 'capability-admin', actor: by.actorId, channel: 'auditRequiredIntegrity',
+          reason: '巡检落账要管理权：加入调用方事务不改变这一判据',
+        });
+      }
       return emit(active.raw as RawTx);
     }
     const echo = this.uow(by, (held) => emit(RAW_OF_UOW.get(held as unknown as UnitOfWorkImpl)! as RawTx), 'capability-admin');
@@ -1069,10 +1078,11 @@ export class Kernel {
      * 计数**只进回执**：不改 violations、不阻塞任何提交——软边的业务后果归领域自己。
      */
     readonly softGhosts: number;
-    /** 幽灵目标集合（供审计指纹计算；**不出现在任何调用方回声面**，只在机制内部用）。 */
-    readonly softGhostTargets: readonly string[];
   } {
-    const result = this.#port.read((raw) => {
+    const result = this.#port.read((raw): {
+      checked: number; violations: readonly RequiredEdgeViolation[];
+      softChecked: number; softGhosts: number; softGhostTargets: readonly string[];
+    } => {
       const rows = raw.all<{
         from_oid: string; from_rev: number; role: string;
         to_oid: string | null; to_rev: number | null; to_record: string | null;

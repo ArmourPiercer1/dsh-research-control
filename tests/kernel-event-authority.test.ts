@@ -464,3 +464,69 @@ describe('PR-2 EA-4.5/4.6 全形闸与三态复算', () => {
     expect(Object.keys(MECHANISM_EVENT_AXIS).sort()).toEqual(anchored);
   });
 });
+
+// ---------------------------------------------------------------- 复审第三轮补钉
+import { DatabaseSync } from 'node:sqlite';
+import { migrateLegacyRecords } from '../src/storage-sqlite/sqlite-port';
+
+describe('PR-2 复审第三轮：契约分歧补钉', () => {
+  test('write() 恒拒是**有意的死状态**（D-24 合法 Facet 挂载面在生产不可达，需冻结面裁定）', () => {
+    const w = openBootstrapWorld(tempDir('g2-pr2-writedead-'));
+    const oid = w.uow(WRITER, (tx) => w.kernel.faceFor(CAP_BOOTSTRAP).writerFor(tx)
+      .createOwned({ kind: 'boot.probe' as never, payload: { n: 1 } }));
+    const before = {
+      ledger: w.count(`select count(*) as c from ledger`),
+      state: w.count(`select count(*) as c from domain_state`),
+      journal: w.count(`select count(*) as c from journal`),
+    };
+    // 真实存在的 oid 也不放行：本入口没有"合法"分支，拒绝先于任何写
+    expect(() => w.uow(WRITER, (tx) => w.kernel.faceFor(CAP_BOOTSTRAP).writerFor(tx)
+      .write({ ns: 'boot_probe', oid, revision: 1, payload: { n: 2 }, eventType: 'facet-mounted' })))
+      .toThrowError(expect.objectContaining({ code: 'EVENT_AUTHORITY_REQUIRED' }));
+    expect({
+      ledger: w.count(`select count(*) as c from ledger`),
+      state: w.count(`select count(*) as c from domain_state`),
+      journal: w.count(`select count(*) as c from journal`),
+    }).toEqual(before);
+    w.close();
+  });
+
+  test('入事务的巡检与自开事务的巡检用**同一授权判据**（space-write 主体不得借调用方事务落审计行）', () => {
+    const w = openBootstrapWorld(tempDir('g2-pr2-auditsym-'), { grants: { alice: ['space-write', 'capability-admin'], bob: ['space-write'] } });
+    const bob = PRINCIPAL('bob');
+    expect(() => w.uow(bob, () => w.kernel.auditRequiredIntegrity(bob, 'audit-call')))
+      .toThrowError(expect.objectContaining({ code: 'AUTHORITY_REQUIRED' }));
+    expect(w.count(`select count(*) as c from ledger where event_type='integrity-audit-recorded'`)).toBe(0);
+    // 同一主体在事务外也被拒（两套判据必须一致，不是"事务内更宽松"）
+    expect(() => w.kernel.auditRequiredIntegrity(bob, 'audit-call'))
+      .toThrowError(expect.objectContaining({ code: 'AUTHORITY_REQUIRED' }));
+    w.close();
+  });
+
+  test('迁移器补写行带九字段信封，且复算为 VERIFIED（旧行仍是 UNVERIFIABLE_LEGACY）', () => {
+    const d = tempDir('g2-pr2-migrate-');
+    const file = join(d, 'research.sqlite');
+    const w = openBootstrapWorld(d);
+    const oldSeq = w.port.read((raw) => raw.get<{ seq: number }>(`select max(seq) as seq from ledger`)!).seq;
+    w.close();
+    // 造一条"有 record_id、无 records 行"的旧账行（= 包 3 之前的历史形态；迁移器的输入就是这个形状）
+    const raw = new DatabaseSync(file);
+    raw.prepare(`insert into ledger(seq, space, event_type, actor, record_id, payload_json, described_at, recorded_at)
+                 values(?,?,?,?,?,?,?,?)`).run(oldSeq + 1, 'SP-boot', 'object-registered', 'legacy:actor', 'LEG-1',
+      JSON.stringify({ legacy: true }), null, Date.now());
+    raw.prepare(`update meta set value=? where key='ledger_seq'`).run(oldSeq + 1);
+    raw.close();
+    expect(migrateLegacyRecords(file)).toBe(1);
+    const w2 = openBootstrapWorld(d);
+    // 补写行 = 机制行，九字段齐、复算 VERIFIED
+    const backSeq = w2.port.read((raw) => raw.get<{ seq: number }>(
+      `select seq from ledger where actor='migrator' order by seq desc limit 1`)!).seq;
+    expect(w2.kernel.replayLedger(backSeq as never))
+      .toMatchObject({ shape: { ok: true, branch: 'mechanism-op' }, replay: 'VERIFIED' });
+    // 旧行没有被"顺带"证明：仍是 UNVERIFIABLE_LEGACY
+    const legacySeq = w2.port.read((raw) => raw.get<{ seq: number }>(
+      `select seq from ledger where actor='legacy:actor' limit 1`)!).seq;
+    expect(w2.kernel.replayLedger(legacySeq as never).replay).toBe('UNVERIFIABLE_LEGACY');
+    w2.close();
+  });
+});

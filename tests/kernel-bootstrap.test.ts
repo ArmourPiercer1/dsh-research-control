@@ -16,9 +16,19 @@ import { cleanup, openBootstrapWorld, PRINCIPAL, tempDir, type BootstrapWorld } 
 import { Refusal } from '../src/contracts';
 
 const WRITER = PRINCIPAL('alice');
-// 通用台账通道的探针名：**未登记**为正式事件（登记名经通用通道写会被拒 —— 那是 PR-2 的判据，
-// Bootstrap 只验最小提交环）。故意不用 `boot-probe-recorded`：那个名字是夹具里的正式事件。
-const EVENT = 'boot-probe-ledger-row';
+/**
+ * 最小提交环的探针写点：**机制签发点** `declareRawIntake`。
+ *
+ * R-9 / EA-2.2 之后，通用 `appendLedger` 对三类事件名一律拒（domain / mechanism / unregistered），
+ * 所以最小环不能再拿"随便一个未登记名"当探针——那正是 deny-by-default 要消灭的形态。
+ * 这里改用机制自己唯一的记录入口：它写 records + ledger，且必须与调用方同一事务。
+ */
+let probe = 0;
+const writeProbe = (w: BootstrapWorld, text = 'probe') =>
+  w.uow(WRITER, () => {
+    probe += 1;
+    return w.kernel.declareRawIntake({ recordId: `RAW-BOOT-${probe}`, text, sourceRef: 'boot://probe' });
+  });
 
 describe('Bootstrap：最小 Kernel 提交环（真实 SQLite）', () => {
   let dir: string;
@@ -35,7 +45,8 @@ describe('Bootstrap：最小 Kernel 提交环（真实 SQLite）', () => {
   });
 
   test('开 UoW → 写台账行 → 提交 → 读回：seq 单调、载荷与主体如实落库', () => {
-    const seq = w.uow(WRITER, (tx) => tx.appendLedger({ eventType: EVENT, payload: { probe: 'first' } }));
+    const receipt = writeProbe(w, 'first');
+    const seq = receipt.witnessSeq;
     expect(seq).toBeGreaterThan(0);
 
     let row: { seq: number; event_type: string; actor: string; payload_json: string } | undefined;
@@ -43,23 +54,23 @@ describe('Bootstrap：最小 Kernel 提交环（真实 SQLite）', () => {
       row = raw.get(`select seq, event_type, actor, payload_json from ledger where seq=?`, seq);
     });
     expect(row).toBeDefined();
-    expect(row!.event_type).toBe(EVENT);
+    expect(row!.event_type).toBe('raw-record-declared');
     expect(row!.actor).toBe('alice');
-    expect(JSON.parse(row!.payload_json)).toEqual({ probe: 'first' });
+    expect(JSON.parse(row!.payload_json)).toMatchObject({ text: 'first', sourceRef: 'boot://probe' });
   });
 
   test('第二次提交 seq 递增（同一空间内单调，不留空洞）', () => {
-    const a = w.uow(WRITER, (tx) => tx.appendLedger({ eventType: EVENT, payload: { n: 1 } }));
-    const b = w.uow(WRITER, (tx) => tx.appendLedger({ eventType: EVENT, payload: { n: 2 } }));
+    const a = writeProbe(w).witnessSeq;
+    const b = writeProbe(w).witnessSeq;
     expect(b).toBe(a + 1);
   });
 
   test('无写权主体：拒在写之前（NO_SPACE_WRITE），存储零残留', () => {
     const before = w.count('select count(*) c from ledger');
-    expect(() => w.uow(PRINCIPAL('mallory'), (tx) => tx.appendLedger({ eventType: EVENT, payload: {} })))
+    expect(() => w.uow(PRINCIPAL('mallory'), () => w.kernel.declareRawIntake({ recordId: 'RAW-M', text: 'x', sourceRef: 's' })))
       .toThrowError(Refusal);
     try {
-      w.uow(PRINCIPAL('mallory'), (tx) => tx.appendLedger({ eventType: EVENT, payload: {} }));
+      w.uow(PRINCIPAL('mallory'), () => w.kernel.declareRawIntake({ recordId: 'RAW-M', text: 'x', sourceRef: 's' }));
     } catch (e) {
       expect((e as Refusal).code).toBe('NO_SPACE_WRITE');
     }
@@ -68,8 +79,8 @@ describe('Bootstrap：最小 Kernel 提交环（真实 SQLite）', () => {
 
   test('事务内抛错 ⇒ 整笔回滚：已写台账行不落地（无 ghost）', () => {
     const before = w.count('select count(*) c from ledger');
-    expect(() => w.uow(WRITER, (tx) => {
-      tx.appendLedger({ eventType: EVENT, payload: { doomed: true } });
+    expect(() => w.uow(WRITER, () => {
+      w.kernel.declareRawIntake({ recordId: 'RAW-DOOMED', text: 'x', sourceRef: 's' });
       throw new Error('注入失败：提交前抛错');
     })).toThrow(/注入失败/);
     expect(w.count('select count(*) c from ledger')).toBe(before);
@@ -79,8 +90,7 @@ describe('Bootstrap：最小 Kernel 提交环（真实 SQLite）', () => {
     const before = w.count('select count(*) c from ledger');
     w.port.failBeforeCommit = new Error('注入失败：COMMIT 前');
     try {
-      expect(() => w.uow(WRITER, (tx) => tx.appendLedger({ eventType: EVENT, payload: { doomed: 2 } })))
-        .toThrowError();
+      expect(() => writeProbe(w, 'doomed')).toThrowError();
     } finally {
       w.port.failBeforeCommit = undefined;
     }
@@ -88,7 +98,7 @@ describe('Bootstrap：最小 Kernel 提交环（真实 SQLite）', () => {
   });
 
   test('台账行不可改、不可删（存储层触发器在位）', () => {
-    const seq = w.uow(WRITER, (tx) => tx.appendLedger({ eventType: EVENT, payload: { immutable: true } }));
+    const seq = writeProbe(w, 'immutable').witnessSeq;
     expect(() => w.port.read((raw) => raw.run(`update ledger set payload_json='{}' where seq=?`, seq))).toThrowError();
     expect(() => w.port.read((raw) => raw.run(`delete from ledger where seq=?`, seq))).toThrowError();
   });

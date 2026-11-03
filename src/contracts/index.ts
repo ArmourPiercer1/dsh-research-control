@@ -256,8 +256,11 @@ export interface EventOwnershipEntry {
   readonly interpretationRuleSetVersion: string;
   /** 该事件类型的解释契约版本（C-12 SCR-03 同族）。 */
   readonly contractVersion: string;
-  /** EA-3.4：新增领域名的 owner 批准记录（领域名走 owner 清单登记，与机制名分轨）。 */
-  readonly approval?: { readonly approvedBy: string; readonly approvedOn: string; readonly anchor: string };
+  /**
+   * EA-3.4：新增领域名的 owner 批准记录（必填）。领域名走 owner 清单登记，与机制名分轨；
+   * 缺批准 = 没有"谁批准了这个名字"的可核事实，装配期必须拒（不给"先登记后补批准"留窗口）。
+   */
+  readonly approval: { readonly approvedBy: string; readonly approvedOn: string; readonly anchor: string };
   /** 退役标记：只标不删，历史行读面不变（EA-5）；退役名不可再新写。 */
   readonly retired?: boolean;
 }

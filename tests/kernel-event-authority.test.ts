@@ -345,4 +345,94 @@ describe('PR-2 EA-4.5/4.6 全形闸与三态复算', () => {
       expect(srcText.includes(`'${name}'`)).toBe(false);
     }
   });
+
+  test('EA-3.2/§3.2 零装配副作用：清单中途被拒时，先登记的能力/事件名全部回滚', () => {
+    const d0 = tempDir('g2-pr2-rollback-');
+    const w = openBootstrapWorld(d0);
+    const good = {
+      eventType: 'test.good-entry', capability: 'cap.test.rollback', requiresAuthority: 'axis.x',
+      truthSource: 'ledger-payload' as const, interpretationRuleSetVersion: 'v1', contractVersion: 'v1',
+      approval: { approvedBy: 'h', approvedOn: '2026-11-03', anchor: 'tests' },
+    };
+    const bad = {
+      eventType: 'raw-record-declared', capability: 'cap.test.events', requiresAuthority: 'axis.x',
+      truthSource: 'ledger-payload' as const, interpretationRuleSetVersion: 'v1', contractVersion: 'v1',
+      approval: { approvedBy: 'h', approvedOn: '2026-11-03', anchor: 'tests' },
+    };
+    const manifest = {
+      pluginId: 'test.rollback', codeVersion: '0.0.1',
+      provides: [{ capability: 'cap.test.rollback', contractVersion: 'v1' }], requires: [],
+      storageNamespace: 'dom_rollback', eventAuthority: 'none' as const,
+      ownsEventTypes: [good, bad],
+    };
+    const before = w.kernel.registry.formalEventEntries().length;
+    expect(() => w.kernel.registry.register(manifest as never))
+      .toThrowError(expect.objectContaining({ code: 'AMBIGUOUS_AUTHORITY' }));
+    // 零增量：先登记的好条目也不许留下，能力也不许注册
+    expect(w.kernel.registry.formalEventEntries().length).toBe(before);
+    expect(w.kernel.registry.formalEventOwner('test.good-entry')).toBeUndefined();
+    expect(w.kernel.registry.capability('cap.test.rollback')).toBeUndefined();
+    w.close();
+  });
+
+  test('EA-3.1：缺 approval 的领域条目在装配期被拒（不给"先登记后补批准"留窗口）', () => {
+    const d1 = tempDir('g2-pr2-approval-');
+    const w = openBootstrapWorld(d1);
+    const noApproval = {
+      eventType: 'test.no-approval', capability: 'cap.test.na', requiresAuthority: 'axis.x',
+      truthSource: 'ledger-payload', interpretationRuleSetVersion: 'v1', contractVersion: 'v1',
+    };
+    expect(() => w.kernel.registry.register({
+      pluginId: 'test.na', codeVersion: '0.0.1',
+      provides: [{ capability: 'cap.test.na', contractVersion: 'v1' }], requires: [],
+      storageNamespace: 'dom_na', eventAuthority: 'none',
+      ownsEventTypes: [noApproval],
+    } as never)).toThrowError(expect.objectContaining({ code: 'ACTIVATION_IMPOSSIBLE' }));
+    w.close();
+  });
+
+  test('EA-4.4/EA-4.6：机制写点落九字段信封，审计复算为 VERIFIED', () => {
+    const d2 = tempDir('g2-pr2-envelope-');
+    const w2 = openBootstrapWorld(d2, { grants: { alice: ['space-write', 'capability-admin'] } });
+    const alice = PRINCIPAL('alice');
+    w2.uow(alice, () => w2.kernel.declareRawIntake({ recordId: 'RAW-ENV', text: 'x', sourceRef: 's' }));
+    type Row = { seq: number; event_type: string; actor: string; authority_basis: string };
+    const readRow = (name: string): Row | undefined => w2.port.read((raw) =>
+      raw.get<Row>(`select seq, event_type, actor, authority_basis from ledger where event_type=? order by seq desc limit 1`, name));
+    const rawRow = readRow('raw-record-declared')!;
+    const env = parseAuthorizationContext(JSON.parse(rawRow.authority_basis));
+    expect(env, '机制写点也必须是九字段全形（否则审计侧只能判 INCONSISTENT）').not.toBeNull();
+    expect(env!.txSeq).toBe(rawRow.seq);
+    expect(env!.actor).toBe(rawRow.actor);
+    expect(new Set(Object.keys(env!)).size).toBe(9);
+    const sources = {
+      classify: (t: string) => (t === 'raw-record-declared' ? 'mechanism' as const : 'unknown' as const),
+      registeredMechanismAxis: () => 'space-write',
+      mechanismResources: new Set(['space-write', 'capability-admin']),
+      ownerAt: () => undefined,
+      frozenVersions: new Set(['g1/fa3b892']),
+    };
+    expect(replayAuthorityEvidence({ seq: rawRow.seq, eventType: rawRow.event_type, actor: rawRow.actor, envelope: env }, sources))
+      .toBe('VERIFIED');
+
+    // EA-7.1：巡检每次运行必落一条 integrity-audit-recorded（载荷形状照 §7.2）
+    const before = w2.count(`select count(*) as c from ledger where event_type='integrity-audit-recorded'`);
+    const audit = w2.kernel.auditRequiredIntegrity(alice, 'audit-call');
+    expect(w2.count(`select count(*) as c from ledger where event_type='integrity-audit-recorded'`)).toBe(before + 1);
+    const auditRow = readRow('integrity-audit-recorded')!;
+    const body = JSON.parse(w2.port.read((raw) => raw.get<{ payload_json: string }>(
+      `select payload_json from ledger where seq=?`, auditRow.seq))!.payload_json);
+    expect(Object.keys(body).sort()).toEqual(
+      ['counts', 'drift', 'ruleSetVersion', 'runId', 'schemaVersion', 'softwareGhostsDigest', 'trigger', 'violationsDigest']
+        .filter((k) => k !== 'softwareGhostsDigest').concat('softGhostsDigest').sort());
+    expect(body.counts).toEqual({
+      checked: audit.checked, violations: audit.violations.length,
+      softChecked: audit.softChecked, softGhosts: audit.softGhosts,
+    });
+    expect(body.trigger).toBe('audit-call');
+    expect(body.ruleSetVersion).toBe('g1/fa3b892');
+    // EA-7.4 非 oracle：回执里没有任何 hiddenBy* 键
+    expect(findNonOracleViolations(audit)).toEqual([]);
+    w2.close();
+  });
 });

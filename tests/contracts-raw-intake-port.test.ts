@@ -40,12 +40,15 @@ describe('PR-2 记录域原始入口（机制签发，真实 SQLite）', () => {
   test('原始记录可被引用（引用既有记录不重复声明）', () => {
     const w = openBootstrapWorld(mk());
     intake(w, { command: 'test.records:declareRawIntake', recordId: 'RAW-2', text: 'x', sourceRef: 's' });
-    const seq = w.uow(ALICE, (tx) => tx.appendLedger({
-      // 用**未登记**的普通事件名：本测试只验证"引用既有记录"，不触碰正式事件的授权面。
-      eventType: 'note-attached', payload: { note: 'refers RAW-2' }, recordId: 'RAW-2', declaresRecord: false,
-    }));
-    expect(seq).toBeGreaterThan(0);
-    expect(w.count(`select count(*) as c from ledger where record_id='RAW-2'`)).toBe(2);
+    // 引用既有记录的正规形态：读面能取回它，且引用边指向 record-ref（不重复声明、不写第二条事件）。
+    const payloadJson = w.port.read((raw) => raw.get<{ payload_json: string }>(
+      `select payload_json from records where record_id='RAW-2'`))!.payload_json;
+    expect(JSON.parse(payloadJson)).toMatchObject({ text: 'x', sourceRef: 's' });
+    const oid = w.uow(ALICE, (tx) => tx.createObject({ kind: 'boot.probe', payload: {} }));
+    w.uow(ALICE, (tx) => tx.linkRef({ from: { kind: 'revision-ref', oid, revision: 1 }, to: { kind: 'record-ref', recordId: 'RAW-2' }, role: 'refers' }));
+    expect(w.count(`select count(*) as c from ref_edge where to_record='RAW-2'`)).toBe(1);
+    // 记录仍然只有一条声明事件（引用不是再次声明）
+    expect(w.count(`select count(*) as c from ledger where event_type='raw-record-declared' and record_id='RAW-2'`)).toBe(1);
   });
 
   test('机制事件唯一签发：通用台账通道与领域权威通道都写不了', () => {
@@ -53,9 +56,13 @@ describe('PR-2 记录域原始入口（机制签发，真实 SQLite）', () => {
     // 通用台账通道：拒（预留名）
     expect(() => w.uow(ALICE, (tx) => tx.appendLedger({ eventType: 'raw-record-declared', payload: {}, recordId: 'RAW-X' })))
       .toThrowError(expect.objectContaining({ code: 'EVENT_AUTHORITY_REQUIRED' }));
-    // 领域权威通道：`declareRecord` 也走同一预留判据（不是"换个方法就绕过"）
-    expect(() => w.uow(ALICE, (tx) => tx.declareRecord({ recordId: 'RAW-Y', eventType: 'raw-record-declared', payload: {} })))
+    // 未登记名同样拒（deny-by-default：deny-by-exception 已翻转）
+    expect(() => w.uow(ALICE, (tx) => tx.appendLedger({ eventType: 'note-attached', payload: {} })))
       .toThrowError(expect.objectContaining({ code: 'EVENT_AUTHORITY_REQUIRED' }));
+    // 记录身份没有第二个入口：事务面上根本不存在 `declareRecord`
+    w.uow(ALICE, (tx) => {
+      expect(Object.getOwnPropertyNames(Object.getPrototypeOf(tx as object))).not.toContain('declareRecord');
+    });
     expect(w.count(`select count(*) as c from ledger where event_type='raw-record-declared'`)).toBe(0);
   });
 
@@ -115,6 +122,16 @@ describe('PR-2 记录域原始入口（机制签发，真实 SQLite）', () => {
     };
     expect(() => openBootstrapWorld(mk(), { plugin: claim }))
       .toThrowError(expect.objectContaining({ code: 'AMBIGUOUS_AUTHORITY' }));
+  });
+
+  test('B-4：无空间写权主体即使拿运维轴开事务也不能登记原始记录（授权旁路封死）', () => {
+    // capability-admin 有、space-write 无：事务能开，但机制签发点必须拒（四表零变化）。
+    const w = openBootstrapWorld(mk(), { grants: { alice: ['capability-admin'], bob: ['space-write'] } });
+    const notWriter = PRINCIPAL('alice');
+    expect(() => w.uow(notWriter, () => w.kernel.declareRawIntake({ recordId: 'RAW-B4', text: 'x', sourceRef: 's' }, notWriter), 'capability-admin'))
+      .toThrowError(expect.objectContaining({ code: 'NO_SPACE_WRITE' }));
+    expect(w.count(`select count(*) as c from records`)).toBe(0);
+    expect(w.count(`select count(*) as c from ledger`)).toBe(0);
   });
 
   test('回执不含伪造的 ObjectID / RevisionRef（只有 recordId + witnessSeq）', () => {

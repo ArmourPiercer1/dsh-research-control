@@ -493,6 +493,10 @@ export class Kernel {
       });
     }
     const principal = active.principal;
+    // B-4：无空间写权 ⇒ 完全拒收（四表零变化）。事务的 requires 由调用方自选，不能拿它当判据。
+    if (!this.auth.can(principal.actorId, 'space-write', this.space)) {
+      throw new Refusal('NO_SPACE_WRITE', { space: this.space, required: 'space-write', channel: 'declareRawIntake' });
+    }
     if (by !== undefined && by.actorId !== principal.actorId) {
       throw new Refusal('AUTHORITY_REQUIRED', {
         resource: 'space-write', actor: by.actorId, txActor: principal.actorId,

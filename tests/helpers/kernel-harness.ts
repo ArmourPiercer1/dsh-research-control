@@ -15,7 +15,7 @@ import {
   Kernel, type Authorizer, type UnitOfWork,
 } from '../../src/kernel/kernel';
 import {
-  asSpaceId, type CapabilityId, type PluginManifest, type VerifiedPrincipal,
+  asSpaceId, type AuthorityResource, type CapabilityId, type PluginManifest, type VerifiedPrincipal,
 } from '../../src/contracts';
 
 /** 合成能力：只用于证明机制能承载「声明 → 写事件 → 提交 → 读回」，不含任何科研语义。 */
@@ -54,6 +54,9 @@ export const BOOTSTRAP_PLUGIN: PluginManifest = {
       truthSource: 'ledger-payload',
       interpretationRuleSetVersion: 'boot/r1',
       contractVersion: 'v1',
+      // 退役名同样需要批准记录：EA-3.1 的 approval 是**条目**字段，不因 retired 免除——
+      // 否则"先登记、退役后再补批准"就成了绕开人工批准的路径。
+      approval: { approvedBy: 'harness-owner', approvedOn: '2026-11-03', anchor: 'tests/helpers/kernel-harness.ts' },
       retired: true,
     },
   ],
@@ -67,7 +70,8 @@ export interface BootstrapWorld {
   readonly file: string;
   readonly port: SqlitePort;
   readonly kernel: Kernel;
-  uow<T>(principal: VerifiedPrincipal, fn: (tx: UnitOfWork) => T): T;
+  /** `requires` 可显式指定授权轴：用于证明「拿运维轴开的事务也不能冒领写权」这类旁路。 */
+  uow<T>(principal: VerifiedPrincipal, fn: (tx: UnitOfWork) => T, requires?: AuthorityResource): T;
   /** 直接读 count（绕过 Kernel 的读面，用于断言存储层真实状态）。 */
   count(sql: string, ...params: readonly unknown[]): number;
   close(): void;
@@ -111,7 +115,7 @@ export function openBootstrapWorld(dir: string, opts: BootstrapOptions = {}): Bo
 
   return {
     dir, file, port, kernel,
-    uow: (principal, fn) => kernel.uow(principal, fn),
+    uow: (principal, fn, requires) => kernel.uow(principal, fn, requires),
     count,
     close: () => { /* SqlitePort 随进程/文件释放；显式 API 见 PR-5 的 TransactionLease */ },
   };

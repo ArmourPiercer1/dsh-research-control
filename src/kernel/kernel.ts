@@ -6,6 +6,7 @@
  * 单空间 Unit-of-Work（含 Change Journal）。它不知道五类对象、不知道 S-L1、不知道
  * FactStanding、不知道 WITHHELD（#44 §5.3）。
  */
+import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import {
   Refusal,
@@ -30,6 +31,7 @@ import {
   type StoragePort,
   type VerifiedPrincipal,
 } from '../contracts/index';
+import { SCHEMA_VERSION } from '../storage-sqlite/sqlite-port';
 import { KERNEL_PORT } from './internal';
 
 // ---------------------------------------------------------------- Capability 注册
@@ -79,6 +81,16 @@ export function isMechanismEventType(t: string): boolean {
  */
 export const RAW_RECORD_DECLARED = 'raw-record-declared';
 
+/** 冻结契约版本：锚文件每个条目的 `interpretationRuleSetVersion`（EA-6.1 唯一正源）。 */
+export const MECHANISM_FROZEN_VERSION = 'g1/fa3b892';
+
+/**
+ * 存储模式版本（与 `src/storage-sqlite/sqlite-port.ts` 的 DDL 同步）。放在这里是为了让
+ * EA-7.1 的审计载荷能如实记录"这次巡检跑在哪一版模式上"——**不复制**存储层的真值：
+ * 由 `storage-sqlite` 导出、此处引用同一常量。
+ */
+export { SCHEMA_VERSION };
+
 export const MECHANISM_AUDIT_EVENT_TYPES = [
   'capability-enabled', 'capability-disabled', 'capability-transferred',
   'object-registered', 'check-report-recorded',
@@ -121,6 +133,33 @@ export class CapabilityRegistry {
   readonly degraded: { plugin: string; optionalCapability: string }[] = [];
 
   register(m: PluginManifest): void {
+    // EA-3.2 / §3.2「零装配副作用」：装配期拒绝不得留下半登记状态（T-N6：entries() 零增量）。
+    // 逐条 set 的写法一旦中途抛错，前面的能力/kind/事件名已经进表——那是"失败的装配改变了解释面"。
+    // 做法：整段登记包在快照里，任一 Refusal 抛出即整体还原。
+    const snap = {
+      manifests: new Map(this.manifests),
+      caps: new Map(this.caps),
+      eventAuthority: this.eventAuthority,
+      kindOwner: new Map(this.kindOwner),
+      formalEvents: new Map(this.formalEvents),
+      requires: new Map(this.requires),
+      degraded: [...this.degraded],
+    };
+    try {
+      this.registerInner(m);
+    } catch (err) {
+      this.manifests.clear(); for (const [k, v] of snap.manifests) this.manifests.set(k, v);
+      this.caps.clear(); for (const [k, v] of snap.caps) this.caps.set(k, v);
+      this.eventAuthority = snap.eventAuthority;
+      this.kindOwner.clear(); for (const [k, v] of snap.kindOwner) this.kindOwner.set(k, v);
+      this.formalEvents.clear(); for (const [k, v] of snap.formalEvents) this.formalEvents.set(k, v);
+      this.requires.clear(); for (const [k, v] of snap.requires) this.requires.set(k, v);
+      this.degraded.length = 0; this.degraded.push(...snap.degraded);
+      throw err;
+    }
+  }
+
+  private registerInner(m: PluginManifest): void {
     this.manifests.set(m.pluginId, m);
     for (const p of m.provides) {
       if (this.caps.has(p.capability)) {
@@ -208,7 +247,7 @@ export class CapabilityRegistry {
           });
         }
       }
-      if (e.approval !== undefined) {
+      {
         const a = e.approval;
         if (!a || typeof a.approvedBy !== 'string' || a.approvedBy.trim() === ''
             || typeof a.approvedOn !== 'string' || a.approvedOn.trim() === ''
@@ -385,7 +424,6 @@ export interface UnitOfWork {
    * 声明一条 Raw Record（ID-08：记录有自身标识）。**声明**与**引用**在机制上是两件事：
    * 只有本方法会建立 record_id，重复声明 ⇒ `RECORD_ALREADY_DECLARED`。
    */
-  declareRecord(a: { readonly recordId: string; readonly eventType: string; readonly payload: unknown }): CommitSequence;
   /** 本事务的已验证主体；领域策略据此判定业务授权（与写权分轴，SP-09）。 */
   readonly principal: VerifiedPrincipal;
 }
@@ -530,7 +568,7 @@ export class Kernel {
       });
     }
     this.uow(by, (tx) => {
-      (tx as UnitOfWorkImpl).reassignRouteInternal(cap, to.pluginId, target.contractVersion);
+      (tx as unknown as UnitOfWorkImpl).reassignRouteInternal(cap, to.pluginId, target.contractVersion);
     // 移交是运维权威轴，不是空间写权：只凭 space-write 就能把能力路由改到攻击者命名空间。
     }, 'capability-admin');
     // 提交后视图重建以**持久行为准**（与 setRouteEnabled 再启用同法）：数据是真相，清单只是声明。
@@ -542,6 +580,40 @@ export class Kernel {
       capability: cap, pluginId: row.plugin_id, contractVersion: row.contract_version, storageNamespace: row.ns,
     });
   }
+
+  /**
+   * EA-4.4 九字段授权上下文的**唯一构造点**（EA-4.1 单点生成）。
+   *
+   * 为什么必须有它：`appendAuthoritativeEvent` 与机制内部写点若各写各的形态，同一列
+   * `authority_basis` 就会出现"全形 / 三字段"并存，而读面无法区分"旧行"与"半形新行"——
+   * 审计侧只能一律判 INCONSISTENT，全形闸等于没有。构造点唯一 ⇒ 取证点、发号、时钟、
+   * 登记序在一次调用里写全（`txSeq` = 本行 seq，把"同一事务"做成可核事实）。
+   *
+   * 机制事件的规则/契约版本取**冻结契约版本**本身：机制名的语义由冻结契约定义，
+   * 没有独立于契约的"机制实现版本"可钉——不为此发明一个新版本号。
+   */
+  issueAuthorizationContext(a: {
+    readonly actor: string;
+    readonly capability: CapabilityId;
+    readonly axis: AuthorityResource;
+    readonly authorized: boolean;
+    readonly seq: number;
+    readonly ruleSetVersion?: string;
+    readonly contractVersion?: string;
+  }): AuthorizationContext {
+    return {
+      ctxId: randomUUID(),
+      actor: a.actor,
+      capability: a.capability,
+      axis: a.axis,
+      authorized: a.authorized,
+      ruleSetVersion: a.ruleSetVersion ?? MECHANISM_FROZEN_VERSION,
+      contractVersion: a.contractVersion ?? MECHANISM_FROZEN_VERSION,
+      issuedAtMs: Date.now(),
+      txSeq: a.seq,
+    };
+  }
+
   /**
    * EA-7.1 / EA-7.2 的**机制内部写点**：`integrity-audit-recorded` / `read-shadow-recorded`。
    *
@@ -568,10 +640,13 @@ export class Kernel {
       }
     }
     const echo = this.uow(by, (held) => {
-      const tx = held as UnitOfWorkImpl;
+      const tx = held as unknown as UnitOfWorkImpl;
       const raw = RAW_OF_UOW.get(tx)!;
       const seq = this.nextLedgerSeq(raw);
-      const evidence = JSON.stringify({ axis: 'capability-admin', capability: 'capability-admin', authorized: this.principalCan(by, 'capability-admin') } satisfies AuthorityEvidence);
+      const evidence = JSON.stringify(this.issueAuthorizationContext({
+        actor: by.actorId, capability: 'assembly', axis: 'capability-admin',
+        authorized: this.principalCan(by, 'capability-admin'), seq,
+      }));
       const body = JSON.stringify(payload);
       // 写点用**字面量**落名（不用 `a.eventType` 转发）：对账脚本按字面量判断「这个名字有写点」，
       // 转发形要靠守卫调用证明，而审计名的守卫恰恰是这份预留集本身——用字面量把关系写死更诚实。
@@ -617,6 +692,12 @@ export class Kernel {
       });
     }
     const principal = active.principal;
+    // B-4（`G1-CONTRACT-EVENT-AUTHORITY.md:149`）：无空间写权 ⇒ **完全拒收**（四表零变化）。
+    // 不能只看「事务存在」：事务的 `requires` 是调用方自选的，凭 `capability-admin` 开的事务
+    // 一样能进到这里——那等于用运维轴换写权。判据必须回到主体自身的空间写权。
+    if (!this.auth.can(principal.actorId, 'space-write', this.space)) {
+      throw new Refusal('NO_SPACE_WRITE', { space: this.space, required: 'space-write', channel: 'declareRawIntake' });
+    }
     if (by !== undefined && by.actorId !== principal.actorId) {
       throw new Refusal('AUTHORITY_REQUIRED', {
         resource: 'space-write', actor: by.actorId, txActor: principal.actorId,
@@ -645,7 +726,10 @@ export class Kernel {
     raw.run(
       `insert into ledger(seq, space, event_type, actor, record_id, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?,?)`,
       seq, this.space, 'raw-record-declared', principal.actorId, env.recordId,
-      JSON.stringify({ axis: 'space-write', capability: 'raw-intake', authorized: this.principalCan(principal, 'space-write') } satisfies AuthorityEvidence),
+      JSON.stringify(this.issueAuthorizationContext({
+        actor: principal.actorId, capability: 'records', axis: 'space-write',
+        authorized: true, seq,
+      })),
       JSON.stringify(payload), null, Date.now(),
     );
     this.journalEpoch(raw, seq, 'raw-record-declared');
@@ -655,7 +739,7 @@ export class Kernel {
 
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {
     this.uow(by, (held) => {
-      const tx = held as UnitOfWorkImpl;
+      const tx = held as unknown as UnitOfWorkImpl;
       const raw = RAW_OF_UOW.get(tx)!;
       const seq = this.nextLedgerSeq(raw);
       // 包 5（D-27）写序纪律：**先写审计、后改路由**——`route_change_guarded` 是 BEFORE 触发器，
@@ -667,7 +751,10 @@ export class Kernel {
       raw.run(
         `insert into ledger(seq, space, event_type, actor, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?)`,
         seq, this.space, enabled ? 'capability-enabled' : 'capability-disabled', by.actorId,
-        JSON.stringify({ axis: 'capability-admin', capability: cap, authorized: this.principalCan(by, 'capability-admin') } satisfies AuthorityEvidence),
+        JSON.stringify(this.issueAuthorizationContext({
+          actor: by.actorId, capability: cap, axis: 'capability-admin',
+          authorized: this.principalCan(by, 'capability-admin'), seq,
+        })),
         JSON.stringify({ capability: cap }), null, Date.now(),
       );
       raw.run(`update capability_route set enabled=?, changed_seq=? where capability=?`, enabled ? 1 : 0, seq, cap);
@@ -811,7 +898,7 @@ export class Kernel {
   }
 
   namespacedWriter(capability: CapabilityId, tx: UnitOfWork): NamespaceWriter {
-    const impl = tx as UnitOfWorkImpl;
+    const impl = tx as unknown as UnitOfWorkImpl;
     const raw = RAW_OF_UOW.get(impl);
     // D-23 ①（迟到写形态）：`writerFor(旧句柄)` 也必须被拒——窄端口一旦允许在已终结的
     // 事务上**事后建立**，写入口的失效检查就会晚一步；在这里判，端口根本造不出来。
@@ -867,7 +954,7 @@ export class Kernel {
    * 它不做的事：不改数据、不阻塞任何事务——一条存量损坏边不得永久阻塞整个空间
    * （席位 G1-A 的 A-12/B-⑦：全表重扫 = append-only 删不掉的空间级写阻塞）。
    */
-  auditRequiredIntegrity(): {
+  auditRequiredIntegrity(by: VerifiedPrincipal, trigger: 'open' | 'audit-call' = 'audit-call'): {
     readonly checked: number;
     readonly violations: readonly RequiredEdgeViolation[];
     /** C2（G5-A 包 6）：`required:false` 边逐条查目标存在性的巡检计数（只报不阻）。 */
@@ -881,7 +968,7 @@ export class Kernel {
      */
     readonly softGhosts: number;
   } {
-    return this.#port.read((raw) => {
+    const result = this.#port.read((raw) => {
       const rows = raw.all<{
         from_oid: string; from_rev: number; role: string;
         to_oid: string | null; to_rev: number | null; to_record: string | null;
@@ -909,6 +996,28 @@ export class Kernel {
       }
       return { checked: rows.length, violations, softChecked: soft.length, softGhosts };
     });
+    // EA-7.1：**每次运行必落一条** `integrity-audit-recorded`（机制内部直写、预留名）。
+    // 载荷形状照 §7.2：只给集合指纹不给身份（违规目标集排序后 sha256），drift 维在
+    // G1-NS-01 落地前为 null（不发明维度）。落账失败不吞：审计写不进去等于这次巡检没有痕迹。
+    const digestOf = (xs: readonly string[]): string => createHash('sha256').update([...xs].sort().join('\n')).digest('hex');
+    this.recordMechanismAudit({
+      eventType: 'integrity-audit-recorded',
+      payload: {
+        runId: randomUUID(),
+        trigger,
+        counts: {
+          checked: result.checked, violations: result.violations.length,
+          softChecked: result.softChecked, softGhosts: result.softGhosts,
+        },
+        // 集合指纹：只给"哪些边不成立"的指纹，不给身份（§7.2 的形状约束）
+        violationsDigest: digestOf(result.violations.map((v) => `${v.code}:${JSON.stringify(v.detail)}`)),
+        softGhostsDigest: digestOf([]),
+        drift: null,
+        schemaVersion: SCHEMA_VERSION,
+        ruleSetVersion: MECHANISM_FROZEN_VERSION,
+      },
+    }, by);
+    return result;
   }
 
   /**
@@ -1095,10 +1204,15 @@ class NamespaceWriterImpl implements NamespaceWriter {
       (() => { const c = capabilityOfNs(this.#k.registry, a.ns); return c ? this.#k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
     );
     // 扩展记录的变更同样进 H（#44 §6.2：Facet 需要自己的 H 追溯）
+    const hostPrincipal = WRITER_UOW.get(this)?.principal;
     this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
-       values(?,?,?,?,?,?,?,null,?)`,
-      seq, this.#k.space, a.eventType, 'system:capability', a.oid, a.revision, '{}', Date.now(),
+      `insert into ledger(seq, space, event_type, actor, authority_basis, object_id, revision, payload_json, described_at, recorded_at)
+       values(?,?,?,?,?,?,?,?,null,?)`,
+      seq, this.#k.space, a.eventType, hostPrincipal?.actorId ?? 'system:capability',
+      JSON.stringify(this.#k.issueAuthorizationContext({
+        actor: hostPrincipal?.actorId ?? 'system:capability', capability: this.#cap, axis: 'space-write', authorized: true, seq,
+      })),
+      a.oid, a.revision, '{}', Date.now(),
     );
     this.#raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, a.ns, a.oid, 'extension-upsert');
   }
@@ -1410,9 +1524,14 @@ class UnitOfWorkImpl implements UnitOfWork {
     // 包 5（D-28）写序纪律：**先写出生账、后落身份行**——`directory_birth_audited` 是 BEFORE
     // 触发器，在账本非空的空间里核对 seq=created_seq 的 `object-registered` 行必须先于目录插入存在。
     this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
-       values(?,?,?,?,?,?,?,?,?)`,
-      seq, this.#k.space, 'object-registered', this.principal.actorId, oid, 1, '{}', null, Date.now(),
+      `insert into ledger(seq, space, event_type, actor, authority_basis, object_id, revision, payload_json, described_at, recorded_at)
+       values(?,?,?,?,?,?,?,?,?,?)`,
+      seq, this.#k.space, 'object-registered', this.principal.actorId,
+      JSON.stringify(this.#k.issueAuthorizationContext({
+        actor: this.principal.actorId, capability: owner.capability, axis: 'space-write',
+        authorized: true, seq,
+      })),
+      oid, 1, '{}', null, Date.now(),
     );
     this.#raw.run(
       `insert into object_directory(oid, space, kind, owner_capability, ns, created_seq) values(?,?,?,?,?,?)`,
@@ -1454,81 +1573,41 @@ class UnitOfWorkImpl implements UnitOfWork {
       (() => { const c = capabilityOfNs(this.#k.registry, ns); return c ? this.#k.registry.capability(c)?.contractVersion ?? '' : ''; })(),
     );
     this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, object_id, revision, payload_json, described_at, recorded_at)
-       values(?,?,?,?,?,?,?,?,?)`,
-      seq, this.#k.space, 'object-revised', this.principal.actorId, oid, next, '{}', null, Date.now(),
+      `insert into ledger(seq, space, event_type, actor, authority_basis, object_id, revision, payload_json, described_at, recorded_at)
+       values(?,?,?,?,?,?,?,?,?,?)`,
+      seq, this.#k.space, 'object-revised', this.principal.actorId,
+      JSON.stringify(this.#k.issueAuthorizationContext({
+        actor: this.principal.actorId, capability: dir.owner_capability as CapabilityId, axis: 'space-write',
+        authorized: true, seq,
+      })),
+      oid, next, '{}', null, Date.now(),
     );
     this.#raw.run(`insert into journal(tx_epoch, ns, oid, op) values(?,?,?,?)`, seq, ns, oid, 'state-upsert');
     return next;
   }
 
+  /**
+   * 通用台账通道（EA-1.2.2 / EA-2.2）——**deny-by-default 后的形态**。
+   *
+   * 分类器把到达 `event_type` 列的字符串分成三类，本通道对三类**一律拒**：
+   *   - `domain`：必须经归属能力的签发 Port（`appendAuthoritativeEvent`），带九字段见证；
+   *   - `mechanism`：只能由机制实现内部直写（本文件的机制方法），插件面没有入口；
+   *   - `unregistered`：两侧都不在 ⇒ 拒（C-23 点名的 deny-by-exception 已翻转为 deny-by-default）。
+   *
+   * 保留方法名是为了让旧调用点**显式红**（而不是被静默删掉后在别处复活），
+   * 并在拒绝详情里指出该走哪条门。R-8 要求生产 `src/**` 零调用方；本方法只剩这层判据。
+   */
   appendLedger(a: {
     eventType: string; payload: unknown; objectId?: ObjectOid; revision?: number;
     recordId?: string; describedAt?: number; declaresRecord?: boolean;
   }): CommitSequence {
     this.#assertLive();
-    // D-20 ①（外部复审第四轮，包 2，CONTRACTS.md §16.2）**通道判据**：已登记的正式事件类型
-    // 不得经通用台账写入——**一切作用域，含 assembly**。唯一入口是归属能力窄面的
-    // `appendAuthoritativeEvent`（= 所属领域的授权命令 Port 背后的机制通道）。
-    // 这是机制拒绝，不是约定：判据在实现的最内层写点，词法扫描网再严也不在这里做豁免。
-    // D-27 真修（G5-A 包 6，CONTRACTS.md §16.3）：**五个机制审计名走同一条预留通道**——
-    // G5-A 实测此处曾对它们零预留，space-write 主体即可 mint 与机制真账逐列同形的审计行。
-    if (this.#k.registry.isReservedEventType(a.eventType)) {
-      throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
-        eventType: a.eventType, scope: this.#scope, channel: 'appendLedger',
-        reason: '该事件类型已被预留（正式事件 / 机制审计名）：通用 appendLedger 不是它的写入通道；'
-          + '正式事件必须经归属能力的授权命令 Port（= NamespaceWriter.appendAuthoritativeEvent），'
-          + '机制审计名只能由机制实现内部落账（CONTRACTS.md §16.3）',
-      });
-    }
-    if (a.objectId !== undefined) {
-      const dir = this.#raw.get<{ owner_capability: string }>(
-        `select owner_capability from object_directory where oid=?`, a.objectId);
-      if (!dir) throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
-      // D-20 ②（外部复审第四轮，包 2）**归属判据**：scoped 事务里对他人对象记事件，走与
-      // `revise` 同一条 `#assertScope(owner)`——读侧 E-01 的写侧对称门（席位 G1-A A-6 的入口）。
-      // assembly 作用域保留跨领域台账：那是协调权（Q40），与 §16 两层写面的既有分工一致。
-      this.#assertScope(dir.owner_capability as CapabilityId, 'appendLedger', a.objectId);
-    }
-    const seq = this.#k.nextLedgerSeq(this.#raw);
-    if (a.recordId !== undefined) {
-      // ID-08：记录有自身标识 ⇒ "首次声明"必须是唯一事件。让同一 record_id 对应多条历史行，
-      // 会把精确记录引用变成歧义引用（读哪一条？），也让不可变声明可以被静默改写。
-      const declaring = a.declaresRecord ?? true;
-      if (declaring) {
-        // D-21 最小止血（G5-A 包 6，CONTRACTS.md §16.3）：保留前缀 id 由机制计数器专属发号，
-        // 声明通道显式携带即拒——判据在落 records 行与 ledger 行**之前**（零半成品）。
-        // 这是身份 namespace 判据，不是存在性判据：空空间与已占用空间同码同拒，
-        // 不给出「该 id 是否已存在」的额外判别（不得泄漏跨空间存在性纪律同族）。
-        const reserved = RESERVED_RECORD_ID_PREFIXES.find((p) => a.recordId!.startsWith(p));
-        if (reserved !== undefined) {
-          throw new Refusal('RECORD_ID_RESERVED', {
-            recordId: a.recordId, prefix: reserved,
-            reason: '保留前缀的记录身份收归机制计数器发号，声明通道不能预占也不能仿冒；'
-              + '引用已存在的该前缀记录不受影响（CONTRACTS.md §16.3，前缀全集语义归 G1）',
-          });
-        }
-        try {
-          this.#raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
-            a.recordId, seq, JSON.stringify(a.payload));
-        } catch {
-          throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: a.recordId });
-        }
-      } else if (!this.#raw.get(`select 1 as x from records where record_id=?`, a.recordId)) {
-        throw new Refusal('RECORD_UNDECLARED', { recordId: a.recordId });
-      }
-    }
-    this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
-       values(?,?,?,?,?,?,?,?,?,?)`,
-      seq, this.#k.space, a.eventType, this.principal.actorId, a.objectId ?? null, a.revision ?? null,
-      a.recordId ?? null, JSON.stringify(a.payload), a.describedAt ?? null, Date.now(),
-    );
-    return seq;
-  }
-
-  declareRecord(a: { recordId: string; eventType: string; payload: unknown }): CommitSequence {
-    return this.appendLedger({ eventType: a.eventType, payload: a.payload, recordId: a.recordId, declaresRecord: true });
+    void a;
+    throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
+      eventType: a.eventType, scope: this.#scope, channel: 'appendLedger',
+      reason: '通用台账通道已关闭（EA-2.2）：domain 事件经归属能力签发 Port、Raw 信封经 '
+        + 'declareRawIntake、机制事件只能由机制实现内部落账；unregistered 名一律拒',
+    });
   }
 
   linkRef(a: { from: RevisionRef; to: AnyRef; role: string; required?: boolean }): void {
@@ -1570,9 +1649,12 @@ class UnitOfWorkImpl implements UnitOfWork {
     //         (b) 该 seq 在 ledger 里凭空消失，下一次成功提交会把它当成缺口。
     const isRev = a.target.kind === 'revision-ref';
     this.#raw.run(
-      `insert into ledger(seq, space, event_type, actor, object_id, revision, record_id, payload_json, described_at, recorded_at)
-       values(?,?,?,?,?,?,?,?,?,?)`,
+      `insert into ledger(seq, space, event_type, actor, authority_basis, object_id, revision, record_id, payload_json, described_at, recorded_at)
+       values(?,?,?,?,?,?,?,?,?,?,?)`,
       seq, this.#k.space, 'check-report-recorded', this.principal.actorId,
+      JSON.stringify(this.#k.issueAuthorizationContext({
+        actor: this.principal.actorId, capability: this.#scope === 'assembly' ? 'assembly' : this.#scope, axis: 'space-write', authorized: true, seq,
+      })),
       isRev ? a.target.oid : null, isRev ? a.target.revision : null,
       isRev ? null : (a.target as { recordId: string }).recordId,
       JSON.stringify({ validatorId: a.validatorId, ruleVersion: a.ruleVersion, verdict: a.verdict }),
@@ -1648,7 +1730,10 @@ class UnitOfWorkImpl implements UnitOfWork {
     this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?)`,
       seq, this.#k.space, 'capability-transferred', this.principal.actorId,
-      JSON.stringify({ axis: 'capability-admin', capability: cap, authorized: this.#k.principalCan(this.principal, 'capability-admin') } satisfies AuthorityEvidence),
+      JSON.stringify(this.#k.issueAuthorizationContext({
+        actor: this.principal.actorId, capability: cap, axis: 'capability-admin',
+        authorized: this.#k.principalCan(this.principal, 'capability-admin'), seq,
+      })),
       JSON.stringify({ capability: cap, from: cur.plugin_id, to: toPlugin, ns: cur.ns }), null, Date.now(),
     );
     this.#raw.run(

@@ -129,7 +129,15 @@ begin
          and json_valid(l.authority_basis)
          and json_extract(l.authority_basis, '$.axis') = 'capability-admin'
          and json_extract(l.authority_basis, '$.capability') = new.capability
-         and json_extract(l.authority_basis, '$.authorized') = 1)
+         and json_extract(l.authority_basis, '$.authorized') = 1
+         -- EA-4.5：触发器与审计面共用**同一判据**（九字段全形）。三字段旧形不再算见证：
+         -- 半形行和"没有信封"在审计侧无法区分，放它进来等于让全形闸只对读面生效。
+         and json_extract(l.authority_basis, '$.ctxId') is not null
+         and json_extract(l.authority_basis, '$.actor') = l.actor
+         and json_extract(l.authority_basis, '$.ruleSetVersion') is not null
+         and json_extract(l.authority_basis, '$.contractVersion') is not null
+         and json_extract(l.authority_basis, '$.issuedAtMs') is not null
+         and json_extract(l.authority_basis, '$.txSeq') = l.seq)
           then raise(abort, 'ROUTE_AUDIT_REQUIRED') end;
   select case
     when new.enabled <> old.enabled and not exists (
@@ -286,8 +294,14 @@ class Adapter implements RawTx {
  * （actor 非空 + authority_basis 的 capability-admin 信封，D-27 真修）。触发器体变了 ⇒
  * 与 v6 库**不算同一套模式**（打开路径按名比对之外现在还核 SQL 体摘要，见 REQUIRED_TRIGGERS 后）；
  * 既有旧库照旧 fail-loud，不隐式迁移。
+ *
+ * v7→v8（G2/PR-2，EA-4.5）：`route_change_guarded` 的见证核从"三字段"升为**九字段全形**
+ * （ctxId/actor/ruleSetVersion/contractVersion/issuedAtMs/txSeq 齐备，且 `txSeq = l.seq`、
+ * `actor = l.actor`）。理由：审计复算面已按九字段判定，若触发器仍收三字段行，
+ * 存储层会放行审计面必判 INCONSISTENT 的行——同一判据的两个执行面必须同形。
+ * 旧库照旧 fail-loud（不隐式迁移）；本次无表结构变化，只有触发器体变化。
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 const REQUIRED_TABLES = [
   'meta', 'ledger', 'records', 'check_report', 'object_directory', 'domain_state',
   'journal', 'capability_route', 'projection_state', 'ref_edge',

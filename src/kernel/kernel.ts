@@ -393,6 +393,15 @@ export interface UnitOfWork {
 export class Kernel {
   readonly registry = new CapabilityRegistry();
   private activated = false;
+  /**
+   * 当前线程上**已开启的**事务（uow 进入时设置、离开时恢复）。
+   *
+   * 存在理由：机制签发点（如 `declareRawIntake`）必须能加入调用方**已有的**那条事务
+   * （Q40 原子性：记录身份、原文、来源与事件同一条事务），而不是自开一条——自开在
+   * SQLite 上是 "cannot start a transaction within a transaction"，在语义上是两个提交点。
+   * 这是机制内部簿记，不对外暴露；嵌套 uow 仍被拒绝（保存/恢复外层的值，不是"任意可嵌套"）。
+   */
+  #activeUow: { readonly tx: UnitOfWorkImpl; readonly raw: ReturnType<typeof RAW_OF_UOW.get>; readonly principal: VerifiedPrincipal } | null = null;
 
   // D-7：句柄不再是公开属性。兄弟模块经 `KERNEL_PORT` symbol 取用（见 internal.ts 的代价说明）。
   readonly #port: StoragePort;
@@ -598,9 +607,7 @@ export class Kernel {
    * 不收保留前缀 id（`RPT-` 归机制计数器，身份 namespace 判据与 `appendLedger` 同族）。
    */
   declareRawIntake(env: RawIntakeEnvelope, by: VerifiedPrincipal): RawIntakeReceipt {
-    const receipt = this.uow(by, (held) => {
-      const tx = held as UnitOfWorkImpl;
-      const raw = RAW_OF_UOW.get(tx)!;
+    const write = (tx: UnitOfWorkImpl, raw: RawTx): RawIntakeReceipt => {
       const reserved = RESERVED_RECORD_ID_PREFIXES.find((p) => env.recordId.startsWith(p));
       if (reserved !== undefined) {
         throw new Refusal('RECORD_ID_RESERVED', { recordId: env.recordId, prefix: reserved });
@@ -610,6 +617,8 @@ export class Kernel {
         recordId: env.recordId, text: env.text, sourceRef: env.sourceRef,
         ...(env.unparseable === undefined ? {} : { unparseable: env.unparseable }),
       };
+      // ①记录身份先于事件：records 行不成立就没有"已登记"这件事可写；反之则不会出现
+      // "有事件没身份"的悬空引用。两条插入同属一个事务，任一失败整笔回滚（零残留）。
       try {
         raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
           env.recordId, seq, JSON.stringify(payload));
@@ -624,8 +633,20 @@ export class Kernel {
       );
       this.journalEpoch(raw, seq, 'raw-record-declared');
       return { recordId: env.recordId, witnessSeq: seq };
-    }, 'space-write');
-    return receipt;
+    };
+    // 调用方已在事务里（Application use-case 组合多笔写入，Q40）⇒ **加入**那条事务；
+    // 否则由机制自开一条。两种路径的登记结果同形，区别只是提交点归谁。
+    const active = this.#activeUow;
+    if (active) {
+      if (active.principal.actorId !== by.actorId) {
+        throw new Refusal('AUTHORITY_REQUIRED', {
+          resource: 'space-write', actor: by.actorId, txActor: active.principal.actorId,
+          reason: '机制签发点不得替与当前事务主体不同的主体落账',
+        });
+      }
+      return write(active.tx, active.raw as RawTx);
+    }
+    return this.uow(by, (held) => write(held as UnitOfWorkImpl, RAW_OF_UOW.get(held as UnitOfWorkImpl)! as RawTx), 'space-write');
   }
 
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {
@@ -913,6 +934,8 @@ export class Kernel {
     }
     return this.#port.tx((raw) => {
       const tx = new UnitOfWorkImpl(this, principal, raw, scope);
+      const prev = this.#activeUow;
+      this.#activeUow = { tx, raw, principal };
       // D-23 ①：回调一离开（无论正常返回还是抛出）就把**底层句柄**记入终结账。
       // 提交失败（如 SQLITE_BUSY）与回滚同形：句柄死亡，被扣住的任何派生写入口不得
       // 再以 autocommit 落库。放在 finally 而不是提交成功之后，是为了连"提交期抛错"
@@ -922,6 +945,7 @@ export class Kernel {
         tx.checkRequiredRefs();
         return out;
       } finally {
+        this.#activeUow = prev;
         CLOSED_TX.add(raw);
         TX_REQUIRED_EDGES.delete(raw);
       }

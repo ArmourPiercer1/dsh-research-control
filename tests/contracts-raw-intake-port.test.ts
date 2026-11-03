@@ -66,6 +66,29 @@ describe('PR-2 记录域原始入口（机制签发，真实 SQLite）', () => {
     expect(w.count(`select count(*) as c from records where record_id='RAW-3'`)).toBe(1);
   });
 
+  test('可加入调用方已开启的事务（Q40：记录身份与事件同一提交点）', () => {
+    const w = openBootstrapWorld(mk());
+    const out = w.uow(ALICE, (tx) => {
+      const r = w.kernel.declareRawIntake({ recordId: 'RAW-6', text: 'x', sourceRef: 's' }, ALICE);
+      // 同一事务内即可读到刚写的记录行（同一条连接 ⇒ 未提交也可见）：
+      // 证明这里是**加入**调用方事务，而不是自开第二条事务（后者在 SQLite 上直接报错）。
+      expect(w.count(`select count(*) as c from records where record_id='RAW-6'`)).toBe(1);
+      return r;
+    });
+    expect(out.witnessSeq).toBeGreaterThan(0);
+    expect(w.count(`select count(*) as c from ledger where event_type='raw-record-declared' and record_id='RAW-6'`)).toBe(1);
+  });
+
+  test('事务失败零残留：调用方事务回滚时，机制签发的记录与事件一并消失', () => {
+    const w = openBootstrapWorld(mk());
+    expect(() => w.uow(ALICE, (tx) => {
+      w.kernel.declareRawIntake({ recordId: 'RAW-7', text: 'x', sourceRef: 's' }, ALICE);
+      throw new Error('后续业务失败');
+    })).toThrowError('后续业务失败');
+    expect(w.count(`select count(*) as c from records where record_id='RAW-7'`)).toBe(0);
+    expect(w.count(`select count(*) as c from ledger where record_id='RAW-7'`)).toBe(0);
+  });
+
   test('保留前缀 id 不得预占（身份 namespace 与 appendLedger 同族）', () => {
     const w = openBootstrapWorld(mk());
     expect(() => portFor(w).declare({ command: 'test.records:declareRawIntake', recordId: 'RPT-99', text: 'x', sourceRef: 's' }))

@@ -73,3 +73,21 @@ FAIL [EVENT_RECON_STALE] 入账条目 raw-record-declared 既无写点又非 pla
   （`appendLedger` / `declareRecord` 双通道均拒）、重复 recordId ⇒ `RECORD_ALREADY_DECLARED`
   且失败事务零残留、保留前缀 `RPT-` 拒占、领域插件冒领机制名 ⇒ 装配期 `AMBIGUOUS_AUTHORITY`、
   无空间写权 ⇒ `NO_SPACE_WRITE`；对账 R1–R4 全绿（planned 4 → 3）。
+
+## R-5 — PoC 实现根对账红（2 条，**范围性**，非代码缺陷）
+
+登记时间：2026-11-04（G2 第 41 轮）。`node scripts/events-recon.mjs --impl-root experiments/v3-code-architecture-poc`
+报：
+
+```
+FAIL [EVENT_RECON_STALE] 入账条目 integrity-audit-recorded 既无写点又非 planned:true
+FAIL [EVENT_RECON_STALE] 入账条目 read-shadow-recorded 既无写点又非 planned:true
+```
+
+原因：锚文件 `writeSites` 指向的是**生产实现根**（`src/kernel/**`、`src/storage-sqlite/**`），
+而 EA-7.1/7.2 的机制写点只在生产根落地（PR-2 范围内）；PoC 树（G1 实验产物）尚未同步这两条。
+生产根对账 **exit 0**（R1–R4 全绿），CI 与门禁也只跑生产根。
+
+**处置**：不把 PoC 树补成第二条生产实现面（那会让"两套实现"长期并存且都要过账）。
+待 PR-2 评审时确认：PoC 树是否仍需与生产根保持事件面同步——若需要，作为独立工作项排期；
+若不需要，则在契约里明确"对账的 impl-root 仅指生产根"，本项即关闭。**未闭合，等评审裁定。**

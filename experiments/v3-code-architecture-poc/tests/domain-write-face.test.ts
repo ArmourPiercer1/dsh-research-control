@@ -33,7 +33,7 @@
  * | 目录 | 角色 | 准入判据 | 规则 |
  * | --- | --- | --- | --- |
  * | `src/kernel`、`src/contracts` | 机制本身 | 写面的**实现处**，没有"实现者不得调用自己的成员"这种道理 | 不扫描；但 `src/` 顶层目录清单被钉死，新增目录不会悄悄变成豁免 |
- * | `src/app` | **Application Use-case** | ① 由装配根构造；② 只经 `UseCaseDelegation` 拿**对象拥有者的作用域端口**落笔；③ 不自开事务、不持 `uow/port/raw`；④ 业务判据一律来自领域草稿 | 禁 `createObject/revise/linkRef/declareRecord`；`appendLedger` 每处必须带 `D-19c-ALLOWED` 行内标记，且全部命中行会被列出来供逐条复核 |
+ * | `src/app` | **Application Use-case** | ① 由装配根构造；② 只经 `UseCaseDelegation` 拿**对象拥有者的作用域端口**落笔；③ 不自开事务、不持 `uow/port/raw`；④ 业务判据一律来自领域草稿 | 禁全部通用写面（含 `appendLedger`）。**R-9 起**：H 记录声明不再由用例直接写，改经记录域 `RawIntakeCommandPort` 转调机制签发点 ⇒ `D-19c-ALLOWED` 标记制**退役**，标记出现即为红 |
  * | `src/harness` | **装配根**（#44 §4 `product/`） | 同上，且它是唯一构造 Kernel / 授予委派的地方 | 同 `src/app`，**再加一条**：装配根一处直接写都不许有（带标记的 `appendLedger` 也不行）——要开这口子必须先改本表，并明确改掉那条判据 |
  * | 其余 `src/**`（如 `src/storage-sqlite`） | 未准入 | 没登记 = 与领域同等对待 | 按领域规则扫（零通用写面） |
  *
@@ -65,8 +65,8 @@ const WHITELIST_DIRS: readonly string[] = ['src/app', 'src/harness'];
 const MARKER = 'D-19c-ALLOWED';
 /** 领域（含未准入目录）一律禁止的通用写面成员名。 */
 const BANNED_ALL = ['createObject', 'revise', 'linkRef', 'appendLedger', 'declareRecord'] as const;
-/** 白名单里额外禁止的：跨归属**对象**写面（appendLedger 走标记制）。 */
-const BANNED_IN_WHITELIST = ['createObject', 'revise', 'linkRef', 'declareRecord'] as const;
+/** 白名单里同样禁止的：R-9 起 `appendLedger` 也退役（改用例经命令 Port 请求机制签发）。 */
+const BANNED_IN_WHITELIST = BANNED_ALL;
 
 const filesUnder = (rel: string): string[] => {
   const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) =>
@@ -208,27 +208,16 @@ describe('D-19c 网：写面词法门禁（防遗忘，不是墙）', () => {
       hitsOf(readFileSync(f, 'utf-8'), BANNED_IN_WHITELIST).map((h) => `${f.replace(POC_ROOT + '/', '')} → ${h}`)));
     expect(objectFace, '用例层/装配根必须经拥有者的作用域端口跨归属写，不许用通用事务面').toEqual([]);
 
-    const unmarked = WHITELIST_DIRS.flatMap((d) => filesUnder(d).flatMap((f) => unmarkedAppends(f.replace(POC_ROOT + '/', ''), readFileSync(f, 'utf-8'))));
-    expect(unmarked, `每处 appendLedger 都要带 ${MARKER} 与理由`).toEqual([]);
-    // 行级判定挡不住"把调用拆成两行"（`tx` 换行再 `.appendLedger(`）——那种写法会躲过同行标记。
-    // 因此再加一条**计数**判据：注释剥掉后，白名单里 appendLedger 的出现次数必须等于被标记的行数。
-    const miscount = WHITELIST_DIRS.flatMap((d) => filesUnder(d).flatMap((f) => {
-      const src = readFileSync(f, 'utf-8');
-      const total = (stripComments(src).match(/\bappendLedger\b/g) ?? []).length;
-      const signedN = markedAppends(f.replace(POC_ROOT + '/', ''), src).length;
-      return total === signedN ? [] : [`${f.replace(POC_ROOT + '/', '')}：出现 ${total} 次 / 被标记 ${signedN} 次`];
-    }));
-    expect(miscount, '有 appendLedger 没被签字（含拆行写法）').toEqual([]);
-    // 反假绿：两条判据互补，谁被删掉都会露馅——
-    // 括号下标写法 `tx['appendLedger'](...)` 躲得过行级正则（它要求 `.name(` 形态），
-    // 但躲不过计数（剥注释后仍出现 appendLedger 这个标识符）。
-    const bracket = `tx['appendLedger']({ eventType: 'e' });`;
-    expect(unmarkedAppends('synthetic.ts', bracket), '行级判据本就看不见这种形态（所以计数判据必须存在）').toEqual([]);
-    expect((stripComments(bracket).match(/\bappendLedger\b/g) ?? []).length).toBe(1);
-    const signed = WHITELIST_DIRS.flatMap((d) => filesUnder(d).flatMap((f) => markedAppends(f.replace(POC_ROOT + '/', ''), readFileSync(f, 'utf-8'))));
-    // 签字清单不为空 = 白名单里确实有机制级写入在被盯着；若哪天用例层的 H 写入消失，
-    // 这条会红，提醒把白名单**收窄**（白名单只会越来越小，不会悄悄变大）。
-    expect(signed.length).toBeGreaterThan(0);
+    // R-9：标记制退役——`D-19c-ALLOWED` 不再被接受为任何写面的通行证。
+    // 判据反过来：**标记本身**即为红（留一个标记就等于留一条"经机制级 H 写入"的旁路说明）。
+    const leftover = [...MECHANISM_DIRS, ...WHITELIST_DIRS, ...srcTopDirs()].length > 0
+      ? filesUnder('src').flatMap((f) => (readFileSync(f, 'utf-8').includes(MARKER)
+        ? [f.replace(POC_ROOT + '/', '')] : []))
+      : [];
+    expect(leftover, `${MARKER} 标记制已退役（R-9）：H 记录声明经记录域 RawIntakeCommandPort`).toEqual([]);
+    // 反假绿：扫描器确实能看见这个标记（拿一段合成文本自检），否则上面的空数组毫无意义。
+    expect(`tx.appendLedger(x); // ${MARKER}: demo`.includes(MARKER)).toBe(true);
+    expect(hitsOf('tx.appendLedger({ eventType: "e" });', BANNED_IN_WHITELIST).length).toBeGreaterThan(0);
     // 装配根比用例层更紧：它**一处直接写都不许有**（含带标记的）。它只装配，不参与业务写；
     // 谁要开这一口子，必须先在文件头准入表里登记理由，再把这条判据显式改掉。
     const harnessWrites = WHITELIST_DIRS.filter((d) => d === 'src/harness')

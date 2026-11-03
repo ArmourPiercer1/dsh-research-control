@@ -606,47 +606,51 @@ export class Kernel {
    * 不是对象面事实）；不因 `unparseable` 拒收（DC-11：解析失败是数据，不是闸门）；
    * 不收保留前缀 id（`RPT-` 归机制计数器，身份 namespace 判据与 `appendLedger` 同族）。
    */
-  declareRawIntake(env: RawIntakeEnvelope, by: VerifiedPrincipal): RawIntakeReceipt {
-    const write = (tx: UnitOfWorkImpl, raw: RawTx): RawIntakeReceipt => {
-      const reserved = RESERVED_RECORD_ID_PREFIXES.find((p) => env.recordId.startsWith(p));
-      if (reserved !== undefined) {
-        throw new Refusal('RECORD_ID_RESERVED', { recordId: env.recordId, prefix: reserved });
-      }
-      const seq = this.nextLedgerSeq(raw);
-      const payload = {
-        recordId: env.recordId, text: env.text, sourceRef: env.sourceRef,
-        ...(env.unparseable === undefined ? {} : { unparseable: env.unparseable }),
-      };
-      // ①记录身份先于事件：records 行不成立就没有"已登记"这件事可写；反之则不会出现
-      // "有事件没身份"的悬空引用。两条插入同属一个事务，任一失败整笔回滚（零残留）。
-      try {
-        raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
-          env.recordId, seq, JSON.stringify(payload));
-      } catch {
-        throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: env.recordId });
-      }
-      raw.run(
-        `insert into ledger(seq, space, event_type, actor, record_id, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?,?)`,
-        seq, this.space, 'raw-record-declared', by.actorId, env.recordId,
-        JSON.stringify({ axis: 'space-write', capability: 'raw-intake', authorized: this.principalCan(by, 'space-write') } satisfies AuthorityEvidence),
-        JSON.stringify(payload), null, Date.now(),
-      );
-      this.journalEpoch(raw, seq, 'raw-record-declared');
-      return { recordId: env.recordId, witnessSeq: seq };
-    };
-    // 调用方已在事务里（Application use-case 组合多笔写入，Q40）⇒ **加入**那条事务；
-    // 否则由机制自开一条。两种路径的登记结果同形，区别只是提交点归谁。
+  declareRawIntake(env: RawIntakeEnvelope, by?: VerifiedPrincipal): RawIntakeReceipt {
     const active = this.#activeUow;
-    if (active) {
-      if (active.principal.actorId !== by.actorId) {
-        throw new Refusal('AUTHORITY_REQUIRED', {
-          resource: 'space-write', actor: by.actorId, txActor: active.principal.actorId,
-          reason: '机制签发点不得替与当前事务主体不同的主体落账',
-        });
-      }
-      return write(active.tx, active.raw as RawTx);
+    if (!active) {
+      // 必须在**调用方的事务**里签发：记录身份、原文、来源与事件同一条事务（Q40）。
+      // 让机制自开一条事务看似方便，实际会把"记录已登记但业务写入失败"变成两种提交点。
+      throw new Refusal('AUTHORITY_REQUIRED', {
+        resource: 'space-write', channel: 'declareRawIntake',
+        reason: '原始记录必须在应用事务内登记（与调用方的其他写入同一提交点）',
+      });
     }
-    return this.uow(by, (held) => write(held as UnitOfWorkImpl, RAW_OF_UOW.get(held as UnitOfWorkImpl)! as RawTx), 'space-write');
+    const principal = active.principal;
+    if (by !== undefined && by.actorId !== principal.actorId) {
+      throw new Refusal('AUTHORITY_REQUIRED', {
+        resource: 'space-write', actor: by.actorId, txActor: principal.actorId,
+        reason: '机制签发点不得替与当前事务主体不同的主体落账',
+      });
+    }
+    const tx = active.tx;
+    const raw = active.raw as RawTx;
+    const reserved = RESERVED_RECORD_ID_PREFIXES.find((p) => env.recordId.startsWith(p));
+    if (reserved !== undefined) {
+      throw new Refusal('RECORD_ID_RESERVED', { recordId: env.recordId, prefix: reserved });
+    }
+    const seq = this.nextLedgerSeq(raw);
+    const payload = {
+      recordId: env.recordId, text: env.text, sourceRef: env.sourceRef,
+      ...(env.unparseable === undefined ? {} : { unparseable: env.unparseable }),
+    };
+    // ①记录身份先于事件：records 行不成立就没有"已登记"这件事可写；反之则不会出现
+    // "有事件没身份"的悬空引用。两条插入同属一个事务，任一失败整笔回滚（零残留）。
+    try {
+      raw.run(`insert into records(record_id, declared_seq, payload_json) values(?,?,?)`,
+        env.recordId, seq, JSON.stringify(payload));
+    } catch {
+      throw new Refusal('RECORD_ALREADY_DECLARED', { recordId: env.recordId });
+    }
+    raw.run(
+      `insert into ledger(seq, space, event_type, actor, record_id, authority_basis, payload_json, described_at, recorded_at) values(?,?,?,?,?,?,?,?,?)`,
+      seq, this.space, 'raw-record-declared', principal.actorId, env.recordId,
+      JSON.stringify({ axis: 'space-write', capability: 'raw-intake', authorized: this.principalCan(principal, 'space-write') } satisfies AuthorityEvidence),
+      JSON.stringify(payload), null, Date.now(),
+    );
+    this.journalEpoch(raw, seq, 'raw-record-declared');
+    void tx;
+    return { recordId: env.recordId, witnessSeq: seq };
   }
 
   setRouteEnabled(cap: CapabilityId, enabled: boolean, by: VerifiedPrincipal): void {

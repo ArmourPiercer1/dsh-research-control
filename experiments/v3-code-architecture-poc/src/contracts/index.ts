@@ -272,3 +272,34 @@ export interface CheckReportRecord {
   readonly declaredGaps: readonly string[];
   readonly recordedAt: CommitSequence;
 }
+
+// ---------------------------------------------------------------------------
+// 记录域命令 Port（R-9 / 方案 2 最小形态）：`raw-record-declared` 是**机制事件**，
+// 由机制内部签发；Application 侧只保留 `RawIntakeCommandPort.declare()` 这一个具名入口。
+// ---------------------------------------------------------------------------
+export interface DeclareRawIntakeCommand {
+  readonly command: 'test.records:declareRawIntake';
+  readonly recordId: string;
+  readonly text: string;
+  readonly sourceRef: string;
+  /** 载荷字段：原文是否可解析。缺省视为可解析；`true` 不构成拒绝理由（DC-11）。 */
+  readonly unparseable?: boolean;
+}
+
+/** 机制内部签发点的入参：不含 `command` 判别式（判别式属于应用层命令路由）。 */
+export interface RawIntakeEnvelope {
+  readonly recordId: string;
+  readonly text: string;
+  readonly sourceRef: string;
+  readonly unparseable?: boolean;
+}
+
+/** 回执：**没有** `oid` / `revision`（原始记录不是对象面事实）。 */
+export interface RawIntakeReceipt {
+  readonly recordId: string;
+  readonly witnessSeq: CommitSequence;
+}
+
+export interface RawIntakeCommandPort {
+  declare(cmd: DeclareRawIntakeCommand): RawIntakeReceipt;
+}

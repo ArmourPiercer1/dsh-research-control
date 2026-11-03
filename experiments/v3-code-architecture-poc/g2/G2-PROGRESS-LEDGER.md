@@ -50,7 +50,18 @@
   - `7bd0950` EA-7.1/7.2 名字**先入预留集**：批准已到位、写点未落地是最危险窗口（通用通道若能写，space-write 主体可 mint 审计行）
   - `dffafa1` EA-7.1/7.2 **落地**：`Kernel.recordMechanismAudit`（只受两名字、运行期复核、字面量写点、走廊 `capability-admin`）+ 回声只回 `{seq}` + 入参 `hiddenBy*` 丢弃 + 锚两条目翻 `planned:false`
 - PR-2 门禁实测（`dffafa1`）：kernel-event-authority **19/19**；bootstrap 7/7；`tsc -p tsconfig.kernel.json` 0；`check:types` **19 条身份精确复现**；`lint` 0；全仓 **5108 passed / 1 red**（既存 eb1-canonical，R-1）；生产根 recon **exit 0**（期望 13 / 事实 9 / planned 4）
-- 未落（PR-2 剩余）：`appendLedger` 收敛为机制内部原语 + `synth:raw-intake` 注册与端口改道（**必须同一提交**）；`app/intake-use-case.ts` / `domains/test-records.ts` 用例迁移
+- 已落（R-3 闭合，`5f2c12e` / `5882c7d` / `1268c1f`）：`raw-record-declared` 收归**机制签发**
+  （`MECHANISM_OWNED_EVENT_TYPES` + `Kernel.declareRawIntake`，加入调用方事务、字面量写点、
+  同事务先 records 后 ledger、重复 id 拒、`RPT-` 拒占、`unparseable` 不拒收）；`RawIntakeCommandPort.declare()`
+  保留为 Application 唯一具名入口并转调机制；回执改 `{recordId, witnessSeq}`（不伪造 oid）；
+  `RAW_INTAKE_PLUGIN` 删除（机制事件无可认领面）；`writeSites` 未改，翻 `planned:false` 后对账自然转绿。
+  PoC 树同步：用例改经端口、`D-19c-ALLOWED` 标记制退役（门禁反向：留标记即红）、`KERNEL_SURFACE` 显式重生成。
+- 已落（R-8）：生产代码零 `appendLedger` 调用方 + 回归护栏测试（`0c6e2ca`）。
+- 门禁实测（`1268c1f`）：contracts-raw-intake-port **11/11**；event-authority 20/20；bootstrap 7/7；
+  tsc 0；check:types 19 条身份复现；lint 0；build 0；docs:check OK；**5120 passed / 1 red**（R-1）；
+  生产根对账 exit 0（期望 13 / 事实 10 / planned 3）；自验 29/29。
+  PoC 套件 33 failed / 325 passed —— 与起点 `origin/g2/impl` **失败集完全相同**（未引入新红）。
+- 未闭合：**R-5**（PoC 实现根对账 2 红，范围性：锚的 writeSites 指生产根）；人工 `Frozen-Face-Review`
 - **剩余项的真实性质（读契约后确认，非“改道”而是“新建”）**：`synth:raw-intake` 与
   `RawIntakeCommandPort` 在当前树中**完全不存在**（`grep -rn "raw-intake\|RawIntake" src tests` 零命中）。
   契约文本已给出形状（`G1-CONTRACT-DOMAIN-COMMAND.md` §DC-PORT）：

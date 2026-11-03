@@ -35,14 +35,14 @@
 
 ### PR-2 事件归属账全形 + 九字段授权上下文 + 全形闸（乙类）
 
-- 分支/PR：`g2/pr-2` → **#52**（Draft，base `g2/bootstrap`，stacked on #51 → #50），tip `752088d`；**未请独立审查**（本 PR 明确未完成）
-- 已落（commit `e697d70` + `752088d`）：
+- 分支/PR：`g2/pr-2` → **#52**（Draft，base `g2/bootstrap`，stacked on #51 → #50），tip `c6d932b`；**未请独立审查**（本 PR 明确未完成）
+- 已落（commit `e697d70` + `c6d932b`）：
   - `EventOwnershipEntry`（EA-3.1 全形）+ `AuthorizationContext`（EA-4.2 九字段）
   - 装配期五字段缺一即红（EA-3.2 ③/EA-3.1）；`approval` 三要素校验；`retired` 名拒写
   - `appendAuthoritativeEvent` 入参字段集封闭（EA-4.3，`as unknown as` 面同拦）+ 九字段信封（txSeq=行序）
   - `src/kernel/authority-gate.ts`：`gateFullShape`（EA-4.5 三分，闸内无事件名清单）+ `replayAuthorityEvidence`（EA-4.6 三态）
   - `tests/kernel-event-authority.test.ts` **16/16**（装配期判据、九字段、入参封闭 8 字段、退役、半形、同源、三支、三态、闸门源码无名单）
-- 门禁实测（tip `752088d`+1，全仓面）：`tsc -p tsconfig.kernel.json` 0；**`check:types` 19 条债务身份精确复现**（期间自查抓到 1 条新债 `TS2532` 并修掉：`Refusal.detail` 可为空）；`lint` 0；`build` 0（31 文件契约校验）；`docs:check` OK；bootstrap 7/7；**`pnpm test` 5105 passed，1 red = 既存 `eb1-canonical`**（登记 R-1，非本 PR 引入）；生产根 `events-recon` exit 0
+- 门禁实测（tip `c6d932b`+1，全仓面）：`tsc -p tsconfig.kernel.json` 0；**`check:types` 19 条债务身份精确复现**（期间自查抓到 1 条新债 `TS2532` 并修掉：`Refusal.detail` 可为空）；`lint` 0；`build` 0（31 文件契约校验）；`docs:check` OK；bootstrap 7/7；**`pnpm test` 5105 passed，1 red = 既存 `eb1-canonical`**（登记 R-1，非本 PR 引入）；生产根 `events-recon` exit 0
 - 自查发现并修正的三处**测试自身**缺陷（已记入提交信息）：半形负例被合并逻辑覆盖而全绿；把 `capability-admin` 当「挂错轴」（那是 route-audit 支）；domain 支误测 `authorized`
 - 已落（续，同一分支后续提交）：
   - `a97bc39` EA-7.4 非 oracle 判据 `findNonOracleViolations`（递归含数组、深度 32、容忍循环引用；判据是**前缀**非子串）+ 5 例测试

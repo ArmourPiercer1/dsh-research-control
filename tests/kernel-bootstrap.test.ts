@@ -16,7 +16,9 @@ import { cleanup, openBootstrapWorld, PRINCIPAL, tempDir, type BootstrapWorld } 
 import { Refusal } from '../src/contracts';
 
 const WRITER = PRINCIPAL('alice');
-const EVENT = 'boot-probe-recorded';
+// 通用台账通道的探针名：**未登记**为正式事件（登记名经通用通道写会被拒 —— 那是 PR-2 的判据，
+// Bootstrap 只验最小提交环）。故意不用 `boot-probe-recorded`：那个名字是夹具里的正式事件。
+const EVENT = 'boot-probe-ledger-row';
 
 describe('Bootstrap：最小 Kernel 提交环（真实 SQLite）', () => {
   let dir: string;

@@ -6,14 +6,17 @@
  * 单空间 Unit-of-Work（含 Change Journal）。它不知道五类对象、不知道 S-L1、不知道
  * FactStanding、不知道 WITHHELD（#44 §5.3）。
  */
+import { randomUUID } from 'node:crypto';
 import {
   Refusal,
   asOid,
   MECHANISM_RESOURCES,
+  type AuthorizationContext,
   type AuthorityEvidence,
   type AuthorityResource,
   type AnyRef,
   type CapabilityId,
+  type EventOwnershipEntry,
   type CheckReportRecord,
   type CommitSequence,
   type ObjectKindLabel,
@@ -93,7 +96,7 @@ export class CapabilityRegistry {
    * `axis`（包 3，N1）是**授权取证来源的索引**：权威入口落笔前用它对已验证主体核对，
    * 证据写入 ledger 见证列——Kernel 对 eventType 与 axis 都只当不透明字符串（业务无知不变）。
    */
-  private readonly formalEvents = new Map<string, { capability: CapabilityId; axis: string }>();
+  private readonly formalEvents = new Map<string, EventOwnershipEntry & { axis: string }>();
   private readonly requires = new Map<string, readonly { capability: CapabilityId; contractVersion: string; required?: boolean }[]>();
   private eventAuthority: { pluginId: string; mode: string } | null = null;
   private readonly manifests = new Map<string, PluginManifest>();
@@ -170,7 +173,35 @@ export class CapabilityRegistry {
           reason: 'requiresAuthority 不得是机制自身权限轴（space-write/capability-admin）：写权≠业务授权（SP-09），业务授权轴必须是机制资源联合之外的字面量',
         });
       }
-      this.formalEvents.set(e.eventType, { capability: e.capability, axis: e.requiresAuthority });
+      // EA-3.1/EA-3.2 收口：条目其余五字段是「唯一真源」与「读者钉版本」判据的承载位，
+      // 缺一即装配红（不给「先登记后补字段」留窗口，否则读面永远不知道该按什么版本解释）。
+      if (e.truthSource !== 'ledger-payload' && e.truthSource !== 'ledger-referenced-store') {
+        throw new Refusal('ACTIVATION_IMPOSSIBLE', {
+          eventType: e.eventType, capability: e.capability, truthSource: e.truthSource ?? null,
+          reason: 'EA-3.1 要求 truthSource ∈ {ledger-payload, ledger-referenced-store}：领域事件不得「领域表一份、Ledger 另一份」（C-03）',
+        });
+      }
+      for (const f of ['interpretationRuleSetVersion', 'contractVersion'] as const) {
+        const v = e[f];
+        if (typeof v !== 'string' || v.trim() === '') {
+          throw new Refusal('ACTIVATION_IMPOSSIBLE', {
+            eventType: e.eventType, capability: e.capability, field: f,
+            reason: `EA-3.1 要求 ${f} 非空：读者必须能钉住解释规则/契约版本（C-12），缺项会让历史行按「猜」解释`,
+          });
+        }
+      }
+      if (e.approval !== undefined) {
+        const a = e.approval;
+        if (!a || typeof a.approvedBy !== 'string' || a.approvedBy.trim() === ''
+            || typeof a.approvedOn !== 'string' || a.approvedOn.trim() === ''
+            || typeof a.anchor !== 'string' || a.anchor.trim() === '') {
+          throw new Refusal('ACTIVATION_IMPOSSIBLE', {
+            eventType: e.eventType, capability: e.capability,
+            reason: 'EA-3.4：approval 三要素（approvedBy / approvedOn / anchor）缺一不可，批准者 ≠ 实现者是人工面',
+          });
+        }
+      }
+      this.formalEvents.set(e.eventType, { ...e, axis: e.requiresAuthority });
     }
     this.requires.set(m.pluginId, m.requires);
   }
@@ -230,6 +261,19 @@ export class CapabilityRegistry {
    * 调用方必须 fail-closed 拒写。
    */
   formalEventAuthority(eventType: string): string | undefined { return this.formalEvents.get(eventType)?.axis; }
+  /** EA-3.1 全形条目（读面/审计复算/对账用）。`retired:true` 的名字**仍在本账里**，只是不可新写。 */
+  formalEventEntry(eventType: string): EventOwnershipEntry | undefined {
+    const e = this.formalEvents.get(eventType);
+    if (!e) return undefined;
+    const { axis: _axis, ...entry } = e;
+    return entry;
+  }
+  /** EA-3.1 全账快照（装配期后只读）：审计复算与「归属账 ↔ 机制名单」对账的唯一来源。 */
+  formalEventEntries(): readonly EventOwnershipEntry[] {
+    return [...this.formalEvents.keys()].map((k) => this.formalEventEntry(k)!);
+  }
+  /** EA-5：退役名不可再新写——判据与「未登记」分开，错误语义不同（退役是明确事实，不是缺登记）。 */
+  isRetiredEventType(eventType: string): boolean { return this.formalEvents.get(eventType)?.retired === true; }
   capability(cap: CapabilityId): ActivatedCapability | undefined { return this.caps.get(cap); }
   get eventAuthorityMode(): { pluginId: string; mode: string } | null { return this.eventAuthority; }
   /** 所有权移交：只改 Capability→Plugin 的实现映射，不改 ObjectID/Revision（#44 §11）。 */
@@ -1045,9 +1089,27 @@ class NamespaceWriterImpl implements NamespaceWriter {
         reason: '正式事件类型没有登记授权轴，机制无法取证——宁可拒写也不签发无证据的授权结论',
       });
     }
-    const evidence: AuthorityEvidence = {
-      axis, capability: this.#cap, authorized: this.#k.principalCan(host.principal, axis),
-    };
+    // EA-4.3：入参字段集**封闭**（类型面之外的运行期白名单）。`as unknown as` 面也必须拦——
+    // 类型面不是墙（D-17/N3 教训）。做不到「入参里没有能填见证的字段」，就等着有人填。
+    const ALLOWED_INPUT_FIELDS = new Set(['eventType', 'objectId', 'revision', 'payload', 'describedAt']);
+    for (const key of Object.keys(a as unknown as Record<string, unknown>)) {
+      if (!ALLOWED_INPUT_FIELDS.has(key)) {
+        throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
+          eventType: a.eventType, capability: this.#cap, field: key,
+          reason: 'input-carries-witness-field',
+        });
+      }
+    }
+    // EA-5 退役名：不可再新写（历史行读面不变）。与「未登记」分开报，避免把明确事实说成缺登记。
+    if (this.#k.registry.isRetiredEventType(a.eventType)) {
+      throw new Refusal('EVENT_AUTHORITY_REQUIRED', {
+        eventType: a.eventType, capability: this.#cap,
+        reason: '该事件类型已 retired：退役名不可再新写，历史行按原语义可读（EA-5）',
+      });
+    }
+    const entry = this.#k.registry.formalEventEntry(a.eventType);
+    if (!entry) throw new Refusal('EVENT_AUTHORITY_REQUIRED', { eventType: a.eventType, capability: this.#cap });
+    const authorized = this.#k.principalCan(host.principal, axis);
     if (!this.#raw.get(`select oid from object_directory where oid=?`, a.objectId)) {
       throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId });
     }
@@ -1055,10 +1117,24 @@ class NamespaceWriterImpl implements NamespaceWriter {
       throw new Refusal('NOT_FOUND_IN_SPACE', { oid: a.objectId, revision: a.revision, level: 'revision' });
     }
     const seq = this.#k.nextLedgerSeq(this.#raw);
+    // EA-4.2 九字段信封：actor / capability / axis / authorized / 规则契约版本 / 发号 / 登记序 / 时钟
+    // 在**同一个取证点、同一条事务、同一个已验证主体**上一次写全。txSeq 就是本行的登记序，
+    // 把「同一事务」做成可核事实（而不是一句声明）。
+    const envelope: AuthorizationContext = {
+      ctxId: randomUUID(),
+      actor: host.principal.actorId,
+      capability: this.#cap,
+      axis,
+      authorized,
+      ruleSetVersion: entry.interpretationRuleSetVersion,
+      contractVersion: entry.contractVersion,
+      issuedAtMs: Date.now(),
+      txSeq: seq,
+    };
     this.#raw.run(
       `insert into ledger(seq, space, event_type, actor, authority_basis, object_id, revision, payload_json, described_at, recorded_at)
        values(?,?,?,?,?,?,?,?,?,?)`,
-      seq, this.#k.space, a.eventType, host.principal.actorId, JSON.stringify(evidence),
+      seq, this.#k.space, a.eventType, host.principal.actorId, JSON.stringify(envelope),
       a.objectId, a.revision,
       JSON.stringify(a.payload), a.describedAt ?? null, Date.now(),
     );

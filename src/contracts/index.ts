@@ -93,6 +93,26 @@ export interface AuthorityEvidence {
   readonly authorized: boolean;
 }
 
+/**
+ * EA-4.2 的授权上下文（`ledger.authority_basis` 的正式内容，**九字段封闭**）。
+ *
+ * 与 `AuthorityEvidence` 的关系：后者是包 3 的三字段旧形，历史行里仍然存在，读面必须照旧可解释
+ * （EA-5.2）。新写入一律写本结构——`actor` 入信封是 F-G6A-2 的修法转正（EA-4.4），
+ * `ctxId/txSeq/issuedAtMs` 把「同一授权上下文、同一取证点、同一事务」做成**可核事实**而不是声明。
+ * 列仍是 JSON 文本列 ⇒ 加字段不动 DDL、不推 `SCHEMA_VERSION`。
+ */
+export interface AuthorizationContext {
+  readonly ctxId: string;
+  readonly actor: string;
+  readonly capability: CapabilityId;
+  readonly axis: AuthorityResource;
+  readonly authorized: boolean;
+  readonly ruleSetVersion: string;
+  readonly contractVersion: string;
+  readonly issuedAtMs: number;
+  readonly txSeq: number;
+}
+
 // ---------------------------------------------------------------- 拒绝码
 
 /**
@@ -215,6 +235,33 @@ export interface RawTx {
 export type CapabilityId = string;
 export type PluginId = string;
 
+/**
+ * EA-3.1 归属账条目（唯一所有权）。`PluginManifest.ownsEventTypes` 就是这本账，
+ * **不另立第二本「域名账」**（C.5-2）。
+ *
+ * 装配期判据（EA-3.2 五序 + OA-1..OA-4）由 `CapabilityRegistry.register()` 执行；
+ * 本类型只表达形状。`truthSource` / `interpretationRuleSetVersion` / `contractVersion` 是
+ * 「读者钉版本」与「唯一真源」两条判据的承载位（C-03 / C-12），缺一即装配红。
+ */
+export interface EventOwnershipEntry {
+  /** 不透明字符串；Kernel 不解释业务语义（#44 §5.2 业务无知）。 */
+  readonly eventType: string;
+  /** 唯一 owner（单 Space 同一时刻唯一权威写者，Q44）。 */
+  readonly capability: CapabilityId;
+  /** 业务授权轴（不透明串）；缺失即 `ACTIVATION_IMPOSSIBLE`（EA-3.2 ③）。 */
+  readonly requiresAuthority: AuthorityResource;
+  /** C-03 唯一真源字段：领域事件不得「领域表一份、Ledger 另一份」。 */
+  readonly truthSource: 'ledger-payload' | 'ledger-referenced-store';
+  /** 读者钉的解释规则版本（C-12 SCR-74 同族）。 */
+  readonly interpretationRuleSetVersion: string;
+  /** 该事件类型的解释契约版本（C-12 SCR-03 同族）。 */
+  readonly contractVersion: string;
+  /** EA-3.4：新增领域名的 owner 批准记录（领域名走 owner 清单登记，与机制名分轨）。 */
+  readonly approval?: { readonly approvedBy: string; readonly approvedOn: string; readonly anchor: string };
+  /** 退役标记：只标不删，历史行读面不变（EA-5）；退役名不可再新写。 */
+  readonly retired?: boolean;
+}
+
 export interface PluginManifest {
   readonly pluginId: PluginId;
   /** 实现代码版本（与下面三者分属不同版本轴，#44 §11）。 */
@@ -245,11 +292,7 @@ export interface PluginManifest {
    * 权威入口落笔前用它对已验证主体取证，证据写入 ledger 见证列（`AuthorityEvidence`）——
    * 授权结论自此是机制事实，不再采信载荷自称（CONTRACTS.md §16.2 判据 ③ 与投影信任模型第 3 条）。
    */
-  readonly ownsEventTypes?: readonly {
-    readonly eventType: string;
-    readonly capability: CapabilityId;
-    readonly requiresAuthority: AuthorityResource;
-  }[];
+  readonly ownsEventTypes?: readonly EventOwnershipEntry[];
 }
 
 // ---------------------------------------------------------------- 校验贡献

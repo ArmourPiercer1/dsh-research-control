@@ -16,7 +16,7 @@
 ### PR-1 机制事件名单锚文件 + 异源对账（甲类）
 
 - 分支/PR：`g2/pr-1` → #50（Draft，base `g2/impl`）
-- 关键提交：`b24954b`（锚文件物化，带 `Event-Name-Review:` trailer）、`c8482dc`（既存红灯登记）、`b8b5749`（审查修复）、`5757c05`（同内容在 `g2/bootstrap` 上为 `2565e5b`）（自查反攻口封堵，stacked 于 #51 暂存）
+- 关键提交：`b24954b`（锚文件物化，带 `Event-Name-Review:` trailer）、`c8482dc`（既存红灯登记）、`b8b5749`（审查修复）、`2565e5b`（自查反攻口封堵，stacked 于 #51 暂存）
 - 交付：`contracts/event-registry/EVENT-CONTRACT-LEDGER.json`（13 条目 / 12 批准）、`README.md`、`scripts/events-recon.mjs`（R1–R4 + 批准三要素 + 转发写点）、夹具 S 组翻三方（S1b 分组 / 新增 S1d / S1c 四方对齐）
 - 门禁实测：`--self-test` 21/21 exit 0；`--impl-root experiments/...` exit 0；夹具 52 PASS/0 FAIL；`check:types` 19 条债务身份精确复现；`lint`/`build`/`docs:check` 0/0/OK；`pnpm test` 1 red（既存，见 `G2-KNOWN-REDS.md` R-1）
 - 独立审查：第 1 轮 **不通过**（4 P1 + 6 P2）→ 全部修复并做成常驻架空形（现 22 条）→ 第 2 轮 **仍不通过**（3 P1 + 6 P2）→ 本轮修掉 3 个 P1 与 4 个 P2（见下），**余 2 个 P2 未修，已登记在案**
